@@ -20,16 +20,16 @@ import java.util.List;
 
 /** Represents a byte range from a GCS object. */
 @AutoValue
-abstract class GcsObjectCombinedRange {
+public abstract class GcsObjectCombinedRange {
 
   // The individual ranges that make up the combined range.
-  abstract List<GcsObjectRange> getUnderlyingRanges();
+  public abstract List<GcsObjectRange> getUnderlyingRanges();
 
   // The starting offset of the combined range.
-  abstract long getOffset();
+  public abstract long getOffset();
 
   // The length of the combined range.
-  abstract int getLength();
+  public abstract int getLength();
 
   public static Builder builder() {
     return new AutoValue_GcsObjectCombinedRange.Builder();

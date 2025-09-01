@@ -28,31 +28,31 @@ import java.util.Map;
 @AutoValue
 public abstract class GcsFileInfo {
 
-  abstract GcsItemInfo getItemInfo();
+  public abstract GcsItemInfo getItemInfo();
 
   /** Gets the path of this file or directory. */
-  abstract URI getUri();
+  public abstract URI getUri();
 
   /**
    * Retrieve file attributes for this file.
    *
    * @return A map of file attributes
    */
-  abstract Map<String, byte[]> getAttributes();
+  public abstract Map<String, byte[]> getAttributes();
 
-  static Builder builder() {
+  public static Builder builder() {
     return new AutoValue_GcsFileInfo.Builder();
   }
 
   /** Builder for {@link GcsFileInfo}. */
   @AutoValue.Builder
-  abstract static class Builder {
-    abstract Builder setItemInfo(GcsItemInfo itemInfo);
+  public abstract static class Builder {
+    public abstract Builder setItemInfo(GcsItemInfo itemInfo);
 
-    abstract Builder setUri(URI uri);
+    public abstract Builder setUri(URI uri);
 
-    abstract Builder setAttributes(Map<String, byte[]> attributes);
+    public abstract Builder setAttributes(Map<String, byte[]> attributes);
 
-    abstract GcsFileInfo build();
+    public abstract GcsFileInfo build();
   }
 }

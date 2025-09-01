@@ -21,7 +21,7 @@ import java.nio.channels.SeekableByteChannel;
 import java.util.List;
 import java.util.function.IntFunction;
 
-interface VectoredSeekableByteChannel extends SeekableByteChannel {
+public interface VectoredSeekableByteChannel extends SeekableByteChannel {
   /**
    * Reads the list of provided ranges in parallel.
    *

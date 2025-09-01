@@ -22,30 +22,30 @@ import java.util.Optional;
 @AutoValue
 public abstract class GcsClientOptions {
 
-  abstract Optional<String> getProjectId();
+  public abstract Optional<String> getProjectId();
 
-  abstract Optional<String> getClientLibToken();
+  public abstract Optional<String> getClientLibToken();
 
-  abstract Optional<String> getServiceHost();
+  public abstract Optional<String> getServiceHost();
 
-  abstract Optional<String> getUserAgent();
+  public abstract Optional<String> getUserAgent();
 
-  static Builder builder() {
+  public static Builder builder() {
     return new AutoValue_GcsClientOptions.Builder();
   }
 
   /** Builder for {@link GcsClientOptions}. */
   @AutoValue.Builder
-  abstract static class Builder {
+  public abstract static class Builder {
 
-    abstract Builder setProjectId(String projectId);
+    public abstract Builder setProjectId(String projectId);
 
-    abstract Builder setClientLibToken(String clientLibToken);
+    public abstract Builder setClientLibToken(String clientLibToken);
 
-    abstract Builder setServiceHost(String serviceHost);
+    public abstract Builder setServiceHost(String serviceHost);
 
-    abstract Builder setUserAgent(String userAgent);
+    public abstract Builder setUserAgent(String userAgent);
 
-    abstract GcsClientOptions build();
+    public abstract GcsClientOptions build();
   }
 }

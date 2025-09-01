@@ -20,25 +20,25 @@ import java.util.Optional;
 
 /** Represents an item identifier for a resource within Google Cloud Storage. */
 @AutoValue
-abstract class GcsItemId {
+public abstract class GcsItemId {
 
   // Name of the bucket.
-  abstract String getBucketName();
+  public abstract String getBucketName();
 
   // Name of the object in the bucket.
-  abstract Optional<String> getObjectName();
+  public abstract Optional<String> getObjectName();
 
-  static Builder builder() {
+  public static Builder builder() {
     return new AutoValue_GcsItemId.Builder();
   }
 
   @AutoValue.Builder
-  abstract static class Builder {
-    abstract Builder setBucketName(String bucketName);
+  public abstract static class Builder {
+    public abstract Builder setBucketName(String bucketName);
 
-    abstract Builder setObjectName(String objectName);
+    public abstract Builder setObjectName(String objectName);
 
-    abstract GcsItemId build();
+    public abstract GcsItemId build();
   }
 
   public boolean isGcsObject() {

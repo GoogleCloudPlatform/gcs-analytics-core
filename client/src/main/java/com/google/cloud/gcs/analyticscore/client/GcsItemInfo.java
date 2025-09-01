@@ -19,31 +19,31 @@ import com.google.auto.value.AutoValue;
 
 /** Represents metadata of a GCS Item. */
 @AutoValue
-abstract class GcsItemInfo {
+public abstract class GcsItemInfo {
 
-  abstract GcsItemId getItemId();
+  public abstract GcsItemId getItemId();
 
   /** Size of an object in bytes. Returns -1 for items that do not exist. */
-  abstract long getSize();
+  public abstract long getSize();
 
   /** Generation ID of the object when the metadata is read. */
-  abstract long getContentGeneration();
+  public abstract long getContentGeneration();
 
-  static Builder builder() {
+  public static Builder builder() {
     // By default, set size to -1, indicating a non-existent item.
     return new AutoValue_GcsItemInfo.Builder().setSize(-1L);
   }
 
   /** Builder for {@link GcsItemInfo}. */
   @AutoValue.Builder
-  abstract static class Builder {
+  public abstract static class Builder {
 
-    abstract Builder setItemId(GcsItemId itemId);
+    public abstract Builder setItemId(GcsItemId itemId);
 
-    abstract Builder setSize(long size);
+    public abstract Builder setSize(long size);
 
-    abstract Builder setContentGeneration(long contentGeneration);
+    public abstract Builder setContentGeneration(long contentGeneration);
 
-    abstract GcsItemInfo build();
+    public abstract GcsItemInfo build();
   }
 }

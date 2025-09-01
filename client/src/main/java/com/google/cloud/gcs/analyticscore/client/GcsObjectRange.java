@@ -24,13 +24,13 @@ import java.util.concurrent.CompletableFuture;
 public abstract class GcsObjectRange {
 
   // The future that will be completed with the contents of the byte range.
-  abstract CompletableFuture<ByteBuffer> getByteBuffer();
+  public abstract CompletableFuture<ByteBuffer> getByteBuffer();
 
   // The starting offset of the byte range.
-  abstract long getOffset();
+  public abstract long getOffset();
 
   // The length of the byte range.
-  abstract int getLength();
+  public abstract int getLength();
 
   public static Builder builder() {
     return new AutoValue_GcsObjectRange.Builder();
