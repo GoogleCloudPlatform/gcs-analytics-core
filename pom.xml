@@ -47,7 +47,7 @@ limitations under the License.
         <truth.version>1.4.2</truth.version>
         <junit.jupiter.version>5.8.2</junit.jupiter.version>
         <cloud.libraries.bom.version>26.65.0</cloud.libraries.bom.version>
-        <apache.commons.version>3.12.0</apache.commons.version>
+        <apache.commons.version>3.18.0</apache.commons.version>
     </properties>
 
     <profiles>
