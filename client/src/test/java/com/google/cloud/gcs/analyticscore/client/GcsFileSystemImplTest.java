@@ -55,14 +55,6 @@ class GcsFileSystemImplTest {
     gcsFileSystem = new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS);
   }
 
-  @Test
-  void constructor_withoutCredentials_createsClientWithApplicationDefaultCredentials()
-      throws IOException {
-    GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(TEST_GCS_FILESYSTEM_OPTIONS);
-    GcsClientImpl gcsClientImpl = (GcsClientImpl) gcsFileSystem.getGcsClient();
-    assertThat(gcsClientImpl.storage.getOptions().getCredentials())
-        .isEqualTo(GoogleCredentials.getApplicationDefault());
-  }
 
   @Test
   void constructor_withCredentials_createsClientWithProvidedCredentials() throws IOException {

@@ -1,4 +1,8 @@
 # GCS Analytics Core
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/GoogleCloudPlatform/gcs-analytics-core/badge)](https://scorecard.dev/viewer/?uri=github.com/GoogleCloudPlatform/gcs-analytics-core)
+[![codecov](https://codecov.io/gh/GoogleCloudPlatform/gcs-analytics-core/branch/master/graph/badge.svg)](https://codecov.io/GoogleCloudPlatform/gcs-analytics-core)
+
+https://codecov.io/gh/GoogleCloudPlatform/gcs-analytics-core/branch/master/graph/badge.svg
 
 The GCS Analytics Core is a Java library designed to optimize and accelerate analytics workloads on Google Cloud Storage (GCS). It provides a common set of functionalities that can be shared across various data processing frameworks like Apache Spark, Trino, and others that use the Hadoop-compatible file system (GCS-Connector) or interact with Apache Iceberg tables through its GCSFileIO implementation.
 
