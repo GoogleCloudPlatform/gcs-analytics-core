@@ -60,7 +60,7 @@ jobs:
           distribution: 'zulu'
           java-version: 11
           cache: maven
-        run: ./mvnw clean package
+      - run: ./mvnw clean package
         
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@2d92b76c45b91eb80fc44c74ce3fce0ee94e8f9d # v3.30.0
