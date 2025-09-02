@@ -16,10 +16,14 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import java.util.Map;
 
 /** Configuration options for Gcs vectored read. */
 @AutoValue
 public abstract class GcsVectoredReadOptions {
+
+  private static final String MAX_MERGE_GAP_KEY = "vectored.read.min.range.seek.size";
+  private static final String MAX_MERGE_SIZE_KEY = "vectored.read.merged.range.max.size";
 
   // The shortest distance allowed between chunks for them to be merged
   abstract int getMaxMergeGap();
@@ -31,6 +35,21 @@ public abstract class GcsVectoredReadOptions {
     return new AutoValue_GcsVectoredReadOptions.Builder()
         .setMaxMergeGap(4 * 1024) // 4 KB
         .setMaxMergeSize(8 * 1024 * 1024); // 8 MB
+  }
+
+  public static GcsVectoredReadOptions createFromOptions(
+      Map<String, String> analyticsCoreOptions, String appendPrefix) {
+    Builder optionsBuilder = builder();
+    if (analyticsCoreOptions.containsKey(appendPrefix + MAX_MERGE_GAP_KEY)) {
+      optionsBuilder.setMaxMergeGap(
+          Integer.parseInt(analyticsCoreOptions.get(appendPrefix + MAX_MERGE_GAP_KEY)));
+    }
+    if (analyticsCoreOptions.containsKey(appendPrefix + MAX_MERGE_SIZE_KEY)) {
+      optionsBuilder.setMaxMergeSize(
+          Integer.parseInt(analyticsCoreOptions.get(appendPrefix + MAX_MERGE_SIZE_KEY)));
+    }
+
+    return optionsBuilder.build();
   }
 
   /** Builder for {@link GcsVectoredReadOptions}. */

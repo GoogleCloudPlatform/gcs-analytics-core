@@ -16,10 +16,14 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import java.util.Map;
 
 /** Configuration options for the GCS File System. */
 @AutoValue
 public abstract class GcsFileSystemOptions {
+
+  private static final String READ_THREAD_COUNT_KEY = "read-thread-count";
+  private static final String CLIENT_TYPE_KEY = "client.type";
 
   /** Cloud Storage client to use. */
   public enum ClientType {
@@ -36,7 +40,25 @@ public abstract class GcsFileSystemOptions {
   public static Builder builder() {
     return new AutoValue_GcsFileSystemOptions.Builder()
         .setReadThreadCount(16)
-        .setClientType(ClientType.HTTP_CLIENT);
+        .setClientType(ClientType.HTTP_CLIENT)
+        .setGcsClientOptions(GcsClientOptions.builder().build());
+  }
+
+  public static GcsFileSystemOptions createFromOptions(
+      Map<String, String> analyticsCoreOptions, String appendPrefix) {
+    GcsFileSystemOptions.Builder optionsBuilder = GcsFileSystemOptions.builder();
+    if (analyticsCoreOptions.containsKey(appendPrefix + READ_THREAD_COUNT_KEY)) {
+      optionsBuilder.setReadThreadCount(
+          Integer.parseInt(analyticsCoreOptions.get(appendPrefix + READ_THREAD_COUNT_KEY)));
+    }
+    if (analyticsCoreOptions.containsKey(appendPrefix + CLIENT_TYPE_KEY)) {
+      optionsBuilder.setClientType(
+          ClientType.valueOf(analyticsCoreOptions.get(appendPrefix + CLIENT_TYPE_KEY)));
+    }
+    optionsBuilder.setGcsClientOptions(
+        GcsClientOptions.createFromOptions(analyticsCoreOptions, appendPrefix));
+
+    return optionsBuilder.build();
   }
 
   /** Builder for {@link GcsFileSystemOptions}. */

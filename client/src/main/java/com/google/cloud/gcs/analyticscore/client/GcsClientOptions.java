@@ -16,11 +16,17 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import java.util.Map;
 import java.util.Optional;
 
 /** Configuration options for the GCS client. */
 @AutoValue
 public abstract class GcsClientOptions {
+
+  private static final String PROJECT_ID_KEY = "project-id";
+  private static final String CLIENT_LIB_TOKEN_KEY = "client-lib-token";
+  private static final String SERVICE_HOST_KEY = "service.host";
+  private static final String USER_AGENT_KEY = "user-agent.key";
 
   public abstract Optional<String> getProjectId();
 
@@ -32,6 +38,26 @@ public abstract class GcsClientOptions {
 
   public static Builder builder() {
     return new AutoValue_GcsClientOptions.Builder();
+  }
+
+  public static GcsClientOptions createFromOptions(
+      Map<String, String> analyticsCoreOptions, String appendPrefix) {
+    GcsClientOptions.Builder optionsBuilder = builder();
+    if (analyticsCoreOptions.containsKey(appendPrefix + PROJECT_ID_KEY)) {
+      optionsBuilder.setProjectId(analyticsCoreOptions.get(appendPrefix + PROJECT_ID_KEY));
+    }
+    if (analyticsCoreOptions.containsKey(appendPrefix + CLIENT_LIB_TOKEN_KEY)) {
+      optionsBuilder.setClientLibToken(
+          analyticsCoreOptions.get(appendPrefix + CLIENT_LIB_TOKEN_KEY));
+    }
+    if (analyticsCoreOptions.containsKey(appendPrefix + SERVICE_HOST_KEY)) {
+      optionsBuilder.setServiceHost(analyticsCoreOptions.get(appendPrefix + SERVICE_HOST_KEY));
+    }
+    if (analyticsCoreOptions.containsKey(appendPrefix + USER_AGENT_KEY)) {
+      optionsBuilder.setUserAgent(analyticsCoreOptions.get(appendPrefix + USER_AGENT_KEY));
+    }
+
+    return optionsBuilder.build();
   }
 
   /** Builder for {@link GcsClientOptions}. */

@@ -113,8 +113,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       throws IOException {
     ExecutorService executorService = executorServiceSupplier.get();
     checkNotNull(executorService, "Thread pool must not be null");
-    GcsVectoredReadOptions vectoredReadOptions =
-        readOptions.getGcsVectoredReadOptions().orElse(GcsVectoredReadOptions.builder().build());
+    GcsVectoredReadOptions vectoredReadOptions = readOptions.getGcsVectoredReadOptions();
     ImmutableList<GcsObjectCombinedRange> combinedRanges =
         VectoredIoUtil.mergeGcsObjectRanges(
             ImmutableList.copyOf(ranges),
