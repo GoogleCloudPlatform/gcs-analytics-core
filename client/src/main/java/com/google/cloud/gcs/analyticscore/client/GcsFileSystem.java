@@ -24,13 +24,14 @@ public interface GcsFileSystem {
   /**
    * Opens an object for reading.
    *
-   * @param path Object full path of the form gs://bucket/object-path.
+   * @param gcsFileInfo Contains information about a GCS file.
    * @param options Fine-grained read options for behaviors of retries, decryption, etc.
    * @return A channel for reading from the given object.
    * @throws FileNotFoundException if the given path does not exist.
    * @throws IOException if object exists but cannot be opened.
    */
-  VectoredSeekableByteChannel open(URI path, GcsReadOptions options) throws IOException;
+  VectoredSeekableByteChannel open(GcsFileInfo gcsFileInfo, GcsReadOptions options)
+      throws IOException;
 
   /**
    * Gets Metadata about the given path item.

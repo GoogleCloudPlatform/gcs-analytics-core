@@ -20,11 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-import com.google.cloud.gcs.analyticscore.client.GcsClientOptions;
-import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
-import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
-import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
-import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
+import com.google.cloud.gcs.analyticscore.client.*;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
@@ -41,6 +37,7 @@ class GoogleCloudStorageInputStreamTest {
   @Mock private GcsFileSystem mockFileSystem;
   @Mock private GcsFileSystemOptions mockFileSystemOptions;
   @Mock private GcsClientOptions mockClientOptions;
+  @Mock private GcsFileInfo mockGcsFileInfo;
   private GoogleCloudStorageInputStream googleCloudStorageInputStream;
 
   @BeforeEach
@@ -50,25 +47,39 @@ class GoogleCloudStorageInputStreamTest {
     when(mockFileSystem.getFileSystemOptions()).thenReturn(mockFileSystemOptions);
     when(mockFileSystemOptions.getGcsClientOptions()).thenReturn(mockClientOptions);
     when(mockClientOptions.getGcsReadOptions()).thenReturn(readOptions);
-    when(mockFileSystem.open(testUri, readOptions)).thenReturn(mockChannel);
+    when(mockFileSystem.getFileInfo(testUri)).thenReturn(mockGcsFileInfo);
+    when(mockGcsFileInfo.getUri()).thenReturn(testUri);
+    when(mockFileSystem.open(mockGcsFileInfo, readOptions)).thenReturn(mockChannel);
     googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(mockFileSystem, testUri);
   }
 
   @Test
-  void create_usesFileSystemOptions_openChannelAndCallsConstructor() throws IOException {
+  void create_usesFileSystemOptions_callsGetFileInfoAndOpen() throws IOException {
     GcsReadOptions readOptions = GcsReadOptions.builder().build();
 
-    verify(mockFileSystem).open(testUri, readOptions);
+    verify(mockFileSystem).getFileInfo(testUri);
+    verify(mockFileSystem).open(mockGcsFileInfo, readOptions);
     assertThat(googleCloudStorageInputStream.getPos()).isEqualTo(0);
   }
 
   @Test
-  void create_nullFileSystem_throwsIllegalStateException() throws IOException {
+  void create_nullFileSystem_throwsIllegalStateException() {
     var exception =
         assertThrows(
             IllegalStateException.class, () -> GoogleCloudStorageInputStream.create(null, testUri));
 
     assertThat(exception).hasMessageThat().isEqualTo("GcsFileSystem shouldn't be null");
+  }
+
+  @Test
+  void create_whenGetFileInfoFails_propagatesException() throws IOException {
+    IOException simulatedException = new IOException("Object does not exist");
+    when(mockFileSystem.getFileInfo(testUri)).thenThrow(simulatedException);
+
+    IOException thrown =
+        assertThrows(
+            IOException.class, () -> GoogleCloudStorageInputStream.create(mockFileSystem, testUri));
+    assertThat(thrown).isSameInstanceAs(simulatedException);
   }
 
   @Test
@@ -243,7 +254,7 @@ class GoogleCloudStorageInputStreamTest {
     when(mockFileSystem.getFileSystemOptions()).thenReturn(mockFileSystemOptions);
     when(mockFileSystemOptions.getGcsClientOptions()).thenReturn(mockClientOptions);
     when(mockClientOptions.getGcsReadOptions()).thenReturn(readOptions);
-    when(mockFileSystem.open(testUri, readOptions)).thenReturn(null);
+    when(mockFileSystem.open(mockGcsFileInfo, readOptions)).thenReturn(null);
 
     GoogleCloudStorageInputStream googleCloudStorageInputStream =
         GoogleCloudStorageInputStream.create(mockFileSystem, testUri);
