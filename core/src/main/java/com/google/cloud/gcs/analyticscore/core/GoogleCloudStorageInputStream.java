@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.core;
 import static com.google.common.base.Preconditions.*;
 
 import com.google.cloud.gcs.analyticscore.client.*;
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
@@ -34,6 +35,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   // Used for single-byte reads to avoid repeated allocation.
   private final ByteBuffer singleByteBuffer = ByteBuffer.wrap(new byte[1]);
 
+  private final GcsFileSystem gcsFileSystem;
   private final VectoredSeekableByteChannel channel;
   private long position;
   private final URI gcsPath;
@@ -46,11 +48,13 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
     VectoredSeekableByteChannel channel =
         gcsFileSystem.open(
             path, gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions());
-    return new GoogleCloudStorageInputStream(channel, path);
+    return new GoogleCloudStorageInputStream(gcsFileSystem, channel, path);
   }
 
-  private GoogleCloudStorageInputStream(VectoredSeekableByteChannel channel, URI path)
+  private GoogleCloudStorageInputStream(
+      GcsFileSystem gcsFileSystem, VectoredSeekableByteChannel channel, URI path)
       throws IOException {
+    this.gcsFileSystem = gcsFileSystem;
     this.channel = channel;
     this.position = 0;
     this.gcsPath = path;
@@ -118,12 +122,33 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   @Override
   public void readFully(long position, byte[] buffer, int offset, int length) throws IOException {
-    throw new UnsupportedOperationException("readFully is not implemented");
+    try (VectoredSeekableByteChannel byteChannel =
+        gcsFileSystem.open(
+            gcsPath,
+            gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions())) {
+      byteChannel.position(position);
+      int numberOfBytesRead = byteChannel.read(ByteBuffer.wrap(buffer, offset, length));
+      if (numberOfBytesRead < length) {
+        throw new EOFException(
+            "Reached the end of stream with "
+                + (length - numberOfBytesRead)
+                + " bytes left to read");
+      }
+    }
   }
 
   @Override
-  public int readTail(byte[] buffer, int offset, int n) throws IOException {
-    throw new UnsupportedOperationException("readTail is not implemented");
+  public int readTail(byte[] buffer, int offset, int length) throws IOException {
+    try (VectoredSeekableByteChannel byteChannel =
+        gcsFileSystem.open(
+            gcsPath,
+            gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions())) {
+      GcsFileInfo gcsFileInfo = gcsFileSystem.getFileInfo(gcsPath);
+      long size = gcsFileInfo.getItemInfo().getSize();
+      long startPosition = Math.max(0, size - offset);
+      byteChannel.position(startPosition);
+      return byteChannel.read(ByteBuffer.wrap(buffer, offset, length));
+    }
   }
 
   @Override

@@ -20,11 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-import com.google.cloud.gcs.analyticscore.client.GcsClientOptions;
-import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
-import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
-import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
-import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
+import com.google.cloud.gcs.analyticscore.client.*;
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
@@ -253,17 +250,123 @@ class GoogleCloudStorageInputStreamTest {
   }
 
   @Test
-  void readFully_throwsUnsupported() {
-    assertThrows(
-        UnsupportedOperationException.class,
-        () -> googleCloudStorageInputStream.readFully(0, new byte[1], 0, 1));
+  void readFully_validArgs_readsDataFromNewChannel() throws IOException {
+    byte[] data = "test-data".getBytes();
+    byte[] buffer = new byte[data.length];
+    long readPosition = 100L;
+    GcsReadOptions readOptions = mockClientOptions.getGcsReadOptions();
+    VectoredSeekableByteChannel newMockChannel = mock(VectoredSeekableByteChannel.class);
+    when(mockFileSystem.open(testUri, readOptions)).thenReturn(newMockChannel);
+    when(newMockChannel.read(any(ByteBuffer.class)))
+        .thenAnswer(
+            inv -> {
+              inv.<ByteBuffer>getArgument(0).put(data);
+              return data.length;
+            });
+    long initialStreamPosition = googleCloudStorageInputStream.getPos();
+
+    googleCloudStorageInputStream.readFully(readPosition, buffer, 0, buffer.length);
+
+    assertThat(buffer).isEqualTo(data);
+    verify(newMockChannel).position(readPosition);
+    verify(newMockChannel).read(any(ByteBuffer.class));
+    verify(newMockChannel).close();
+    assertThat(googleCloudStorageInputStream.getPos()).isEqualTo(initialStreamPosition);
   }
 
   @Test
-  void readTail_throwsUnsupported() {
+  void readFully_whenReadIsShort_throwsEofException() throws IOException {
+    byte[] buffer = new byte[20];
+    long readPosition = 100L;
+    int bytesToRead = buffer.length;
+    int actualBytesRead = 10;
+    GcsReadOptions readOptions = mockClientOptions.getGcsReadOptions();
+    VectoredSeekableByteChannel newMockChannel = mock(VectoredSeekableByteChannel.class);
+    when(mockFileSystem.open(testUri, readOptions)).thenReturn(newMockChannel);
+    when(newMockChannel.read(any(ByteBuffer.class))).thenReturn(actualBytesRead);
+
+    var exception =
+        assertThrows(
+            EOFException.class,
+            () -> googleCloudStorageInputStream.readFully(readPosition, buffer, 0, bytesToRead));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "Reached the end of stream with "
+                + (bytesToRead - actualBytesRead)
+                + " bytes left to read");
+    verify(newMockChannel).close();
+  }
+
+  @Test
+  void readFully_withInvalidBufferArgs_throwsIndexOutOfBoundsException() {
+    byte[] buffer = new byte[10];
+
     assertThrows(
-        UnsupportedOperationException.class,
-        () -> googleCloudStorageInputStream.readTail(new byte[1], 0, 1));
+        IndexOutOfBoundsException.class,
+        () -> googleCloudStorageInputStream.readFully(0, buffer, -1, buffer.length));
+    assertThrows(
+        IndexOutOfBoundsException.class,
+        () -> googleCloudStorageInputStream.readFully(0, buffer, 0, -1));
+    assertThrows(
+        IndexOutOfBoundsException.class,
+        () -> googleCloudStorageInputStream.readFully(0, buffer, 1, buffer.length));
+  }
+
+  @Test
+  void readTail_validArgs_readsDataFromNewChannel() throws IOException {
+    byte[] data = "test-data".getBytes();
+    int length = data.length;
+    byte[] buffer = new byte[20]; // larger buffer
+    byte[] readData = new byte[length];
+    int offset = 5;
+    long fileSize = 1024L;
+    long expectedPosition = fileSize - offset;
+    GcsReadOptions readOptions = mockClientOptions.getGcsReadOptions();
+    VectoredSeekableByteChannel newMockChannel = mock(VectoredSeekableByteChannel.class);
+    GcsFileInfo mockFileInfo = mock(GcsFileInfo.class);
+    GcsItemInfo mockItemInfo = mock(GcsItemInfo.class);
+    when(mockFileSystem.open(testUri, readOptions)).thenReturn(newMockChannel);
+    when(mockFileSystem.getFileInfo(testUri)).thenReturn(mockFileInfo);
+    when(mockFileInfo.getItemInfo()).thenReturn(mockItemInfo);
+    when(mockItemInfo.getSize()).thenReturn(fileSize);
+    when(newMockChannel.read(any(ByteBuffer.class)))
+        .thenAnswer(
+            inv -> {
+              inv.<ByteBuffer>getArgument(0).put(data);
+              return data.length;
+            });
+    long initialStreamPosition = googleCloudStorageInputStream.getPos();
+
+    int bytesRead = googleCloudStorageInputStream.readTail(buffer, offset, length);
+    System.arraycopy(buffer, offset, readData, 0, length);
+
+    assertThat(bytesRead).isEqualTo(data.length);
+    assertThat(readData).isEqualTo(data);
+    verify(newMockChannel).position(expectedPosition);
+    verify(newMockChannel).read(any(ByteBuffer.class));
+    verify(newMockChannel).close();
+    // readTail should not affect the stream's position
+    assertThat(googleCloudStorageInputStream.getPos()).isEqualTo(initialStreamPosition);
+  }
+
+  @Test
+  void readTail_zeroLength_returnsZero() throws IOException {
+    byte[] buffer = new byte[20];
+    GcsReadOptions readOptions = mockClientOptions.getGcsReadOptions();
+    VectoredSeekableByteChannel newMockChannel = mock(VectoredSeekableByteChannel.class);
+    GcsFileInfo mockFileInfo = mock(GcsFileInfo.class);
+    GcsItemInfo mockItemInfo = mock(GcsItemInfo.class);
+
+    when(mockFileSystem.open(testUri, readOptions)).thenReturn(newMockChannel);
+    when(mockFileSystem.getFileInfo(testUri)).thenReturn(mockFileInfo);
+    when(mockFileInfo.getItemInfo()).thenReturn(mockItemInfo);
+    when(mockItemInfo.getSize()).thenReturn(1024L);
+
+    int bytesRead = googleCloudStorageInputStream.readTail(buffer, 0, 0);
+
+    assertThat(bytesRead).isEqualTo(0);
   }
 
   @Test
