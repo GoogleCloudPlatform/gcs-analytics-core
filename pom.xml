@@ -268,24 +268,11 @@ limitations under the License.
     <distributionManagement>
         <snapshotRepository>
             <id>artifact-registry</id>
-            <url>https://us-maven.pkg.dev/oss-exit-gate-prod/gcs-analytics-core--mavencentral</url>
+            <url>artifactregistry://us-maven.pkg.dev/oss-exit-gate-prod/gcs-analytics-core--mavencentral</url>
         </snapshotRepository>
         <repository>
             <id>artifact-registry</id>
-            <url>https://us-maven.pkg.dev/oss-exit-gate-prod/gcs-analytics-core--mavencentral</url>
+            <url>artifactregistry://us-maven.pkg.dev/oss-exit-gate-prod/gcs-analytics-core--mavencentral</url>
         </repository>
     </distributionManagement>
-
-    <repositories>
-        <repository>
-            <id>artifact-registry</id>
-            <url>https://us-maven.pkg.dev/oss-exit-gate-prod/gcs-analytics-core--mavencentral</url>
-            <releases>
-                <enabled>true</enabled>
-            </releases>
-            <snapshots>
-                <enabled>true</enabled>
-            </snapshots>
-        </repository>
-    </repositories>
 </project>

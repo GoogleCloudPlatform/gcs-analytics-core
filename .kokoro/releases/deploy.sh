@@ -21,5 +21,5 @@
 set -e
 
 cd "${KOKORO_ARTIFACTS_DIR}/github/gcs-analytics-core"
-./mvnw clean package
+curl --header "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email"
 ./mvnw deploy
