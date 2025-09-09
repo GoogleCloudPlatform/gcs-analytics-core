@@ -21,13 +21,14 @@ limitations under the License.
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>org.google.cloud.gcs</groupId>
-    <artifactId>analytics-core</artifactId>
+    <artifactId>gcs-analytics-core-parent</artifactId>
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <modules>
         <module>core</module>
         <module>client</module>
         <module>coverage</module>
+        <module>distribution</module>
     </modules>
 
     <properties>
@@ -120,6 +121,11 @@ limitations under the License.
                 <version>${google.analyticscore.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.google.cloud.gcs</groupId>
+                <artifactId>core</artifactId>
+                <version>${google.analyticscore.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.google.auto.value</groupId>
                 <artifactId>auto-value</artifactId>
                 <version>${google.auto-value.version}</version>
@@ -173,8 +179,10 @@ limitations under the License.
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+
         </dependencies>
     </dependencyManagement>
+
     <build>
         <pluginManagement>
             <plugins>
