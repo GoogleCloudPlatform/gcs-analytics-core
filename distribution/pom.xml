@@ -32,25 +32,120 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <version>3.7.1</version>
-                <configuration>
-                    <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                    </descriptorRefs>
-                    <archive>
-                        <manifest>
-                            <mainClass></mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.0</version>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>shade</goal>
                         </goals>
+                        <configuration>
+                            <finalName>${project.artifactId}-${project.version}-shaded</finalName>
+                            <artifactSet>
+                                <excludes>
+                                    <exclude>org.google.cloud.gcs:client</exclude>
+                                    <exclude>org.google.cloud.gcs:core</exclude>
+                                </excludes>
+                            </artifactSet>
+                            <relocations>
+                                <relocation>
+                                    <pattern>com.google.auto.value</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.com.google.auto.value</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.google.common</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.com.google.common</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.apache.commons.lang3</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.org.apache.commons.lang3</shadedPattern>
+                                </relocation>
+                                <!-- Relocating packages from google-cloud-storage and its transitive dependencies -->
+                                <relocation>
+                                    <pattern>com.google.api</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.com.google.api</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.google.auth</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.com.google.auth</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.google.cloud</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.com.google.cloud</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.google.gson</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.com.google.gson</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.google.iam</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.com.google.iam</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.google.longrunning</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.com.google.longrunning</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.google.protobuf</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.com.google.protobuf</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.google.rpc</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.com.google.rpc</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.google.type</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.com.google.type</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>io.grpc</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.io.grpc</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>io.opencensus</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.io.opencensus</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>google.api</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.google.api</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>google.cloud</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.google.cloud</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>google.iam</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.google.iam</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>google.longrunning</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.google.longrunning</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>google.protobuf</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.google.protobuf</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>google.rpc</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.google.rpc</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>google.type</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.shaded.google.type</shadedPattern>
+                                </relocation>
+                            </relocations>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
