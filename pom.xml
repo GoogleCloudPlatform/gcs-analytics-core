@@ -340,6 +340,12 @@ limitations under the License.
                 <version>2.2.5</version>
             </extension>
         </extensions>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+            </plugin>
+        </plugins>
     </build>
 
     <distributionManagement>
