@@ -30,7 +30,7 @@ To build the library:
 
 To verify the test coverage, run the following commands from main directory:
 ```shell
-./mvnw -P coverage clean verify
+./mvnw -P coverage clean verify -Dmaven.javadoc.skip=true -Dsource.skip=true  -Dgpg.skip=tru 
 ```
 The coverage report can be found in `coverage/target/site/jacoco-aggregate`.
 
