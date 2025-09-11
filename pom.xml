@@ -31,6 +31,33 @@ limitations under the License.
         <module>distribution</module>
     </modules>
 
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <organization>Google LLC</organization>
+            <organizationUrl>https://www.google.com</organizationUrl>
+        </developer>
+    </developers>
+    <scm>
+        <connection>scm:git:git@github.com:GoogleCloudPlatform/gcs-analytics-core.git</connection>
+        <developerConnection>
+            scm:git:git@github.com:GoogleCloudPlatform/gcs-analytics-core.git
+        </developerConnection>
+        <url>git@github.com:GoogleCloudPlatform/gcs-analytics-core.git</url>
+    </scm>
+
+    <issueManagement>
+        <system>GitHub Issues</system>
+        <url>https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues</url>
+    </issueManagement>
+
     <properties>
         <argLine/>
         <google.analyticscore.version>1.0-SNAPSHOT</google.analyticscore.version>
@@ -258,7 +285,22 @@ limitations under the License.
                             <goals>
                                 <goal>prepare-agent</goal>
                             </goals>
+
                         </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-gpg-plugin</artifactId>
+                    <version>3.2.8</version>
+                    <executions>
+                      <execution>
+                        <id>sign-artifacts</id>
+                        <phase>deploy</phase>
+                        <goals>
+                          <goal>sign</goal>
+                        </goals>
+                      </execution>
                     </executions>
                 </plugin>
             </plugins>
