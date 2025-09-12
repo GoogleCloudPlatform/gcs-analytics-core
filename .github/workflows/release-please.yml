@@ -18,3 +18,4 @@ jobs:
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           release-type: maven
+          target-branch: release/v1.0.x
