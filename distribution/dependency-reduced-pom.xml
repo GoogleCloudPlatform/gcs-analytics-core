@@ -7,6 +7,7 @@
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <artifactId>gcs-analytics-core</artifactId>
+  <name>gcs-analytics-core</name>
   <build>
     <plugins>
       <plugin>
