@@ -106,11 +106,17 @@ class GcsClientImplTest {
             .setBucketName("test-bucket-name")
             .setObjectName("test-object-name")
             .build();
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(objectData.length())
+            .setContentGeneration(0L)
+            .build();
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     ByteBuffer buffer = ByteBuffer.allocate(objectData.length());
 
-    SeekableByteChannel channel = gcsClient.openReadChannel(itemId, readOptions);
+    SeekableByteChannel channel = gcsClient.openReadChannel(itemInfo, readOptions);
     int bytesRead = channel.read(buffer);
 
     assertThat(channel.size()).isEqualTo(objectData.length());
@@ -119,33 +125,34 @@ class GcsClientImplTest {
   }
 
   @Test
-  void openReadChannel_nonExistentBlob_throwsIOException() {
-    GcsItemId nonExistentItemId =
-        GcsItemId.builder().setBucketName("test-bucket-name").setObjectName("non-existent").build();
+  void openReadChannel_nullItemInfo_throwsNullPointerException() {
     GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project-id").build();
 
-    IOException e =
+    NullPointerException e =
         assertThrows(
-            IOException.class, () -> gcsClient.openReadChannel(nonExistentItemId, readOptions));
+            NullPointerException.class, () -> gcsClient.openReadChannel(null, readOptions));
 
-    assertThat(e).hasMessageThat().contains("Object not found:" + nonExistentItemId);
+    assertThat(e).hasMessageThat().isEqualTo("itemInfo should not be null");
   }
 
   @Test
-  void openReadChannel_itemIdPointsToDirectory_throwsIllegalArgumentException() {
+  void openReadChannel_itemInfoPointsToDirectory_throwsIllegalArgumentException() {
     GcsItemId directoryItemId = GcsItemId.builder().setBucketName("test-bucket-name").build();
+    GcsItemInfo directoryItemInfo =
+        GcsItemInfo.builder().setItemId(directoryItemId).setContentGeneration(-1).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project-id").build();
 
     IllegalArgumentException e =
         assertThrows(
             IllegalArgumentException.class,
-            () -> gcsClient.openReadChannel(directoryItemId, readOptions));
+            () -> gcsClient.openReadChannel(directoryItemInfo, readOptions));
 
     assertThat(e)
         .hasMessageThat()
         .isEqualTo("Expected GCS object to be provided. But got: " + directoryItemId);
   }
 
+  @Test
   void createStore_withCredentials_usesProvidedCredentials() throws IOException {
     GcsClientImpl client =
         new GcsClientImpl(

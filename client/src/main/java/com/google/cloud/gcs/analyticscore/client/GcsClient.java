@@ -19,7 +19,7 @@ import java.io.IOException;
 
 interface GcsClient {
   /** Opens a new read channel. */
-  VectoredSeekableByteChannel openReadChannel(GcsItemId itemId, GcsReadOptions readOptions)
+  VectoredSeekableByteChannel openReadChannel(GcsItemInfo itemInfo, GcsReadOptions readOptions)
       throws IOException;
 
   /** Fetches object metadata. */
