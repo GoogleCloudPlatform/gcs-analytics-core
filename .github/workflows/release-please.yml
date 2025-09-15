@@ -3,7 +3,7 @@ name: release-please
 on:
   push:
     branches:
-      - release/v1.0.x
+      - main
 
 permissions:
   contents: write
@@ -18,4 +18,3 @@ jobs:
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           release-type: maven
-          target-branch: release/v1.0.x
