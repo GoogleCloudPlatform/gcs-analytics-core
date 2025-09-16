@@ -23,16 +23,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
 import com.google.cloud.NoCredentials;
+import com.google.common.base.Supplier;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.MockedConstruction;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -92,6 +98,30 @@ class GcsFileSystemImplTest {
       int bytesRead = channel.read(buffer);
       assertEquals(content.length(), bytesRead);
       assertEquals(content, new String(buffer.array(), StandardCharsets.UTF_8));
+    }
+  }
+
+  @Test
+  void constructor_shouldInitializeAndPassMemorizedExecutorServiceToGcsClient() {
+    final AtomicReference<Supplier<ExecutorService>> capturedSupplier = new AtomicReference<>();
+    try (MockedConstruction<GcsClientImpl> mockGcsClientConstruction =
+        Mockito.mockConstruction(
+            GcsClientImpl.class,
+            (mock, context) -> {
+              @SuppressWarnings("unchecked") // Safe cast due to constructor signature
+              Supplier<ExecutorService> supplier =
+                  (Supplier<ExecutorService>) context.arguments().get(1);
+              capturedSupplier.set(supplier);
+            })) {
+
+      new GcsFileSystemImpl(TEST_GCS_FILESYSTEM_OPTIONS);
+      ExecutorService executorService1 = capturedSupplier.get().get();
+      ExecutorService executorService2 = capturedSupplier.get().get();
+
+      assertThat(mockGcsClientConstruction.constructed()).hasSize(1);
+      assertThat(capturedSupplier.get()).isNotNull();
+      assertThat(capturedSupplier.get().get()).isNotNull();
+      assertThat(executorService1).isEqualTo(executorService2);
     }
   }
 
@@ -171,6 +201,20 @@ class GcsFileSystemImplTest {
         assertThrows(IOException.class, () -> gcsFileSystem.getFileInfo(nonExistentPath));
 
     assertThat(e).hasMessageThat().contains("Object not found:" + nonExistentItemId);
+  }
+
+  @Test
+  void initializeExecutionServiceSupplier_shouldReturnMemoizedExecutorService() {
+    GcsFileSystemImpl fileSystemImpl = (GcsFileSystemImpl) gcsFileSystem;
+
+    Supplier<ExecutorService> executorServiceSupplier =
+        fileSystemImpl.initializeExecutionServiceSupplier();
+
+    assertThat(executorServiceSupplier).isNotNull();
+    assertThat(executorServiceSupplier.get()).isNotNull();
+    assertThat(executorServiceSupplier.get()).isInstanceOf(ThreadPoolExecutor.class);
+    assertThat(((ThreadPoolExecutor) executorServiceSupplier.get()).getCorePoolSize())
+        .isEqualTo(16);
   }
 
   @Test
