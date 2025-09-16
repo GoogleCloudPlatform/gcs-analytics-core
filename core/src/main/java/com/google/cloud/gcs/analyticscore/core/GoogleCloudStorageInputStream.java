@@ -154,6 +154,6 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   @Override
   public void readVectored(List<GcsObjectRange> fileRanges, IntFunction<ByteBuffer> alloc)
       throws IOException {
-    throw new UnsupportedOperationException("readVectored is not implemented");
+     channel.readVectored(fileRanges, alloc);
   }
 }
