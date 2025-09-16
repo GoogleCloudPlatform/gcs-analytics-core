@@ -19,7 +19,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 
-public interface GcsFileSystem {
+public interface GcsFileSystem extends AutoCloseable {
 
   /**
    * Opens an object for reading.
@@ -45,4 +45,8 @@ public interface GcsFileSystem {
 
   /** Retrieve the gcs client used to create this GcsFileSystem. */
   GcsClient getGcsClient();
+
+  /** Close the file system. */
+  @Override
+  void close();
 }

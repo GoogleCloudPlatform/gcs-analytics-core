@@ -35,26 +35,28 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
   private final GcsClient gcsClient;
   private final GcsFileSystemOptions fileSystemOptions;
-  private final Supplier<ExecutorService> executorService;
+  private final Supplier<ExecutorService> executorServiceSupplier;
 
   public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
-    this.executorService = initializeExecutionServiceSupplier();
-    this.gcsClient = new GcsClientImpl(getGcsClientOptions(fileSystemOptions), executorService);
+    this.executorServiceSupplier = initializeExecutionServiceSupplier();
+    this.gcsClient =
+        new GcsClientImpl(getGcsClientOptions(fileSystemOptions), executorServiceSupplier);
   }
 
   public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
-    this.executorService = initializeExecutionServiceSupplier();
+    this.executorServiceSupplier = initializeExecutionServiceSupplier();
     this.gcsClient =
-        new GcsClientImpl(credentials, getGcsClientOptions(fileSystemOptions), executorService);
+        new GcsClientImpl(
+            credentials, getGcsClientOptions(fileSystemOptions), executorServiceSupplier);
   }
 
   @VisibleForTesting
   GcsFileSystemImpl(GcsClient gcsClient, GcsFileSystemOptions fileSystemOptions) {
     this.gcsClient = gcsClient;
     this.fileSystemOptions = fileSystemOptions;
-    this.executorService = initializeExecutionServiceSupplier();
+    this.executorServiceSupplier = initializeExecutionServiceSupplier();
   }
 
   @Override
@@ -85,6 +87,21 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   @Override
   public GcsClient getGcsClient() {
     return this.gcsClient;
+  }
+
+  @Override
+  public void close() {
+    ExecutorService executorService = executorServiceSupplier.get();
+    executorService.shutdown();
+    try {
+      if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {
+        executorService.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      executorService.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
+    gcsClient.close();
   }
 
   private static GcsClientOptions getGcsClientOptions(GcsFileSystemOptions fileSystemOptions) {

@@ -32,10 +32,12 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
@@ -215,6 +217,72 @@ class GcsFileSystemImplTest {
     assertThat(executorServiceSupplier.get()).isInstanceOf(ThreadPoolExecutor.class);
     assertThat(((ThreadPoolExecutor) executorServiceSupplier.get()).getCorePoolSize())
         .isEqualTo(16);
+  }
+
+  @Test
+  void close_whenTerminationSucceeds_shutsDownGracefully() throws InterruptedException {
+    ExecutorService mockExecutorService = mock(ExecutorService.class);
+    when(mockExecutorService.awaitTermination(anyLong(), any(TimeUnit.class))).thenReturn(true);
+    GcsFileSystemImpl fileSystemWithMockExecutor =
+        new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS) {
+          @Override
+          Supplier<ExecutorService> initializeExecutionServiceSupplier() {
+            return () -> mockExecutorService;
+          }
+        };
+
+    fileSystemWithMockExecutor.close();
+    InOrder inOrder = inOrder(mockExecutorService, mockClient);
+
+    inOrder.verify(mockExecutorService).shutdown();
+    inOrder.verify(mockExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
+    inOrder.verify(mockClient).close();
+    verify(mockExecutorService, never()).shutdownNow();
+  }
+
+  @Test
+  void close_whenTerminationTimesOut_shutsDownNow() throws InterruptedException {
+    ExecutorService mockExecutorService = mock(ExecutorService.class);
+    when(mockExecutorService.awaitTermination(anyLong(), any(TimeUnit.class))).thenReturn(false);
+    GcsFileSystemImpl fileSystemWithMockExecutor =
+        new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS) {
+          @Override
+          Supplier<ExecutorService> initializeExecutionServiceSupplier() {
+            return () -> mockExecutorService;
+          }
+        };
+
+    fileSystemWithMockExecutor.close();
+    InOrder inOrder = inOrder(mockExecutorService, mockClient);
+
+    inOrder.verify(mockExecutorService).shutdown();
+    inOrder.verify(mockExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
+    inOrder.verify(mockExecutorService).shutdownNow();
+    inOrder.verify(mockClient).close();
+  }
+
+  @Test
+  void close_whenInterrupted_reInterruptsThreadAndShutsDownNow() throws InterruptedException {
+    ExecutorService mockExecutorService = mock(ExecutorService.class);
+    when(mockExecutorService.awaitTermination(anyLong(), any(TimeUnit.class)))
+        .thenThrow(new InterruptedException());
+    GcsFileSystemImpl fileSystemWithMockExecutor =
+        new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS) {
+          @Override
+          Supplier<ExecutorService> initializeExecutionServiceSupplier() {
+            return () -> mockExecutorService;
+          }
+        };
+
+    fileSystemWithMockExecutor.close();
+    InOrder inOrder = inOrder(mockExecutorService, mockClient);
+
+    inOrder.verify(mockExecutorService).shutdown();
+    inOrder.verify(mockExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
+    inOrder.verify(mockExecutorService).shutdownNow();
+    inOrder.verify(mockClient).close();
+    assertThat(Thread.currentThread().isInterrupted()).isTrue();
+    Thread.interrupted(); // Clear interrupted status to not affect other tests
   }
 
   @Test
