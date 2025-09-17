@@ -20,12 +20,37 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 // TODO: Setup buckets and test data as part of setup on place of relying on existing bucket.
 class GcsFileSystemImplIntegrationTest {
+
+    @Test
+    public void open_publicObject_canReadContent() throws IOException {
+        String gcsObject = "gs://cloud-samples-data/bigquery/us-states/us-states.csv";
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+                .setGcsClientOptions(GcsClientOptions.builder().build())
+                .build();
+        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(gcsObject));
+        GcsReadOptions readOptions = GcsReadOptions.builder().build();
+
+        try (VectoredSeekableByteChannel channel = gcsFileSystem.open(fileInfo, readOptions)) {
+            assertThat(channel.isOpen()).isTrue();
+            assertThat(channel.size()).isGreaterThan(0L);
+
+            ByteBuffer buffer = ByteBuffer.allocate(10);
+            int bytesRead = channel.read(buffer);
+
+            assertThat(bytesRead).isEqualTo(10);
+            // The first line of us-states.csv is "name,post_abbr"
+            assertThat(new String(buffer.array(), StandardCharsets.UTF_8)).isEqualTo("name,post_");
+        }
+    }
 
     @Test
     public void getFileInfo_noCredentialProvided_urlPointsToPublicObject_success() throws IOException {

@@ -16,19 +16,14 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.google.cloud.NoCredentials;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.ByteBuffer;
-import java.nio.channels.SeekableByteChannel;
-import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,78 +53,75 @@ class GcsFileSystemImplTest {
   void constructor_withCredentials_createsClientWithProvidedCredentials() throws IOException {
     GcsFileSystemImpl gcsFileSystem =
         new GcsFileSystemImpl(NoCredentials.getInstance(), TEST_GCS_FILESYSTEM_OPTIONS);
+
     GcsClientImpl gcsClientImpl = (GcsClientImpl) gcsFileSystem.getGcsClient();
+
     assertThat(gcsClientImpl.storage.getOptions().getCredentials())
         .isEqualTo(NoCredentials.getInstance());
   }
 
   @Test
-  void open_withObjectPath_shouldSucceedAndReadContent() throws IOException, URISyntaxException {
-    String content = "hello world";
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
-    URI gcsPath = new URI("gs://" + TEST_BUCKET + "/" + TEST_OBJECT);
+  void constructor_withFileSystemOptions_createsClientWithDefaultCredentials() {
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder().setProjectId("test-project-default").build();
+    GcsFileSystemOptions fileSystemOptions =
+        GcsFileSystemOptions.builder().setGcsClientOptions(clientOptions).build();
+
+    GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(fileSystemOptions);
+
+    assertThat(gcsFileSystem.getFileSystemOptions()).isSameInstanceAs(fileSystemOptions);
+    GcsClientImpl gcsClient = (GcsClientImpl) gcsFileSystem.getGcsClient();
+    assertThat(gcsClient).isNotNull();
+    assertThat(gcsClient.storage.getOptions().getProjectId()).isEqualTo("test-project-default");
+  }
+
+  @Test
+  void open_withObjectFileInfo_callsClientOpen() throws IOException {
+    URI testUri = URI.create("gs://test-bucket/test-object");
+    GcsItemInfo mockItemInfo = mock(GcsItemInfo.class);
+    GcsFileInfo fileInfo =
+        GcsFileInfo.builder()
+            .setUri(testUri)
+            .setItemInfo(mockItemInfo)
+            .setAttributes(Collections.emptyMap())
+            .build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
     VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
+    when(mockClient.openReadChannel(eq(mockItemInfo), eq(readOptions))).thenReturn(mockChannel);
 
-    when(mockClient.openReadChannel(eq(itemId), eq(readOptions))).thenReturn(mockChannel);
-    when(mockChannel.isOpen()).thenReturn(true);
-    when(mockChannel.size()).thenReturn((long) content.length());
-    when(mockChannel.read(any(ByteBuffer.class)))
-        .thenAnswer(
-            invocation -> {
-              ByteBuffer buffer = invocation.getArgument(0);
-              buffer.put(content.getBytes(StandardCharsets.UTF_8));
-              return content.length();
-            });
+    VectoredSeekableByteChannel resultChannel = gcsFileSystem.open(fileInfo, readOptions);
 
-    try (SeekableByteChannel channel = gcsFileSystem.open(gcsPath, readOptions)) {
-      assertNotNull(channel);
-      assertTrue(channel.isOpen());
-      assertEquals(content.length(), channel.size());
-
-      ByteBuffer buffer = ByteBuffer.allocate(content.length());
-      int bytesRead = channel.read(buffer);
-      assertEquals(content.length(), bytesRead);
-      assertEquals(content, new String(buffer.array(), StandardCharsets.UTF_8));
-    }
+    verify(mockClient).openReadChannel(mockItemInfo, readOptions);
+    assertThat(resultChannel).isSameInstanceAs(mockChannel);
   }
 
   @Test
-  void open_withNonExistentObjectPath_shouldThrowException()
-      throws URISyntaxException, IOException {
-    GcsItemId nonExistentItemId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("non-existent-object").build();
-    URI nonExistentPath = new URI("gs://" + TEST_BUCKET + "/non-existent-object");
-    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
-    when(mockClient.openReadChannel(eq(nonExistentItemId), eq(readOptions)))
-        .thenThrow(new IOException("Object not found:" + nonExistentItemId));
-
-    IOException e =
-        assertThrows(IOException.class, () -> gcsFileSystem.open(nonExistentPath, readOptions));
-
-    assertThat(e).hasMessageThat().contains("Object not found:" + nonExistentItemId);
-  }
-
-  @Test
-  void open_withNullPath_throwsException() {
+  void open_withNullFileInfo_throwsNullPointerException() {
     GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
 
     NullPointerException e =
         assertThrows(NullPointerException.class, () -> gcsFileSystem.open(null, readOptions));
 
-    assertThat(e).hasMessageThat().contains("path should not be null");
+    assertThat(e).hasMessageThat().contains("fileInfo should not be null");
   }
 
   @Test
-  void open_withBucketPath_shouldThrowException() throws URISyntaxException {
-    URI bucketPath = new URI("gs://" + TEST_BUCKET);
+  void open_withNonObjectFileInfo_throwsIllegalArgumentException() throws URISyntaxException {
+    URI bucketUri = new URI("gs://" + TEST_BUCKET);
+    GcsItemInfo mockItemInfo = mock(GcsItemInfo.class);
+    GcsFileInfo fileInfo =
+        GcsFileInfo.builder()
+            .setUri(bucketUri)
+            .setItemInfo(mockItemInfo)
+            .setAttributes(Collections.emptyMap())
+            .build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
 
     IllegalArgumentException e =
         assertThrows(
-            IllegalArgumentException.class, () -> gcsFileSystem.open(bucketPath, readOptions));
-    assertTrue(e.getMessage().contains("Expected GCS object to be provided"));
+            IllegalArgumentException.class, () -> gcsFileSystem.open(fileInfo, readOptions));
+
+    assertThat(e).hasMessageThat().startsWith("Expected GCS object to be provided");
   }
 
   @Test

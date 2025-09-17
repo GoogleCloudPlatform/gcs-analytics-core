@@ -38,8 +38,9 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   private Supplier<ExecutorService> executorService;
 
   public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
-    this.gcsClient = new GcsClientImpl(getGcsClientOptions(fileSystemOptions), executorService);
+    initializeExecutorService();
     this.fileSystemOptions = fileSystemOptions;
+    this.gcsClient = new GcsClientImpl(getGcsClientOptions(fileSystemOptions), executorService);
   }
 
   public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions) {
@@ -57,11 +58,12 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   @Override
-  public VectoredSeekableByteChannel open(URI path, GcsReadOptions readOptions) throws IOException {
-    checkNotNull(path, "path should not be null");
-    GcsItemId itemId = UriUtil.getItemIdFromString(path.toString());
+  public VectoredSeekableByteChannel open(GcsFileInfo gcsFileInfo, GcsReadOptions readOptions)
+      throws IOException {
+    checkNotNull(gcsFileInfo, "fileInfo should not be null");
+    GcsItemId itemId = UriUtil.getItemIdFromString(gcsFileInfo.getUri().toString());
     checkArgument(itemId.isGcsObject(), "Expected GCS object to be provided. But got: " + itemId);
-    return gcsClient.openReadChannel(itemId, readOptions);
+    return gcsClient.openReadChannel(gcsFileInfo.getItemInfo(), readOptions);
   }
 
   @Override
