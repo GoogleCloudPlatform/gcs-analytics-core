@@ -7,5 +7,12 @@
     ":ignoreUnstable",
     ":ignoreModulesAndTests",
     ":automergeDisabled"
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": ["com.google.errorprone:error_prone_core"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": false
+    }
   ]
 }
