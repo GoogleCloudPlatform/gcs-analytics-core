@@ -86,7 +86,6 @@ limitations under the License.
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>build-helper-maven-plugin</artifactId>
-                        <version>3.6.1</version>
                         <executions>
                             <execution>
                                 <id>add-integration-test-sources</id>
@@ -98,6 +97,20 @@ limitations under the License.
                                     <sources>
                                         <source>src/integrationTest/java</source>
                                     </sources>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>add-integration-test-resources</id>
+                                <phase>generate-resources</phase>
+                                <goals>
+                                    <goal>add-test-resource</goal>
+                                </goals>
+                                <configuration>
+                                    <resources>
+                                        <resource>
+                                            <directory>src/integrationTest/resources</directory>
+                                        </resource>
+                                    </resources>
                                 </configuration>
                             </execution>
                         </executions>

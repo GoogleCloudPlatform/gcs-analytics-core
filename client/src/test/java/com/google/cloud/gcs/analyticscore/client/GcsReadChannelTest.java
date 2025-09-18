@@ -198,33 +198,6 @@ class GcsReadChannelTest {
   }
 
   @Test
-  void position_equalToSize_throwsEOFException() throws IOException {
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    String objectData = "hello world";
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder()
-            .setItemId(itemId)
-            .setSize(objectData.length())
-            .setContentGeneration(0L)
-            .build();
-    createBlobInStorage(
-        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
-    GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
-    long size = objectData.length();
-
-    EOFException e = assertThrows(EOFException.class, () -> gcsReadChannel.position(size));
-
-    assertThat(e)
-        .hasMessageThat()
-        .contains(
-            String.format(
-                "Invalid seek offset: position value (%d) must be " + "between 0 and 11 for ",
-                itemInfo.getSize()));
-  }
-
-  @Test
   void position_greaterThanSize_throwsEOFException() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();

@@ -157,6 +157,13 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
     return singleByteBuffer.array()[0] & 0xFF;
   }
 
+  public int read(ByteBuffer byteBuffer) throws IOException {
+    checkNotClosed("Cannot read: already closed");
+    int bytesRead = channel.read(byteBuffer);
+    position = channel.position();
+    return bytesRead;
+  }
+
   @Override
   public int read(@Nonnull byte[] buffer, int offset, int length) throws IOException {
     checkNotClosed("Cannot read: already closed");
