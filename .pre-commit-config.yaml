@@ -26,5 +26,5 @@ repos:
   rev: v1.2.0
   hooks:
   - id: addlicense
-    args: [ "-ignore", "**/target/**", "-ignore", ".github/**", "-c", "Google LLC", "-l", "apache" ]
+    args: [ "-ignore", "**/target/**", "-ignore", ".github/**","-ignore", "**/dependency-reduced-pom.xml" ,"-c", "Google LLC", "-l", "apache" ]
     files: \.(java|xml|yml|yaml)$

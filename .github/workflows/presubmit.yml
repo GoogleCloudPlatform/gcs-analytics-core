@@ -67,4 +67,4 @@ jobs:
       - name: "Validate License Headers"
         shell: "bash"
         run: |
-          go run github.com/google/addlicense@v1.1.1 -check -ignore=**/target/** -ignore=.github/** -c "Google LLC" -l apache .
+          go run github.com/google/addlicense@v1.1.1 -check -ignore=**/target/** -ignore=.github/** -ignore=**/dependency-reduced-pom.xml -c "Google LLC" -l apache .

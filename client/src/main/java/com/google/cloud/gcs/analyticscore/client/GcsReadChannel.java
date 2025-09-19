@@ -231,7 +231,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
               "Invalid seek offset: position value (%d) must be >= 0 for '%s'",
               position, itemInfo.getItemId()));
     }
-    if (itemInfo.getSize() >= 0 && position >= itemInfo.getSize()) {
+    if (itemInfo.getSize() >= 0 && position > itemInfo.getSize()) {
       throw new EOFException(
           String.format(
               "Invalid seek offset: position value (%d)"

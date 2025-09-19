@@ -16,7 +16,6 @@
 package com.google.cloud.gcs.analyticscore.core;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -269,7 +268,7 @@ class GoogleCloudStorageInputStreamTest {
     int bytesRead = googleCloudStorageInputStream.read(new byte[10], 0, 10);
 
     assertThat(bytesRead).isEqualTo(0);
-    verify(mockChannel).position(fileSize);
+    verify(mockChannel, times(2)).position(fileSize);
   }
 
   @Test
@@ -366,16 +365,18 @@ class GoogleCloudStorageInputStreamTest {
 
     googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(mockFileSystem, testUri);
 
-    googleCloudStorageInputStream.seek((fileSize - prefetchSize)-1);
+    googleCloudStorageInputStream.seek((fileSize - prefetchSize) - 1);
     byte[] readBuffer = new byte[prefetchSize];
-    when(mockChannel.position())
-        .thenReturn(0L);
+    when(mockChannel.position()).thenReturn(0L);
     var exception =
         assertThrows(
             IllegalStateException.class,
             () -> googleCloudStorageInputStream.read(readBuffer, 0, readBuffer.length));
 
-    assertThat(exception).hasMessageThat().isEqualTo(String.format("Channel position (0) and stream position (989) should be the same"));
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            String.format("Channel position (0) and stream position (989) should be the same"));
   }
 
   @Test
@@ -608,8 +609,8 @@ class GoogleCloudStorageInputStreamTest {
 
   @Test
   void readVectored_delegatesToReadChannelAndDoesNotChangeState() throws IOException {
-      googleCloudStorageInputStream = defaultGcsInputStream();
-      long positionBeforeVectoredRead = googleCloudStorageInputStream.getPos();
+    googleCloudStorageInputStream = defaultGcsInputStream();
+    long positionBeforeVectoredRead = googleCloudStorageInputStream.getPos();
     googleCloudStorageInputStream.readVectored(any(), any());
 
     verify(mockChannel).readVectored(any(), any());

@@ -38,6 +38,17 @@ public abstract class SeekableInputStream extends InputStream {
   public abstract long getPos();
 
   /**
+   * This method will copy available bytes into the buffer, reading at most buf.remaining() bytes.
+   * The number of bytes actually copied is returned by the method, or -1 is returned to signal that
+   * the end of the underlying stream has been reached.
+   *
+   * @param byteBuffer a byte buffer to fill with data from the stream
+   * @return the number of bytes read or -1 if the stream ended
+   * @throws IOException If the underlying stream throws IOException
+   */
+  public abstract int read(ByteBuffer byteBuffer) throws IOException;
+
+  /**
    * Moves the read position to a new offset within the stream, at which the next read happens.
    *
    * @param position the absolute position (in bytes) to move to.
