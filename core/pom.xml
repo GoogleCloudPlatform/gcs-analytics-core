@@ -85,6 +85,12 @@ limitations under the License.
             <version>5.11.0</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-log4j12</artifactId>
+            <version>1.7.36</version> <!-- Or a newer compatible version -->
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <build>
         <plugins>

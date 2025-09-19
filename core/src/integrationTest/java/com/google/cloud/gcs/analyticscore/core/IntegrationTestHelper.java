@@ -33,12 +33,15 @@ import com.google.cloud.storage.StorageOptions;
 
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class IntegrationTestHelper {
     public static final String BUCKET_NAME = System.getProperty("gcs.integration.test.bucket");
     public static final String PROJECT_ID = System.getProperty("gcs.integration.test.project-id");
     public static final String BUCKET_FOLDER = System.getProperty("gcs.integration.test.bucket.folder");
 
+    private static final Logger logger = LoggerFactory.getLogger(IntegrationTestHelper.class);
     private static final Storage storage = StorageOptions.newBuilder().setProjectId(PROJECT_ID).build().getService();
 
     /**
@@ -49,7 +52,14 @@ public class IntegrationTestHelper {
      */
     public static File getFileFromResources(String fileName) {
         URL resource = IntegrationTestHelper.class.getResource(fileName);
-        return new File(resource.getFile());
+        if (resource == null) {
+            throw new IllegalArgumentException("Resource not found: " + fileName);
+        }
+        try {
+            return new File(resource.toURI());
+        } catch (java.net.URISyntaxException e) {
+            throw new RuntimeException("Failed to convert resource URL to URI", e);
+        }
     }
 
     /**
@@ -61,20 +71,6 @@ public class IntegrationTestHelper {
     public static URI getGcsObjectUriForFile(String fileName) {
         String folderName = BUCKET_FOLDER.endsWith("/") ?  BUCKET_FOLDER : BUCKET_FOLDER + "/";
         return URI.create(BlobId.of(BUCKET_NAME, folderName + fileName).toGsUtilUri());
-    }
-
-
-    /**
-     * Retrieves all sample Parquet files from the test resources.
-     *
-     * @return An ImmutableList of File objects representing the sample Parquet files.
-     */
-    public static ImmutableList<File> getSampleParquetFiles() {
-        URL resource = IntegrationTestHelper.class.getResource("/sampleParquetFiles");
-        File directory = new File(resource.getFile());
-        return Arrays.stream(directory.listFiles())
-                .filter(file -> file.isFile())
-                .collect(ImmutableList.toImmutableList());
     }
 
     /**
@@ -89,9 +85,9 @@ public class IntegrationTestHelper {
         try(InputStream inputStream =  new FileInputStream(file)) {
             try {
                 storage.create(blobInfo, inputStream);
-                System.out.printf("Successfully uploaded file %s to bucket %s\n", file.getName(), BUCKET_NAME);
+                logger.info("Successfully uploaded file {} to bucket {}", file.getName(), BUCKET_NAME);
             } catch (StorageException e) {
-                System.out.printf("Failed to upload file %s to bucket %s\n", file.getName(), BUCKET_NAME);
+                logger.error("Failed to upload file {} to bucket {}", file.getName(), BUCKET_NAME, e);
                 throw new RuntimeException(e);
             }
         }
@@ -105,7 +101,7 @@ public class IntegrationTestHelper {
         Page<Blob> blobs = storage.list(BUCKET_NAME, Storage.BlobListOption.prefix(folderName));
         for (Blob blob : blobs.iterateAll()) {
             storage.delete(blob.getBlobId());
-            System.out.printf("Successfully deleted file %s from bucket %s\n", blob.getName(), BUCKET_NAME);
+            logger.info("Successfully deleted file {} from bucket {}", blob.getName(), BUCKET_NAME);
         }
     }
 

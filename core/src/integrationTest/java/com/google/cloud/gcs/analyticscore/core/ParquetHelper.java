@@ -27,6 +27,8 @@ import org.apache.parquet.io.InputFile;
 import org.apache.parquet.schema.GroupType;
 import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.Type;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -34,6 +36,8 @@ import java.net.URI;
 import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.INT64;
 
 public class ParquetHelper {
+
+    private static final Logger logger = LoggerFactory.getLogger(ParquetHelper.class);
 
     public static final ImmutableList<ColumnDescriptor> TPCDS_CUSTOMER_TABLE_COLUMNS = ImmutableList.of(
             new ColumnDescriptor(new String[] {"c_customer_sk"}, new PrimitiveType(Type.Repetition.OPTIONAL, INT64, "c_customer_sk"), 0, 1),
@@ -74,8 +78,9 @@ public class ParquetHelper {
      * @return The ParquetMetadata object.
      * @throws IOException if an I/O error occurs while reading the file.
      */
-    public static ParquetMetadata readParquetMetadata(URI fileUri) throws IOException {
-        InputFile inputFile = new TestInputStreamInputFile(fileUri, false);
+    public static ParquetMetadata readParquetMetadata(URI fileUri, boolean enableFooterPrefetch) throws IOException {
+        logger.info("Reading parquet file metadata: {} with enableFooterPrefetch: {}", fileUri, enableFooterPrefetch);
+        InputFile inputFile = new TestInputStreamInputFile(fileUri, false, enableFooterPrefetch);
         // Configuration can be customized if needed
         Configuration conf = new Configuration();
         try (ParquetFileReader reader = ParquetFileReader.open(inputFile)) {
@@ -92,7 +97,7 @@ public class ParquetHelper {
      * @return The total number of records in the file.
      */
     public static long readParquetObjectRecords(boolean readVectoredEnabled, URI fileUri)  {
-        System.out.printf("Reading parquet file:%s with vectoredIOEnabled=%b\n", fileUri, readVectoredEnabled);
+        logger.info("Reading parquet file:{} with vectoredIOEnabled={}", fileUri, readVectoredEnabled);
         try {
             InputFile inputFile = new TestInputStreamInputFile(fileUri, readVectoredEnabled);
             long recordCount = 0;

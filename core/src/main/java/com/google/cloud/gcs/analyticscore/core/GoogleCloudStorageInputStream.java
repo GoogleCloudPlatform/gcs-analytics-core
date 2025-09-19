@@ -116,20 +116,17 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
     }
   }
 
-  private int serveFromFooterCache(byte[] buffer, int offset, int length) throws IOException {
+  private int serveFromFooterCache(ByteBuffer buffer) throws IOException {
     // TODO(shubhamdiwakar): Refactor to use GcsFileInfo instead of fileSize.
     long footerCacheStartPosition = fileSize - prefetchSize;
-    // Create a duplicate to avoid changing the state of the shared footerCache buffer.
     ByteBuffer cacheView = footerCache.duplicate();
     cacheView.position((int) (position - footerCacheStartPosition));
-
-    int bytesToRead = Math.min(length, cacheView.remaining());
+    int bytesToRead = Math.min(buffer.remaining(), cacheView.remaining());
     if (bytesToRead > 0) {
-      cacheView.get(buffer, offset, bytesToRead);
-      position += bytesToRead;
-      channel.position(position);
-      LOG.debug("Served {} bytes from footer cache for {}", bytesToRead, gcsPath);
+      cacheView.limit(cacheView.position() + bytesToRead);
+      buffer.put(cacheView);
     }
+    seek(position + bytesToRead);
     return bytesToRead;
   }
 
@@ -159,8 +156,26 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   public int read(ByteBuffer byteBuffer) throws IOException {
     checkNotClosed("Cannot read: already closed");
+
+    if (footerCache == null && prefetchSize > 0 && position >= fileSize - prefetchSize) {
+      cacheFooter();
+    }
+    // If the footer is cached and the read is within its range, serve from the cache.
+    if (footerCache != null && position >= fileSize - prefetchSize) {
+      return serveFromFooterCache(byteBuffer);
+    }
+
+    long channelPosition = channel.position();
+    checkState(
+            channelPosition == position,
+            "Channel position (%s) and stream position (%s) should be the same",
+            channelPosition,
+            position);
+
     int bytesRead = channel.read(byteBuffer);
-    position = channel.position();
+    if (bytesRead > 0) {
+      position += bytesRead;
+    }
     return bytesRead;
   }
 
@@ -175,28 +190,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
     if (length == 0) {
       return 0;
     }
-
-    if (footerCache == null && prefetchSize > 0 && position >= fileSize - prefetchSize) {
-      cacheFooter();
-    }
-
-    // If the footer is cached and the read is within its range, serve from the cache.
-    if (footerCache != null && position >= fileSize - prefetchSize) {
-      return serveFromFooterCache(buffer, offset, length);
-    }
-
-    long channelPosition = channel.position();
-    checkState(
-        channelPosition == position,
-        "Channel position (%s) and stream position (%s) should be the same",
-        channelPosition,
-        position);
-
-    int bytesRead = channel.read(ByteBuffer.wrap(buffer, offset, length));
-    if (bytesRead > 0) {
-      position += bytesRead;
-    }
-    return bytesRead;
+    return read(ByteBuffer.wrap(buffer, offset, length));
   }
 
   @Override

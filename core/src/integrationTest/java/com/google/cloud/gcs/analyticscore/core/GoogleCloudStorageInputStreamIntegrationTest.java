@@ -34,10 +34,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
 @EnabledIfSystemProperty(named = "gcs.integration.test.project-id", matches = ".+")
 class GoogleCloudStorageInputStreamIntegrationTest {
+  private static final Logger logger = LoggerFactory.getLogger(GoogleCloudStorageInputStreamIntegrationTest.class);
   private static final File TPCDS_CUSTOMER_SF1 = IntegrationTestHelper.getFileFromResources(
           "/sampleParquetFiles/tpcds_customer_sf1.parquet");
   private static final File TPCDS_CUSTOMER_SF10 = IntegrationTestHelper.getFileFromResources(
@@ -91,10 +94,10 @@ class GoogleCloudStorageInputStreamIntegrationTest {
           strings = {"tpcds_customer_sf1.parquet",
                   "tpcds_customer_sf10.parquet",
                   "tpcds_customer_sf100.parquet"})
-  void tpcdsCustomerTableData_parsesParquetSchemaCorrectly(String fileName) throws IOException {
+  void tpcdsCustomerTableData_footerPrefetchingEnabled_parsesParquetSchemaCorrectly(String fileName) throws IOException {
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
 
-    ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri);
+    ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, true);
 
     List<ColumnDescriptor> columnDescriptorsList = metadata.getFileMetaData().getSchema().getColumns();
     for(ColumnDescriptor descriptor : ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS) {
@@ -105,16 +108,43 @@ class GoogleCloudStorageInputStreamIntegrationTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"tpch_customer_sf10.parquet"})
-  void tpchCustomerTableData_parsesParquetSchemaCorrectly(String fileName) throws IOException {
+  void tpchCustomerTableData_footerPrefetchingEnabled_parsesParquetSchemaCorrectly(String fileName) throws IOException {
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
 
-    ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri);
+    ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, true);
 
     List<ColumnDescriptor> columnDescriptorsList = metadata.getFileMetaData().getSchema().getColumns();
-    System.out.println(columnDescriptorsList);
     for(ColumnDescriptor descriptor : ParquetHelper.TPCH_CUSTOMER_TABLE_COLUMNS) {
       assertTrue(columnDescriptorsList.contains(descriptor));
     }
     assertTrue(columnDescriptorsList.size() == ParquetHelper.TPCH_CUSTOMER_TABLE_COLUMNS.size());
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+          strings = {"tpcds_customer_sf1.parquet",
+                  "tpcds_customer_sf10.parquet",
+                  "tpcds_customer_sf100.parquet"})
+  void parseParquetSchema_performsBetterWithFooterPrefetchingEnabled(String fileName) throws IOException {
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+
+    long executionTimeWithoutPrefetching = IntegrationTestHelper.measureExecutionTime(() -> {
+      try {
+        ParquetHelper.readParquetMetadata(uri, false);
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
+
+    long executionTimeWithPrefetching = IntegrationTestHelper.measureExecutionTime(() -> {
+      try {
+        ParquetHelper.readParquetMetadata(uri, true);
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
+
+    logger.warn("Execution times (with/without prefetching): {}ms / {}ms",
+            executionTimeWithPrefetching, executionTimeWithoutPrefetching);
   }
 }

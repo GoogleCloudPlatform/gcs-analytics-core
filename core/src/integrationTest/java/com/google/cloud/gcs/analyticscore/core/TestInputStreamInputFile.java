@@ -16,9 +16,7 @@
 
 package com.google.cloud.gcs.analyticscore.core;
 
-import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
-import com.google.cloud.gcs.analyticscore.client.GcsFileSystemImpl;
-import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
+import com.google.cloud.gcs.analyticscore.client.*;
 import org.apache.parquet.io.InputFile;
 import org.apache.parquet.io.SeekableInputStream;
 
@@ -30,13 +28,26 @@ public class TestInputStreamInputFile implements InputFile {
     private GcsFileSystem gcsFileSystem;
     private final URI fileUri;
     private final boolean enableVectoredIO;
+    private final boolean enableFooterPrefetch;
     private Long size;
 
-    public TestInputStreamInputFile(URI filePath, boolean enableVectoredIO) throws IOException {
+    public TestInputStreamInputFile(URI filePath, boolean enableVectoredIO, boolean enableFooterPrefetch) throws IOException {
+        this.enableFooterPrefetch = enableFooterPrefetch;
         this.enableVectoredIO = enableVectoredIO;
         this.fileUri = filePath;
-        GcsFileSystemOptions fileSystemOptions = GcsFileSystemOptions.builder().build();
-        this.gcsFileSystem = new GcsFileSystemImpl(fileSystemOptions);
+        GcsReadOptions.Builder gcsReadOptions = GcsReadOptions.builder();
+        if (!enableFooterPrefetch) {
+            gcsReadOptions.setFooterPrefetchSize(0);
+        }
+        GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.builder().setGcsClientOptions(
+                GcsClientOptions.builder().setGcsReadOptions(gcsReadOptions.build()).build()
+        ).build();
+
+        this.gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
+    }
+
+    public TestInputStreamInputFile(URI filePath, boolean enableVectoredIO) throws IOException {
+        this(filePath, enableVectoredIO, true);
     }
 
     @Override
