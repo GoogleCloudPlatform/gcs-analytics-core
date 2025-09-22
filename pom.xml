@@ -153,6 +153,42 @@ limitations under the License.
                 </plugins>
             </build>
         </profile>
+        <profile>
+            <id>jmh</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>jmh</id>
+                                <goals>
+                                    <goal>exec</goal>
+                                </goals>
+                                <phase>verify</phase>
+                                <configuration>
+                                    <executable>java</executable>
+                                    <arguments>
+                                        <argument>-Dfile.encoding=UTF-8</argument>
+                                        <argument>-jar</argument>
+                                        <argument>${project.build.directory}/benchmarks.jar</argument>
+                                        <argument>-f</argument>
+                                        <argument>1</argument>
+                                        <argument>-wi</argument>
+                                        <argument>1</argument>
+                                        <argument>-i</argument>
+                                        <argument>1</argument>
+                                        <argument>-t</argument>
+                                        <argument>1</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 
     <dependencyManagement>
@@ -385,6 +421,11 @@ limitations under the License.
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>build-helper-maven-plugin</artifactId>
                     <version>3.6.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>exec-maven-plugin</artifactId>
+                    <version>3.3.0</version>
                 </plugin>
             </plugins>
         </pluginManagement>
