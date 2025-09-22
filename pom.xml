@@ -181,7 +181,26 @@ limitations under the License.
                                 <configuration>
                                     <sources>
                                         <source>src/jmh/java</source>
+                                        <source>src/integrationTest/java</source>
                                     </sources>
+
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>add-benchmark-resources</id>
+                                <phase>generate-resources</phase>
+                                <goals>
+                                    <goal>add-resource</goal>
+                                </goals>
+                                <configuration>
+                                    <resources>
+                                        <resource>
+                                            <directory>src/integrationTest/resources</directory>
+                                        </resource>
+                                        <resource>
+                                            <directory>src/jmh/resources</directory>
+                                        </resource>
+                                    </resources>
                                 </configuration>
                             </execution>
                         </executions>
@@ -192,6 +211,9 @@ limitations under the License.
                         <configuration>
                             <source>${maven.compiler.source}</source>
                             <target>${maven.compiler.target}</target>
+                            <excludes>
+                                <exclude>**/*IntegrationTest.java</exclude>
+                            </excludes>
                             <compilerArgs>
                                 <arg>-XDcompilePolicy=simple</arg>
                                 <arg>-Xplugin:ErrorProne</arg>

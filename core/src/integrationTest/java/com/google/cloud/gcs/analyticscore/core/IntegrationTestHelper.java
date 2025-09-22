@@ -80,16 +80,20 @@ public class IntegrationTestHelper {
      * @throws IOException if an I/O error occurs during file reading.
      */
     public static void uploadFileToGcs(File file) throws FileNotFoundException, IOException {
-        BlobId blobId = BlobId.of(BUCKET_NAME, BUCKET_FOLDER + "/" + file.getName());
-        BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
         try(InputStream inputStream =  new FileInputStream(file)) {
-            try {
-                storage.create(blobInfo, inputStream);
-                logger.info("Successfully uploaded file {} to bucket {}", file.getName(), BUCKET_NAME);
-            } catch (StorageException e) {
-                logger.error("Failed to upload file {} to bucket {}", file.getName(), BUCKET_NAME, e);
-                throw new RuntimeException(e);
-            }
+            uploadFileToGcs(inputStream, file.getName());
+        }
+    }
+
+    public static void uploadFileToGcs(InputStream inputStream, String fileName) throws FileNotFoundException, IOException {
+        BlobId blobId = BlobId.of(BUCKET_NAME, BUCKET_FOLDER + "/" + fileName);
+        BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
+        try {
+            storage.create(blobInfo, inputStream);
+            logger.info("Successfully uploaded file {} to bucket {}", fileName, BUCKET_NAME);
+        } catch (StorageException e) {
+            logger.error("Failed to upload file {} to bucket {}", fileName, BUCKET_NAME, e);
+            throw new RuntimeException(e);
         }
     }
 
