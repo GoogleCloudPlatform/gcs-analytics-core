@@ -39,6 +39,7 @@ import org.slf4j.LoggerFactory;
 
 @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
 @EnabledIfSystemProperty(named = "gcs.integration.test.project-id", matches = ".+")
+// TODO - Add generator function on place of bundling sample parquet files in resources.
 class GoogleCloudStorageInputStreamIntegrationTest {
   private static final Logger logger = LoggerFactory.getLogger(GoogleCloudStorageInputStreamIntegrationTest.class);
   private static final File TPCDS_CUSTOMER_SF1 = IntegrationTestHelper.getFileFromResources(
@@ -63,30 +64,26 @@ class GoogleCloudStorageInputStreamIntegrationTest {
     IntegrationTestHelper.deleteUploadedFilesFromGcs();
   }
 
-  @Test
-  void forSampleParquetFiles_vectoredIOEnabled_readsFileSuccessfully() throws IOException {
-    URI uri1 = IntegrationTestHelper.getGcsObjectUriForFile(TPCDS_CUSTOMER_SF1.getName());
-    URI uri2 = IntegrationTestHelper.getGcsObjectUriForFile(TPCDS_CUSTOMER_SF10.getName());
-    URI uri3 = IntegrationTestHelper.getGcsObjectUriForFile(TPCDS_CUSTOMER_SF100.getName());
-    URI uri5 = IntegrationTestHelper.getGcsObjectUriForFile(TPCH_CUSTOMER_SF10.getName());
-
-    ParquetHelper.readParquetObjectRecords(true, uri1);
-    ParquetHelper.readParquetObjectRecords(true, uri2);
-    ParquetHelper.readParquetObjectRecords(true, uri3);
-    ParquetHelper.readParquetObjectRecords(true, uri5);
+  @ParameterizedTest
+  @ValueSource(
+          strings = {"tpcds_customer_sf1.parquet",
+                  "tpcds_customer_sf10.parquet",
+                  "tpcds_customer_sf100.parquet",
+                  "tpch_customer_sf10.parquet"})
+  void forSampleParquetFiles_vectoredIOEnabled_readsFileSuccessfully(String fileName) throws IOException {
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+    ParquetHelper.readParquetObjectRecords(true, uri);
   }
 
-  @Test
-  void forSampleParquetFiles_vectoredIODisabled_readsFileSuccessfully() throws IOException {
-    URI uri1 = IntegrationTestHelper.getGcsObjectUriForFile(TPCDS_CUSTOMER_SF1.getName());
-    URI uri2 = IntegrationTestHelper.getGcsObjectUriForFile(TPCDS_CUSTOMER_SF10.getName());
-    URI uri3 = IntegrationTestHelper.getGcsObjectUriForFile(TPCDS_CUSTOMER_SF100.getName());
-    URI uri5 = IntegrationTestHelper.getGcsObjectUriForFile(TPCH_CUSTOMER_SF10.getName());
-
-    ParquetHelper.readParquetObjectRecords(false, uri1);
-    ParquetHelper.readParquetObjectRecords(false, uri2);
-    ParquetHelper.readParquetObjectRecords(false, uri3);
-    ParquetHelper.readParquetObjectRecords(false, uri5);
+  @ParameterizedTest
+  @ValueSource(
+          strings = {"tpcds_customer_sf1.parquet",
+                  "tpcds_customer_sf10.parquet",
+                  "tpcds_customer_sf100.parquet",
+                  "tpch_customer_sf10.parquet"})
+  void forSampleParquetFiles_vectoredIODisabled_readsFileSuccessfully(String fileName) throws IOException {
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+    ParquetHelper.readParquetObjectRecords(false, uri);
   }
 
   @ParameterizedTest
