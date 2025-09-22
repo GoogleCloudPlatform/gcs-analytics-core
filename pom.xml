@@ -71,7 +71,7 @@ limitations under the License.
         <google.guava.version>33.5.0-jre</google.guava.version>
         <google.java-format.version>1.17.0</google.java-format.version>
         <google.error-prone.version>2.16</google.error-prone.version>
-        <mockito.version>5.19.0</mockito.version>
+        <mockito.version>5.20.0</mockito.version>
         <truth.version>1.4.5</truth.version>
         <junit.jupiter.version>5.13.4</junit.jupiter.version>
         <cloud.libraries.bom.version>26.68.0</cloud.libraries.bom.version>
