@@ -24,18 +24,17 @@ import java.util.concurrent.TimeUnit;
 
 @State(Scope.Benchmark)
 public class GoogleCloudStorageInputStreamBenchmark {
-//    private static final File TPCDS_CUSTOMER_SF1 = IntegrationTestHelper.getFileFromResources(
-//            "/sampleParquetFiles/tpcds_customer_sf1.parquet");
-//    private static final File TPCDS_CUSTOMER_SF10 = IntegrationTestHelper.getFileFromResources(
-//            "/sampleParquetFiles/tpcds_customer_sf10.parquet");
-//    private static final File TPCDS_CUSTOMER_SF100 = IntegrationTestHelper.getFileFromResources(
-//            "/sampleParquetFiles/tpcds_customer_sf100.parquet");
 
-    @Setup(org.openjdk.jmh.annotations.Level.Invocation)
+    @Setup(Level.Invocation)
     public void uploadSampleFiles() throws IOException {
-        IntegrationTestHelper.uploadFileToGcs(getClass().getResourceAsStream("/sampleParquetFiles/tpcds_customer_sf1.parquet"), "tpcds_customer_sf1.parquet");
-//        IntegrationTestHelper.uploadFileToGcs(TPCDS_CUSTOMER_SF10);
-//        IntegrationTestHelper.uploadFileToGcs(TPCDS_CUSTOMER_SF100);
+        uploadBundledResourceToGcs("tpcds_customer_sf1.parquet");
+        uploadBundledResourceToGcs("tpcds_customer_sf10.parquet");
+        uploadBundledResourceToGcs("tpcds_customer_sf100.parquet");
+    }
+
+    @TearDown(Level.Invocation)
+    public void deleteSampleFiles() throws IOException {
+        IntegrationTestHelper.deleteUploadedFilesFromGcs();
     }
 
     @Benchmark
@@ -46,7 +45,67 @@ public class GoogleCloudStorageInputStreamBenchmark {
     @Fork(value = 2, warmups = 1)
     public void parquetFooterParsing_3mbFile_withFooterPrefetchingEnabled() throws IOException {
         URI uri = IntegrationTestHelper.getGcsObjectUriForFile("tpcds_customer_sf1.parquet");
-        System.out.println(uri);
         ParquetHelper.readParquetMetadata(uri, true);
+    }
+
+    @Benchmark
+    @BenchmarkMode(Mode.AverageTime)
+    @OutputTimeUnit(TimeUnit.MILLISECONDS)
+    @Warmup(iterations = 1, time = 1)
+    @Measurement(iterations = 2, time = 1)
+    @Fork(value = 2, warmups = 1)
+    public void parquetFooterParsing_3mbFile_withFooterPrefetchingDisabled() throws IOException {
+        URI uri = IntegrationTestHelper.getGcsObjectUriForFile("tpcds_customer_sf1.parquet");
+        ParquetHelper.readParquetMetadata(uri, false);
+    }
+
+    @Benchmark
+    @BenchmarkMode(Mode.AverageTime)
+    @OutputTimeUnit(TimeUnit.MILLISECONDS)
+    @Warmup(iterations = 1, time = 1)
+    @Measurement(iterations = 2, time = 1)
+    @Fork(value = 2, warmups = 1)
+    public void parquetFooterParsing_18mbFile_withFooterPrefetchingEnabled() throws IOException {
+        URI uri = IntegrationTestHelper.getGcsObjectUriForFile("tpcds_customer_sf10.parquet");
+        ParquetHelper.readParquetMetadata(uri, true);
+    }
+
+    @Benchmark
+    @BenchmarkMode(Mode.AverageTime)
+    @OutputTimeUnit(TimeUnit.MILLISECONDS)
+    @Warmup(iterations = 1, time = 1)
+    @Measurement(iterations = 2, time = 1)
+    @Fork(value = 2, warmups = 1)
+    public void parquetFooterParsing_18mbFile_withFooterPrefetchingDisabled() throws IOException {
+        URI uri = IntegrationTestHelper.getGcsObjectUriForFile("tpcds_customer_sf10.parquet");
+        ParquetHelper.readParquetMetadata(uri, false);
+    }
+
+    @Benchmark
+    @BenchmarkMode(Mode.AverageTime)
+    @OutputTimeUnit(TimeUnit.MILLISECONDS)
+    @Warmup(iterations = 1, time = 1)
+    @Measurement(iterations = 2, time = 1)
+    @Fork(value = 2, warmups = 1)
+    public void parquetFooterParsing_50mbFile_withFooterPrefetchingEnabled() throws IOException {
+        URI uri = IntegrationTestHelper.getGcsObjectUriForFile("tpcds_customer_sf100.parquet");
+        ParquetHelper.readParquetMetadata(uri, true);
+    }
+
+    @Benchmark
+    @BenchmarkMode(Mode.AverageTime)
+    @OutputTimeUnit(TimeUnit.MILLISECONDS)
+    @Warmup(iterations = 1, time = 1)
+    @Measurement(iterations = 2, time = 1)
+    @Fork(value = 2, warmups = 1)
+    public void parquetFooterParsing_50mbFile_withFooterPrefetchingDisabled() throws IOException {
+        URI uri = IntegrationTestHelper.getGcsObjectUriForFile("tpcds_customer_sf100.parquet");
+        ParquetHelper.readParquetMetadata(uri, false);
+    }
+
+    private void uploadBundledResourceToGcs(String fileName) {
+        IntegrationTestHelper.uploadFileToGcs(
+                getClass().getResourceAsStream("/sampleParquetFiles/" + fileName),
+                fileName);
     }
 }

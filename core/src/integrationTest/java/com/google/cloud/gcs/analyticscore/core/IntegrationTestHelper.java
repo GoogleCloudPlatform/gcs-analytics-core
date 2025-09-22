@@ -85,7 +85,12 @@ public class IntegrationTestHelper {
         }
     }
 
-    public static void uploadFileToGcs(InputStream inputStream, String fileName) throws FileNotFoundException, IOException {
+    /**
+     * Uploads content of inputStream to GCS test bucket as fileName.
+     * @param inputStream InputStream to fetch content from
+     * @param fileName the name of the GCS object
+     */
+    public static void uploadFileToGcs(InputStream inputStream, String fileName) {
         BlobId blobId = BlobId.of(BUCKET_NAME, BUCKET_FOLDER + "/" + fileName);
         BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
         try {
