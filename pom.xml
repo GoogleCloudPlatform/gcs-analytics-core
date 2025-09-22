@@ -76,6 +76,8 @@ limitations under the License.
         <junit.jupiter.version>5.13.4</junit.jupiter.version>
         <cloud.libraries.bom.version>26.68.0</cloud.libraries.bom.version>
         <apache.commons.version>3.18.0</apache.commons.version>
+        <apache.parquet.version>1.16.0</apache.parquet.version>
+        <apache.hadoop.version>3.4.0</apache.hadoop.version>
     </properties>
 
     <profiles>
@@ -219,10 +221,42 @@ limitations under the License.
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-log4j12</artifactId>
                 <version>1.7.36</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-column</artifactId>
+                <version>${apache.parquet.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-hadoop</artifactId>
+                <version>${apache.parquet.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-common</artifactId>
+                <version>${apache.hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>ch.qos.logback</groupId>
+                        <artifactId>logback-classic</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-mapreduce-client-core</artifactId>
+                <version>${apache.hadoop.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-params</artifactId>
+                <version>${junit.jupiter.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
