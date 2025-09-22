@@ -219,7 +219,7 @@ limitations under the License.
                 </plugin>
                 <plugin>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.14.0</version>
+                    <version>3.14.1</version>
                     <configuration>
                         <source>${build.java.source.version}</source>
                         <target>${build.java.target.version}</target>
