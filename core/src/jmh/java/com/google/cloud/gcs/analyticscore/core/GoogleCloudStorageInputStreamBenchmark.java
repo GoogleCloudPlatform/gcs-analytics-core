@@ -16,15 +16,17 @@
 
 package com.google.cloud.gcs.analyticscore.core;
 
-import org.openjdk.jmh.annotations.Benchmark;
-import org.openjdk.jmh.annotations.Scope;
-import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.*;
 
 @State(Scope.Benchmark)
 public class GoogleCloudStorageInputStreamBenchmark {
 
     @Benchmark
+    @BenchmarkMode(Mode.AverageTime)
+    @Warmup(iterations = 1, time = 1)
+    @Measurement(iterations = 2, time = 1)
+    @Fork(value = 2, warmups = 1)
     public void benchmarkMethod() {
-        // TODO: Add benchmark logic here
+
     }
 }

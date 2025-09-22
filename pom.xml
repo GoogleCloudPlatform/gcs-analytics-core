@@ -156,8 +156,36 @@ limitations under the License.
         </profile>
         <profile>
             <id>jmh</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.openjdk.jmh</groupId>
+                    <artifactId>jmh-core</artifactId>
+                </dependency>
+                <dependency>
+                    <groupId>org.openjdk.jmh</groupId>
+                    <artifactId>jmh-generator-annprocess</artifactId>
+                </dependency>
+            </dependencies>
             <build>
                 <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>add-benchmark-sources</id>
+                                <phase>generate-sources</phase>
+                                <goals>
+                                    <goal>add-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/jmh/java</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-compiler-plugin</artifactId>
@@ -196,26 +224,15 @@ limitations under the License.
                                 <goals>
                                     <goal>exec</goal>
                                 </goals>
-<!--                                <phase>integration-test</phase>-->
-                                <phase>verify</phase>
+                                <phase>integration-test</phase>
                                 <configuration>
                                     <executable>java</executable>
+                                    <classpathScope>test</classpathScope>
                                     <arguments>
                                         <argument>-classpath</argument>
                                         <classpath />
                                         <argument>org.openjdk.jmh.Main</argument>
                                         <argument>.*</argument>
-<!--                                        <argument>-Dfile.encoding=UTF-8</argument>-->
-<!--                                        <argument>-jar</argument>-->
-<!--                                        <argument>${project.build.directory}/benchmarks.jar</argument>-->
-<!--                                        <argument>-f</argument>-->
-<!--                                        <argument>1</argument>-->
-<!--                                        <argument>-wi</argument>-->
-<!--                                        <argument>1</argument>-->
-<!--                                        <argument>-i</argument>-->
-<!--                                        <argument>1</argument>-->
-<!--                                        <argument>-t</argument>-->
-<!--                                        <argument>1</argument>-->
                                     </arguments>
                                 </configuration>
                             </execution>
