@@ -71,6 +71,7 @@ limitations under the License.
         <google.guava.version>33.5.0-jre</google.guava.version>
         <google.java-format.version>1.17.0</google.java-format.version>
         <google.error-prone.version>2.16</google.error-prone.version>
+        <jmh.version>1.37</jmh.version>
         <mockito.version>5.19.0</mockito.version>
         <truth.version>1.4.5</truth.version>
         <junit.jupiter.version>5.13.4</junit.jupiter.version>
@@ -158,6 +159,35 @@ limitations under the License.
             <build>
                 <plugins>
                     <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration>
+                            <source>${maven.compiler.source}</source>
+                            <target>${maven.compiler.target}</target>
+                            <compilerArgs>
+                                <arg>-XDcompilePolicy=simple</arg>
+                                <arg>-Xplugin:ErrorProne</arg>
+                            </compilerArgs>
+                            <annotationProcessorPaths>
+                                <path>
+                                    <groupId>com.google.errorprone</groupId>
+                                    <artifactId>error_prone_core</artifactId>
+                                    <version>${google.error-prone.version}</version>
+                                </path>
+                                <path>
+                                    <groupId>org.openjdk.jmh</groupId>
+                                    <artifactId>jmh-generator-annprocess</artifactId>
+                                    <version>${jmh.version}</version>
+                                </path>
+                                <path>
+                                    <groupId>com.google.auto.value</groupId>
+                                    <artifactId>auto-value</artifactId>
+                                    <version>${google.auto-value.version}</version>
+                                </path>
+                            </annotationProcessorPaths>
+                        </configuration>
+                    </plugin>
+                    <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>exec-maven-plugin</artifactId>
                         <executions>
@@ -166,21 +196,26 @@ limitations under the License.
                                 <goals>
                                     <goal>exec</goal>
                                 </goals>
+<!--                                <phase>integration-test</phase>-->
                                 <phase>verify</phase>
                                 <configuration>
                                     <executable>java</executable>
                                     <arguments>
-                                        <argument>-Dfile.encoding=UTF-8</argument>
-                                        <argument>-jar</argument>
-                                        <argument>${project.build.directory}/benchmarks.jar</argument>
-                                        <argument>-f</argument>
-                                        <argument>1</argument>
-                                        <argument>-wi</argument>
-                                        <argument>1</argument>
-                                        <argument>-i</argument>
-                                        <argument>1</argument>
-                                        <argument>-t</argument>
-                                        <argument>1</argument>
+                                        <argument>-classpath</argument>
+                                        <classpath />
+                                        <argument>org.openjdk.jmh.Main</argument>
+                                        <argument>.*</argument>
+<!--                                        <argument>-Dfile.encoding=UTF-8</argument>-->
+<!--                                        <argument>-jar</argument>-->
+<!--                                        <argument>${project.build.directory}/benchmarks.jar</argument>-->
+<!--                                        <argument>-f</argument>-->
+<!--                                        <argument>1</argument>-->
+<!--                                        <argument>-wi</argument>-->
+<!--                                        <argument>1</argument>-->
+<!--                                        <argument>-i</argument>-->
+<!--                                        <argument>1</argument>-->
+<!--                                        <argument>-t</argument>-->
+<!--                                        <argument>1</argument>-->
                                     </arguments>
                                 </configuration>
                             </execution>
@@ -293,6 +328,16 @@ limitations under the License.
                 <groupId>org.junit.jupiter</groupId>
                 <artifactId>junit-jupiter-params</artifactId>
                 <version>${junit.jupiter.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.openjdk.jmh</groupId>
+                <artifactId>jmh-core</artifactId>
+                <version>${jmh.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.openjdk.jmh</groupId>
+                <artifactId>jmh-generator-annprocess</artifactId>
+                <version>${jmh.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
