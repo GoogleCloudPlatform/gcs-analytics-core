@@ -22,7 +22,7 @@ limitations under the License.
     <url>https://github.com/GoogleCloudPlatform/gcs-analytics-core</url>
     <groupId>com.google.cloud.gcs.analytics</groupId>
     <artifactId>gcs-analytics-core-parent</artifactId>
-    <version>1.0.1-SNAPSHOT</version>
+    <version>1.1.0</version>
     <packaging>pom</packaging>
     <modules>
         <module>core</module>
@@ -252,7 +252,7 @@ limitations under the License.
                                     <classpathScope>test</classpathScope>
                                     <arguments>
                                         <argument>-classpath</argument>
-                                        <classpath />
+                                        <classpath/>
                                         <argument>org.openjdk.jmh.Main</argument>
                                         <argument>.*</argument>
                                     </arguments>
