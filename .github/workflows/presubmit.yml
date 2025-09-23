@@ -62,7 +62,7 @@ jobs:
       - name: 'Set up Go'
         uses: 'actions/setup-go@c0137caad775660c0844396c52da96e560aba63d'
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: "Validate License Headers"
         shell: "bash"

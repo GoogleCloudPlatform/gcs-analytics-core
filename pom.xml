@@ -72,13 +72,13 @@ limitations under the License.
         <google.java-format.version>1.17.0</google.java-format.version>
         <google.error-prone.version>2.16</google.error-prone.version>
         <jmh.version>1.37</jmh.version>
-        <mockito.version>5.19.0</mockito.version>
+        <mockito.version>5.20.0</mockito.version>
         <truth.version>1.4.5</truth.version>
         <junit.jupiter.version>5.13.4</junit.jupiter.version>
         <cloud.libraries.bom.version>26.68.0</cloud.libraries.bom.version>
         <apache.commons.version>3.18.0</apache.commons.version>
         <apache.parquet.version>1.16.0</apache.parquet.version>
-        <apache.hadoop.version>3.4.0</apache.hadoop.version>
+        <apache.hadoop.version>3.4.2</apache.hadoop.version>
     </properties>
 
     <profiles>
@@ -391,7 +391,7 @@ limitations under the License.
                 </plugin>
                 <plugin>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.14.0</version>
+                    <version>3.14.1</version>
                     <configuration>
                         <source>${build.java.source.version}</source>
                         <target>${build.java.target.version}</target>
@@ -478,7 +478,7 @@ limitations under the License.
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-javadoc-plugin</artifactId>
-                    <version>3.11.3</version> <!-- Use the latest stable version -->
+                    <version>3.12.0</version> <!-- Use the latest stable version -->
                     <executions>
                         <execution>
                             <id>attach-javadocs</id>
@@ -509,7 +509,7 @@ limitations under the License.
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>exec-maven-plugin</artifactId>
-                    <version>3.3.0</version>
+                    <version>3.5.1</version>
                 </plugin>
             </plugins>
         </pluginManagement>
