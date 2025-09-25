@@ -16,14 +16,10 @@
 
 package com.google.cloud.gcs.analyticscore.core;
 
-import com.google.api.gax.paging.Page;
 import com.google.cloud.storage.Blob;
-import com.google.common.collect.ImmutableList;
 
 import java.io.*;
 import java.net.URI;
-import java.net.URL;
-import java.util.Arrays;
 
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
@@ -32,35 +28,20 @@ import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 
 import java.io.IOException;
-import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class IntegrationTestHelper {
+    public static final String TPCDS_CUSTOMER_SMALL_FILE = "tpcds_customer_small.parquet";
+    public static final String TPCDS_CUSTOMER_MEDIUM_FILE = "tpcds_customer_medium.parquet";
+    public static final String TPCDS_CUSTOMER_LARGE_FILE = "tpcds_customer_large.parquet";
+
     public static final String BUCKET_NAME = System.getProperty("gcs.integration.test.bucket");
     public static final String PROJECT_ID = System.getProperty("gcs.integration.test.project-id");
-    public static final String BUCKET_FOLDER = System.getProperty("gcs.integration.test.bucket.folder");
+    private static final String FOLDER_NAME  = getFolderName();
 
     private static final Logger logger = LoggerFactory.getLogger(IntegrationTestHelper.class);
     private static final Storage storage = StorageOptions.newBuilder().setProjectId(PROJECT_ID).build().getService();
-
-    /**
-     * Retrieves a file from the test resources.
-     *
-     * @param fileName The name of the file to retrieve.
-     * @return The File object representing the resource.
-     */
-    public static File getFileFromResources(String fileName) {
-        URL resource = IntegrationTestHelper.class.getResource(fileName);
-        if (resource == null) {
-            throw new IllegalArgumentException("Resource not found: " + fileName);
-        }
-        try {
-            return new File(resource.toURI());
-        } catch (java.net.URISyntaxException e) {
-            throw new RuntimeException("Failed to convert resource URL to URI", e);
-        }
-    }
 
     /**
      * Constructs a GCS URI for a given file name in the test bucket and folder.
@@ -69,8 +50,7 @@ public class IntegrationTestHelper {
      * @return The GCS URI for the file.
      */
     public static URI getGcsObjectUriForFile(String fileName) {
-        String folderName = BUCKET_FOLDER.endsWith("/") ?  BUCKET_FOLDER : BUCKET_FOLDER + "/";
-        return URI.create(BlobId.of(BUCKET_NAME, folderName + fileName).toGsUtilUri());
+        return URI.create(BlobId.of(BUCKET_NAME, FOLDER_NAME + fileName).toGsUtilUri());
     }
 
     /**
@@ -91,7 +71,7 @@ public class IntegrationTestHelper {
      * @param fileName the name of the GCS object
      */
     public static void uploadFileToGcs(InputStream inputStream, String fileName) {
-        BlobId blobId = BlobId.of(BUCKET_NAME, BUCKET_FOLDER + "/" + fileName);
+        BlobId blobId = BlobId.of(BUCKET_NAME, FOLDER_NAME + fileName);
         BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
         try {
             storage.create(blobInfo, inputStream);
@@ -103,32 +83,47 @@ public class IntegrationTestHelper {
     }
 
     /**
-     * Deletes all files from the GCS test bucket folder.
+     * Checks if an object is present in the GCS test bucket folder.
+     *
+     * @param objectName The name of the object.
+     * @return True if the object exists, false otherwise.
      */
-    public static void deleteUploadedFilesFromGcs() {
-        String folderName = BUCKET_FOLDER.endsWith("/") ?  BUCKET_FOLDER : BUCKET_FOLDER + "/";
-        Page<Blob> blobs = storage.list(BUCKET_NAME, Storage.BlobListOption.prefix(folderName));
-        for (Blob blob : blobs.iterateAll()) {
-            storage.delete(blob.getBlobId());
-            logger.info("Successfully deleted file {} from bucket {}", blob.getName(), BUCKET_NAME);
-        }
+    public static boolean objectPresentInBucket(String objectName) {
+        BlobId blobId = BlobId.of(BUCKET_NAME, FOLDER_NAME + objectName);
+        Blob blob = storage.get(blobId);
+        return blob != null && blob.exists();
     }
 
     /**
-     * Measures the execution time of a given task.
+     * Uploads sample Parquet files (small, medium, large) to the GCS test bucket if they do not
+     * already exist. The files are generated using {@link TpcdsCustomerParquetWriter}.
      *
-     * @param task The Runnable task to execute.
-     * @return The execution time in milliseconds.
+     * @throws IOException if an I/O error occurs during file generation or upload.
      */
-    public static long measureExecutionTime(Runnable task) {
-        // 1. Get the start time in nanoseconds
-        long startTime = System.nanoTime();
-        // 2. Execute the lambda function
-        task.run();
-        // 3. Get the end time in nanoseconds
-        long endTime = System.nanoTime();
-        // 4. Calculate duration and convert to milliseconds
-        long durationNanos = endTime - startTime;
-        return TimeUnit.NANOSECONDS.toMillis(durationNanos);
+    public static void uploadSampleParquetFilesIfNotExists() throws IOException {
+        TpcdsCustomerParquetWriter writer = new TpcdsCustomerParquetWriter();
+        uploadParquetFileIfNotExists(writer, TPCDS_CUSTOMER_SMALL_FILE, 100000, "small");
+        uploadParquetFileIfNotExists(writer, TPCDS_CUSTOMER_MEDIUM_FILE, 1000000, "medium");
+        uploadParquetFileIfNotExists(writer, TPCDS_CUSTOMER_LARGE_FILE, 10000000, "large");
+    }
+
+    private static void uploadParquetFileIfNotExists(
+            TpcdsCustomerParquetWriter writer, String fileName, int recordCount, String sizeLabel)
+            throws IOException {
+        if (!IntegrationTestHelper.objectPresentInBucket(fileName)) {
+            logger.info("Uploading {} size parquet files to Google Cloud Storage", sizeLabel);
+            File generatedFile = writer.createSampleParquetFile(recordCount, fileName);
+            try {
+                IntegrationTestHelper.uploadFileToGcs(generatedFile);
+            }  finally {
+                generatedFile.delete();
+            }
+        }
+    }
+
+    private static String getFolderName() {
+        String folderName = System.getProperty("gcs.integration.test.bucket.folder");
+        if (folderName == null) { return "test/"; }
+        return folderName.endsWith("/") ? folderName : folderName + "/";
     }
 }

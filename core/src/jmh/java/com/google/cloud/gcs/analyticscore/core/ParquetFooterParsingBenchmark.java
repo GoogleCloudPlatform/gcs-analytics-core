@@ -25,9 +25,9 @@ import java.util.concurrent.TimeUnit;
 @State(Scope.Benchmark)
 public class ParquetFooterParsingBenchmark {
 
-    @Setup(Level.Invocation)
+    @Setup(Level.Trial)
     public void uploadSampleFiles() throws IOException {
-        // TODO - Generate and upload files used for benchmarking
+        IntegrationTestHelper.uploadSampleParquetFilesIfNotExists();
     }
 
     @Benchmark
@@ -37,8 +37,8 @@ public class ParquetFooterParsingBenchmark {
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
     public void smallFile(ParquetFooterPrefetchState state) throws IOException {
-        URI uri = IntegrationTestHelper.getGcsObjectUriForFile("tpcds_customer_small.parquet");
-        ParquetHelper.readParquetMetadata(uri, state.enableFooterPrefetch);
+        URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE);
+        ParquetHelper.readParquetMetadata(uri, state.footerPrefetchSize);
     }
 
     @Benchmark
@@ -48,8 +48,8 @@ public class ParquetFooterParsingBenchmark {
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
     public void mediumFile(ParquetFooterPrefetchState state) throws IOException {
-        URI uri = IntegrationTestHelper.getGcsObjectUriForFile("tpcds_customer_large.parquet");
-        ParquetHelper.readParquetMetadata(uri, state.enableFooterPrefetch);
+        URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE);
+        ParquetHelper.readParquetMetadata(uri, state.footerPrefetchSize);
     }
 
     @Benchmark
@@ -59,7 +59,7 @@ public class ParquetFooterParsingBenchmark {
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
     public void largeFile(ParquetFooterPrefetchState state) throws IOException {
-        URI uri = IntegrationTestHelper.getGcsObjectUriForFile("tpcds_customer_large.parquet");
-        ParquetHelper.readParquetMetadata(uri, state.enableFooterPrefetch);
+        URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE);
+        ParquetHelper.readParquetMetadata(uri, state.footerPrefetchSize);
     }
 }

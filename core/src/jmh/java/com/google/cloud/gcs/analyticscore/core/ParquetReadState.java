@@ -21,7 +21,10 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
 
 @State(Scope.Benchmark)
-public class ParquetReadState extends ParquetFooterPrefetchState {
+public class ParquetReadState {
     @Param({"true", "false"})
     public boolean enableVectoredRead;
+
+    @Param({ "0", "102400" })
+    public int footerPrefetchSize;
 }

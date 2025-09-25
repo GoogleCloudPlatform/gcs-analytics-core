@@ -60,17 +60,6 @@ public class ParquetHelper {
             new ColumnDescriptor(new String[] {"c_last_review_date_sk"}, new PrimitiveType(Type.Repetition.OPTIONAL, INT64, "c_last_review_date_sk"), 0, 1)
     );
 
-    public static final ImmutableList<ColumnDescriptor> TPCH_CUSTOMER_TABLE_COLUMNS = ImmutableList.of(
-            new ColumnDescriptor(new String[] {"custkey"}, new PrimitiveType(Type.Repetition.OPTIONAL, INT64, "custkey"), 0, 1),
-            new ColumnDescriptor(new String[] {"name"}, new PrimitiveType(Type.Repetition.OPTIONAL, BINARY, "name"), 0, 1),
-            new ColumnDescriptor(new String[] {"address"}, new PrimitiveType(Type.Repetition.OPTIONAL, BINARY, "address"), 0, 1),
-            new ColumnDescriptor(new String[] {"nationkey"}, new PrimitiveType(Type.Repetition.OPTIONAL, INT64, "nationkey"), 0, 1),
-            new ColumnDescriptor(new String[] {"phone"}, new PrimitiveType(Type.Repetition.OPTIONAL, BINARY, "phone"), 0, 1),
-            new ColumnDescriptor(new String[] {"acctbal"}, new PrimitiveType(Type.Repetition.OPTIONAL, DOUBLE, "acctbal"), 0, 1),
-            new ColumnDescriptor(new String[] {"mktsegment"}, new PrimitiveType(Type.Repetition.OPTIONAL, BINARY, "mktsegment"), 0, 1),
-            new ColumnDescriptor(new String[] {"comment"}, new PrimitiveType(Type.Repetition.OPTIONAL, BINARY, "comment"), 0, 1)
-    );
-
     /**
      * Reads the metadata from a Parquet file.
      *
@@ -78,16 +67,15 @@ public class ParquetHelper {
      * @return The ParquetMetadata object.
      * @throws IOException if an I/O error occurs while reading the file.
      */
-    public static ParquetMetadata readParquetMetadata(URI fileUri, boolean enableFooterPrefetch) throws IOException {
-        logger.info("Reading parquet file metadata: {} with enableFooterPrefetch: {}", fileUri, enableFooterPrefetch);
-        InputFile inputFile = new TestInputStreamInputFile(fileUri, false, enableFooterPrefetch);
+    public static ParquetMetadata readParquetMetadata(URI fileUri, int footerPrefetchSize) throws IOException {
+        logger.info("Reading parquet file metadata: {} with footerPrefetchSize: {}", fileUri, footerPrefetchSize);
+        InputFile inputFile = new TestInputStreamInputFile(fileUri, false, footerPrefetchSize);
         // Configuration can be customized if needed
         Configuration conf = new Configuration();
         try (ParquetFileReader reader = ParquetFileReader.open(inputFile)) {
             return reader.getFooter();
         }
     }
-
 
     /**
      * Reads the records from a Parquet file and returns the total record count.
@@ -97,8 +85,8 @@ public class ParquetHelper {
      * @return The total number of records in the file.
      */
 
-    public static long readParquetObjectRecords(URI fileUri, boolean readVectoredEnabled, boolean footerPrefetchEnabled)  {
-        return readParquetObjectRecords(fileUri, null, readVectoredEnabled, footerPrefetchEnabled);
+    public static long readParquetObjectRecords(URI fileUri, boolean readVectoredEnabled, int footerPrefetchSize)  {
+        return readParquetObjectRecords(fileUri, null, readVectoredEnabled, footerPrefetchSize);
     }
 
     /**
@@ -107,13 +95,13 @@ public class ParquetHelper {
      * @param fileUri The URI of the Parquet file.
      * @param requestedSchema The requested schema to read from the Parquet file.
      * @param readVectoredEnabled Whether to use vectored read or not.
-     * @param footerPrefetchEnabled Whether to prefetch the footer or not.
+     * @param footerPrefetchSize Size of footer prefetch buffer, 0 to disable footer prefetching.
      * @return The total number of records in the file.
      */
-    public static long readParquetObjectRecords(URI fileUri, String requestedSchema, boolean readVectoredEnabled, boolean footerPrefetchEnabled)  {
-        logger.info("Reading parquet file:{} with footerPrefetchEnabled={} vectoredIOEnabled={}", fileUri, footerPrefetchEnabled, readVectoredEnabled);
+    public static long readParquetObjectRecords(URI fileUri, String requestedSchema, boolean readVectoredEnabled, int footerPrefetchSize)  {
+        logger.info("Reading parquet file:{} with footerPrefetchSize={} vectoredIOEnabled={}", fileUri, footerPrefetchSize, readVectoredEnabled);
         try {
-            InputFile inputFile = new TestInputStreamInputFile(fileUri, readVectoredEnabled, footerPrefetchEnabled);
+            InputFile inputFile = new TestInputStreamInputFile(fileUri, readVectoredEnabled, footerPrefetchSize);
 
             long recordCount = 0;
             Configuration conf = new Configuration();

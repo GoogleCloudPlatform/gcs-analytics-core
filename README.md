@@ -37,7 +37,16 @@ The coverage report can be found in `coverage/target/site/jacoco-aggregate`.
 To run integration tests:
 ```shell
 gcloud auth application-default login
+
 ./mvnw -Pintegration-test verify
   -Dgcs.integration.test.bucket=$BUCKET -Dgcs.integration.test.project-id=$PROJECT_ID \
   -Dmaven.javadoc.skip=true -Dsource.skip=true  -Dgpg.skip=true -Dgcs.integration.test.bucket.folder=$FOLDER_NAME
+```
+
+To run micro benchmarks:
+```shell
+./mvnw -Pjmh clean package -Dmaven.javadoc.skip=true -Dsource.skip=true  -Dgpg.skip=true
+
+java -Dgcs.integration.test.bucket=$BUCKET_NAME -Dgcs.integration.test.project-id=$PROJECT_ID \
+ -Dgcs.integration.test.bucket.folder=$FOLDER_NAME -jar core/target/benchmarks.jar
 ```
