@@ -28,24 +28,17 @@ public class TestInputStreamInputFile implements InputFile {
     private GcsFileSystem gcsFileSystem;
     private final URI fileUri;
     private final boolean enableVectoredIO;
-    private final boolean enableFooterPrefetch;
     private Long size;
 
-    public TestInputStreamInputFile(URI filePath, boolean enableVectoredIO, boolean enableFooterPrefetch) throws IOException {
-        this.enableFooterPrefetch = enableFooterPrefetch;
+    public TestInputStreamInputFile(URI filePath, boolean enableVectoredIO, int footerPrefetchSize) throws IOException {
         this.enableVectoredIO = enableVectoredIO;
         this.fileUri = filePath;
-        GcsReadOptions.Builder gcsReadOptions = GcsReadOptions.builder();
-        gcsReadOptions.setFooterPrefetchSize(enableFooterPrefetch ? 102400 : 0);
+        GcsReadOptions gcsReadOptions = GcsReadOptions.builder().setFooterPrefetchSize(footerPrefetchSize).build();
         GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.builder().setGcsClientOptions(
-                GcsClientOptions.builder().setGcsReadOptions(gcsReadOptions.build()).build()
+                GcsClientOptions.builder().setGcsReadOptions(gcsReadOptions).build()
         ).build();
 
         this.gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
-    }
-
-    public TestInputStreamInputFile(URI filePath, boolean enableVectoredIO) throws IOException {
-        this(filePath, enableVectoredIO, true);
     }
 
     @Override
