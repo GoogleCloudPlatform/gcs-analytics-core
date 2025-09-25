@@ -30,7 +30,6 @@ import java.util.List;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -42,55 +41,51 @@ import org.slf4j.LoggerFactory;
 // TODO - Add generator function on place of bundling sample parquet files in resources.
 class GoogleCloudStorageInputStreamIntegrationTest {
   private static final Logger logger = LoggerFactory.getLogger(GoogleCloudStorageInputStreamIntegrationTest.class);
-  private static final File TPCDS_CUSTOMER_SF1 = IntegrationTestHelper.getFileFromResources(
-          "/sampleParquetFiles/tpcds_customer_sf1.parquet");
-  private static final File TPCDS_CUSTOMER_SF10 = IntegrationTestHelper.getFileFromResources(
-          "/sampleParquetFiles/tpcds_customer_sf10.parquet");
-  private static final File TPCDS_CUSTOMER_SF100 = IntegrationTestHelper.getFileFromResources(
-          "/sampleParquetFiles/tpcds_customer_sf100.parquet");
-  private static final File TPCH_CUSTOMER_SF10 = IntegrationTestHelper.getFileFromResources(
-          "/sampleParquetFiles/tpch_customer_sf10.parquet");
+  private static final File TPCDS_CUSTOMER_SMALL = IntegrationTestHelper.getFileFromResources(
+          "/sampleParquetFiles/tpcds_customer_small.parquet");
+  private static final File TPCDS_CUSTOMER_MEDIUM = IntegrationTestHelper.getFileFromResources(
+          "/sampleParquetFiles/tpcds_customer_medium.parquet");
+  private static final File TPCDS_CUSTOMER_LARGE = IntegrationTestHelper.getFileFromResources(
+          "/sampleParquetFiles/tpcds_customer_large.parquet");
+  private static final File TPCH_CUSTOMER_MEDIUM = IntegrationTestHelper.getFileFromResources(
+          "/sampleParquetFiles/tpch_customer_medium.parquet");
 
   @BeforeAll
   public static void uploadSampleParquetFilesToGcs() throws IOException {
-    IntegrationTestHelper.uploadFileToGcs(TPCDS_CUSTOMER_SF1);
-    IntegrationTestHelper.uploadFileToGcs(TPCDS_CUSTOMER_SF10);
-    IntegrationTestHelper.uploadFileToGcs(TPCDS_CUSTOMER_SF100);
-    IntegrationTestHelper.uploadFileToGcs(TPCH_CUSTOMER_SF10);
-  }
-
-  @AfterAll
-  public static void deleteUploadedFileFromGcs() throws IOException {
-    IntegrationTestHelper.deleteUploadedFilesFromGcs();
+    // TODO - Skip uploading if file already present.
+    IntegrationTestHelper.uploadFileToGcs(TPCDS_CUSTOMER_SMALL);
+    IntegrationTestHelper.uploadFileToGcs(TPCDS_CUSTOMER_MEDIUM);
+    IntegrationTestHelper.uploadFileToGcs(TPCDS_CUSTOMER_LARGE);
+    IntegrationTestHelper.uploadFileToGcs(TPCH_CUSTOMER_MEDIUM);
   }
 
   @ParameterizedTest
   @ValueSource(
-          strings = {"tpcds_customer_sf1.parquet",
-                  "tpcds_customer_sf10.parquet",
-                  "tpcds_customer_sf100.parquet",
-                  "tpch_customer_sf10.parquet"})
+          strings = {"tpcds_customer_small.parquet",
+                  "tpcds_customer_medium.parquet",
+                  "tpcds_customer_large.parquet",
+                  "tpch_customer_medium.parquet"})
   void forSampleParquetFiles_vectoredIOEnabled_readsFileSuccessfully(String fileName) throws IOException {
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
-    ParquetHelper.readParquetObjectRecords(true, uri);
+    ParquetHelper.readParquetObjectRecords(uri, true, true);
   }
 
   @ParameterizedTest
   @ValueSource(
-          strings = {"tpcds_customer_sf1.parquet",
-                  "tpcds_customer_sf10.parquet",
-                  "tpcds_customer_sf100.parquet",
-                  "tpch_customer_sf10.parquet"})
+          strings = {"tpcds_customer_small.parquet",
+                  "tpcds_customer_medium.parquet",
+                  "tpcds_customer_large.parquet",
+                  "tpch_customer_medium.parquet"})
   void forSampleParquetFiles_vectoredIODisabled_readsFileSuccessfully(String fileName) throws IOException {
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
-    ParquetHelper.readParquetObjectRecords(false, uri);
+    ParquetHelper.readParquetObjectRecords(uri, false, false);
   }
 
   @ParameterizedTest
   @ValueSource(
-          strings = {"tpcds_customer_sf1.parquet",
-                  "tpcds_customer_sf10.parquet",
-                  "tpcds_customer_sf100.parquet"})
+          strings = {"tpcds_customer_small.parquet",
+                  "tpcds_customer_medium.parquet",
+                  "tpcds_customer_large.parquet"})
   void tpcdsCustomerTableData_footerPrefetchingEnabled_parsesParquetSchemaCorrectly(String fileName) throws IOException {
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
 
@@ -104,7 +99,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"tpch_customer_sf10.parquet"})
+  @ValueSource(strings = {"tpch_customer_medium.parquet"})
   void tpchCustomerTableData_footerPrefetchingEnabled_parsesParquetSchemaCorrectly(String fileName) throws IOException {
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
 
@@ -115,33 +110,5 @@ class GoogleCloudStorageInputStreamIntegrationTest {
       assertTrue(columnDescriptorsList.contains(descriptor));
     }
     assertTrue(columnDescriptorsList.size() == ParquetHelper.TPCH_CUSTOMER_TABLE_COLUMNS.size());
-  }
-
-  @ParameterizedTest
-  @ValueSource(
-          strings = {"tpcds_customer_sf1.parquet",
-                  "tpcds_customer_sf10.parquet",
-                  "tpcds_customer_sf100.parquet"})
-  void parseParquetSchema_performsBetterWithFooterPrefetchingEnabled(String fileName) throws IOException {
-    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
-
-    long executionTimeWithoutPrefetching = IntegrationTestHelper.measureExecutionTime(() -> {
-      try {
-        ParquetHelper.readParquetMetadata(uri, false);
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-    });
-
-    long executionTimeWithPrefetching = IntegrationTestHelper.measureExecutionTime(() -> {
-      try {
-        ParquetHelper.readParquetMetadata(uri, true);
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-    });
-
-    logger.warn("Execution times (with/without prefetching): {}ms / {}ms",
-            executionTimeWithPrefetching, executionTimeWithoutPrefetching);
   }
 }

@@ -96,14 +96,31 @@ public class ParquetHelper {
      * @param fileUri The URI of the Parquet file.
      * @return The total number of records in the file.
      */
-    public static long readParquetObjectRecords(boolean readVectoredEnabled, URI fileUri)  {
-        logger.info("Reading parquet file:{} with vectoredIOEnabled={}", fileUri, readVectoredEnabled);
+
+    public static long readParquetObjectRecords(URI fileUri, boolean readVectoredEnabled, boolean footerPrefetchEnabled)  {
+        return readParquetObjectRecords(fileUri, null, readVectoredEnabled, footerPrefetchEnabled);
+    }
+
+    /**
+     * Reads the records from a Parquet file and returns the total record count.
+     *
+     * @param fileUri The URI of the Parquet file.
+     * @param requestedSchema The requested schema to read from the Parquet file.
+     * @param readVectoredEnabled Whether to use vectored read or not.
+     * @param footerPrefetchEnabled Whether to prefetch the footer or not.
+     * @return The total number of records in the file.
+     */
+    public static long readParquetObjectRecords(URI fileUri, String requestedSchema, boolean readVectoredEnabled, boolean footerPrefetchEnabled)  {
+        logger.info("Reading parquet file:{} with footerPrefetchEnabled={} vectoredIOEnabled={}", fileUri, footerPrefetchEnabled, readVectoredEnabled);
         try {
-            InputFile inputFile = new TestInputStreamInputFile(fileUri, readVectoredEnabled);
+            InputFile inputFile = new TestInputStreamInputFile(fileUri, readVectoredEnabled, footerPrefetchEnabled);
+
             long recordCount = 0;
-            try (ParquetReader<Group> reader = new GroupParquetReaderBuilder(inputFile)
-                    .withConf(new Configuration()) // Use default Hadoop config
-                    .build()) {
+            Configuration conf = new Configuration();
+            if (requestedSchema != null) {
+                conf.set("parquet.read.schema", requestedSchema);
+            }
+            try (ParquetReader<Group> reader = new GroupParquetReaderBuilder(inputFile).withConf(conf).build()) {
                 Group group;
                 while ((group = reader.read()) != null) {
                     recordCount += 1;
