@@ -30,7 +30,6 @@ import java.util.List;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -39,62 +38,53 @@ import org.slf4j.LoggerFactory;
 
 @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
 @EnabledIfSystemProperty(named = "gcs.integration.test.project-id", matches = ".+")
-// TODO - Add generator function on place of bundling sample parquet files in resources.
 class GoogleCloudStorageInputStreamIntegrationTest {
   private static final Logger logger = LoggerFactory.getLogger(GoogleCloudStorageInputStreamIntegrationTest.class);
-  private static final File TPCDS_CUSTOMER_SF1 = IntegrationTestHelper.getFileFromResources(
-          "/sampleParquetFiles/tpcds_customer_sf1.parquet");
-  private static final File TPCDS_CUSTOMER_SF10 = IntegrationTestHelper.getFileFromResources(
-          "/sampleParquetFiles/tpcds_customer_sf10.parquet");
-  private static final File TPCDS_CUSTOMER_SF100 = IntegrationTestHelper.getFileFromResources(
-          "/sampleParquetFiles/tpcds_customer_sf100.parquet");
-  private static final File TPCH_CUSTOMER_SF10 = IntegrationTestHelper.getFileFromResources(
-          "/sampleParquetFiles/tpch_customer_sf10.parquet");
 
   @BeforeAll
   public static void uploadSampleParquetFilesToGcs() throws IOException {
-    IntegrationTestHelper.uploadFileToGcs(TPCDS_CUSTOMER_SF1);
-    IntegrationTestHelper.uploadFileToGcs(TPCDS_CUSTOMER_SF10);
-    IntegrationTestHelper.uploadFileToGcs(TPCDS_CUSTOMER_SF100);
-    IntegrationTestHelper.uploadFileToGcs(TPCH_CUSTOMER_SF10);
-  }
-
-  @AfterAll
-  public static void deleteUploadedFileFromGcs() throws IOException {
-    IntegrationTestHelper.deleteUploadedFilesFromGcs();
+    IntegrationTestHelper.uploadSampleParquetFilesIfNotExists();
   }
 
   @ParameterizedTest
   @ValueSource(
-          strings = {"tpcds_customer_sf1.parquet",
-                  "tpcds_customer_sf10.parquet",
-                  "tpcds_customer_sf100.parquet",
-                  "tpch_customer_sf10.parquet"})
-  void forSampleParquetFiles_vectoredIOEnabled_readsFileSuccessfully(String fileName) throws IOException {
+          strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE})
+  void forSampleParquetFiles_vectoredIOEnabled_readsFileSuccessfully(String fileName) {
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
-    ParquetHelper.readParquetObjectRecords(true, uri);
+    ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, /* footerPrefetchSize= */ 0);
   }
 
   @ParameterizedTest
   @ValueSource(
-          strings = {"tpcds_customer_sf1.parquet",
-                  "tpcds_customer_sf10.parquet",
-                  "tpcds_customer_sf100.parquet",
-                  "tpch_customer_sf10.parquet"})
-  void forSampleParquetFiles_vectoredIODisabled_readsFileSuccessfully(String fileName) throws IOException {
+          strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE})
+  void forSampleParquetFiles_vectoredIOEnabled_footerPrefetchingEnabled_readsFileSuccessfully(String fileName) {
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
-    ParquetHelper.readParquetObjectRecords(false, uri);
+    ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, /* footerPrefetchSize= */ 102400);
   }
 
   @ParameterizedTest
   @ValueSource(
-          strings = {"tpcds_customer_sf1.parquet",
-                  "tpcds_customer_sf10.parquet",
-                  "tpcds_customer_sf100.parquet"})
+          strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE})
+  void forSampleParquetFiles_vectoredIODisabled_readsFileSuccessfully(String fileName) {
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+    ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ false, /* footerPrefetchSize= */ 0);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+          strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE})
   void tpcdsCustomerTableData_footerPrefetchingEnabled_parsesParquetSchemaCorrectly(String fileName) throws IOException {
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
 
-    ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, true);
+    ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, /* footerPrefetchSize= */ 102400);
 
     List<ColumnDescriptor> columnDescriptorsList = metadata.getFileMetaData().getSchema().getColumns();
     for(ColumnDescriptor descriptor : ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS) {
@@ -104,44 +94,19 @@ class GoogleCloudStorageInputStreamIntegrationTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"tpch_customer_sf10.parquet"})
-  void tpchCustomerTableData_footerPrefetchingEnabled_parsesParquetSchemaCorrectly(String fileName) throws IOException {
+  @ValueSource(
+          strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE})
+  void tpcdsCustomerTableData_footerPrefetchingDisabled_parsesParquetSchemaCorrectly(String fileName) throws IOException {
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
 
-    ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, true);
+    ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, /* footerPrefetchSize= */ 0);
 
     List<ColumnDescriptor> columnDescriptorsList = metadata.getFileMetaData().getSchema().getColumns();
-    for(ColumnDescriptor descriptor : ParquetHelper.TPCH_CUSTOMER_TABLE_COLUMNS) {
+    for(ColumnDescriptor descriptor : ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS) {
       assertTrue(columnDescriptorsList.contains(descriptor));
     }
-    assertTrue(columnDescriptorsList.size() == ParquetHelper.TPCH_CUSTOMER_TABLE_COLUMNS.size());
-  }
-
-  @ParameterizedTest
-  @ValueSource(
-          strings = {"tpcds_customer_sf1.parquet",
-                  "tpcds_customer_sf10.parquet",
-                  "tpcds_customer_sf100.parquet"})
-  void parseParquetSchema_performsBetterWithFooterPrefetchingEnabled(String fileName) throws IOException {
-    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
-
-    long executionTimeWithoutPrefetching = IntegrationTestHelper.measureExecutionTime(() -> {
-      try {
-        ParquetHelper.readParquetMetadata(uri, false);
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-    });
-
-    long executionTimeWithPrefetching = IntegrationTestHelper.measureExecutionTime(() -> {
-      try {
-        ParquetHelper.readParquetMetadata(uri, true);
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-    });
-
-    logger.warn("Execution times (with/without prefetching): {}ms / {}ms",
-            executionTimeWithPrefetching, executionTimeWithoutPrefetching);
+    assertTrue(columnDescriptorsList.size() == ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS.size());
   }
 }

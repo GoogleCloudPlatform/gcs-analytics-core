@@ -78,6 +78,7 @@ limitations under the License.
         <cloud.libraries.bom.version>26.68.0</cloud.libraries.bom.version>
         <apache.commons.version>3.18.0</apache.commons.version>
         <apache.parquet.version>1.16.0</apache.parquet.version>
+        <apache.avro.version>1.11.4</apache.avro.version>
         <apache.hadoop.version>3.4.2</apache.hadoop.version>
     </properties>
 
@@ -339,6 +340,11 @@ limitations under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-avro</artifactId>
+                <version>${apache.parquet.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-column</artifactId>
                 <version>${apache.parquet.version}</version>
             </dependency>
@@ -346,6 +352,11 @@ limitations under the License.
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-hadoop</artifactId>
                 <version>${apache.parquet.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro</artifactId>
+                <version>${apache.avro.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
@@ -418,6 +429,7 @@ limitations under the License.
                 <plugin>
                     <groupId>com.diffplug.spotless</groupId>
                     <artifactId>spotless-maven-plugin</artifactId>
+                    <version>2.46.1</version>
                     <configuration>
                         <formats>
                             <format>
