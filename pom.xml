@@ -67,7 +67,7 @@ limitations under the License.
         <build.java.target.version>11</build.java.target.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <google.auto-value.version>1.11.0</google.auto-value.version>
-        <google.cloud-storage.bom.version>2.57.0</google.cloud-storage.bom.version>
+        <google.cloud-storage.bom.version>2.58.0</google.cloud-storage.bom.version>
         <google.guava.version>33.5.0-jre</google.guava.version>
         <google.java-format.version>1.17.0</google.java-format.version>
         <google.error-prone.version>2.16</google.error-prone.version>
@@ -76,7 +76,7 @@ limitations under the License.
         <truth.version>1.4.5</truth.version>
         <junit.jupiter.version>5.13.4</junit.jupiter.version>
         <cloud.libraries.bom.version>26.68.0</cloud.libraries.bom.version>
-        <apache.commons.version>3.18.0</apache.commons.version>
+        <apache.commons.version>3.19.0</apache.commons.version>
         <apache.parquet.version>1.16.0</apache.parquet.version>
         <apache.hadoop.version>3.4.2</apache.hadoop.version>
     </properties>
