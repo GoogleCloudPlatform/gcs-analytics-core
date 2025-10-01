@@ -36,6 +36,7 @@ class GcsReadOptionsTest {
             .put("fs.gs.vectored.read.min.range.seek.size", "1024")
             .put("fs.gs.vectored.read.merged.range.max.size", "2048")
             .put("fs.gs.footer.prefetch.size", "4194304")
+            .put("fs.gs.footer.prefetch.small-object-caching.enabled", "false")
             .build();
     String prefix = "fs.gs.";
 
@@ -46,6 +47,7 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getDecryptionKey()).isEqualTo(Optional.of("test-key"));
     assertThat(readOptions.getProjectId()).isEqualTo(Optional.of("test-project"));
     assertThat(readOptions.getFooterPrefetchSize()).isEqualTo(4194304);
+    assertThat(readOptions.isSmallObjectCache()).isFalse();
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(1024);
     assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(2048);
   }
@@ -62,6 +64,7 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getDecryptionKey()).isEqualTo(Optional.empty());
     assertThat(readOptions.getProjectId()).isEqualTo(Optional.empty());
     assertThat(readOptions.getFooterPrefetchSize()).isEqualTo(2 * 1024 * 1024); // Default value
+    assertThat(readOptions.isSmallObjectCache()).isTrue(); // Default value
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(4 * 1024); // Default value
     assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(8 * 1024 * 1024); // Default value
   }

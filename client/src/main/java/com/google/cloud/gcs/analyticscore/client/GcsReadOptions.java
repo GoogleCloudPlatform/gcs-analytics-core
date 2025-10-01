@@ -26,8 +26,11 @@ public abstract class GcsReadOptions {
   private static final String DECRYPTION_KEY_KEY = "decryption.key";
   private static final String PROJECT_ID_KEY = "project.id";
   private static final String FOOTER_PREFETCH_SIZE = "footer.prefetch.size";
+  private static final String SMALL_OBJECT_CACHE_KEY =
+      "footer.prefetch.small-object-caching.enabled";
 
   private static final long DEFAULT_FOOTER_PREFETCH_SIZE = 2097152; // 2mb
+  private static final boolean DEFAULT_SMALL_OBJECT_CACHE = true;
 
   public abstract Optional<Integer> getChunkSize();
 
@@ -37,12 +40,15 @@ public abstract class GcsReadOptions {
 
   public abstract long getFooterPrefetchSize();
 
+  public abstract boolean isSmallObjectCache();
+
   public abstract GcsVectoredReadOptions getGcsVectoredReadOptions();
 
   public static Builder builder() {
     return new AutoValue_GcsReadOptions.Builder()
         .setGcsVectoredReadOptions(GcsVectoredReadOptions.builder().build())
-        .setFooterPrefetchSize(DEFAULT_FOOTER_PREFETCH_SIZE);
+        .setFooterPrefetchSize(DEFAULT_FOOTER_PREFETCH_SIZE)
+        .setSmallObjectCache(DEFAULT_SMALL_OBJECT_CACHE);
   }
 
   public static GcsReadOptions createFromOptions(
@@ -69,6 +75,10 @@ public abstract class GcsReadOptions {
         optionsBuilder.setFooterPrefetchSize(prefetchSize);
       }
     }
+    if (analyticsCoreOptions.containsKey(prefix + SMALL_OBJECT_CACHE_KEY)) {
+      optionsBuilder.setSmallObjectCache(
+          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + SMALL_OBJECT_CACHE_KEY)));
+    }
     optionsBuilder.setGcsVectoredReadOptions(
         GcsVectoredReadOptions.createFromOptions(analyticsCoreOptions, prefix));
 
@@ -88,6 +98,8 @@ public abstract class GcsReadOptions {
     public abstract Builder setGcsVectoredReadOptions(GcsVectoredReadOptions vectoredReadOptions);
 
     public abstract Builder setFooterPrefetchSize(long footerPrefetchSize);
+
+    public abstract Builder setSmallObjectCache(boolean smallObjectCache);
 
     public abstract GcsReadOptions build();
   }
