@@ -22,8 +22,8 @@ limitations under the License.
         <artifactId>gcs-analytics-core-parent</artifactId>
         <version>1.0.1-SNAPSHOT</version>
     </parent>
-    <name>core</name>
-    <artifactId>core</artifactId>
+    <name>gcs-analytics-core</name>
+    <artifactId>gcs-analytics-core</artifactId>
 
     <properties>
         <maven.compiler.source>11</maven.compiler.source>
@@ -171,20 +171,4 @@ limitations under the License.
             </build>
         </profile>
     </profiles>
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-gpg-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-javadoc-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-source-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
 </project>
