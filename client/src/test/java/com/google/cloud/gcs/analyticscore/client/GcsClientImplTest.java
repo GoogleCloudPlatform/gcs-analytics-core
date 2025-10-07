@@ -82,7 +82,7 @@ class GcsClientImplTest {
 
     assertThat(itemInfo.getItemId()).isEqualTo(itemId);
     assertThat(itemInfo.getSize()).isEqualTo(objectData.length());
-    assertThat(itemInfo.getContentGeneration()).isEqualTo(0L);
+    assertThat(itemInfo.getContentGeneration().get()).isEqualTo(0L);
   }
 
   @Test

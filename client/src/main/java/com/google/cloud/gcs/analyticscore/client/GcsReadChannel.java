@@ -208,11 +208,12 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       throws IOException {
     checkArgument(
         itemInfo.getItemId().isGcsObject(), "Expected Gcs Object but got %s", itemInfo.getItemId());
+    String bucketName = itemInfo.getItemId().getBucketName();
+    String objectName = itemInfo.getItemId().getObjectName().get();
     BlobId blobId =
-        BlobId.of(
-            itemInfo.getItemId().getBucketName(),
-            itemInfo.getItemId().getObjectName().get(),
-            itemInfo.getContentGeneration());
+        itemInfo.getContentGeneration()
+            .map(gen -> BlobId.of(bucketName, objectName, gen))
+            .orElse(BlobId.of(bucketName, objectName));
     List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
     readOptions
         .getProjectId()

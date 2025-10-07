@@ -17,6 +17,8 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
 
+import java.util.Optional;
+
 /** Represents metadata of a GCS Item. */
 @AutoValue
 public abstract class GcsItemInfo {
@@ -27,7 +29,7 @@ public abstract class GcsItemInfo {
   public abstract long getSize();
 
   /** Generation ID of the object when the metadata is read. */
-  public abstract long getContentGeneration();
+  public abstract Optional<Long> getContentGeneration();
 
   public static Builder builder() {
     // By default, set size to -1, indicating a non-existent item.
