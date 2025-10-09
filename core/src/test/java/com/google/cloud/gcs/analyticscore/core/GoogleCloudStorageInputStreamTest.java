@@ -946,7 +946,7 @@ class GoogleCloudStorageInputStreamTest {
     when(mockGcsItemInfo.getSize()).thenReturn(smallFileSize);
     GcsReadOptions readOptions =
         GcsReadOptions.builder()
-            .setSmallObjectCache(false) // Disable the cache
+            .setSmallObjectCacheEnabled(false) // Disable the cache
             .setFooterPrefetchSizeSmallFile(prefetchSize)
             .build();
     when(mockClientOptions.getGcsReadOptions()).thenReturn(readOptions);

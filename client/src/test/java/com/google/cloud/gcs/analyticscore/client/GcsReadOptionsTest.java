@@ -51,7 +51,7 @@ class GcsReadOptionsTest {
     assertThat(readOptions.isFooterPrefetchEnabled()).isEqualTo(false);
     assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(41943);
     assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(4194304);
-    assertThat(readOptions.isSmallObjectCache()).isFalse();
+    assertThat(readOptions.isSmallObjectCacheEnabled()).isFalse();
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(1024);
     assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(2048);
   }
@@ -71,7 +71,7 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(100 * 1024); // Default value
     assertThat(readOptions.getFooterPrefetchSizeLargeFile())
         .isEqualTo(1024 * 1024); // Default value
-    assertThat(readOptions.isSmallObjectCache()).isTrue(); // Default value
+    assertThat(readOptions.isSmallObjectCacheEnabled()).isTrue(); // Default value
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(4 * 1024); // Default value
     assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(8 * 1024 * 1024); // Default value
   }
