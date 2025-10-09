@@ -106,7 +106,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   public int read(ByteBuffer byteBuffer) throws IOException {
     checkNotClosed("Cannot read: already closed");
     if (prefetchBuffer == null && position >= fileSize - prefetchSize) {
-      cacheObject();
+      cacheObjectOrFooter();
     }
     if (prefetchBuffer != null && (position >= fileSize - prefetchSize)) {
       return serveFromCache(byteBuffer);
@@ -192,7 +192,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
       // Entire object is cached, serve from prefetchBuffer
       for (GcsObjectRange range : fileRanges) {
         ByteBuffer dest = alloc.apply(range.getLength());
-        int bytesRead = lazyServeFromCache(range.getOffset(), dest);
+        int bytesRead = serveFromCacheWithoutSeek(range.getOffset(), dest);
         if (bytesRead == -1) {
           range
               .getByteBufferFuture()
@@ -208,7 +208,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
     }
   }
 
-  private void cacheObject() throws IOException {
+  private void cacheObjectOrFooter() throws IOException {
     long originalPosition = getPos();
     long startPosition = fileSize - prefetchSize;
     int bufferSize = (int) (fileSize - startPosition);
@@ -216,17 +216,11 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         "Caching GCS object {} from position: {} size: {}", gcsPath, startPosition, bufferSize);
     try {
       ByteBuffer cacheBuffer = ByteBuffer.allocate(bufferSize);
-
       channel.position(startPosition);
-      int count = 0;
       while (cacheBuffer.hasRemaining()) {
         if (channel.read(cacheBuffer) == -1) {
-          throw new IOException("Unexpected EOF while caching footer");
+          throw new IOException("Unexpected EOF encountered.");
         }
-        count += 1;
-        //        if (count > 10000) {
-        //            throw new IOException("INFINITE LOOP");
-        //        }
       }
       cacheBuffer.flip();
       this.prefetchBuffer = cacheBuffer;
@@ -243,14 +237,14 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   }
 
   private int serveFromCache(ByteBuffer buffer) throws IOException {
-    int bytesToRead = lazyServeFromCache(position, buffer);
+    int bytesToRead = serveFromCacheWithoutSeek(position, buffer);
     if (bytesToRead != -1) {
       seek(position + bytesToRead);
     }
     return bytesToRead;
   }
 
-  private int lazyServeFromCache(long currPosition, ByteBuffer buffer) throws IOException {
+  private int serveFromCacheWithoutSeek(long currPosition, ByteBuffer buffer) throws IOException {
     ByteBuffer cacheView = prefetchBuffer.duplicate();
     int cachePosition = (int) (currPosition - (fileSize - prefetchSize));
     cacheView.position(cachePosition);
