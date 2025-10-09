@@ -105,14 +105,12 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   public int read(ByteBuffer byteBuffer) throws IOException {
     checkNotClosed("Cannot read: already closed");
-
     if (prefetchBuffer == null && position >= fileSize - prefetchSize) {
       cacheObject();
     }
     if (prefetchBuffer != null && (position >= fileSize - prefetchSize)) {
       return serveFromCache(byteBuffer);
     }
-
     long channelPosition = channel.position();
     checkState(
         channelPosition == position,
@@ -220,10 +218,15 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
       ByteBuffer cacheBuffer = ByteBuffer.allocate(bufferSize);
 
       channel.position(startPosition);
+      int count = 0;
       while (cacheBuffer.hasRemaining()) {
         if (channel.read(cacheBuffer) == -1) {
           throw new IOException("Unexpected EOF while caching footer");
         }
+        count += 1;
+        //        if (count > 10000) {
+        //            throw new IOException("INFINITE LOOP");
+        //        }
       }
       cacheBuffer.flip();
       this.prefetchBuffer = cacheBuffer;
