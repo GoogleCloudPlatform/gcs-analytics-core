@@ -217,7 +217,7 @@ class GcsFileSystemImplTest {
     GcsFileSystemImpl fileSystemWithMockExecutor =
         new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS) {
           @Override
-          Supplier<ExecutorService> initializeExecutionServiceSupplier() {
+          protected Supplier<ExecutorService> initializeExecutionServiceSupplier() {
             return () -> mockExecutorService;
           }
         };
@@ -238,7 +238,7 @@ class GcsFileSystemImplTest {
     GcsFileSystemImpl fileSystemWithMockExecutor =
         new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS) {
           @Override
-          Supplier<ExecutorService> initializeExecutionServiceSupplier() {
+          protected Supplier<ExecutorService> initializeExecutionServiceSupplier() {
             return () -> mockExecutorService;
           }
         };
@@ -260,7 +260,7 @@ class GcsFileSystemImplTest {
     GcsFileSystemImpl fileSystemWithMockExecutor =
         new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS) {
           @Override
-          Supplier<ExecutorService> initializeExecutionServiceSupplier() {
+          protected Supplier<ExecutorService> initializeExecutionServiceSupplier() {
             return () -> mockExecutorService;
           }
         };

@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit;
 
 public class GcsFileSystemImpl implements GcsFileSystem {
 
-  private final GcsClient gcsClient;
+  private GcsClient gcsClient;
   private final GcsFileSystemOptions fileSystemOptions;
   private final Supplier<ExecutorService> executorServiceSupplier;
 
@@ -111,8 +111,12 @@ public class GcsFileSystemImpl implements GcsFileSystem {
         : fileSystemOptions.getGcsClientOptions();
   }
 
+  protected void setGcsClient(GcsClient gcsClient) {
+    this.gcsClient = gcsClient;
+  }
+
   @VisibleForTesting
-  Supplier<ExecutorService> initializeExecutionServiceSupplier() {
+  protected Supplier<ExecutorService> initializeExecutionServiceSupplier() {
     return Suppliers.memoize(
         () ->
             new ThreadPoolExecutor(

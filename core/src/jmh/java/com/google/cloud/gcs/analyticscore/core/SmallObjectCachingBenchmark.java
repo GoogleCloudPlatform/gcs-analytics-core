@@ -17,10 +17,12 @@
 package com.google.cloud.gcs.analyticscore.core;
 
 
+import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import org.openjdk.jmh.annotations.*;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.io.File;
 
@@ -54,12 +56,15 @@ public class SmallObjectCachingBenchmark {
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
     public void smallFile(SmallObjectCacheState state) throws IOException {
+      GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+              Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
+                      "gcs.analytics-core.small-file.cache.threshold-bytes", state.smallObjectCacheThreshold), "gcs.");
         String requestedSchema = "message requested_schema {\n"
                 + "required binary c_customer_id (STRING);\n"
                 + "optional binary c_first_name (STRING);\n"
                 + "optional binary c_email_address (STRING);\n"
                 + "}";
         URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE);
-        ParquetHelper.readParquetMetadata(uri, state.footerPrefetchSize, state.smallObjectCache);
+        ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
     }
 }

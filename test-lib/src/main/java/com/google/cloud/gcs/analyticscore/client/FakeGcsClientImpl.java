@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 
 public class FakeGcsClientImpl extends GcsClientImpl {
+  public static Storage storage = LocalStorageHelper.getOptions().getService();
 
   private static int openReadChannelCount = 0;
   private static int closeCount = 0;
@@ -43,7 +44,7 @@ public class FakeGcsClientImpl extends GcsClientImpl {
 
   @Override
   protected Storage createStorage(Optional<Credentials> credentials) {
-    return LocalStorageHelper.getOptions().getService();
+    return storage;
   }
 
   @Override

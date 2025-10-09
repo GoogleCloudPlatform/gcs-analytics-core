@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.cloud.ReadChannel;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -34,7 +35,8 @@ import java.util.function.IntFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-class GcsReadChannel implements VectoredSeekableByteChannel {
+@VisibleForTesting
+public class GcsReadChannel implements VectoredSeekableByteChannel {
   private static final Logger LOG = LoggerFactory.getLogger(GcsReadChannel.class);
   private Storage storage;
   private GcsReadOptions readOptions;
@@ -43,7 +45,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private long position = 0;
   private Supplier<ExecutorService> executorServiceSupplier;
 
-  GcsReadChannel(
+  protected GcsReadChannel(
       Storage storage,
       GcsItemInfo itemInfo,
       GcsReadOptions readOptions,

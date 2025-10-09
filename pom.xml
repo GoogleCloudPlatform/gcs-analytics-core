@@ -185,7 +185,6 @@ limitations under the License.
                                         <source>src/jmh/java</source>
                                         <source>src/integrationTest/java</source>
                                     </sources>
-
                                 </configuration>
                             </execution>
                             <execution>

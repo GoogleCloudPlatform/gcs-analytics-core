@@ -18,7 +18,6 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
-import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import java.util.Random;
 
 public class TestDataGenerator {
@@ -52,7 +51,7 @@ public class TestDataGenerator {
    */
   @Deprecated
   public static byte[] createGcsData(GcsItemId itemId, int size) {
-    Storage storage = LocalStorageHelper.getOptions().getService();
+    Storage storage = FakeGcsClientImpl.storage;
     byte[] data = TestDataGenerator.generateSeededRandomBytes(size, 1);
     storage.create(
         BlobInfo.newBuilder(itemId.getBucketName(), itemId.getObjectName().get(), 1L).build(),
