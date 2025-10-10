@@ -26,5 +26,5 @@ public class ParquetReadState {
     public boolean enableVectoredRead;
 
     @Param({ "0", "102400" })
-    public int footerPrefetchSize;
+    public String footerPrefetchSize;
 }

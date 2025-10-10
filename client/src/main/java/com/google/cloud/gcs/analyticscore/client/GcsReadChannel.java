@@ -211,7 +211,8 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     String bucketName = itemInfo.getItemId().getBucketName();
     String objectName = itemInfo.getItemId().getObjectName().get();
     BlobId blobId =
-        itemInfo.getContentGeneration()
+        itemInfo
+            .getContentGeneration()
             .map(gen -> BlobId.of(bucketName, objectName, gen))
             .orElse(BlobId.of(bucketName, objectName));
     List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
