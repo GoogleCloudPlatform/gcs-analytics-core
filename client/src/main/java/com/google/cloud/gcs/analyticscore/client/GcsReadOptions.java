@@ -24,7 +24,6 @@ import java.util.Optional;
 public abstract class GcsReadOptions {
   private static final String GCS_CHANNEL_READ_CHUNK_SIZE_KEY = "channel.read.chunk-size-bytes";
   private static final String DECRYPTION_KEY_KEY = "decryption.key";
-  private static final String PROJECT_ID_KEY = "project.id";
   private static final String FOOTER_PREFETCH_ENABLED_KEY =
       "analytics-core.footer.prefetch.enabled";
   private static final String SMALL_FILE_FOOTER_PREFETCH_SIZE_KEY =
@@ -74,8 +73,9 @@ public abstract class GcsReadOptions {
     if (analyticsCoreOptions.containsKey(prefix + DECRYPTION_KEY_KEY)) {
       optionsBuilder.setDecryptionKey(analyticsCoreOptions.get(prefix + DECRYPTION_KEY_KEY));
     }
-    if (analyticsCoreOptions.containsKey(prefix + PROJECT_ID_KEY)) {
-      optionsBuilder.setProjectId(analyticsCoreOptions.get(prefix + PROJECT_ID_KEY));
+    if (analyticsCoreOptions.containsKey(prefix + GcsClientOptions.PROJECT_ID_KEY)) {
+      optionsBuilder.setProjectId(
+          analyticsCoreOptions.get(prefix + GcsClientOptions.PROJECT_ID_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + FOOTER_PREFETCH_ENABLED_KEY)) {
       optionsBuilder.setFooterPrefetchEnabled(

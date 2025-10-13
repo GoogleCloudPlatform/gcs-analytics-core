@@ -30,17 +30,17 @@ class GcsAnalyticsCoreOptionsTest {
     String appendPrefix = "gcs.";
     ImmutableMap<String, String> options =
         ImmutableMap.of(
-            appendPrefix + "read-thread-count",
+            appendPrefix + "analytics-core.read.thread.count",
             "32",
             appendPrefix + "client.type",
             "GRPC_CLIENT",
-            appendPrefix + "project-id",
+            appendPrefix + "project.id",
             "test-project",
             appendPrefix + "client-lib-token",
             "test-token",
             appendPrefix + "service.host",
             "test-host",
-            appendPrefix + "user-agent.key",
+            appendPrefix + "user-agent",
             "test-agent",
             "some-other-key",
             "some-other-value");
@@ -63,12 +63,12 @@ class GcsAnalyticsCoreOptionsTest {
     String appendPrefix = "";
     ImmutableMap<String, String> options =
         ImmutableMap.of(
-            "read-thread-count", "24",
+            "analytics-core.read.thread.count", "24",
             "client.type", "HTTP_CLIENT",
-            "project-id", "test-project-no-prefix",
+            "project.id", "test-project-no-prefix",
             "client-lib-token", "test-token-no-prefix",
             "service.host", "test-host-no-prefix",
-            "user-agent.key", "test-agent-no-prefix");
+            "user-agent", "test-agent-no-prefix");
     GcsAnalyticsCoreOptions coreOptions = new GcsAnalyticsCoreOptions(appendPrefix, options);
 
     GcsFileSystemOptions fileSystemOptions = coreOptions.getGcsFileSystemOptions();
@@ -88,9 +88,9 @@ class GcsAnalyticsCoreOptionsTest {
     String appendPrefix = "gcs.";
     ImmutableMap<String, String> options =
         ImmutableMap.of(
-            "wrong.prefix.read-thread-count", "32",
+            "wrong.prefix.analytics-core.read.thread.count", "32",
             "wrong.prefix.client.type", "GRPC_CLIENT",
-            "wrong.prefix.project-id", "test-project");
+            "wrong.prefix.project.id", "test-project");
     GcsFileSystemOptions defaultOptions = GcsFileSystemOptions.builder().build();
     GcsAnalyticsCoreOptions coreOptions = new GcsAnalyticsCoreOptions(appendPrefix, options);
 

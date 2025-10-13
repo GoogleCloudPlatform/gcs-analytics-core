@@ -27,8 +27,8 @@ class GcsVectoredReadOptionsTest {
   void createFromOptions_withValidProperties_shouldCreateCorrectOptions() {
     ImmutableMap<String, String> properties =
         ImmutableMap.of(
-            "gcs.analytics-core.read.vectored.min.range.seek.size", "8192",
-            "gcs.analytics-core.read.vectored.merged.range.max.size", "16777216");
+            "gcs.analytics-core.read.vectored.range.merge-gap.max-bytes", "8192",
+            "gcs.analytics-core.read.vectored.range.merged-size.max-bytes", "16777216");
 
     GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "gcs.");
 

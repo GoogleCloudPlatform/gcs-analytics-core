@@ -197,7 +197,8 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
           range
               .getByteBufferFuture()
               .completeExceptionally(
-                  new EOFException(String.format("Error while populating range: %s, unexpected EOF", range)));
+                  new EOFException(
+                      String.format("Error while populating range: %s, unexpected EOF", range)));
         } else {
           dest.flip();
           range.getByteBufferFuture().complete(dest);
