@@ -21,7 +21,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.cloud.ReadChannel;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -35,8 +34,7 @@ import java.util.function.IntFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-@VisibleForTesting
-public class GcsReadChannel implements VectoredSeekableByteChannel {
+class GcsReadChannel implements VectoredSeekableByteChannel {
   private static final Logger LOG = LoggerFactory.getLogger(GcsReadChannel.class);
   private Storage storage;
   private GcsReadOptions readOptions;
@@ -45,7 +43,7 @@ public class GcsReadChannel implements VectoredSeekableByteChannel {
   private long position = 0;
   private Supplier<ExecutorService> executorServiceSupplier;
 
-  protected GcsReadChannel(
+  GcsReadChannel(
       Storage storage,
       GcsItemInfo itemInfo,
       GcsReadOptions readOptions,
@@ -152,11 +150,6 @@ public class GcsReadChannel implements VectoredSeekableByteChannel {
             combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer);
       }
     } catch (Exception e) {
-      LOG.atWarn()
-          .setCause(e)
-          .log(
-              "Exception while reading combinedFileRange:%s for path: %s",
-              combinedObjectRange, itemInfo.getItemId());
       completeWithException(combinedObjectRange, e);
     }
   }
@@ -189,11 +182,6 @@ public class GcsReadChannel implements VectoredSeekableByteChannel {
   private void completeWithException(GcsObjectCombinedRange combinedObjectRange, Throwable e) {
     for (GcsObjectRange child : combinedObjectRange.getUnderlyingRanges()) {
       if (!child.getByteBufferFuture().isDone()) {
-        LOG.atWarn()
-            .setCause(e)
-            .log(
-                "Marking child:%s as `completeExceptionally` of combinedRange:%s",
-                child, combinedObjectRange);
         child
             .getByteBufferFuture()
             .completeExceptionally(

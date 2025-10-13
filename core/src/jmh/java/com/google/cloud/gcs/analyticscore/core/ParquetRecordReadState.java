@@ -21,10 +21,10 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
 
 @State(Scope.Benchmark)
-public class SmallObjectCacheState {
-    @Param({"2097152"}) // 2MB
-    public String footerPrefetchSize;
+public class ParquetRecordReadState {
+    @Param({"true", "false"})
+    public boolean enableVectoredRead;
 
-    @Param({"0", "false"})
-    public String smallObjectCacheThreshold;
+    @Param({ "0", "102400" })
+    public String footerPrefetchSize;
 }

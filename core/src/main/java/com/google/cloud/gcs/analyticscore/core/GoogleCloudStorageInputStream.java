@@ -193,11 +193,11 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
       for (GcsObjectRange range : fileRanges) {
         ByteBuffer dest = alloc.apply(range.getLength());
         int bytesRead = serveFromCacheWithoutSeek(range.getOffset(), dest);
-        if (bytesRead == -1) {
+        if (bytesRead < range.getLength()) {
           range
               .getByteBufferFuture()
               .completeExceptionally(
-                  new EOFException(String.format("Error while populating range: %s", range)));
+                  new EOFException(String.format("Error while populating range: %s, unexpected EOF", range)));
         } else {
           dest.flip();
           range.getByteBufferFuture().complete(dest);

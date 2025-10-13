@@ -21,7 +21,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Utility class for parsing and formatting GCS URIs. */
-public final class UriUtil {
+final class UriUtil {
 
   private UriUtil() {}
 
@@ -36,7 +36,7 @@ public final class UriUtil {
   private static final Pattern GCS_PATH_PATTERN = Pattern.compile("gs://(([^/]+)(/(.+)?)?)?");
 
   /** Parses {@link GcsItemId} from specified string. */
-  public static GcsItemId getItemIdFromString(String path) {
+  static GcsItemId getItemIdFromString(String path) {
     checkArgument(path != null, "path should not be null");
 
     Matcher matcher = GCS_PATH_PATTERN.matcher(path);

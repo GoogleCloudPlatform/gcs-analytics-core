@@ -38,7 +38,7 @@ public class ParquetFooterParsingBenchmark {
     @Warmup(iterations = 1, time = 1)
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
-    public void smallFile(ParquetFooterPrefetchState state) throws IOException {
+    public void smallFile(ParquetFooterParsingState state) throws IOException {
       GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
               Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
@@ -53,7 +53,7 @@ public class ParquetFooterParsingBenchmark {
     @Warmup(iterations = 1, time = 1)
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
-    public void mediumFile(ParquetFooterPrefetchState state) throws IOException {
+    public void mediumFile(ParquetFooterParsingState state) throws IOException {
       GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
               Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
@@ -68,7 +68,7 @@ public class ParquetFooterParsingBenchmark {
     @Warmup(iterations = 1, time = 1)
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
-    public void largeFile(ParquetFooterPrefetchState state) throws IOException {
+    public void largeFile(ParquetFooterParsingState state) throws IOException {
       GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
               Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,

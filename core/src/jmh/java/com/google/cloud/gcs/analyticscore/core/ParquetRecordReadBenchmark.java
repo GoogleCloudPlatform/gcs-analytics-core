@@ -49,7 +49,7 @@ public class ParquetRecordReadBenchmark {
     @Warmup(iterations = 1, time = 1)
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
-    public void smallFile(ParquetReadState state) throws IOException {
+    public void smallFile(ParquetRecordReadState state) throws IOException {
       GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
               Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
@@ -69,7 +69,7 @@ public class ParquetRecordReadBenchmark {
     @Warmup(iterations = 1, time = 1)
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
-    public void mediumFile(ParquetReadState state) throws IOException {
+    public void mediumFile(ParquetRecordReadState state) throws IOException {
       GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
               Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
@@ -89,7 +89,7 @@ public class ParquetRecordReadBenchmark {
     @Warmup(iterations = 1, time = 1)
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
-    public void largeFile(ParquetReadState state) throws IOException {
+    public void largeFile(ParquetRecordReadState state) throws IOException {
       GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
               Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
@@ -109,7 +109,7 @@ public class ParquetRecordReadBenchmark {
     @Warmup(iterations = 1, time = 1)
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
-    public void xLargeFile(ParquetReadState state) throws IOException {
+    public void xLargeFile(ParquetRecordReadState state) throws IOException {
       GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
               Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
