@@ -80,9 +80,9 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
       this.prefetchSize = 0;
     } else if (fileSize > 1024 * 1024 * 1024) {
       // If file size is greater than 1GB, then LargeFile else small file.
-      this.prefetchSize = Math.min(readOptions.getFooterPrefetchSizeLargeFile(),fileSize);
+      this.prefetchSize = Math.min(readOptions.getFooterPrefetchSizeLargeFile(), fileSize);
     } else {
-      this.prefetchSize = Math.min(readOptions.getFooterPrefetchSizeSmallFile(),fileSize);
+      this.prefetchSize = Math.min(readOptions.getFooterPrefetchSizeSmallFile(), fileSize);
     }
     this.smallObjectCacheEnabled = readOptions.isSmallObjectCache();
   }
