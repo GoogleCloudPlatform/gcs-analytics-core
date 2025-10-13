@@ -16,61 +16,51 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import com.google.cloud.storage.StorageOptions;
+import com.google.auth.Credentials;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import java.io.IOException;
-import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 
-public class FakeGcsClientImpl implements GcsClient {
-  private final Supplier<ExecutorService> executorServiceSupplier;
-  private final Map<GcsItemId, Long> itemIdToSizeMap;
+public class FakeGcsClientImpl extends GcsClientImpl {
 
   private static int openReadChannelCount = 0;
-  private static int getGcsItemInfoCount = 0;
   private static int closeCount = 0;
 
-  public FakeGcsClientImpl(
-      Map<GcsItemId, Long> itemIdToSizeMap, Supplier<ExecutorService> executorServiceSupplier) {
-    this.itemIdToSizeMap = itemIdToSizeMap;
-    this.executorServiceSupplier = executorServiceSupplier;
+  FakeGcsClientImpl(
+      Credentials credentials,
+      GcsClientOptions clientOptions,
+      Supplier<ExecutorService> executorServiceSupplier) {
+    super(credentials, clientOptions, executorServiceSupplier);
+  }
+
+  FakeGcsClientImpl(
+      GcsClientOptions clientOptions, Supplier<ExecutorService> executorServiceSupplier) {
+    super(clientOptions, executorServiceSupplier);
+  }
+
+  @Override
+  protected Storage createStorage(Optional<Credentials> credentials) {
+    return LocalStorageHelper.getOptions().getService();
   }
 
   @Override
   public VectoredSeekableByteChannel openReadChannel(
       GcsItemInfo itemInfo, GcsReadOptions readOptions) throws IOException {
     openReadChannelCount++;
-    return new FakeGcsReadChannel(
-        StorageOptions.newBuilder().build().getService(),
-        itemInfo,
-        readOptions,
-        executorServiceSupplier);
-  }
-
-  @Override
-  public GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException {
-    getGcsItemInfoCount++;
-    if (!itemIdToSizeMap.containsKey(itemId)) {
-      throw new IOException("Object not found:" + itemId);
-    }
-    if (itemId.isGcsObject()) {
-      return GcsItemInfo.builder().setItemId(itemId).setSize(itemIdToSizeMap.get(itemId)).build();
-    }
-    throw new UnsupportedOperationException(
-        String.format("Expected gcs object but got %s", itemId));
+    return super.openReadChannel(itemInfo, readOptions);
   }
 
   @Override
   public void close() {
     closeCount++;
+    super.close();
   }
 
   public static int getOpenReadChannelCount() {
     return openReadChannelCount;
-  }
-
-  public static int getGetGcsItemInfoCount() {
-    return getGcsItemInfoCount;
   }
 
   public static int getCloseCount() {
@@ -79,7 +69,6 @@ public class FakeGcsClientImpl implements GcsClient {
 
   public static void resetCounts() {
     openReadChannelCount = 0;
-    getGcsItemInfoCount = 0;
     closeCount = 0;
   }
 }

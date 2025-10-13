@@ -67,6 +67,7 @@ limitations under the License.
         <build.java.target.version>11</build.java.target.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <google.auto-value.version>1.11.0</google.auto-value.version>
+        <google.cloud.bom.version>26.39.0</google.cloud.bom.version>
         <google.cloud-storage.bom.version>2.58.1</google.cloud-storage.bom.version>
         <google.guava.version>33.5.0-jre</google.guava.version>
         <google.java-format.version>1.17.0</google.java-format.version>

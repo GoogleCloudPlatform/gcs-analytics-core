@@ -38,6 +38,10 @@
             <artifactId>google-cloud-core</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-nio</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.google.cloud.gcs.analytics</groupId>
             <artifactId>client</artifactId>
         </dependency>

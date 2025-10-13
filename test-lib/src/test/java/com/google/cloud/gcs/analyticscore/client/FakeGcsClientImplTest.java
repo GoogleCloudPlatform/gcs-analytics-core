@@ -20,8 +20,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.google.common.base.Suppliers;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,14 +27,14 @@ import org.junit.jupiter.api.Test;
 class FakeGcsClientImplTest {
 
   private FakeGcsClientImpl fakeGcsClient;
-  private Map<GcsItemId, Long> itemIdToSizeMap;
 
   @BeforeEach
   void setUp() {
-    itemIdToSizeMap = new HashMap<>();
+    GcsFileSystemOptions options = GcsFileSystemOptions.builder().build();
     fakeGcsClient =
         new FakeGcsClientImpl(
-            itemIdToSizeMap, Suppliers.ofInstance(Executors.newSingleThreadExecutor()));
+            options.getGcsClientOptions(),
+            Suppliers.ofInstance(Executors.newSingleThreadExecutor()));
     FakeGcsClientImpl.resetCounts();
   }
 
@@ -46,8 +44,11 @@ class FakeGcsClientImplTest {
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().build();
+    TestDataGenerator.createGcsData(itemId, 100);
 
-    assertNotNull(fakeGcsClient.openReadChannel(itemInfo, readOptions));
+    VectoredSeekableByteChannel channel = fakeGcsClient.openReadChannel(itemInfo, readOptions);
+
+    assertNotNull(channel);
     assertEquals(1, FakeGcsClientImpl.getOpenReadChannelCount());
   }
 
@@ -55,14 +56,13 @@ class FakeGcsClientImplTest {
   void getGcsItemInfo_objectExists_pass() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    itemIdToSizeMap.put(itemId, 100L);
+    TestDataGenerator.createGcsData(itemId, 100);
 
     GcsItemInfo itemInfo = fakeGcsClient.getGcsItemInfo(itemId);
 
     assertNotNull(itemInfo);
     assertEquals(itemId, itemInfo.getItemId());
     assertEquals(100L, itemInfo.getSize());
-    assertEquals(1, FakeGcsClientImpl.getGetGcsItemInfoCount());
   }
 
   @Test
@@ -70,16 +70,13 @@ class FakeGcsClientImplTest {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("not-exists").build();
     assertThrows(IOException.class, () -> fakeGcsClient.getGcsItemInfo(itemId));
-    assertEquals(1, FakeGcsClientImpl.getGetGcsItemInfoCount());
   }
 
   @Test
   void getGcsItemInfo_itemIsNotObject_throws() {
     GcsItemId itemId = GcsItemId.builder().setBucketName("test-bucket").build(); // No object name
-    itemIdToSizeMap.put(itemId, 100L);
 
     assertThrows(UnsupportedOperationException.class, () -> fakeGcsClient.getGcsItemInfo(itemId));
-    assertEquals(1, FakeGcsClientImpl.getGetGcsItemInfoCount());
   }
 
   @Test

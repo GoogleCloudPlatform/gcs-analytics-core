@@ -16,6 +16,9 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import java.util.Random;
 
 public class TestDataGenerator {
@@ -36,5 +39,24 @@ public class TestDataGenerator {
     byte[] bytes = new byte[size];
     random.nextBytes(bytes);
     return bytes;
+  }
+
+  /**
+   * Creates a GCS object in the local in-memory storage with the specified size and predictable
+   * content. The content is generated using {@link #generateSeededRandomBytes(int, long)} with a
+   * fixed seed of 1. This method is useful for setting up test data in a mock GCS environment.
+   *
+   * @param itemId The GCS item ID, including bucket and object name.
+   * @param size The size of the object to create in bytes.
+   * @return The byte array of the data written to the local storage.
+   */
+  @Deprecated
+  public static byte[] createGcsData(GcsItemId itemId, int size) {
+    Storage storage = LocalStorageHelper.getOptions().getService();
+    byte[] data = TestDataGenerator.generateSeededRandomBytes(size, 1);
+    storage.create(
+        BlobInfo.newBuilder(itemId.getBucketName(), itemId.getObjectName().get(), 1L).build(),
+        data);
+    return data;
   }
 }

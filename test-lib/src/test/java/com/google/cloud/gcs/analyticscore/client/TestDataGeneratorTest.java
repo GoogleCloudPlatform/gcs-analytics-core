@@ -18,6 +18,9 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import org.junit.jupiter.api.Test;
 
 class TestDataGeneratorTest {
@@ -56,5 +59,61 @@ class TestDataGeneratorTest {
         () -> {
           TestDataGenerator.generateSeededRandomBytes(-1, 12345L);
         });
+  }
+
+  @Test
+  void createGcsData_fileHasCorrectSize() {
+    Storage storage = LocalStorageHelper.getOptions().getService();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket")
+            .setObjectName("test-object-size.txt")
+            .build();
+    int size = 256;
+    TestDataGenerator.createGcsData(itemId, size);
+
+    Blob blob = storage.get(itemId.getBucketName(), itemId.getObjectName().get());
+    assertNotNull(blob, "Blob should not be null");
+    assertEquals(size, blob.getSize());
+  }
+
+  @Test
+  void createGcsData_fileHasCorrectContent() {
+    Storage storage = LocalStorageHelper.getOptions().getService();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket")
+            .setObjectName("test-object.parquet")
+            .build();
+    int size = 512;
+
+    byte[] expectedData = TestDataGenerator.createGcsData(itemId, size);
+
+    Blob blob = storage.get(itemId.getBucketName(), itemId.getObjectName().get());
+    assertNotNull(blob, "Blob should not be null");
+    byte[] actualData = blob.getContent();
+    assertArrayEquals(expectedData, actualData);
+  }
+
+  @Test
+  void createGcsData_overwriteExistingData() {
+    Storage storage = LocalStorageHelper.getOptions().getService();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket")
+            .setObjectName("test-object2.parquet")
+            .build();
+
+    int size1 = 64;
+    byte[] data1 = TestDataGenerator.createGcsData(itemId, size1);
+    int size2 = 128;
+    byte[] data2 = TestDataGenerator.createGcsData(itemId, size2);
+
+    assertNotEquals(size1, size2);
+    assertFalse(java.util.Arrays.equals(data1, data2));
+    Blob blob = storage.get(itemId.getBucketName(), itemId.getObjectName().get());
+    assertNotNull(blob, "Blob should not be null");
+    assertEquals(size2, blob.getSize());
+    assertArrayEquals(data2, blob.getContent());
   }
 }

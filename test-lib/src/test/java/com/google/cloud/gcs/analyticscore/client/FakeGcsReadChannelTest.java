@@ -18,8 +18,8 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.google.cloud.ReadChannel;
-import com.google.cloud.storage.StorageOptions;
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Suppliers;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,9 +37,15 @@ class FakeGcsReadChannelTest {
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
     readOptions = GcsReadOptions.builder().build();
+    byte[] data = TestDataGenerator.generateSeededRandomBytes(100, 1);
+    LocalStorageHelper.getOptions()
+        .getService()
+        .create(
+            BlobInfo.newBuilder(itemId.getBucketName(), itemId.getObjectName().get()).build(),
+            data);
     fakeGcsReadChannel =
         new FakeGcsReadChannel(
-            StorageOptions.newBuilder().build().getService(),
+            LocalStorageHelper.getOptions().getService(),
             itemInfo,
             readOptions,
             Suppliers.ofInstance(Executors.newSingleThreadExecutor()));
@@ -48,15 +54,8 @@ class FakeGcsReadChannelTest {
 
   @Test
   void openReadChannel_incrementsOpenReadChannelCount() throws Exception {
-    ReadChannel readChannel = fakeGcsReadChannel.openReadChannel(itemInfo, readOptions);
+    fakeGcsReadChannel.openReadChannel(itemInfo, readOptions);
 
     assertEquals(1, FakeGcsReadChannel.getOpenReadChannelCount());
-  }
-
-  @Test
-  void openReadChannel_returnsInstanceOfInmemoryReadChannel() throws Exception {
-    ReadChannel readChannel = fakeGcsReadChannel.openReadChannel(itemInfo, readOptions);
-
-    assertTrue(readChannel instanceof InmemoryReadChannel);
   }
 }

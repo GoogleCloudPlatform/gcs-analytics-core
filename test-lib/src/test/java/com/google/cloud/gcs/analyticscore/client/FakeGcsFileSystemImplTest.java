@@ -18,7 +18,6 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.util.HashMap;
 import org.junit.jupiter.api.Test;
 
 class FakeGcsFileSystemImplTest {
@@ -27,7 +26,7 @@ class FakeGcsFileSystemImplTest {
   void constructor_initializedWithFakeGcsClient() {
     GcsFileSystemOptions options = GcsFileSystemOptions.builder().build();
 
-    FakeGcsFileSystemImpl fakeFileSystem = new FakeGcsFileSystemImpl(options, new HashMap<>());
+    FakeGcsFileSystemImpl fakeFileSystem = new FakeGcsFileSystemImpl(options);
 
     assertNotNull(fakeFileSystem);
     assertTrue(fakeFileSystem.getGcsClient() instanceof FakeGcsClientImpl);

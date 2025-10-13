@@ -18,19 +18,17 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class FakeGcsFileSystemImpl extends GcsFileSystemImpl {
-  public FakeGcsFileSystemImpl(
-      GcsFileSystemOptions fileSystemOptions, Map<GcsItemId, Long> itemIdToSizeMap) {
-    super(initializeGcsClient(itemIdToSizeMap), fileSystemOptions);
+  public FakeGcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
+    super(initializeGcsClient(fileSystemOptions), fileSystemOptions);
   }
 
-  private static GcsClient initializeGcsClient(Map<GcsItemId, Long> itemIdToSizeMap) {
+  private static GcsClient initializeGcsClient(GcsFileSystemOptions options) {
     Supplier<ExecutorService> executorServiceSupplier =
-        Suppliers.ofInstance(Executors.newFixedThreadPool(2));
-    return new FakeGcsClientImpl(itemIdToSizeMap, executorServiceSupplier);
+        Suppliers.ofInstance(Executors.newCachedThreadPool());
+    return new FakeGcsClientImpl(options.getGcsClientOptions(), executorServiceSupplier);
   }
 }
