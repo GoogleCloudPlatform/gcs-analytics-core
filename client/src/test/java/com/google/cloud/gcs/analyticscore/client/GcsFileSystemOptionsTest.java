@@ -27,7 +27,7 @@ class GcsFileSystemOptionsTest {
   void createFromOptions_withValidProperties_shouldCreateCorrectOptions() {
     ImmutableMap<String, String> properties =
         ImmutableMap.of(
-            "fs.gs.project.id", "test-project",
+            "fs.gs.project-id", "test-project",
             "fs.gs.client.type", "GRPC_CLIENT",
             "fs.gs.analytics-core.read.thread.count", "32");
 

@@ -34,7 +34,7 @@ class GcsReadOptionsTest {
         ImmutableMap.<String, String>builder()
             .put("gcs.channel.read.chunk-size-bytes", "8192")
             .put("gcs.decryption.key", "test-key")
-            .put("gcs.project.id", "test-project")
+            .put("gcs.project-id", "test-project")
             .put("gcs.analytics-core.read.vectored.range.merge-gap.max-bytes", "1024")
             .put("gcs.analytics-core.read.vectored.range.merged-size.max-bytes", "2048")
             .put("gcs.analytics-core.footer.prefetch.enabled", "false")

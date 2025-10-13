@@ -34,7 +34,7 @@ class GcsAnalyticsCoreOptionsTest {
             "32",
             appendPrefix + "client.type",
             "GRPC_CLIENT",
-            appendPrefix + "project.id",
+            appendPrefix + "project-id",
             "test-project",
             appendPrefix + "client-lib-token",
             "test-token",
@@ -65,7 +65,7 @@ class GcsAnalyticsCoreOptionsTest {
         ImmutableMap.of(
             "analytics-core.read.thread.count", "24",
             "client.type", "HTTP_CLIENT",
-            "project.id", "test-project-no-prefix",
+            "project-id", "test-project-no-prefix",
             "client-lib-token", "test-token-no-prefix",
             "service.host", "test-host-no-prefix",
             "user-agent", "test-agent-no-prefix");
@@ -90,7 +90,7 @@ class GcsAnalyticsCoreOptionsTest {
         ImmutableMap.of(
             "wrong.prefix.analytics-core.read.thread.count", "32",
             "wrong.prefix.client.type", "GRPC_CLIENT",
-            "wrong.prefix.project.id", "test-project");
+            "wrong.prefix.project-id", "test-project");
     GcsFileSystemOptions defaultOptions = GcsFileSystemOptions.builder().build();
     GcsAnalyticsCoreOptions coreOptions = new GcsAnalyticsCoreOptions(appendPrefix, options);
 
