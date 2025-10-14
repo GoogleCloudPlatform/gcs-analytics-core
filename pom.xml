@@ -77,7 +77,7 @@ limitations under the License.
         <truth.version>1.4.5</truth.version>
         <junit.jupiter.version>5.13.4</junit.jupiter.version>
         <cloud.libraries.bom.version>26.68.0</cloud.libraries.bom.version>
-        <apache.commons.version>3.18.0</apache.commons.version>
+        <apache.commons.version>3.19.0</apache.commons.version>
         <apache.parquet.version>1.16.0</apache.parquet.version>
         <apache.avro.version>1.11.4</apache.avro.version>
         <apache.hadoop.version>3.4.2</apache.hadoop.version>
