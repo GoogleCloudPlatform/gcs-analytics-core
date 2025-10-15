@@ -20,7 +20,7 @@
     <parent>
         <groupId>com.google.cloud.gcs.analytics</groupId>
         <artifactId>gcs-analytics-core-parent</artifactId>
-        <version>1.1.2</version>
+        <version>1.1.3-SNAPSHOT</version>
     </parent>
 
     <artifactId>test-lib</artifactId>
