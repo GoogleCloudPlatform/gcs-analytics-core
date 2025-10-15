@@ -51,7 +51,7 @@ class GcsClientImplTest {
     gcsClient =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier) {
           @Override
-          Storage createStorage(Optional<Credentials> credentials) {
+          protected Storage createStorage(Optional<Credentials> credentials) {
             return GcsClientImplTest.this.storage;
           }
         };

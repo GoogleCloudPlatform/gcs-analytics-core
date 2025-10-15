@@ -16,7 +16,6 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
-
 import java.util.Optional;
 
 /** Represents metadata of a GCS Item. */

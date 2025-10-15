@@ -16,6 +16,8 @@
 package com.google.cloud.gcs.analyticscore.core;
 
 import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.*;
+
+import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.parquet.column.ColumnDescriptor;
@@ -67,9 +69,9 @@ public class ParquetHelper {
      * @return The ParquetMetadata object.
      * @throws IOException if an I/O error occurs while reading the file.
      */
-    public static ParquetMetadata readParquetMetadata(URI fileUri, int footerPrefetchSize, boolean smallObjectCache) throws IOException {
-        logger.info("Reading parquet file metadata: {} with footerPrefetchSize: {}", fileUri, footerPrefetchSize);
-        InputFile inputFile = new TestInputStreamInputFile(fileUri, false, footerPrefetchSize, smallObjectCache);
+    public static ParquetMetadata readParquetMetadata(URI fileUri, GcsFileSystemOptions gcsFileSystemOptions) throws IOException {
+        logger.info("Reading parquet file metadata: {}", fileUri);
+        InputFile inputFile = new TestInputStreamInputFile(fileUri, false, gcsFileSystemOptions);
         // Configuration can be customized if needed
         Configuration conf = new Configuration();
         try (ParquetFileReader reader = ParquetFileReader.open(inputFile)) {
@@ -85,8 +87,8 @@ public class ParquetHelper {
      * @return The total number of records in the file.
      */
 
-    public static long readParquetObjectRecords(URI fileUri, boolean readVectoredEnabled, int footerPrefetchSize, boolean smallObjectCache)  {
-        return readParquetObjectRecords(fileUri, null, readVectoredEnabled, footerPrefetchSize, smallObjectCache);
+    public static long readParquetObjectRecords(URI fileUri, boolean readVectoredEnabled, GcsFileSystemOptions gcsFileSystemOptions)  {
+        return readParquetObjectRecords(fileUri, null, readVectoredEnabled, gcsFileSystemOptions);
     }
 
     /**
@@ -95,14 +97,13 @@ public class ParquetHelper {
      * @param fileUri The URI of the Parquet file.
      * @param requestedSchema The requested schema to read from the Parquet file.
      * @param readVectoredEnabled Whether to use vectored read or not.
-     * @param footerPrefetchSize Size of footer prefetch buffer, 0 to disable footer prefetching.
+     * @param gcsFileSystemOptions GcsFileSystem configuration.
      * @return The total number of records in the file.
      */
-    public static long readParquetObjectRecords(URI fileUri, String requestedSchema, boolean readVectoredEnabled, int footerPrefetchSize, boolean smallObjectCache)  {
-        logger.info("Reading parquet file:{} with footerPrefetchSize={} vectoredIOEnabled={}", fileUri, footerPrefetchSize, readVectoredEnabled);
+    public static long readParquetObjectRecords(URI fileUri, String requestedSchema, boolean readVectoredEnabled, GcsFileSystemOptions gcsFileSystemOptions)  {
+        logger.info("Reading parquet file:{} with vectoredIOEnabled={}", fileUri, readVectoredEnabled);
         try {
-            InputFile inputFile = new TestInputStreamInputFile(fileUri, readVectoredEnabled, footerPrefetchSize,smallObjectCache);
-
+            InputFile inputFile = new TestInputStreamInputFile(fileUri, readVectoredEnabled, gcsFileSystemOptions);
             long recordCount = 0;
             Configuration conf = new Configuration();
             if (requestedSchema != null) {

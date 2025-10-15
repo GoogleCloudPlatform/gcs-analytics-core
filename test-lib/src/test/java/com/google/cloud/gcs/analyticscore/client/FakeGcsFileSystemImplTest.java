@@ -14,17 +14,21 @@
  * limitations under the License.
  */
 
-package com.google.cloud.gcs.analyticscore.core;
+package com.google.cloud.gcs.analyticscore.client;
 
-import org.openjdk.jmh.annotations.Param;
-import org.openjdk.jmh.annotations.Scope;
-import org.openjdk.jmh.annotations.State;
+import static org.junit.jupiter.api.Assertions.*;
 
-@State(Scope.Benchmark)
-public class ParquetReadState {
-    @Param({"true", "false"})
-    public boolean enableVectoredRead;
+import org.junit.jupiter.api.Test;
 
-    @Param({ "0", "102400" })
-    public int footerPrefetchSize;
+class FakeGcsFileSystemImplTest {
+
+  @Test
+  void constructor_initializedWithFakeGcsClient() {
+    GcsFileSystemOptions options = GcsFileSystemOptions.builder().build();
+
+    FakeGcsFileSystemImpl fakeFileSystem = new FakeGcsFileSystemImpl(options);
+
+    assertNotNull(fakeFileSystem);
+    assertTrue(fakeFileSystem.getGcsClient() instanceof FakeGcsClientImpl);
+  }
 }

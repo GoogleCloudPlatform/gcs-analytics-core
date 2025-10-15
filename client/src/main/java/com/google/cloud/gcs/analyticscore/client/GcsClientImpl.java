@@ -88,7 +88,7 @@ class GcsClientImpl implements GcsClient {
   }
 
   @VisibleForTesting
-  Storage createStorage(Optional<Credentials> credentials) {
+  protected Storage createStorage(Optional<Credentials> credentials) {
     StorageOptions.Builder builder = StorageOptions.newBuilder();
     clientOptions
         .getUserAgent()

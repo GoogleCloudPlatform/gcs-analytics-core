@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,20 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.google.cloud.gcs.analyticscore.client;
 
-import com.google.common.annotations.VisibleForTesting;
-import java.io.IOException;
+package com.google.cloud.gcs.analyticscore.core;
 
-@VisibleForTesting
-public interface GcsClient {
-  /** Opens a new read channel. */
-  VectoredSeekableByteChannel openReadChannel(GcsItemInfo itemInfo, GcsReadOptions readOptions)
-      throws IOException;
 
-  /** Fetches object metadata. */
-  GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException;
+import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.State;
 
-  /** Close the client. */
-  void close();
+@State(Scope.Benchmark)
+public class ParquetFooterParsingState {
+    // 0KB ie: Disabled, 50KB, 100KB, 200KB, 500KB, 1MB, 2MB
+    @Param({ "0", "51200", "102400", "204800", "512000", "1048576", "2097152" })
+    public String footerPrefetchSize;
 }

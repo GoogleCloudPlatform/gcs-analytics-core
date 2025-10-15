@@ -27,10 +27,10 @@ class GcsVectoredReadOptionsTest {
   void createFromOptions_withValidProperties_shouldCreateCorrectOptions() {
     ImmutableMap<String, String> properties =
         ImmutableMap.of(
-            "fs.gs.vectored.read.min.range.seek.size", "8192",
-            "fs.gs.vectored.read.merged.range.max.size", "16777216");
+            "gcs.analytics-core.read.vectored.range.merge-gap.max-bytes", "8192",
+            "gcs.analytics-core.read.vectored.range.merged-size.max-bytes", "16777216");
 
-    GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "fs.gs.");
+    GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "gcs.");
 
     assertThat(options.getMaxMergeGap()).isEqualTo(8192);
     assertThat(options.getMaxMergeSize()).isEqualTo(16777216);
@@ -40,7 +40,7 @@ class GcsVectoredReadOptionsTest {
   void createFromOptions_withDefaultProperties_shouldCreateCorrectOptions() {
     ImmutableMap<String, String> properties = ImmutableMap.of();
 
-    GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "fs.gs.");
+    GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "gcs.");
 
     assertThat(options.getMaxMergeGap()).isEqualTo(4 * 1024);
     assertThat(options.getMaxMergeSize()).isEqualTo(8 * 1024 * 1024);

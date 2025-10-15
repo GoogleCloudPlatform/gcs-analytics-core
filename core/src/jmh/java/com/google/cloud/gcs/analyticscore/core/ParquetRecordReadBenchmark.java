@@ -16,11 +16,13 @@
 
 package com.google.cloud.gcs.analyticscore.core;
 
+import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import org.openjdk.jmh.annotations.*;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @State(Scope.Benchmark)
@@ -47,14 +49,18 @@ public class ParquetRecordReadBenchmark {
     @Warmup(iterations = 1, time = 1)
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
-    public void smallFile(ParquetReadState state) throws IOException {
+    public void smallFile(ParquetRecordReadState state) throws IOException {
+      GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+              Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
+                      "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
+                      "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
         String requestedSchema = "message requested_schema {\n"
                 + "required binary c_customer_id (STRING);\n"
                 + "optional binary c_first_name (STRING);\n"
                 + "optional binary c_email_address (STRING);\n"
                 + "}";
         URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE);
-        ParquetHelper.readParquetObjectRecords(uri, requestedSchema, state.enableVectoredRead, state.footerPrefetchSize, true);
+        ParquetHelper.readParquetObjectRecords(uri, requestedSchema, state.enableVectoredRead, gcsFileSystemOptions);
     }
 
     @Benchmark
@@ -63,14 +69,18 @@ public class ParquetRecordReadBenchmark {
     @Warmup(iterations = 1, time = 1)
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
-    public void mediumFile(ParquetReadState state) throws IOException {
+    public void mediumFile(ParquetRecordReadState state) throws IOException {
+      GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+              Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
+                      "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
+                      "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
         String requestedSchema = "message requested_schema {\n"
                 + "required binary c_customer_id (STRING);\n"
                 + "optional binary c_first_name (STRING);\n"
                 + "optional binary c_email_address (STRING);\n"
                 + "}";
         URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE);
-        ParquetHelper.readParquetObjectRecords(uri, requestedSchema, state.enableVectoredRead, state.footerPrefetchSize, true);
+        ParquetHelper.readParquetObjectRecords(uri, requestedSchema, state.enableVectoredRead, gcsFileSystemOptions);
     }
 
     @Benchmark
@@ -79,14 +89,18 @@ public class ParquetRecordReadBenchmark {
     @Warmup(iterations = 1, time = 1)
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
-    public void largeFile(ParquetReadState state) throws IOException {
+    public void largeFile(ParquetRecordReadState state) throws IOException {
+      GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+              Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
+                      "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
+                      "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
         String requestedSchema = "message requested_schema {\n"
                 + "required binary c_customer_id (STRING);\n"
                 + "optional binary c_first_name (STRING);\n"
                 + "optional binary c_email_address (STRING);\n"
                 + "}";
         URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE);
-        ParquetHelper.readParquetObjectRecords(uri, requestedSchema, state.enableVectoredRead, state.footerPrefetchSize, true);
+        ParquetHelper.readParquetObjectRecords(uri, requestedSchema, state.enableVectoredRead, gcsFileSystemOptions);
     }
 
     @Benchmark
@@ -95,13 +109,17 @@ public class ParquetRecordReadBenchmark {
     @Warmup(iterations = 1, time = 1)
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
-    public void xLargeFile(ParquetReadState state) throws IOException {
+    public void xLargeFile(ParquetRecordReadState state) throws IOException {
+      GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+              Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
+                      "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
+                      "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
         String requestedSchema = "message requested_schema {\n"
                 + "required binary c_customer_id (STRING);\n"
                 + "optional binary c_first_name (STRING);\n"
                 + "optional binary c_email_address (STRING);\n"
                 + "}";
         URI uri = IntegrationTestHelper.getGcsObjectUriForFile(TPCDS_CUSTOMER_XLARGE_FILE);
-        ParquetHelper.readParquetObjectRecords(uri, requestedSchema, state.enableVectoredRead, state.footerPrefetchSize, true);
+        ParquetHelper.readParquetObjectRecords(uri, requestedSchema, state.enableVectoredRead, gcsFileSystemOptions);
     }
 }

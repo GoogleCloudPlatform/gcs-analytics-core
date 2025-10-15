@@ -22,8 +22,10 @@ import java.util.Map;
 @AutoValue
 public abstract class GcsVectoredReadOptions {
 
-  private static final String MAX_MERGE_GAP_KEY = "vectored.read.min.range.seek.size";
-  private static final String MAX_MERGE_SIZE_KEY = "vectored.read.merged.range.max.size";
+  private static final String MAX_MERGE_GAP_KEY =
+      "analytics-core.read.vectored.range.merge-gap.max-bytes";
+  private static final String MAX_MERGE_SIZE_KEY =
+      "analytics-core.read.vectored.range.merged-size.max-bytes";
 
   // The shortest distance allowed between chunks for them to be merged
   abstract int getMaxMergeGap();

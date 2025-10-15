@@ -150,11 +150,6 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer);
       }
     } catch (Exception e) {
-      LOG.atWarn()
-          .setCause(e)
-          .log(
-              "Exception while reading combinedFileRange:%s for path: %s",
-              combinedObjectRange, itemInfo.getItemId());
       completeWithException(combinedObjectRange, e);
     }
   }
@@ -187,11 +182,6 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private void completeWithException(GcsObjectCombinedRange combinedObjectRange, Throwable e) {
     for (GcsObjectRange child : combinedObjectRange.getUnderlyingRanges()) {
       if (!child.getByteBufferFuture().isDone()) {
-        LOG.atWarn()
-            .setCause(e)
-            .log(
-                "Marking child:%s as `completeExceptionally` of combinedRange:%s",
-                child, combinedObjectRange);
         child
             .getByteBufferFuture()
             .completeExceptionally(
@@ -204,14 +194,15 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
-  private ReadChannel openReadChannel(GcsItemInfo itemInfo, GcsReadOptions readOptions)
+  protected ReadChannel openReadChannel(GcsItemInfo itemInfo, GcsReadOptions readOptions)
       throws IOException {
     checkArgument(
         itemInfo.getItemId().isGcsObject(), "Expected Gcs Object but got %s", itemInfo.getItemId());
     String bucketName = itemInfo.getItemId().getBucketName();
     String objectName = itemInfo.getItemId().getObjectName().get();
     BlobId blobId =
-        itemInfo.getContentGeneration()
+        itemInfo
+            .getContentGeneration()
             .map(gen -> BlobId.of(bucketName, objectName, gen))
             .orElse(BlobId.of(bucketName, objectName));
     List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();

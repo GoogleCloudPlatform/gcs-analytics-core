@@ -21,10 +21,10 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
 
 @State(Scope.Benchmark)
-public class SmallObjectCacheState {
+public class SmallObjectCachingState {
     @Param({"2097152"}) // 2MB
-    public int footerPrefetchSize;
+    public String footerPrefetchSize;
 
-    @Param({"true", "false"})
-    public boolean smallObjectCache;
+    @Param({"0", "3145728"})  // 0MB, 3MB
+    public String smallObjectCacheThreshold;
 }

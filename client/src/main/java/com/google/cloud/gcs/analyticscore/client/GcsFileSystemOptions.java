@@ -22,7 +22,7 @@ import java.util.Map;
 @AutoValue
 public abstract class GcsFileSystemOptions {
 
-  private static final String READ_THREAD_COUNT_KEY = "read-thread-count";
+  private static final String READ_THREAD_COUNT_KEY = "analytics-core.read.thread.count";
   private static final String CLIENT_TYPE_KEY = "client.type";
 
   /** Cloud Storage client to use. */

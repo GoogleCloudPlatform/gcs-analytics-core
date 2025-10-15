@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.1.0...v1.1.1) (2025-10-14)
+
+
+### Bug Fixes
+
+* make configuration flags naming consistent ([#156](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/156)) ([14f88e0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/14f88e02074413c54c2f77609c92335a03fd5e84))
+* Small object cache ([#151](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/151)) ([6dcabad](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/6dcabad2f4c29c50ebd9824907cb545924ea6bbf))
+
 ## [1.1.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.0.0...v1.1.0) (2025-10-08)
 
 

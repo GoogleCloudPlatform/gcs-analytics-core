@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 public class GoogleCloudStorageInputStream extends SeekableInputStream {
   private static final Logger LOG = LoggerFactory.getLogger(GoogleCloudStorageInputStream.class);
 
+  private static final int LARGE_FILE_SIZE_THRESHOLD = 1024 * 1024 * 1024; // 1 GB.
   // Used for single-byte reads to avoid repeated allocation.
   private final ByteBuffer singleByteBuffer = ByteBuffer.wrap(new byte[1]);
 
@@ -47,7 +48,6 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   // Unified cache for small objects or footers.
   private final long prefetchSize;
   private volatile ByteBuffer prefetchBuffer;
-  private final boolean smallObjectCacheEnabled;
 
   public static GoogleCloudStorageInputStream create(
       GcsFileSystem gcsFileSystem, GcsFileInfo gcsFileInfo) throws IOException {
@@ -76,70 +76,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
     this.fileSize = gcsFileInfo.getItemInfo().getSize();
     GcsReadOptions readOptions =
         gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions();
-    if (!readOptions.isFooterPrefetchEnabled()) {
-      this.prefetchSize = 0;
-    } else if (fileSize > 1024 * 1024 * 1024) {
-      // If file size is greater than 1GB, then LargeFile else small file.
-      this.prefetchSize = Math.min(readOptions.getFooterPrefetchSizeLargeFile(),fileSize);
-    } else {
-      this.prefetchSize = Math.min(readOptions.getFooterPrefetchSizeSmallFile(),fileSize);
-    }
-    this.smallObjectCacheEnabled = readOptions.isSmallObjectCache();
-  }
-
-  // TODO(shubhamdiwakar): Performance test the lazy seek approach with a separate channel.
-  private void cacheSmallObjectOrFooter() throws IOException {
-    long originalPosition = -1;
-    try {
-      originalPosition = getPos();
-      if (!smallObjectCacheEnabled && prefetchSize == fileSize) {
-        return;
-      }
-      long footerCacheStartPosition = fileSize - prefetchSize;
-      LOG.debug(
-          "Caching footer for {}. Position: {}, Size: {}",
-          gcsPath,
-          footerCacheStartPosition,
-          prefetchSize);
-      ByteBuffer footerByteBuffer = ByteBuffer.allocate((int) prefetchSize);
-      channel.position(footerCacheStartPosition);
-
-      while (footerByteBuffer.hasRemaining()) {
-        if (channel.read(footerByteBuffer) == -1) {
-          LOG.warn("Unexpected EOF while caching footer for {}", gcsPath);
-          break;
-        }
-      }
-      footerByteBuffer.flip();
-      this.prefetchBuffer = footerByteBuffer;
-      LOG.debug("Cached {} bytes of footer for {}", prefetchBuffer.remaining(), gcsPath);
-    } catch (IOException e) {
-      // Log the error but don't fail the operation as this improves performance. The read will fall
-      // back to the main channel.
-      LOG.warn(
-          "Failed to cache footer for {}. Falling back to standard read. Error: {}",
-          gcsPath,
-          e.getMessage());
-    } finally {
-      seek(originalPosition);
-    }
-  }
-
-  private int serveFromCache(ByteBuffer buffer) throws IOException {
-    ByteBuffer cacheView = prefetchBuffer.duplicate();
-    int cachePosition = (int) (position - (fileSize - prefetchSize));
-    cacheView.position(cachePosition);
-    if (!cacheView.hasRemaining()) {
-      // Signal End of stream.
-      return -1;
-    }
-    int bytesToRead = Math.min(buffer.remaining(), cacheView.remaining());
-    if (bytesToRead > 0) {
-      cacheView.limit(cacheView.position() + bytesToRead);
-      buffer.put(cacheView);
-    }
-    seek(position + bytesToRead);
-    return bytesToRead;
+    this.prefetchSize = calculatePrefetchSize(fileSize, readOptions);
   }
 
   @Override
@@ -168,14 +105,12 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   public int read(ByteBuffer byteBuffer) throws IOException {
     checkNotClosed("Cannot read: already closed");
-
-    if (prefetchBuffer == null && prefetchSize > 0 && position >= fileSize - prefetchSize) {
-      cacheSmallObjectOrFooter();
+    if (prefetchBuffer == null && position >= fileSize - prefetchSize) {
+      cacheObjectOrFooter();
     }
     if (prefetchBuffer != null && (position >= fileSize - prefetchSize)) {
       return serveFromCache(byteBuffer);
     }
-
     long channelPosition = channel.position();
     checkState(
         channelPosition == position,
@@ -253,6 +188,92 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   @Override
   public void readVectored(List<GcsObjectRange> fileRanges, IntFunction<ByteBuffer> alloc)
       throws IOException {
-    channel.readVectored(fileRanges, alloc);
+    if (prefetchBuffer != null && prefetchSize == fileSize) {
+      // Entire object is cached, serve from prefetchBuffer
+      for (GcsObjectRange range : fileRanges) {
+        ByteBuffer dest = alloc.apply(range.getLength());
+        int bytesRead = serveFromCacheWithoutSeek(range.getOffset(), dest);
+        if (bytesRead < range.getLength()) {
+          range
+              .getByteBufferFuture()
+              .completeExceptionally(
+                  new EOFException(
+                      String.format("Error while populating range: %s, unexpected EOF", range)));
+        } else {
+          dest.flip();
+          range.getByteBufferFuture().complete(dest);
+        }
+      }
+    } else {
+      channel.readVectored(fileRanges, alloc);
+    }
+  }
+
+  private void cacheObjectOrFooter() throws IOException {
+    long originalPosition = getPos();
+    long startPosition = fileSize - prefetchSize;
+    int bufferSize = (int) (fileSize - startPosition);
+    LOG.debug(
+        "Caching GCS object {} from position: {} size: {}", gcsPath, startPosition, bufferSize);
+    try {
+      ByteBuffer cacheBuffer = ByteBuffer.allocate(bufferSize);
+      channel.position(startPosition);
+      while (cacheBuffer.hasRemaining()) {
+        if (channel.read(cacheBuffer) == -1) {
+          throw new IOException("Unexpected EOF encountered.");
+        }
+      }
+      cacheBuffer.flip();
+      this.prefetchBuffer = cacheBuffer;
+    } catch (IOException e) {
+      LOG.warn(
+          "Error while caching object {} from position: {} length: {}. Error : {}",
+          gcsPath,
+          startPosition,
+          bufferSize,
+          e.getMessage());
+    } finally {
+      seek(originalPosition);
+    }
+  }
+
+  private int serveFromCache(ByteBuffer buffer) throws IOException {
+    int bytesToRead = serveFromCacheWithoutSeek(position, buffer);
+    if (bytesToRead != -1) {
+      seek(position + bytesToRead);
+    }
+    return bytesToRead;
+  }
+
+  private int serveFromCacheWithoutSeek(long currPosition, ByteBuffer buffer) throws IOException {
+    ByteBuffer cacheView = prefetchBuffer.duplicate();
+    int readStartPosition = (int) (currPosition - (fileSize - prefetchSize));
+    cacheView.position(readStartPosition);
+    int bytesToRead = buffer.remaining();
+    if (bytesToRead > cacheView.remaining()) {
+      // Cache is expected to contain data till end of stream, if this happens don't read from
+      // cache.
+      // Signal End of stream.
+      return -1;
+    }
+    cacheView.limit(cacheView.position() + bytesToRead);
+    buffer.put(cacheView);
+    return bytesToRead;
+  }
+
+  private static long calculatePrefetchSize(long fileSize, GcsReadOptions readOptions) {
+    if (!readOptions.isFooterPrefetchEnabled()
+        && readOptions.getSmallObjectCacheSize() < fileSize) {
+      // Both footer prefetch and small object cache are disabled.
+      return 0;
+    }
+    if (readOptions.getSmallObjectCacheSize() >= fileSize) {
+      // Small object cache is enabled and file size is <= the cache size.
+      return fileSize;
+    }
+    // Footer prefetch.
+    return fileSize > LARGE_FILE_SIZE_THRESHOLD
+        ? Math.min(readOptions.getFooterPrefetchSizeLargeFile(), fileSize)
+        : Math.min(readOptions.getFooterPrefetchSizeSmallFile(), fileSize);
   }
 }

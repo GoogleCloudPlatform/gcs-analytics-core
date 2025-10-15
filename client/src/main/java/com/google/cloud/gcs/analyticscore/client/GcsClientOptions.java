@@ -23,10 +23,11 @@ import java.util.Optional;
 @AutoValue
 public abstract class GcsClientOptions {
 
-  private static final String PROJECT_ID_KEY = "project-id";
   private static final String CLIENT_LIB_TOKEN_KEY = "client-lib-token";
   private static final String SERVICE_HOST_KEY = "service.host";
-  private static final String USER_AGENT_KEY = "user-agent.key";
+  private static final String USER_AGENT_KEY = "user-agent";
+  static final String PROJECT_ID_KEY = "project-id";
+
 
   public abstract Optional<String> getProjectId();
 
