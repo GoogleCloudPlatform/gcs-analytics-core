@@ -79,7 +79,7 @@ limitations under the License.
         <cloud.libraries.bom.version>26.70.0</cloud.libraries.bom.version>
         <apache.commons.version>3.19.0</apache.commons.version>
         <apache.parquet.version>1.16.0</apache.parquet.version>
-        <apache.avro.version>1.12.0</apache.avro.version>
+        <apache.avro.version>1.12.1</apache.avro.version>
         <apache.hadoop.version>3.4.2</apache.hadoop.version>
     </properties>
 
