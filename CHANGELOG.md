@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.1.2...v1.1.3) (2025-11-05)
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#161](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/161)) ([d97a66d](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d97a66d5e1dfc3118971eda84a7d35fde7686289))
+
 ## [1.1.2](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.1.1...v1.1.2) (2025-10-15)
 
 
