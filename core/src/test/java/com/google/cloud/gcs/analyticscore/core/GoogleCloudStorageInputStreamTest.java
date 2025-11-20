@@ -21,6 +21,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import com.google.cloud.gcs.analyticscore.client.*;
+import com.google.cloud.gcs.analyticscore.common.metrics.StorageMetricsListener;
+import com.google.cloud.gcs.analyticscore.common.metrics.StorageOperationType;
+
+import java.awt.image.ImageObserver;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.URI;
@@ -49,6 +53,7 @@ class GoogleCloudStorageInputStreamTest {
   @Mock private GcsClientOptions mockClientOptions;
   @Mock private GcsFileInfo mockGcsFileInfo;
   @Mock private GcsItemInfo mockGcsItemInfo;
+  @Mock private StorageMetricsListener mockMetricsListener;
   private GoogleCloudStorageInputStream googleCloudStorageInputStream;
 
   @BeforeEach
@@ -1152,17 +1157,18 @@ class GoogleCloudStorageInputStreamTest {
   }
 
   @Test
-  void read_fromHead_smallObjectCachingEnabled_readBufferSizeMoreThanFileSize_caches() throws IOException {
+  void read_fromHead_smallObjectCachingEnabled_readBufferSizeMoreThanFileSize_caches()
+      throws IOException {
     GcsFileSystemOptions options =
-            GcsFileSystemOptions.createFromOptions(
-                    Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
+        GcsFileSystemOptions.createFromOptions(
+            Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
     GcsItemId itemId =
-            GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     byte data[] = TestDataGenerator.createGcsData(itemId, 1024);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream =
-            GoogleCloudStorageInputStream.create(
-                    fakeGcsFileSystem, URI.create("gs://test-bucket/test-object"));
+        GoogleCloudStorageInputStream.create(
+            fakeGcsFileSystem, URI.create("gs://test-bucket/test-object"));
 
     ByteBuffer readBuffer = ByteBuffer.allocate(8000);
     int bytesRead = googleCloudStorageInputStream.read(readBuffer);
@@ -1176,15 +1182,15 @@ class GoogleCloudStorageInputStreamTest {
   @Test
   void read_smallObjectCachingEnabled_currPosEndOfFile_returnEOF() throws IOException {
     GcsFileSystemOptions options =
-            GcsFileSystemOptions.createFromOptions(
-                    Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
+        GcsFileSystemOptions.createFromOptions(
+            Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
     GcsItemId itemId =
-            GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     byte data[] = TestDataGenerator.createGcsData(itemId, 1024);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream =
-            GoogleCloudStorageInputStream.create(
-                    fakeGcsFileSystem, URI.create("gs://test-bucket/test-object"));
+        GoogleCloudStorageInputStream.create(
+            fakeGcsFileSystem, URI.create("gs://test-bucket/test-object"));
     googleCloudStorageInputStream.seek(data.length);
 
     ByteBuffer readBuffer = ByteBuffer.allocate(8000);
@@ -1192,6 +1198,139 @@ class GoogleCloudStorageInputStreamTest {
 
     assertThat(bytesRead).isEqualTo(-1);
     assertThat(readBuffer.remaining()).isEqualTo(8000);
+  }
+
+  @Test
+  void metricsListener_smallObjectCachingDisabled_footerPrefetchDisabled_invokesCallbacks() throws IOException {
+    reset(mockMetricsListener);
+    GcsFileSystemOptions options =
+            GcsFileSystemOptions.createFromOptions(
+                    Map.of("analytics-core.small-file.cache.threshold-bytes", "0",
+                            "analytics-core.footer.prefetch.enabled", "false"), "");
+    googleCloudStorageInputStream = createInputStreamWithOptions(options, mockMetricsListener, /*objectSize=*/ 1024);
+
+    // Initial state
+    verify(mockMetricsListener, never()).onBytesProcessed(any(), anyLong());
+    verify(mockMetricsListener, never()).onOperation(any());
+    verify(mockMetricsListener, never()).onOperationLatency(any(), anyLong());
+
+    // Seek
+    googleCloudStorageInputStream.seek(100);
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.SEEK);
+    verify(mockMetricsListener, never()).onBytesProcessed(any(), anyLong());
+    verify(mockMetricsListener, never()).onOperationLatency(any(), anyLong());
+
+    // Read
+    byte[] buffer = new byte[512];
+    reset(mockMetricsListener);
+    googleCloudStorageInputStream.read(buffer, 0, buffer.length);
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.READ);
+    verify(mockMetricsListener).onBytesProcessed(StorageOperationType.READ, 512);
+    verify(mockMetricsListener, times(1)).onBytesProcessed(eq(StorageOperationType.READ), anyLong());
+
+    // Read to EOF
+    reset(mockMetricsListener);
+    googleCloudStorageInputStream.read(buffer, 0, buffer.length);
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.READ);
+    verify(mockMetricsListener, times(1)).onBytesProcessed(StorageOperationType.READ, 412);
+    verify(mockMetricsListener, times(1)).onBytesProcessed(eq(StorageOperationType.READ), anyLong());
+
+    // Close
+    googleCloudStorageInputStream.close();
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.CLOSE);
+  }
+
+  @Test
+  void metricsListener_smallObjectCachingEnabled_footerPrefetchDisabled_invokesCallbacks() throws IOException {
+    reset(mockMetricsListener);
+    GcsFileSystemOptions options =
+            GcsFileSystemOptions.createFromOptions(
+                    Map.of("analytics-core.small-file.cache.threshold-bytes", "1024",
+                            "analytics-core.footer.prefetch.enabled", "false"), "");
+    googleCloudStorageInputStream = createInputStreamWithOptions(options, mockMetricsListener, /*objectSize=*/ 1024);
+
+    // Initial state
+    verify(mockMetricsListener, never()).onBytesProcessed(any(), anyLong());
+    verify(mockMetricsListener, never()).onOperation(any());
+    verify(mockMetricsListener, never()).onOperationLatency(any(), anyLong());
+
+    // Seek
+    googleCloudStorageInputStream.seek(100);
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.SEEK);
+    verify(mockMetricsListener, never()).onBytesProcessed(any(), anyLong());
+    verify(mockMetricsListener, never()).onOperationLatency(any(), anyLong());
+
+    // First Read, caches whole object
+    byte[] buffer = new byte[512];
+    googleCloudStorageInputStream.read(buffer, 0, buffer.length);
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.READ);
+    verify(mockMetricsListener, times(1)).onBytesProcessed(StorageOperationType.READ, 1024);
+
+    // Read to EOF
+    reset(mockMetricsListener);
+    googleCloudStorageInputStream.read(buffer, 0, buffer.length);
+    verify(mockMetricsListener, never()).onBytesProcessed(any(), anyLong());
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.READ);
+
+    // Close
+    googleCloudStorageInputStream.close();
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.CLOSE);
+  }
+
+  @Test
+  void metricsListener_smallObjectCachingDisabled_footerPrefetchEnabled_invokesCallbacks() throws IOException {
+    reset(mockMetricsListener);
+    GcsFileSystemOptions options =
+            GcsFileSystemOptions.createFromOptions(
+                    Map.of("analytics-core.small-file.cache.threshold-bytes", "0",
+                            "analytics-core.footer.prefetch.enabled", "true",
+                            "analytics-core.small-file.footer.prefetch.size-bytes", "100"), "");
+    googleCloudStorageInputStream = createInputStreamWithOptions(options, mockMetricsListener, /*objectSize=*/ 1000);
+
+    // Initial state
+    verify(mockMetricsListener, never()).onBytesProcessed(any(), anyLong());
+    verify(mockMetricsListener, never()).onOperation(any());
+    verify(mockMetricsListener, never()).onOperationLatency(any(), anyLong());
+
+    // Seek
+    googleCloudStorageInputStream.seek(100);
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.SEEK);
+    verify(mockMetricsListener, never()).onBytesProcessed(any(), anyLong());
+    verify(mockMetricsListener, never()).onOperationLatency(any(), anyLong());
+
+    // First Read, outside footer cache
+    byte[] buffer = new byte[200];
+    googleCloudStorageInputStream.read(buffer, 0, buffer.length);
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.READ);
+    verify(mockMetricsListener, times(1)).onBytesProcessed(StorageOperationType.READ, 200);
+
+    // First read within footer cache buffer, caches footer
+    reset(mockMetricsListener);
+    googleCloudStorageInputStream.seek(900);
+    googleCloudStorageInputStream.read(buffer, 0, 20);
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.READ);
+    verify(mockMetricsListener, times(1)).onBytesProcessed(StorageOperationType.READ, 100);
+
+    // Subsequent read within footer cache buffer, reads from cache
+    reset(mockMetricsListener);
+    googleCloudStorageInputStream.read(buffer, 0, 20);
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.READ);
+    verify(mockMetricsListener, never()).onBytesProcessed(any(), anyLong());
+
+    // Close
+    googleCloudStorageInputStream.close();
+    verify(mockMetricsListener, times(1)).onOperation(StorageOperationType.CLOSE);
+  }
+
+  private GoogleCloudStorageInputStream createInputStreamWithOptions(GcsFileSystemOptions options,
+                                                                     StorageMetricsListener metricsListener,
+                                                                     int objectSize) throws IOException {
+    GcsItemId itemId =
+            GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    TestDataGenerator.createGcsData(itemId, objectSize);
+    FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
+    return GoogleCloudStorageInputStream.create(
+                    fakeGcsFileSystem, URI.create("gs://test-bucket/test-object"), metricsListener);
   }
 
   private void mockChannelReadToWriteBytes(VectoredSeekableByteChannel mockChannel, byte[] data)
