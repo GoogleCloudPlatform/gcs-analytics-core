@@ -37,6 +37,11 @@ limitations under the License.
             <artifactId>client</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.google.cloud.gcs.analytics</groupId>
+            <artifactId>gcs-analytics-core-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!--Test Dependencies-->
         <dependency>
             <groupId>com.google.truth</groupId>
