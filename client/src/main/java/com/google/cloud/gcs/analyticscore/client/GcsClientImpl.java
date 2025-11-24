@@ -26,6 +26,7 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
+import java.net.URI;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -66,6 +67,26 @@ class GcsClientImpl implements GcsClient {
         "Expected GCS object to be provided. But got: " + gcsItemInfo.getItemId());
 
     return new GcsReadChannel(storage, gcsItemInfo, readOptions, executorServiceSupplier);
+  }
+
+  @Override
+  public VectoredSeekableByteChannel openReadChannel(
+          GcsItemId gcsItemId, GcsReadOptions readOptions) throws IOException {
+    checkNotNull(gcsItemId, "gcsItemId should not be null");
+    checkNotNull(readOptions, "readOptions should not be null");
+    return new GcsReadChannel(storage, gcsItemId, readOptions, executorServiceSupplier) {
+      @Override
+      public long size() {
+        try {
+          if (null == itemInfo) {
+            itemInfo = getGcsItemInfo(itemId);
+          }
+          return itemInfo.getSize();
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    };
   }
 
   @Override

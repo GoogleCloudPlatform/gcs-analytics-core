@@ -25,6 +25,9 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.function.IntFunction;
 import javax.annotation.Nonnull;
+
+import com.google.cloud.storage.BlobId;
+import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,14 +43,16 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   private final VectoredSeekableByteChannel channel;
   private long position;
   private final URI gcsPath;
-  private final long fileSize;
-  private final GcsFileInfo gcsFileInfo;
+  private final GcsItemId gcsItemId;
 
   private volatile boolean closed;
 
   // Unified cache for small objects or footers.
-  private final long prefetchSize;
+  private long prefetchSize;
+  private long fileSize;
   private volatile ByteBuffer prefetchBuffer;
+
+  private GcsFileInfo gcsFileInfo;
 
   public static GoogleCloudStorageInputStream create(
       GcsFileSystem gcsFileSystem, GcsFileInfo gcsFileInfo) throws IOException {
@@ -66,17 +71,45 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
     return create(gcsFileSystem, fileInfo);
   }
 
+  public static GoogleCloudStorageInputStream create(GcsFileSystem gcsFileSystem, GcsItemId itemId) throws IOException {
+    checkState(gcsFileSystem != null, "GcsFileSystem shouldn't be null");
+    if (shouldPrefetchMetadata(itemId)) {
+      // We need file length to do parquet specific optimizations like footer prefetch.
+      // This block conditionally pre-fetches metadata for parquet files, usually analytics engine will
+      // call with metadata in case of parquet files as seek to `length - 8 bytes` is standard operation on parquet files.
+      // TODO: Evaluate GCS SDK API to retrieve metadata from first read.
+      GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
+      VectoredSeekableByteChannel channel = gcsFileSystem.open(fileInfo, gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions());
+      return new GoogleCloudStorageInputStream(gcsFileSystem, channel, fileInfo);
+    }
+    VectoredSeekableByteChannel channel =
+              gcsFileSystem.open(
+                      itemId,
+                      gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions());
+    return new GoogleCloudStorageInputStream(gcsFileSystem, channel, itemId);
+  }
+
   private GoogleCloudStorageInputStream(
-      GcsFileSystem gcsFileSystem, VectoredSeekableByteChannel channel, GcsFileInfo gcsFileInfo) {
+          GcsFileSystem gcsFileSystem, VectoredSeekableByteChannel channel, GcsFileInfo gcsFileInfo) {
     this.gcsFileSystem = gcsFileSystem;
     this.channel = channel;
     this.position = 0;
     this.gcsPath = gcsFileInfo.getUri();
     this.gcsFileInfo = gcsFileInfo;
+    this.gcsItemId = gcsFileInfo.getItemInfo().getItemId();
     this.fileSize = gcsFileInfo.getItemInfo().getSize();
     GcsReadOptions readOptions =
-        gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions();
+            gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions();
     this.prefetchSize = calculatePrefetchSize(fileSize, readOptions);
+  }
+
+  private GoogleCloudStorageInputStream(
+      GcsFileSystem gcsFileSystem,VectoredSeekableByteChannel channel, GcsItemId itemId) {
+    this.gcsFileSystem = gcsFileSystem;
+    this.channel = channel;
+    this.gcsPath = URI.create(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()).toGsUtilUri());
+    this.gcsItemId = itemId;
+    this.position = 0;
   }
 
   @Override
@@ -105,10 +138,10 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   public int read(ByteBuffer byteBuffer) throws IOException {
     checkNotClosed("Cannot read: already closed");
-    if (prefetchBuffer == null && position >= fileSize - prefetchSize) {
+    if (gcsFileInfo != null && prefetchBuffer == null && position >= fileSize - prefetchSize) {
       cacheObjectOrFooter();
     }
-    if (prefetchBuffer != null && (position >= fileSize - prefetchSize)) {
+    if (gcsFileInfo != null && prefetchBuffer != null && (position >= fileSize - prefetchSize)) {
       return serveFromCache(byteBuffer);
     }
     long channelPosition = channel.position();
@@ -207,6 +240,14 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
     } else {
       channel.readVectored(fileRanges, alloc);
     }
+  }
+
+  private static boolean shouldPrefetchMetadata(GcsItemId itemId) {
+    return itemId.getObjectName().map(GoogleCloudStorageInputStream::isParquetFile).orElse(false);
+  }
+
+  private static boolean isParquetFile(String objectName) {
+    return objectName.endsWith(".parquet") || objectName.endsWith(".pq");
   }
 
   private void cacheObjectOrFooter() throws IOException {

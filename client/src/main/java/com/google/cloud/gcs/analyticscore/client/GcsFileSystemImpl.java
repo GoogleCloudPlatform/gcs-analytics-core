@@ -19,6 +19,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auth.Credentials;
+import com.google.cloud.storage.BlobId;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -69,15 +70,27 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   @Override
+  public VectoredSeekableByteChannel open(GcsItemId gcsItemId, GcsReadOptions readOptions)
+          throws IOException {
+    checkNotNull(gcsItemId, "gcsItemId should not be null");
+    checkArgument(gcsItemId.isGcsObject(), "Expected GCS object to be provided. But got: " + gcsItemId);
+    return gcsClient.openReadChannel(gcsItemId, readOptions);
+  }
+
+  @Override
   public GcsFileInfo getFileInfo(URI path) throws IOException {
     checkNotNull(path, "path should not be null");
     GcsItemId itemId = UriUtil.getItemIdFromString(path.toString());
+    return getFileInfo(itemId);
+  }
+
+  public GcsFileInfo getFileInfo(GcsItemId itemId) throws IOException {
     GcsItemInfo gcsItemInfo = gcsClient.getGcsItemInfo(itemId);
     return GcsFileInfo.builder()
-        .setItemInfo(gcsItemInfo)
-        .setUri(path)
-        .setAttributes(Collections.emptyMap())
-        .build();
+            .setItemInfo(gcsItemInfo)
+            .setUri(URI.create(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()).toGsUtilUri()))
+            .setAttributes(Collections.emptyMap())
+            .build();
   }
 
   @Override

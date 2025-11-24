@@ -39,24 +39,42 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private Storage storage;
   private GcsReadOptions readOptions;
   private ReadChannel readChannel;
-  private GcsItemInfo itemInfo;
+  protected GcsItemInfo itemInfo;
+  protected GcsItemId itemId;
   private long position = 0;
   private Supplier<ExecutorService> executorServiceSupplier;
 
   GcsReadChannel(
       Storage storage,
-      GcsItemInfo itemInfo,
+      GcsItemId itemId,
       GcsReadOptions readOptions,
       Supplier<ExecutorService> executorServiceSupplier)
       throws IOException {
+    checkNotNull(storage, "Storage instance cannot be null");
+    checkNotNull(itemId, "Item id cannot be null");
+    checkNotNull(executorServiceSupplier, "Thread pool supplier must not be null");
+    this.storage = storage;
+    this.readOptions = readOptions;
+    this.itemId = itemId;
+    this.executorServiceSupplier = executorServiceSupplier;
+    this.readChannel = openReadChannel(itemId, readOptions);
+  }
+
+  GcsReadChannel(
+          Storage storage,
+          GcsItemInfo itemInfo,
+          GcsReadOptions readOptions,
+          Supplier<ExecutorService> executorServiceSupplier)
+          throws IOException {
     checkNotNull(storage, "Storage instance cannot be null");
     checkNotNull(itemInfo, "Item info cannot be null");
     checkNotNull(executorServiceSupplier, "Thread pool supplier must not be null");
     this.storage = storage;
     this.readOptions = readOptions;
     this.itemInfo = itemInfo;
+    this.itemId = itemInfo.getItemId();
     this.executorServiceSupplier = executorServiceSupplier;
-    this.readChannel = openReadChannel(itemInfo, readOptions);
+    this.readChannel = openReadChannel(itemId, readOptions);
   }
 
   @Override
@@ -88,7 +106,10 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public long size() throws IOException {
-    return itemInfo.getSize();
+    if (null != itemInfo) {
+      return itemInfo.getSize();
+    }
+    return Integer.MAX_VALUE;
   }
 
   @Override
@@ -109,8 +130,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   }
 
   @Override
-  public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
-      throws IOException {
+  public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate) {
     ExecutorService executorService = executorServiceSupplier.get();
     checkNotNull(executorService, "Thread pool must not be null");
     GcsVectoredReadOptions vectoredReadOptions = readOptions.getGcsVectoredReadOptions();
@@ -131,7 +151,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   void readCombinedRange(
       GcsObjectCombinedRange combinedObjectRange, IntFunction<ByteBuffer> allocate) {
-    try (ReadChannel channel = openReadChannel(itemInfo, readOptions)) {
+    try (ReadChannel channel = openReadChannel(itemId, readOptions)) {
       validatePosition(combinedObjectRange.getOffset());
       channel.seek(combinedObjectRange.getOffset());
       ByteBuffer dataBuffer = allocate.apply(combinedObjectRange.getLength());
@@ -194,15 +214,14 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
-  protected ReadChannel openReadChannel(GcsItemInfo itemInfo, GcsReadOptions readOptions)
+  protected ReadChannel openReadChannel(GcsItemId gcsItemId, GcsReadOptions readOptions)
       throws IOException {
     checkArgument(
-        itemInfo.getItemId().isGcsObject(), "Expected Gcs Object but got %s", itemInfo.getItemId());
-    String bucketName = itemInfo.getItemId().getBucketName();
-    String objectName = itemInfo.getItemId().getObjectName().get();
+        gcsItemId.isGcsObject(), "Expected Gcs Object but got %s", gcsItemId);
+    String bucketName = gcsItemId.getBucketName();
+    String objectName = gcsItemId.getObjectName().get();
     BlobId blobId =
-        itemInfo
-            .getContentGeneration()
+        gcsItemId.getContentGeneration()
             .map(gen -> BlobId.of(bucketName, objectName, gen))
             .orElse(BlobId.of(bucketName, objectName));
     List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
@@ -224,16 +243,6 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
           String.format(
               "Invalid seek offset: position value (%d) must be >= 0 for '%s'",
               position, itemInfo.getItemId()));
-    }
-    if (itemInfo.getSize() >= 0 && position > itemInfo.getSize()) {
-      throw new EOFException(
-          String.format(
-              "Invalid seek offset: position value (%d)"
-                  + " must be between 0 "
-                  + "and"
-                  + " %d "
-                  + "for '%s'",
-              position, itemInfo.getSize(), itemInfo.getItemId()));
     }
   }
 }

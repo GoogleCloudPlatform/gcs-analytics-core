@@ -28,6 +28,9 @@ public abstract class GcsItemId {
   // Name of the object in the bucket.
   public abstract Optional<String> getObjectName();
 
+  // Returns objects's content generation, used for versioning.
+  public abstract Optional<Long> getContentGeneration();
+
   public static Builder builder() {
     return new AutoValue_GcsItemId.Builder();
   }
@@ -37,6 +40,8 @@ public abstract class GcsItemId {
     public abstract Builder setBucketName(String bucketName);
 
     public abstract Builder setObjectName(String objectName);
+
+    public abstract Builder setContentGeneration(Long contentGeneration);
 
     public abstract GcsItemId build();
   }

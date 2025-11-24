@@ -17,12 +17,17 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
+import java.net.URI;
 
 @VisibleForTesting
 public interface GcsClient {
   /** Opens a new read channel. */
   VectoredSeekableByteChannel openReadChannel(GcsItemInfo itemInfo, GcsReadOptions readOptions)
       throws IOException;
+
+  /** Opens a new read channel. */
+  VectoredSeekableByteChannel openReadChannel(GcsItemId itemId, GcsReadOptions readOptions)
+          throws IOException;
 
   /** Fetches object metadata. */
   GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException;
