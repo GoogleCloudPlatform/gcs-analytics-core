@@ -131,7 +131,7 @@ class GcsFileSystemImplTest {
     GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
 
     NullPointerException e =
-        assertThrows(NullPointerException.class, () -> gcsFileSystem.open(null, readOptions));
+        assertThrows(NullPointerException.class, () -> gcsFileSystem.open((GcsFileInfo) null, readOptions));
 
     assertThat(e).hasMessageThat().contains("fileInfo should not be null");
   }

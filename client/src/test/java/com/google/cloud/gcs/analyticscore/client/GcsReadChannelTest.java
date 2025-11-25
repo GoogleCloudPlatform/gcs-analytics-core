@@ -93,7 +93,7 @@ class GcsReadChannelTest {
         assertThrows(
             NullPointerException.class,
             () ->
-                new GcsReadChannel(storage, null, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
+                new GcsReadChannel(storage, (GcsItemInfo) null, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
 
     assertThat(e).hasMessageThat().isEqualTo("Item info cannot be null");
   }
@@ -238,14 +238,9 @@ class GcsReadChannelTest {
         new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
     long size = objectData.length();
 
-    EOFException e = assertThrows(EOFException.class, () -> gcsReadChannel.position(size + 1));
+    gcsReadChannel.position(size + 1);
 
-    assertThat(e)
-        .hasMessageThat()
-        .contains(
-            String.format(
-                "Invalid seek offset: position value (%d) must be " + "between 0 and %d",
-                size + 1, size));
+    assertThat(gcsReadChannel.position()).isEqualTo(size + 1);
   }
 
   @Test
@@ -364,19 +359,20 @@ class GcsReadChannelTest {
   }
 
   @Test
-  void readVectored_rangesNotEligibleForMerging_readsRanges()
-      throws IOException, ExecutionException, InterruptedException {
+  void readVectored_rangesNotEligibleForMerging_readsRanges() throws Exception {
     GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+        GcsItemId.builder()
+            .setBucketName("test-bucket")
+            .setObjectName("test-object")
+            .build();
     String objectData = "hello world,this is a test string for vectored read.";
     GcsItemInfo itemInfo =
         GcsItemInfo.builder()
             .setItemId(itemId)
             .setSize(objectData.length())
-            .setContentGeneration(0L)
             .build();
     createBlobInStorage(
-        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()), objectData);
     GcsVectoredReadOptions vectoredReadOptions =
         GcsVectoredReadOptions.builder().setMaxMergeGap(1).setMaxMergeSize(1).build();
     GcsReadOptions readOptions =
@@ -384,7 +380,7 @@ class GcsReadChannelTest {
     GcsReadChannel gcsReadChannel =
         new GcsReadChannel(storage, itemInfo, readOptions, executorServiceSupplier);
     List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
-    BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L);
+    BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get());
     // "hello", "this", "test string"
     ImmutableList<GcsObjectRange> ranges = createRanges(ImmutableMap.of(0L, 5, 12L, 4, 22L, 11));
 
@@ -406,7 +402,11 @@ class GcsReadChannelTest {
     GcsReadOptions readOptions =
         TEST_GCS_READ_OPTIONS.builder().setGcsVectoredReadOptions(vectoredReadOptions).build();
     GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+        GcsItemId.builder()
+            .setBucketName("test-bucket")
+            .setObjectName("test-object")
+            .setContentGeneration(0L)
+            .build();
     String objectData = "hello world,this is a test string for vectored read."; // length 55
     GcsItemInfo itemInfo =
         GcsItemInfo.builder()

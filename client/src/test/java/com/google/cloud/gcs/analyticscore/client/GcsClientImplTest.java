@@ -130,7 +130,7 @@ class GcsClientImplTest {
 
     NullPointerException e =
         assertThrows(
-            NullPointerException.class, () -> gcsClient.openReadChannel(null, readOptions));
+            NullPointerException.class, () -> gcsClient.openReadChannel((GcsItemInfo) null, readOptions));
     assertThat(e).hasMessageThat().isEqualTo("itemInfo should not be null");
   }
 

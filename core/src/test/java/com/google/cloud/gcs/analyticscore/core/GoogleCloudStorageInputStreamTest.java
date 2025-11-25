@@ -677,7 +677,7 @@ class GoogleCloudStorageInputStreamTest {
     when(mockFileSystem.open(eq(mockGcsFileInfo), any(GcsReadOptions.class)))
         .thenReturn(mockChannel);
     when(mockChannel.size()).thenReturn(fileSize);
-    when(mockFileSystem.getFileInfo(any())).thenReturn(mockGcsFileInfo);
+    when(mockFileSystem.getFileInfo(any(GcsItemId.class))).thenReturn(mockGcsFileInfo);
     // First read from non-cache position.
     googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(mockFileSystem, testUri);
     googleCloudStorageInputStream.seek(0);
