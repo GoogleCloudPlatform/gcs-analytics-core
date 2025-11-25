@@ -38,7 +38,7 @@ public class FakeGcsReadChannel extends GcsReadChannel {
   protected ReadChannel openReadChannel(GcsItemId itemId, GcsReadOptions readOptions)
       throws IOException {
     openReadChannelCount++;
-    return super.openReadChannel(itemInfo.getItemId(), readOptions);
+    return super.openReadChannel(itemId, readOptions);
   }
 
   public static int getOpenReadChannelCount() {

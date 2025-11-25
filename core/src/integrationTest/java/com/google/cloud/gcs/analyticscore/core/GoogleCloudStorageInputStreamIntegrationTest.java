@@ -16,11 +16,16 @@
 
 package com.google.cloud.gcs.analyticscore.core;
 
+import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
+import com.google.cloud.gcs.analyticscore.client.GcsFileSystemImpl;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
+import com.google.cloud.gcs.analyticscore.client.GcsItemId;
+import com.google.cloud.storage.BlobId;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 
@@ -104,10 +109,8 @@ class GoogleCloudStorageInputStreamIntegrationTest {
     ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
 
     List<ColumnDescriptor> columnDescriptorsList = metadata.getFileMetaData().getSchema().getColumns();
-    for(ColumnDescriptor descriptor : ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS) {
-      assertTrue(columnDescriptorsList.contains(descriptor));
-    }
-    assertTrue(columnDescriptorsList.size() == ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS.size());
+    assertThat(columnDescriptorsList)
+        .containsExactlyElementsIn(ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS);
   }
 
   @ParameterizedTest
@@ -124,9 +127,39 @@ class GoogleCloudStorageInputStreamIntegrationTest {
     ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
 
     List<ColumnDescriptor> columnDescriptorsList = metadata.getFileMetaData().getSchema().getColumns();
-    for(ColumnDescriptor descriptor : ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS) {
-      assertTrue(columnDescriptorsList.contains(descriptor));
-    }
-    assertTrue(columnDescriptorsList.size() == ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS.size());
+    assertThat(columnDescriptorsList)
+        .containsExactlyElementsIn(ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
+        IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+        IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE
+      })
+  void initializeWithGcsItemId_readsFileSuccessfully(String fileName) throws IOException {
+    String bucket = System.getProperty("gcs.integration.test.bucket");
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+    BlobId blobId = BlobId.fromGsUtilUri(uri.toString());
+    GcsItemId gcsItemId = GcsItemId.builder().setBucketName(blobId.getBucket()).setObjectName(blobId.getName()).build();
+    GcsFileSystemOptions gcsFileSystemOptions =
+        GcsFileSystemOptions.createFromOptions(
+            Map.of(
+                "gcs.analytics-core.small-file.footer.prefetch.size-bytes",
+                "102400",
+                "gcs.analytics-core.large-file.footer.prefetch.size-bytes",
+                "1048576",
+                "gcs.analytics-core.small-file.cache.threshold-bytes",
+                "1048576"),
+            "gcs.");
+    GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
+    GoogleCloudStorageInputStream googleCloudStorageInputStream =
+            GoogleCloudStorageInputStream.create(gcsFileSystem, gcsItemId);
+
+    byte[] buffer = new byte[1024];
+    int bytesRead = googleCloudStorageInputStream.read(buffer);
+    assertTrue(bytesRead > 0);
+    googleCloudStorageInputStream.close();
   }
 }

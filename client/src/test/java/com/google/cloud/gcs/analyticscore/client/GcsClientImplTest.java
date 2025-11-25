@@ -125,12 +125,46 @@ class GcsClientImplTest {
   }
 
   @Test
+  void openReadChannel_itemId_gcsObjectExists_returnsChannelWithCorrectSizeAndContent()
+      throws IOException {
+    String objectData = "hello world";
+    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket-name")
+            .setObjectName("test-object-name")
+            .build();
+    createBlobInStorage(
+        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    ByteBuffer buffer = ByteBuffer.allocate(objectData.length());
+
+    SeekableByteChannel channel = gcsClient.openReadChannel(itemId, readOptions);
+    int bytesRead = channel.read(buffer);
+
+    assertThat(channel.size()).isEqualTo(objectData.length());
+    assertThat(bytesRead).isEqualTo(objectData.length());
+    assertThat(new String(buffer.array(), UTF_8)).isEqualTo(objectData);
+  }
+
+  @Test
+  void openReadChannel_nullItemId_throwsNullPointerException() {
+    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project-id").build();
+
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class,
+            () -> gcsClient.openReadChannel((GcsItemId) null, readOptions));
+    assertThat(e).hasMessageThat().isEqualTo("gcsItemId should not be null");
+  }
+
+  @Test
   void openReadChannel_nullItemInfo_throwsNullPointerException() {
     GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project-id").build();
 
     NullPointerException e =
         assertThrows(
-            NullPointerException.class, () -> gcsClient.openReadChannel((GcsItemInfo) null, readOptions));
+            NullPointerException.class,
+            () -> gcsClient.openReadChannel((GcsItemInfo) null, readOptions));
     assertThat(e).hasMessageThat().isEqualTo("itemInfo should not be null");
   }
 

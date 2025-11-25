@@ -42,8 +42,7 @@ public interface GcsFileSystem extends AutoCloseable {
    * @throws FileNotFoundException if the given path does not exist.
    * @throws IOException if object exists but cannot be opened.
    */
-  VectoredSeekableByteChannel open(GcsItemId gcsItemId, GcsReadOptions options)
-          throws IOException;
+  VectoredSeekableByteChannel open(GcsItemId gcsItemId, GcsReadOptions options) throws IOException;
 
   /**
    * Gets Metadata about the given path item.
@@ -53,6 +52,7 @@ public interface GcsFileSystem extends AutoCloseable {
    */
   GcsFileInfo getFileInfo(URI path) throws IOException;
 
+  /** Gets Metadata about the given gcs object represented by itemId. */
   GcsFileInfo getFileInfo(GcsItemId itemId) throws IOException;
 
   /** Retrieve the options that were used to create this GcsFileSystem. */

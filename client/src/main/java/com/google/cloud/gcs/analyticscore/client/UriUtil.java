@@ -21,7 +21,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Utility class for parsing and formatting GCS URIs. */
-public final class UriUtil {
+final class UriUtil {
 
   private UriUtil() {}
 

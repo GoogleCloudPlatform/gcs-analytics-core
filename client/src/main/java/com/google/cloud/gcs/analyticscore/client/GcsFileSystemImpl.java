@@ -71,9 +71,10 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
   @Override
   public VectoredSeekableByteChannel open(GcsItemId gcsItemId, GcsReadOptions readOptions)
-          throws IOException {
+      throws IOException {
     checkNotNull(gcsItemId, "gcsItemId should not be null");
-    checkArgument(gcsItemId.isGcsObject(), "Expected GCS object to be provided. But got: " + gcsItemId);
+    checkArgument(
+        gcsItemId.isGcsObject(), "Expected GCS object to be provided. But got: " + gcsItemId);
     return gcsClient.openReadChannel(gcsItemId, readOptions);
   }
 
@@ -84,13 +85,16 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     return getFileInfo(itemId);
   }
 
+  @Override
   public GcsFileInfo getFileInfo(GcsItemId itemId) throws IOException {
     GcsItemInfo gcsItemInfo = gcsClient.getGcsItemInfo(itemId);
     return GcsFileInfo.builder()
-            .setItemInfo(gcsItemInfo)
-            .setUri(URI.create(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()).toGsUtilUri()))
-            .setAttributes(Collections.emptyMap())
-            .build();
+        .setItemInfo(gcsItemInfo)
+        .setUri(
+            URI.create(
+                BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()).toGsUtilUri()))
+        .setAttributes(Collections.emptyMap())
+        .build();
   }
 
   @Override

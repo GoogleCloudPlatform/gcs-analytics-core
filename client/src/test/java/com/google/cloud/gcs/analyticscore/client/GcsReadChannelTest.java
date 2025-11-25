@@ -88,14 +88,54 @@ class GcsReadChannelTest {
   }
 
   @Test
+  void constructor_itemId_nullStorage_throwsNullPointerException() {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class,
+            () -> new GcsReadChannel(null, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
+
+    assertThat(e).hasMessageThat().isEqualTo("Storage instance cannot be null");
+  }
+
+  @Test
+  void constructor_itemId_itemInfoDoesNotPointToObject_throws() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName("test-bucket").build();
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new GcsReadChannel(
+                    storage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
+
+    assertThat(e).hasMessageThat().isEqualTo("Expected Gcs Object but got " + itemId);
+  }
+
+  @Test
+  void constructor_nullItemId_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class,
+            () ->
+                new GcsReadChannel(
+                    storage, (GcsItemId) null, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
+
+    assertThat(e).hasMessageThat().isEqualTo("Item id cannot be null");
+  }
+
+  @Test
   void constructor_nullItemInfo_throwsNullPointerException() {
     NullPointerException e =
         assertThrows(
             NullPointerException.class,
             () ->
-                new GcsReadChannel(storage, (GcsItemInfo) null, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
+                new GcsReadChannel(
+                    storage, (GcsItemInfo) null, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
 
-    assertThat(e).hasMessageThat().isEqualTo("Item info cannot be null");
+    assertThat(e).hasMessageThat().isEqualTo("Item id cannot be null");
   }
 
   @Test
@@ -341,8 +381,19 @@ class GcsReadChannelTest {
   }
 
   @Test
-  void readVectored_nullThreadPool_throwsNullPointerException()
-      throws IOException, ExecutionException, InterruptedException {
+  void size_whenMetadataNotLoaded_throwsIOException() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    // Do not create the blob in storage to ensure metadata is not loaded
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(storage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+
+    IOException e = assertThrows(IOException.class, () -> gcsReadChannel.size());
+    assertThat(e).hasMessageThat().isEqualTo("Object metadata not initialized");
+  }
+
+  @Test
+  void readVectored_nullThreadPool_throwsNullPointerException() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     GcsItemInfo itemInfo =
@@ -361,16 +412,10 @@ class GcsReadChannelTest {
   @Test
   void readVectored_rangesNotEligibleForMerging_readsRanges() throws Exception {
     GcsItemId itemId =
-        GcsItemId.builder()
-            .setBucketName("test-bucket")
-            .setObjectName("test-object")
-            .build();
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     String objectData = "hello world,this is a test string for vectored read.";
     GcsItemInfo itemInfo =
-        GcsItemInfo.builder()
-            .setItemId(itemId)
-            .setSize(objectData.length())
-            .build();
+        GcsItemInfo.builder().setItemId(itemId).setSize(objectData.length()).build();
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()), objectData);
     GcsVectoredReadOptions vectoredReadOptions =

@@ -131,7 +131,8 @@ class GcsFileSystemImplTest {
     GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
 
     NullPointerException e =
-        assertThrows(NullPointerException.class, () -> gcsFileSystem.open((GcsFileInfo) null, readOptions));
+        assertThrows(
+            NullPointerException.class, () -> gcsFileSystem.open((GcsFileInfo) null, readOptions));
 
     assertThat(e).hasMessageThat().contains("fileInfo should not be null");
   }
@@ -192,6 +193,80 @@ class GcsFileSystemImplTest {
 
     IOException e =
         assertThrows(IOException.class, () -> gcsFileSystem.getFileInfo(nonExistentPath));
+
+    assertThat(e).hasMessageThat().contains("Object not found:" + nonExistentItemId);
+  }
+
+  @Test
+  void open_withItemId_callsGcsClientOpen() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
+    VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
+    when(mockClient.openReadChannel(eq(itemId), eq(readOptions))).thenReturn(mockChannel);
+
+    VectoredSeekableByteChannel resultChannel = gcsFileSystem.open(itemId, readOptions);
+
+    verify(mockClient).openReadChannel(itemId, readOptions);
+    assertThat(resultChannel).isSameInstanceAs(mockChannel);
+  }
+
+  @Test
+  void open_withNullItemId_throwsNullPointerException() {
+    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
+
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class, () -> gcsFileSystem.open((GcsItemId) null, readOptions));
+
+    assertThat(e).hasMessageThat().contains("gcsItemId should not be null");
+  }
+
+  @Test
+  void open_withNonObjectItemId_throwsIllegalArgumentException() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.open(itemId, readOptions));
+
+    assertThat(e).hasMessageThat().startsWith("Expected GCS object to be provided");
+  }
+
+  @Test
+  void getFileInfo_withValidItemId_returnsGcsFileInfo() throws IOException {
+    String content = "file info test";
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    GcsItemInfo mockItemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize((long) content.length())
+            .setContentGeneration(12345L) // A sample generation ID
+            .build();
+    when(mockClient.getGcsItemInfo(eq(itemId))).thenReturn(mockItemInfo);
+
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
+
+    assertNotNull(fileInfo);
+    assertEquals("gs://" + TEST_BUCKET + "/" + TEST_OBJECT, fileInfo.getUri().toString());
+    assertEquals(TEST_BUCKET, fileInfo.getItemInfo().getItemId().getBucketName());
+    assertTrue(fileInfo.getItemInfo().getItemId().getObjectName().isPresent());
+    assertEquals(TEST_OBJECT, fileInfo.getItemInfo().getItemId().getObjectName().get());
+    assertEquals(content.length(), fileInfo.getItemInfo().getSize());
+    assertNotNull(fileInfo.getAttributes());
+    assertTrue(fileInfo.getAttributes().isEmpty());
+  }
+
+  @Test
+  void getFileInfo_withNonExistentItemId_shouldThrowException() throws IOException {
+    GcsItemId nonExistentItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("non-existent-object").build();
+    when(mockClient.getGcsItemInfo(eq(nonExistentItemId)))
+        .thenThrow(new IOException("Object not found:" + nonExistentItemId));
+
+    IOException e =
+        assertThrows(IOException.class, () -> gcsFileSystem.getFileInfo(nonExistentItemId));
 
     assertThat(e).hasMessageThat().contains("Object not found:" + nonExistentItemId);
   }

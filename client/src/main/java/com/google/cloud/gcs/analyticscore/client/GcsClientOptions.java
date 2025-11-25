@@ -28,7 +28,6 @@ public abstract class GcsClientOptions {
   private static final String USER_AGENT_KEY = "user-agent";
   static final String PROJECT_ID_KEY = "project-id";
 
-
   public abstract Optional<String> getProjectId();
 
   public abstract Optional<String> getClientLibToken();
