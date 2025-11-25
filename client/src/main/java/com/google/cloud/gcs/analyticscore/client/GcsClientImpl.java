@@ -65,6 +65,9 @@ class GcsClientImpl implements GcsClient {
         gcsItemInfo.getItemId().isGcsObject(),
         "Expected GCS object to be provided. But got: " + gcsItemInfo.getItemId());
 
+    if (clientOptions.getAdaptiveRangeReadEnabled()) {
+      return new GcsAdaptiveReadChannel(storage, gcsItemInfo, readOptions, executorServiceSupplier);
+    }
     return new GcsReadChannel(storage, gcsItemInfo, readOptions, executorServiceSupplier);
   }
 
