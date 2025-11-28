@@ -16,6 +16,7 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.google.common.base.Suppliers;
@@ -61,7 +62,13 @@ class FakeGcsClientImplTest {
     GcsItemInfo itemInfo = fakeGcsClient.getGcsItemInfo(itemId);
 
     assertNotNull(itemInfo);
-    assertEquals(itemId, itemInfo.getItemId());
+    GcsItemId expectedItemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket")
+            .setObjectName("test-object")
+            .setContentGeneration(itemInfo.getContentGeneration().get())
+            .build();
+    assertThat(itemInfo.getItemId()).isEqualTo(expectedItemId);
     assertEquals(100L, itemInfo.getSize());
   }
 

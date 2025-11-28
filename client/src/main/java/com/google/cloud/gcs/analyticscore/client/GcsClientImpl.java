@@ -76,8 +76,9 @@ class GcsClientImpl implements GcsClient {
     return new GcsReadChannel(storage, gcsItemId, readOptions, executorServiceSupplier) {
       @Override
       public long size() throws IOException {
-        if (null == itemInfo) {
+        if (itemInfo == null) {
           itemInfo = getGcsItemInfo(itemId);
+          itemId = itemInfo.getItemId();
         }
         return itemInfo.getSize();
       }
@@ -126,9 +127,14 @@ class GcsClientImpl implements GcsClient {
     if (blob == null) {
       throw new IOException("Object not found:" + itemId);
     }
-
+    GcsItemId itemIdWithGeneration =
+        GcsItemId.builder()
+            .setContentGeneration(blob.getGeneration())
+            .setBucketName(blob.getBucket())
+            .setObjectName(blob.getName())
+            .build();
     return GcsItemInfo.builder()
-        .setItemId(itemId)
+        .setItemId(itemIdWithGeneration)
         .setSize(blob.getSize())
         .setContentGeneration(blob.getGeneration())
         .build();

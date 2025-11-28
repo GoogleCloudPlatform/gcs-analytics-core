@@ -80,7 +80,13 @@ class GcsClientImplTest {
 
     GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(itemId);
 
-    assertThat(itemInfo.getItemId()).isEqualTo(itemId);
+    GcsItemId expectedItemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket-id")
+            .setObjectName("test-object-id")
+            .setContentGeneration(itemInfo.getContentGeneration().get())
+            .build();
+    assertThat(itemInfo.getItemId()).isEqualTo(expectedItemId);
     assertThat(itemInfo.getSize()).isEqualTo(objectData.length());
     assertThat(itemInfo.getContentGeneration().get()).isEqualTo(0L);
   }

@@ -50,12 +50,15 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       GcsReadOptions readOptions,
       Supplier<ExecutorService> executorServiceSupplier)
       throws IOException {
-    this(
-        storage,
-        itemInfo == null ? null : itemInfo.getItemId(),
-        readOptions,
-        executorServiceSupplier);
+    checkNotNull(storage, "Storage instance cannot be null");
+    checkNotNull(itemInfo, "Item info cannot be null");
+    checkNotNull(executorServiceSupplier, "Thread pool supplier must not be null");
+    this.storage = storage;
+    this.readOptions = readOptions;
     this.itemInfo = itemInfo;
+    this.itemId = itemInfo.getItemId();
+    this.executorServiceSupplier = executorServiceSupplier;
+    this.readChannel = openReadChannel(itemId, readOptions);
   }
 
   GcsReadChannel(
@@ -159,7 +162,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             String.format(
                 "EOF reached while reading combinedObjectRange, range: %s, item: "
                     + "%s, numRead: %d",
-                combinedObjectRange, itemInfo.getItemId(), numOfBytesRead));
+                combinedObjectRange, itemId, numOfBytesRead));
       }
       // making it ready for reading
       dataBuffer.flip();
@@ -190,10 +193,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
               "EOF reached before all child ranges can be populated, "
                   + "combinedObjectRange: %s, "
                   + "expected length: %s, readBytes: %s, path: %s",
-              combinedObjectRange,
-              combinedObjectRange.getLength(),
-              numOfBytesRead,
-              itemInfo.getItemId()));
+              combinedObjectRange, combinedObjectRange.getLength(), numOfBytesRead, itemId));
     }
   }
 
@@ -229,9 +229,10 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     readOptions
         .getDecryptionKey()
         .ifPresent(key -> sourceOptions.add(Storage.BlobSourceOption.decryptionKey(key)));
-    ReadChannel readChannel = storage.reader(blobId, sourceOptions.toArray(new Storage.BlobSourceOption[0]));
+    ReadChannel readChannel =
+        storage.reader(blobId, sourceOptions.toArray(new Storage.BlobSourceOption[0]));
     readOptions.getChunkSize().ifPresent(readChannel::setChunkSize);
-    
+
     return readChannel;
   }
 
@@ -239,8 +240,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     if (position < 0) {
       throw new EOFException(
           String.format(
-              "Invalid seek offset: position value (%d) must be >= 0 for '%s'",
-              position, itemInfo.getItemId()));
+              "Invalid seek offset: position value (%d) must be >= 0 for '%s'", position, itemId));
     }
   }
 }
