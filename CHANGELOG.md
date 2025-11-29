@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.1.2...v1.2.0) (2025-11-29)
+
+
+### Features
+
+* Avoid unnecessary metadata API calls ([#190](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/190)) ([94ae0de](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/94ae0dece5b0a39780e418e03c3fea939f0786c8))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#161](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/161)) ([d97a66d](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d97a66d5e1dfc3118971eda84a7d35fde7686289))
+* set chunk-size configuration in read channel. ([#192](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/192)) ([d78fa18](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d78fa180b6d6d1c884dc2cd3b9024946541eedb0))
+
 ## [1.1.2](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.1.1...v1.1.2) (2025-10-15)
 
 
