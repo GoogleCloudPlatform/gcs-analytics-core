@@ -13,7 +13,7 @@ All configuration properties can be prefixed with a common string, e.g., `gcs.`.
 | `user-agent`                                               | The user agent string.                                                                                      | -             |
 | `channel.read.chunk-size-bytes`                            | Chunk size for GCS channel reads.                                                                           | -             |
 | `decryption-key`                                           | Decryption key for the object.                                                                              | -             |
-| `project-id`                                               | The Google Cloud project ID to use for the read operation.                                                  | -             |
+| `project-id`                                               | The Google Cloud project ID for the GCS client.                                                             | -             |
 | `user-project`                                             | Project ID whose Google Cloud Project's billing account should be charged for the operation being executed. | -             |
 | `analytics-core.footer.prefetch.enabled`                   | Controls whether footer prefetching is enabled.                                                             | `true`        |
 | `analytics-core.small-file.footer.prefetch.size-bytes`     | Footer prefetch size (in bytes) for files up to 1 GB.                                                       | 102400 (100 KB) |
