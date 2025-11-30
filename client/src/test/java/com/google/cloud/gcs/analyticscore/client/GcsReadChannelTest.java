@@ -45,7 +45,7 @@ class GcsReadChannelTest {
 
   private static final String TEST_PROJECT_ID = "test-project-id";
   private static GcsReadOptions TEST_GCS_READ_OPTIONS =
-      GcsReadOptions.builder().setProjectId(TEST_PROJECT_ID).build();
+      GcsReadOptions.builder().setUserProjectId(TEST_PROJECT_ID).build();
 
   private final Supplier<ExecutorService> executorServiceSupplier =
       Suppliers.memoize(() -> Executors.newFixedThreadPool(30));
@@ -145,7 +145,7 @@ class GcsReadChannelTest {
     GcsItemInfo itemInfo =
         GcsItemInfo.builder().setItemId(itemId).setSize(100).setContentGeneration(0L).build();
     GcsReadOptions readOptions =
-        GcsReadOptions.builder().setProjectId(TEST_PROJECT_ID).setChunkSize(1024).build();
+        GcsReadOptions.builder().setUserProjectId(TEST_PROJECT_ID).setChunkSize(1024).build();
     Storage mockStorage = Mockito.mock(Storage.class);
     ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
     Mockito.when(

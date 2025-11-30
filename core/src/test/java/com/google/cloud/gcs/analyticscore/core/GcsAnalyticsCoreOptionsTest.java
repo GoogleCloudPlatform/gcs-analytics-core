@@ -36,6 +36,8 @@ class GcsAnalyticsCoreOptionsTest {
             "GRPC_CLIENT",
             appendPrefix + "project-id",
             "test-project",
+            appendPrefix + "user-project",
+            "user-project",
             appendPrefix + "client-lib-token",
             "test-token",
             appendPrefix + "service.host",
@@ -56,6 +58,8 @@ class GcsAnalyticsCoreOptionsTest {
     assertThat(clientOptions.getClientLibToken().get()).isEqualTo("test-token");
     assertThat(clientOptions.getServiceHost().get()).isEqualTo("test-host");
     assertThat(clientOptions.getUserAgent().get()).isEqualTo("test-agent");
+    assertThat(clientOptions.getGcsReadOptions().getUserProjectId().get())
+        .isEqualTo("user-project");
   }
 
   @Test

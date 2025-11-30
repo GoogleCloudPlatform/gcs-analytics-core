@@ -116,7 +116,7 @@ class GcsFileSystemImplTest {
             .setItemInfo(mockItemInfo)
             .setAttributes(Collections.emptyMap())
             .build();
-    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
     VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
     when(mockClient.openReadChannel(eq(mockItemInfo), eq(readOptions))).thenReturn(mockChannel);
 
@@ -128,7 +128,7 @@ class GcsFileSystemImplTest {
 
   @Test
   void open_withNullFileInfo_throwsNullPointerException() {
-    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
 
     NullPointerException e =
         assertThrows(
@@ -147,7 +147,7 @@ class GcsFileSystemImplTest {
             .setItemInfo(mockItemInfo)
             .setAttributes(Collections.emptyMap())
             .build();
-    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
 
     IllegalArgumentException e =
         assertThrows(
@@ -201,7 +201,7 @@ class GcsFileSystemImplTest {
   void open_withItemId_callsGcsClientOpen() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
-    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
     VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
     when(mockClient.openReadChannel(eq(itemId), eq(readOptions))).thenReturn(mockChannel);
 
@@ -213,7 +213,7 @@ class GcsFileSystemImplTest {
 
   @Test
   void open_withNullItemId_throwsNullPointerException() {
-    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
 
     NullPointerException e =
         assertThrows(
@@ -225,7 +225,7 @@ class GcsFileSystemImplTest {
   @Test
   void open_withNonObjectItemId_throwsIllegalArgumentException() {
     GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
-    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
 
     IllegalArgumentException e =
         assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.open(itemId, readOptions));

@@ -106,7 +106,7 @@ class GcsClientImplTest {
   void openReadChannel_gcsObjectExists_returnsChannelWithCorrectSizeAndContent()
       throws IOException {
     String objectData = "hello world";
-    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
     GcsItemId itemId =
         GcsItemId.builder()
             .setBucketName("test-bucket-name")
@@ -134,7 +134,7 @@ class GcsClientImplTest {
   void openReadChannel_itemId_gcsObjectExists_returnsChannelWithCorrectSizeAndContent()
       throws IOException {
     String objectData = "hello world";
-    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
     GcsItemId itemId =
         GcsItemId.builder()
             .setBucketName("test-bucket-name")
@@ -154,7 +154,8 @@ class GcsClientImplTest {
 
   @Test
   void openReadChannel_nullItemId_throwsNullPointerException() {
-    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project-id").build();
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setUserProjectId("test-project-id").build();
 
     NullPointerException e =
         assertThrows(
@@ -165,7 +166,8 @@ class GcsClientImplTest {
 
   @Test
   void openReadChannel_nullItemInfo_throwsNullPointerException() {
-    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project-id").build();
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setUserProjectId("test-project-id").build();
 
     NullPointerException e =
         assertThrows(
@@ -195,7 +197,8 @@ class GcsClientImplTest {
             .setSize(0L)
             .setContentGeneration(-1L)
             .build();
-    GcsReadOptions readOptions = GcsReadOptions.builder().setProjectId("test-project-id").build();
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setUserProjectId("test-project-id").build();
 
     IllegalArgumentException e =
         assertThrows(

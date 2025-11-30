@@ -23,7 +23,7 @@ import java.util.Optional;
 @AutoValue
 public abstract class GcsReadOptions {
   private static final String GCS_CHANNEL_READ_CHUNK_SIZE_KEY = "channel.read.chunk-size-bytes";
-  private static final String DECRYPTION_KEY_KEY = "decryption.key";
+  private static final String DECRYPTION_KEY_KEY = "decryption-key";
   private static final String FOOTER_PREFETCH_ENABLED_KEY =
       "analytics-core.footer.prefetch.enabled";
   private static final String SMALL_FILE_FOOTER_PREFETCH_SIZE_KEY =
@@ -32,6 +32,7 @@ public abstract class GcsReadOptions {
       "analytics-core.small-file.cache.threshold-bytes";
   private static final String LARGE_FILE_FOOTER_PREFETCH_SIZE_KEY =
       "analytics-core.large-file.footer.prefetch.size-bytes";
+  private static final String USER_PROJECT_KEY = "user-project";
 
   private static final boolean DEFAULT_FOOTER_PREFETCH_ENABLED = true;
   private static final int DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE = 100 * 1024; // 100kb
@@ -42,7 +43,7 @@ public abstract class GcsReadOptions {
 
   public abstract Optional<String> getDecryptionKey();
 
-  public abstract Optional<String> getProjectId();
+  public abstract Optional<String> getUserProjectId();
 
   public abstract int getFooterPrefetchSizeSmallFile();
 
@@ -73,9 +74,8 @@ public abstract class GcsReadOptions {
     if (analyticsCoreOptions.containsKey(prefix + DECRYPTION_KEY_KEY)) {
       optionsBuilder.setDecryptionKey(analyticsCoreOptions.get(prefix + DECRYPTION_KEY_KEY));
     }
-    if (analyticsCoreOptions.containsKey(prefix + GcsClientOptions.PROJECT_ID_KEY)) {
-      optionsBuilder.setProjectId(
-          analyticsCoreOptions.get(prefix + GcsClientOptions.PROJECT_ID_KEY));
+    if (analyticsCoreOptions.containsKey(prefix + USER_PROJECT_KEY)) {
+      optionsBuilder.setUserProjectId(analyticsCoreOptions.get(prefix + USER_PROJECT_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + FOOTER_PREFETCH_ENABLED_KEY)) {
       optionsBuilder.setFooterPrefetchEnabled(
@@ -118,7 +118,7 @@ public abstract class GcsReadOptions {
 
     public abstract Builder setDecryptionKey(String decryptionKey);
 
-    public abstract Builder setProjectId(String projectId);
+    public abstract Builder setUserProjectId(String userProjectId);
 
     public abstract Builder setGcsVectoredReadOptions(GcsVectoredReadOptions vectoredReadOptions);
 

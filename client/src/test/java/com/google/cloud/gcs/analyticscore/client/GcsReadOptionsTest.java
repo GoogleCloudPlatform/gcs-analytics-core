@@ -33,8 +33,8 @@ class GcsReadOptionsTest {
     Map<String, String> properties =
         ImmutableMap.<String, String>builder()
             .put("gcs.channel.read.chunk-size-bytes", "8192")
-            .put("gcs.decryption.key", "test-key")
-            .put("gcs.project-id", "test-project")
+            .put("gcs.decryption-key", "test-key")
+            .put("gcs.user-project", "test-project")
             .put("gcs.analytics-core.read.vectored.range.merge-gap.max-bytes", "1024")
             .put("gcs.analytics-core.read.vectored.range.merged-size.max-bytes", "2048")
             .put("gcs.analytics-core.footer.prefetch.enabled", "false")
@@ -49,7 +49,7 @@ class GcsReadOptionsTest {
 
     assertThat(readOptions.getChunkSize()).isEqualTo(Optional.of(8192));
     assertThat(readOptions.getDecryptionKey()).isEqualTo(Optional.of("test-key"));
-    assertThat(readOptions.getProjectId()).isEqualTo(Optional.of("test-project"));
+    assertThat(readOptions.getUserProjectId()).isEqualTo(Optional.of("test-project"));
     assertThat(readOptions.isFooterPrefetchEnabled()).isEqualTo(false);
     assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(41943);
     assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(4194304);
@@ -68,7 +68,7 @@ class GcsReadOptionsTest {
 
     assertThat(readOptions.getChunkSize()).isEqualTo(Optional.empty());
     assertThat(readOptions.getDecryptionKey()).isEqualTo(Optional.empty());
-    assertThat(readOptions.getProjectId()).isEqualTo(Optional.empty());
+    assertThat(readOptions.getUserProjectId()).isEqualTo(Optional.empty());
     assertThat(readOptions.isFooterPrefetchEnabled()).isEqualTo(true);
     assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(100 * 1024);
     assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(1024 * 1024);

@@ -224,7 +224,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             .orElse(BlobId.of(bucketName, objectName));
     List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
     readOptions
-        .getProjectId()
+        .getUserProjectId()
         .ifPresent(id -> sourceOptions.add(Storage.BlobSourceOption.userProject(id)));
     readOptions
         .getDecryptionKey()
