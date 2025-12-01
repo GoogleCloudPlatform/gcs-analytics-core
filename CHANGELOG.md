@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.2.0...v1.2.1) (2025-12-01)
+
+
+### Bug Fixes
+
+* configuration flags names for GcsReadOptions ([#195](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/195)) ([9aab5ce](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/9aab5ce32816243432bd66e6658d28c8d11e87cb))
+
 ## [1.2.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.1.2...v1.2.0) (2025-11-29)
 
 
