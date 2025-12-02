@@ -58,7 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 'Checkout Code'
-        uses: 'actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493'
+        uses: 'actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8'
       - name: 'Set up Go'
         uses: 'actions/setup-go@c0137caad775660c0844396c52da96e560aba63d'
         with:
