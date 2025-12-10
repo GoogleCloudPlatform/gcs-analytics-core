@@ -52,8 +52,7 @@ class GcsAnalyticsCoreOptionsTest {
     GcsClientOptions clientOptions = fileSystemOptions.getGcsClientOptions();
 
     assertThat(fileSystemOptions.getReadThreadCount()).isEqualTo(32);
-    assertThat(fileSystemOptions.getClientType())
-        .isEqualTo(GcsFileSystemOptions.ClientType.GRPC_CLIENT);
+    assertThat(clientOptions.getClientType()).isEqualTo(GcsClientOptions.ClientType.GRPC_CLIENT);
     assertThat(clientOptions.getProjectId().get()).isEqualTo("test-project");
     assertThat(clientOptions.getClientLibToken().get()).isEqualTo("test-token");
     assertThat(clientOptions.getServiceHost().get()).isEqualTo("test-host");
@@ -79,8 +78,7 @@ class GcsAnalyticsCoreOptionsTest {
     GcsClientOptions clientOptions = fileSystemOptions.getGcsClientOptions();
 
     assertThat(fileSystemOptions.getReadThreadCount()).isEqualTo(24);
-    assertThat(fileSystemOptions.getClientType())
-        .isEqualTo(GcsFileSystemOptions.ClientType.HTTP_CLIENT);
+    assertThat(clientOptions.getClientType()).isEqualTo(GcsClientOptions.ClientType.HTTP_CLIENT);
     assertThat(clientOptions.getProjectId().get()).isEqualTo("test-project-no-prefix");
     assertThat(clientOptions.getClientLibToken().get()).isEqualTo("test-token-no-prefix");
     assertThat(clientOptions.getServiceHost().get()).isEqualTo("test-host-no-prefix");
@@ -103,7 +101,8 @@ class GcsAnalyticsCoreOptionsTest {
 
     assertThat(fileSystemOptions.getReadThreadCount())
         .isEqualTo(defaultOptions.getReadThreadCount());
-    assertThat(fileSystemOptions.getClientType()).isEqualTo(defaultOptions.getClientType());
+    assertThat(clientOptions.getClientType())
+        .isEqualTo(defaultOptions.getGcsClientOptions().getClientType());
     assertThat(clientOptions.getProjectId().isPresent()).isFalse();
   }
 }

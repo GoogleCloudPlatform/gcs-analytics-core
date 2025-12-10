@@ -8,6 +8,8 @@ All configuration properties can be prefixed with a common string, e.g., `gcs.`.
 
 | Property                                                   | Description                                                                                                 | Default Value |
 |:-----------------------------------------------------------|:------------------------------------------------------------------------------------------------------------| :------------ |
+| `client.type`                                              | The type of GCS client to use. Options are `HTTP_CLIENT` or `GRPC_CLIENT`.                                | `HTTP_CLIENT` |
+| `client.grpc.direct-path-enabled`                          | Controls whether to attempt to use DirectPath for GRPC requests. Only applicable if `client.type` is `GRPC_CLIENT`. | `true`        |
 | `client-lib-token`                                         | Client library token.                                                                                       | -             |
 | `service.host`                                             | The GCS service host.                                                                                       | -             |
 | `user-agent`                                               | The user agent string.                                                                                      | -             |
