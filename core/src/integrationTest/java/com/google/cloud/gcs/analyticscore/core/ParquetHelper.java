@@ -17,6 +17,8 @@ package com.google.cloud.gcs.analyticscore.core;
 
 import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.*;
 
+import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
+import com.google.cloud.gcs.analyticscore.client.GcsFileSystemImpl;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.conf.Configuration;
@@ -71,7 +73,8 @@ public class ParquetHelper {
      */
     public static ParquetMetadata readParquetMetadata(URI fileUri, GcsFileSystemOptions gcsFileSystemOptions) throws IOException {
         logger.info("Reading parquet file metadata: {}", fileUri);
-        InputFile inputFile = new TestInputStreamInputFile(fileUri, false, gcsFileSystemOptions);
+        GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
+        InputFile inputFile = new TestInputStreamInputFile(fileUri, false, gcsFileSystem);
         // Configuration can be customized if needed
         Configuration conf = new Configuration();
         try (ParquetFileReader reader = ParquetFileReader.open(inputFile)) {
@@ -91,6 +94,18 @@ public class ParquetHelper {
         return readParquetObjectRecords(fileUri, null, readVectoredEnabled, gcsFileSystemOptions);
     }
 
+  /**
+   * Reads the records from a Parquet file and returns the total record count.
+   *
+   * @param readVectoredEnabled Whether to use vectored read or not.
+   * @param fileUri The URI of the Parquet file.
+   * @return The total number of records in the file.
+   */
+
+  public static long readParquetObjectRecords(URI fileUri, boolean readVectoredEnabled, GcsFileSystem gcsFileSystem)  {
+    return readParquetObjectRecords(fileUri, null, readVectoredEnabled, gcsFileSystem);
+  }
+
     /**
      * Reads the records from a Parquet file and returns the total record count.
      *
@@ -101,23 +116,36 @@ public class ParquetHelper {
      * @return The total number of records in the file.
      */
     public static long readParquetObjectRecords(URI fileUri, String requestedSchema, boolean readVectoredEnabled, GcsFileSystemOptions gcsFileSystemOptions)  {
-        logger.info("Reading parquet file:{} with vectoredIOEnabled={}", fileUri, readVectoredEnabled);
-        try {
-            InputFile inputFile = new TestInputStreamInputFile(fileUri, readVectoredEnabled, gcsFileSystemOptions);
-            long recordCount = 0;
-            Configuration conf = new Configuration();
-            if (requestedSchema != null) {
-                conf.set("parquet.read.schema", requestedSchema);
-            }
-            try (ParquetReader<Group> reader = new GroupParquetReaderBuilder(inputFile).withConf(conf).build()) {
-                Group group;
-                while ((group = reader.read()) != null) {
-                    recordCount += 1;
-                }
-            }
-            return recordCount;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+      return readParquetObjectRecords(fileUri, requestedSchema, readVectoredEnabled, new GcsFileSystemImpl(gcsFileSystemOptions));
     }
+
+  /**
+   * Reads the records from a Parquet file and returns the total record count.
+   *
+   * @param fileUri The URI of the Parquet file.
+   * @param requestedSchema The requested schema to read from the Parquet file.
+   * @param readVectoredEnabled Whether to use vectored read or not.
+   * @param gcsFileSystem GcsFileSystem instance.
+   * @return The total number of records in the file.
+   */
+  public static long readParquetObjectRecords(URI fileUri, String requestedSchema, boolean readVectoredEnabled, GcsFileSystem gcsFileSystem)  {
+    logger.info("Reading parquet file:{} with vectoredIOEnabled={}", fileUri, readVectoredEnabled);
+    try {
+      InputFile inputFile = new TestInputStreamInputFile(fileUri, readVectoredEnabled, gcsFileSystem);
+      long recordCount = 0;
+      Configuration conf = new Configuration();
+      if (requestedSchema != null) {
+        conf.set("parquet.read.schema", requestedSchema);
+      }
+      try (ParquetReader<Group> reader = new GroupParquetReaderBuilder(inputFile).withConf(conf).build()) {
+        Group group;
+        while ((group = reader.read()) != null) {
+          recordCount += 1;
+        }
+      }
+      return recordCount;
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
 }
