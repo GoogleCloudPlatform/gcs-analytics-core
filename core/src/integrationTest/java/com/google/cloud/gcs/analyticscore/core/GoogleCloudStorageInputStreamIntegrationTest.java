@@ -56,23 +56,27 @@ class GoogleCloudStorageInputStreamIntegrationTest {
 
   @ParameterizedTest
   @org.junit.jupiter.params.provider.MethodSource("fileNameAndClientTypeProvider")
-  void forSampleParquetFiles_vectoredIOEnabled_footerPrefetchingDisabled_readsFileSuccessfully(String fileName, ClientType clientType) {
+  void forSampleParquetFiles_vectoredIOEnabled_footerPrefetchingDisabled_readsFileSuccessfully(String fileName,
+      ClientType clientType) {
     GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-            Map.of("gcs.analytics-core.footer.prefetch.enabled", "false",
-                    "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576",
-                    "gcs.client.type", clientType.name()), "gcs.");
+        Map.of("gcs.analytics-core.footer.prefetch.enabled", "false",
+            "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576",
+            "gcs.client.type", clientType.name()),
+        "gcs.");
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
     ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, gcsFileSystemOptions);
   }
 
   @ParameterizedTest
   @org.junit.jupiter.params.provider.MethodSource("fileNameAndClientTypeProvider")
-  void forSampleParquetFiles_vectoredIOEnabled_footerPrefetchingEnabled_readsFileSuccessfully(String fileName, ClientType clientType) {
+  void forSampleParquetFiles_vectoredIOEnabled_footerPrefetchingEnabled_readsFileSuccessfully(String fileName,
+      ClientType clientType) {
     GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-            Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
-                    "gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
-                    "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576",
-                    "gcs.client.type", clientType.name()), "gcs.");
+        Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
+            "gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
+            "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576",
+            "gcs.client.type", clientType.name()),
+        "gcs.");
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
     ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, gcsFileSystemOptions);
   }
@@ -81,22 +85,25 @@ class GoogleCloudStorageInputStreamIntegrationTest {
   @org.junit.jupiter.params.provider.MethodSource("fileNameAndClientTypeProvider")
   void forSampleParquetFiles_vectoredIODisabled_readsFileSuccessfully(String fileName, ClientType clientType) {
     GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-            Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
-                    "gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
-                    "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576",
-                    "gcs.client.type", clientType.name()), "gcs.");
+        Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
+            "gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
+            "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576",
+            "gcs.client.type", clientType.name()),
+        "gcs.");
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
     ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ false, gcsFileSystemOptions);
   }
 
   @ParameterizedTest
   @org.junit.jupiter.params.provider.MethodSource("fileNameAndClientTypeProvider")
-  void tpcdsCustomerTableData_footerPrefetchingEnabled_parsesParquetSchemaCorrectly(String fileName, ClientType clientType) throws IOException {
+  void tpcdsCustomerTableData_footerPrefetchingEnabled_parsesParquetSchemaCorrectly(String fileName,
+      ClientType clientType) throws IOException {
     GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-            Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
-                    "gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
-                    "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576",
-                    "gcs.client.type", clientType.name()), "gcs.");
+        Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
+            "gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
+            "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576",
+            "gcs.client.type", clientType.name()),
+        "gcs.");
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
 
     ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
@@ -108,11 +115,13 @@ class GoogleCloudStorageInputStreamIntegrationTest {
 
   @ParameterizedTest
   @org.junit.jupiter.params.provider.MethodSource("fileNameAndClientTypeProvider")
-  void tpcdsCustomerTableData_footerPrefetchingDisabled_parsesParquetSchemaCorrectly(String fileName, ClientType clientType) throws IOException {
+  void tpcdsCustomerTableData_footerPrefetchingDisabled_parsesParquetSchemaCorrectly(String fileName,
+      ClientType clientType) throws IOException {
     GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-            Map.of("gcs.analytics-core.footer.prefetch.enabled", "false",
-                    "gcs.analytics-core.small-file.cache.threshold-bytes", "0",
-                    "gcs.client.type", clientType.name()), "gcs.");
+        Map.of("gcs.analytics-core.footer.prefetch.enabled", "false",
+            "gcs.analytics-core.small-file.cache.threshold-bytes", "0",
+            "gcs.client.type", clientType.name()),
+        "gcs.");
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
 
     ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
@@ -128,20 +137,19 @@ class GoogleCloudStorageInputStreamIntegrationTest {
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
     BlobId blobId = BlobId.fromGsUtilUri(uri.toString());
     GcsItemId gcsItemId = GcsItemId.builder().setBucketName(blobId.getBucket()).setObjectName(blobId.getName()).build();
-    GcsFileSystemOptions gcsFileSystemOptions =
-        GcsFileSystemOptions.createFromOptions(
-            Map.of(
-                "gcs.analytics-core.small-file.footer.prefetch.size-bytes",
-                "102400",
-                "gcs.analytics-core.large-file.footer.prefetch.size-bytes",
-                "1048576",
-                "gcs.analytics-core.small-file.cache.threshold-bytes",
-                "1048576",
-                "gcs.client.type", clientType.name()),
-            "gcs.");
+    GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+        Map.of(
+            "gcs.analytics-core.small-file.footer.prefetch.size-bytes",
+            "102400",
+            "gcs.analytics-core.large-file.footer.prefetch.size-bytes",
+            "1048576",
+            "gcs.analytics-core.small-file.cache.threshold-bytes",
+            "1048576",
+            "gcs.client.type", clientType.name()),
+        "gcs.");
     GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
-    GoogleCloudStorageInputStream googleCloudStorageInputStream =
-            GoogleCloudStorageInputStream.create(gcsFileSystem, gcsItemId);
+    GoogleCloudStorageInputStream googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(gcsFileSystem,
+        gcsItemId);
 
     byte[] buffer = new byte[1024];
     int bytesRead = googleCloudStorageInputStream.read(buffer);
@@ -151,12 +159,58 @@ class GoogleCloudStorageInputStreamIntegrationTest {
 
   static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> fileNameAndClientTypeProvider() {
     return java.util.stream.Stream.of(
-      org.junit.jupiter.params.provider.Arguments.of(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE, ClientType.HTTP_CLIENT),
-      org.junit.jupiter.params.provider.Arguments.of(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE, ClientType.GRPC_CLIENT),
-      org.junit.jupiter.params.provider.Arguments.of(IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE, ClientType.HTTP_CLIENT),
-      org.junit.jupiter.params.provider.Arguments.of(IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE, ClientType.GRPC_CLIENT),
-      org.junit.jupiter.params.provider.Arguments.of(IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE, ClientType.HTTP_CLIENT),
-      org.junit.jupiter.params.provider.Arguments.of(IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE, ClientType.GRPC_CLIENT)
-    );
+        org.junit.jupiter.params.provider.Arguments.of(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
+            ClientType.HTTP_CLIENT),
+        org.junit.jupiter.params.provider.Arguments.of(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
+            ClientType.GRPC_CLIENT),
+        org.junit.jupiter.params.provider.Arguments.of(IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+            ClientType.HTTP_CLIENT),
+        org.junit.jupiter.params.provider.Arguments.of(IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+            ClientType.GRPC_CLIENT),
+        org.junit.jupiter.params.provider.Arguments.of(IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE,
+            ClientType.HTTP_CLIENT),
+        org.junit.jupiter.params.provider.Arguments.of(IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE,
+            ClientType.GRPC_CLIENT));
   }
+
+  @ParameterizedTest
+  @ValueSource(strings = { IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE })
+  void sequentialRead_withAdaptiveRangeReadEnabled_InAutoMode_succeeds(String fileName) throws IOException {
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(Map
+        .of("gcs.analytics-core.file-access-pattern", "AUTO", "gcs.analytics-core.adaptive-range-read-enabled", "true"),
+        "gcs.");
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+
+    try (GoogleCloudStorageInputStream input = GoogleCloudStorageInputStream.create(new GcsFileSystemImpl(options),
+        uri)) {
+      byte[] buffer = new byte[1024];
+      int bytesRead = input.read(buffer);
+
+      assertEquals(1024, bytesRead);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = { IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE })
+  void randomRead_withAdaptiveRangeReadEnabled_InAutoMode_succeeds(String fileName) throws IOException {
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(Map
+        .of("gcs.analytics-core.file-access-pattern", "AUTO", "gcs.analytics-core.adaptive-range-read-enabled", "true"),
+        "gcs.");
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+
+    try (GoogleCloudStorageInputStream input = GoogleCloudStorageInputStream.create(new GcsFileSystemImpl(options),
+        uri)) {
+      byte[] buffer = new byte[100];
+      input.read(buffer);
+      // Seek forward (large skip)
+      input.seek(50000);
+      int forwardReadBytesRead = input.read(buffer);
+      // Seek backward
+      input.seek(1000);
+      int backwardReadBytesRead = input.read(buffer);
+      assertEquals(100, forwardReadBytesRead);
+      assertEquals(100, backwardReadBytesRead);
+    }
+  }
+
 }

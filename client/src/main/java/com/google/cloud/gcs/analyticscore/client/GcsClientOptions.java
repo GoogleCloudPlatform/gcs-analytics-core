@@ -36,6 +36,9 @@ public abstract class GcsClientOptions {
     GRPC_CLIENT,
   }
 
+  private static final String ADAPTIVE_RANGE_READ_ENABLED_KEY =
+      "analytics-core.adaptive-range-read-enabled";
+
   public abstract Optional<String> getProjectId();
 
   public abstract Optional<String> getClientLibToken();
@@ -50,11 +53,14 @@ public abstract class GcsClientOptions {
 
   public abstract GcsReadOptions getGcsReadOptions();
 
+  public abstract Boolean getAdaptiveRangeReadEnabled();
+
   public static Builder builder() {
     return new AutoValue_GcsClientOptions.Builder()
         .setClientType(ClientType.HTTP_CLIENT)
         .setDirectPathEnabled(true)
-        .setGcsReadOptions(GcsReadOptions.builder().build());
+        .setGcsReadOptions(GcsReadOptions.builder().build())
+        .setAdaptiveRangeReadEnabled(false);
   }
 
   public static GcsClientOptions createFromOptions(
@@ -83,7 +89,10 @@ public abstract class GcsClientOptions {
     }
     optionsBuilder.setGcsReadOptions(
         GcsReadOptions.createFromOptions(analyticsCoreOptions, prefix));
-
+    if (analyticsCoreOptions.containsKey(prefix + ADAPTIVE_RANGE_READ_ENABLED_KEY)) {
+      optionsBuilder.setAdaptiveRangeReadEnabled(
+          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + ADAPTIVE_RANGE_READ_ENABLED_KEY)));
+    }
     return optionsBuilder.build();
   }
 
@@ -104,6 +113,8 @@ public abstract class GcsClientOptions {
     public abstract Builder setDirectPathEnabled(boolean directPathEnabled);
 
     public abstract Builder setGcsReadOptions(GcsReadOptions readOptions);
+
+    public abstract Builder setAdaptiveRangeReadEnabled(Boolean adaptiveRangeReadEnabled);
 
     public abstract GcsClientOptions build();
   }
