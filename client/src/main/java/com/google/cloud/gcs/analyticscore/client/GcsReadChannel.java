@@ -155,14 +155,23 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     try (ReadChannel channel = openReadChannel(itemId, readOptions)) {
       validatePosition(combinedObjectRange.getOffset());
       channel.seek(combinedObjectRange.getOffset());
+      channel.limit(combinedObjectRange.getOffset() + combinedObjectRange.getLength());
       ByteBuffer dataBuffer = allocate.apply(combinedObjectRange.getLength());
-      int numOfBytesRead = channel.read(dataBuffer);
-      if (numOfBytesRead < 0) {
+      int numOfBytesRead = 0;
+      while (dataBuffer.hasRemaining()) {
+        int bytesRead = channel.read(dataBuffer);
+        if (bytesRead < 0) {
+          // EOF reached.
+          break;
+        }
+        numOfBytesRead += bytesRead;
+      }
+      if (numOfBytesRead < combinedObjectRange.getLength()) {
         throw new EOFException(
             String.format(
                 "EOF reached while reading combinedObjectRange, range: %s, item: "
-                    + "%s, numRead: %d",
-                combinedObjectRange, itemId, numOfBytesRead));
+                    + "%s, numRead: %d, expected: %d",
+                combinedObjectRange, itemId, numOfBytesRead, combinedObjectRange.getLength()));
       }
       // making it ready for reading
       dataBuffer.flip();

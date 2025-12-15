@@ -1143,7 +1143,9 @@ class GoogleCloudStorageInputStreamTest {
     googleCloudStorageInputStream.readVectored(
         List.of(range1), (size) -> ByteBuffer.allocate(size));
 
-    assertThrows(ExecutionException.class, () -> range1.getByteBufferFuture().get());
+    ExecutionException exception =
+        assertThrows(ExecutionException.class, () -> range1.getByteBufferFuture().get());
+    assertThat(exception).hasCauseThat().isInstanceOf(EOFException.class);
   }
 
   @Test
@@ -1173,26 +1175,6 @@ class GoogleCloudStorageInputStreamTest {
     assertTargetByteBufferPresentAtOffset(
         data, range2Result, range2.getOffset(), range2.getLength());
     assertThat(googleCloudStorageInputStream.getPos()).isEqualTo(position);
-  }
-
-  @Test
-  void readVectored_cacheNotAvailable_partialRead_throws() throws IOException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.createFromOptions(
-            Map.of("analytics-core.small-file.cache.threshold-bytes", "100"), "");
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    TestDataGenerator.createGcsData(itemId, 1024);
-    FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
-    googleCloudStorageInputStream =
-        GoogleCloudStorageInputStream.create(
-            fakeGcsFileSystem, URI.create("gs://test-bucket/test-object"));
-    GcsObjectRange range1 = createGcsObjectRange(/* offset= */ 1000, /* length= */ 100);
-
-    googleCloudStorageInputStream.readVectored(
-        List.of(range1), (size) -> ByteBuffer.allocate(size));
-
-    assertThrows(ExecutionException.class, () -> range1.getByteBufferFuture().get());
   }
 
   @Test

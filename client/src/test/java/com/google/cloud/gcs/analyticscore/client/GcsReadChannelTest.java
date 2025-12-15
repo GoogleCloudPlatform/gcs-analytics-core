@@ -507,6 +507,60 @@ class GcsReadChannelTest {
     assertThat(e.getCause().getCause()).hasMessageThat().isEqualTo("Allocation failed");
   }
 
+  @Test
+  void readVectored_combinedRange_partialFirstRead_readsFully() throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "abcdefghijklmnopqrstuvwxyz";
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(objectData.length())
+            .setContentGeneration(0L)
+            .build();
+    createBlobInStorage(
+        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+
+    byte[] dataBytes = objectData.getBytes(StandardCharsets.UTF_8);
+    var ref =
+        new Object() {
+          int callCount = 0;
+        };
+
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buffer = invocation.getArgument(0);
+              if (ref.callCount == 0) {
+                // Return 1 byte on the first call
+                buffer.put(dataBytes, 0, 1);
+                ref.callCount++;
+                return 1;
+              } else {
+                // Return the rest on the second call
+                int remaining = buffer.remaining();
+                buffer.put(dataBytes, 1, remaining);
+                return remaining;
+              }
+            });
+
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(mockStorage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+    GcsObjectRange range1 = createRange(0, 10);
+    ImmutableList<GcsObjectRange> ranges = ImmutableList.of(range1);
+    gcsReadChannel.readVectored(ranges, ByteBuffer::allocate);
+
+    assertThat(getGcsObjectRangeData(range1)).isEqualTo("abcdefghij");
+  }
+
   private GcsObjectRange createRange(long offset, int length) {
     return GcsObjectRange.builder()
         .setOffset(offset)
