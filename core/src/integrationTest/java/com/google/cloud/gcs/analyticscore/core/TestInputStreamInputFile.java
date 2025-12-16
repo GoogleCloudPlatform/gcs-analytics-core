@@ -30,10 +30,10 @@ public class TestInputStreamInputFile implements InputFile {
     private final boolean enableVectoredIO;
     private Long size;
 
-    public TestInputStreamInputFile(URI filePath, boolean enableVectoredIO, GcsFileSystem gcsFileSystem) {
+    public TestInputStreamInputFile(URI filePath, boolean enableVectoredIO, GcsFileSystemOptions gcsFileSystemOptions) {
         this.fileUri = filePath;
         this.enableVectoredIO = enableVectoredIO;
-        this.gcsFileSystem = gcsFileSystem;
+        this.gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
     }
 
     @Override
