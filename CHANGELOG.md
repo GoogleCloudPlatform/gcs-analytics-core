@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.2.1...v1.3.0) (2025-12-16)
+
+
+### Features
+
+* add grpc and direct path support ([#205](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/205)) ([66d1546](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/66d15469a349d4c1f8ce02ca72353dfdd26d407f))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#178](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/178)) ([8c39eb5](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/8c39eb5f521d77c48bc2f39378a1de1c87247c78))
+* update vectored IO implementation to send bounded request ([#209](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/209)) ([0cf53d7](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/0cf53d7336e191d7bfb4ccc9ebac5b70de98945e))
+
 ## [1.2.1](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.2.0...v1.2.1) (2025-12-01)
 
 
