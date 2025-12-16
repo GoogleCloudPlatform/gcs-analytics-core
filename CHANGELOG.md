@@ -1,11 +1,6 @@
 # Changelog
 
-## [1.3.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.2.1...v1.3.0) (2025-12-16)
-
-
-### Features
-
-* add grpc and direct path support ([#205](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/205)) ([66d1546](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/66d15469a349d4c1f8ce02ca72353dfdd26d407f))
+## [1.2.2](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.2.1...v1.3.0) (2025-12-16)
 
 
 ### Bug Fixes
