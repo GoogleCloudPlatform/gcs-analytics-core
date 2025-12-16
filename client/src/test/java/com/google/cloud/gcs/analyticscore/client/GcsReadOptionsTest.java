@@ -72,7 +72,7 @@ class GcsReadOptionsTest {
     assertThat(readOptions.isFooterPrefetchEnabled()).isEqualTo(true);
     assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(100 * 1024);
     assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(1024 * 1024);
-    assertThat(readOptions.getSmallObjectCacheSize()).isEqualTo(1024 * 1024);
+    assertThat(readOptions.getSmallObjectCacheSize()).isEqualTo(0);
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(4 * 1024);
     assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(8 * 1024 * 1024);
   }

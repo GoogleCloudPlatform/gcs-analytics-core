@@ -37,7 +37,7 @@ public abstract class GcsReadOptions {
   private static final boolean DEFAULT_FOOTER_PREFETCH_ENABLED = true;
   private static final int DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE = 100 * 1024; // 100kb
   private static final int DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE = 1024 * 1024; // 1mb
-  private static final int DEFAULT_SMALL_FILE_CACHE_SIZE = 1024 * 1024; // 1mb
+  private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = 0; // 0 bytes = disabled
 
   public abstract Optional<Integer> getChunkSize();
 
@@ -61,7 +61,7 @@ public abstract class GcsReadOptions {
         .setFooterPrefetchEnabled(DEFAULT_FOOTER_PREFETCH_ENABLED)
         .setFooterPrefetchSizeSmallFile(DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE)
         .setFooterPrefetchSizeLargeFile(DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE)
-        .setSmallObjectCacheSize(DEFAULT_SMALL_FILE_CACHE_SIZE);
+        .setSmallObjectCacheSize(DEFAULT_SMALL_FILE_CACHE_THRESHOLD);
   }
 
   public static GcsReadOptions createFromOptions(
