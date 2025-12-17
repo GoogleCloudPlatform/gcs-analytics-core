@@ -7,7 +7,7 @@
 
 * disable small object prefetching by default ([#212](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/212)) ([f937976](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/f937976080421222b9e6277343138dcb2969e4a0))
 
-## [1.2.2](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.2.1...v1.3.0) (2025-12-16)
+## [1.2.2](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.2.1...v1.2.2) (2025-12-16)
 
 
 ### Bug Fixes
