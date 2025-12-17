@@ -19,6 +19,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.cloud.storage.BlobId;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
@@ -43,6 +45,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
     this.gcsClient =
         new GcsClientImpl(getGcsClientOptions(fileSystemOptions), executorServiceSupplier);
+    initializeTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
   }
 
   public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions) {
@@ -51,6 +54,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.gcsClient =
         new GcsClientImpl(
             credentials, getGcsClientOptions(fileSystemOptions), executorServiceSupplier);
+    initializeTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
   }
 
   @VisibleForTesting
@@ -58,6 +62,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.gcsClient = gcsClient;
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
+    initializeTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
   }
 
   @Override
@@ -126,6 +131,11 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     return fileSystemOptions.getGcsClientOptions() == null
         ? GcsClientOptions.builder().build()
         : fileSystemOptions.getGcsClientOptions();
+  }
+
+  @VisibleForTesting
+  void initializeTelemetry(TelemetryOptions telemetryOptions) {
+    telemetryOptions.getOperationListeners().forEach(Telemetry.getInstance()::addListener);
   }
 
   @VisibleForTesting
