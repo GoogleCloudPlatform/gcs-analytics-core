@@ -40,126 +40,176 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import com.google.cloud.gcs.analyticscore.common.telemetry.GcsAnalyticsCoreMetrics;
+import com.google.cloud.gcs.analyticscore.common.telemetry.GcsAnalyticsCoreTelemetry;
+import com.google.cloud.gcs.analyticscore.common.telemetry.GcsOperation;
+import com.google.cloud.gcs.analyticscore.common.telemetry.GcsOperationMetricsListener;
+import com.google.cloud.gcs.analyticscore.common.telemetry.GcsOperationType;
+import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey;
+import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
 @EnabledIfSystemProperty(named = "gcs.integration.test.project-id", matches = ".+")
 class GoogleCloudStorageInputStreamIntegrationTest {
-  private static final Logger logger = LoggerFactory.getLogger(GoogleCloudStorageInputStreamIntegrationTest.class);
+	private static final Logger logger = LoggerFactory.getLogger(GoogleCloudStorageInputStreamIntegrationTest.class);
 
-  @BeforeAll
-  public static void uploadSampleParquetFilesToGcs() throws IOException {
-    IntegrationTestHelper.uploadSampleParquetFilesIfNotExists();
-  }
+	@BeforeAll
+	public static void uploadSampleParquetFilesToGcs() throws IOException {
+		IntegrationTestHelper.uploadSampleParquetFilesIfNotExists();
+	}
 
-  @ParameterizedTest
+	@ParameterizedTest
   @ValueSource(
           strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
-                  IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+			IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
                   IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE})
-  void forSampleParquetFiles_vectoredIOEnabled_footerPrefetchingDisabled_readsFileSuccessfully(String fileName) {
-    GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-            Map.of("gcs.analytics-core.footer.prefetch.enabled", "false",
+	void forSampleParquetFiles_vectoredIOEnabled_footerPrefetchingDisabled_readsFileSuccessfully(String fileName) {
+		GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+				Map.of("gcs.analytics-core.footer.prefetch.enabled", "false",
                     "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
-    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
-    ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, gcsFileSystemOptions);
-  }
+		URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+		ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, gcsFileSystemOptions);
+	}
 
-  @ParameterizedTest
+	@ParameterizedTest
   @ValueSource(
           strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
-                  IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+			IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
                   IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE})
-  void forSampleParquetFiles_vectoredIOEnabled_footerPrefetchingEnabled_readsFileSuccessfully(String fileName) {
-    GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-            Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
-                    "gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
+	void forSampleParquetFiles_vectoredIOEnabled_footerPrefetchingEnabled_readsFileSuccessfully(String fileName) {
+		GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+				Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
+						"gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
                     "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
-    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
-    ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, gcsFileSystemOptions);
-  }
+		URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+		ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, gcsFileSystemOptions);
+	}
 
-  @ParameterizedTest
+	@ParameterizedTest
   @ValueSource(
           strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
-                  IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+			IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
                   IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE})
-  void forSampleParquetFiles_vectoredIODisabled_readsFileSuccessfully(String fileName) {
-    GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-            Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
-                    "gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
+	void forSampleParquetFiles_vectoredIODisabled_readsFileSuccessfully(String fileName) {
+		GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+				Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
+						"gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
                     "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
-    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
-    ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ false, gcsFileSystemOptions);
-  }
+		URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+		ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ false, gcsFileSystemOptions);
+	}
 
-  @ParameterizedTest
+	@ParameterizedTest
   @ValueSource(
           strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
-                  IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+			IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
                   IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE})
   void tpcdsCustomerTableData_footerPrefetchingEnabled_parsesParquetSchemaCorrectly(String fileName) throws IOException {
-    GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-            Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
-                    "gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
+		GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+				Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
+						"gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
                     "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
-    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+		URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
 
-    ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
+		ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
 
-    List<ColumnDescriptor> columnDescriptorsList = metadata.getFileMetaData().getSchema().getColumns();
-    assertThat(columnDescriptorsList)
-        .containsExactlyElementsIn(ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS);
-  }
+		List<ColumnDescriptor> columnDescriptorsList = metadata.getFileMetaData().getSchema().getColumns();
+		assertThat(columnDescriptorsList)
+				.containsExactlyElementsIn(ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS);
+	}
 
-  @ParameterizedTest
+	@ParameterizedTest
   @ValueSource(
           strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
-                  IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+			IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
                   IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE})
   void tpcdsCustomerTableData_footerPrefetchingDisabled_parsesParquetSchemaCorrectly(String fileName) throws IOException {
-    GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-            Map.of("gcs.analytics-core.footer.prefetch.enabled", "false",
+		GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+				Map.of("gcs.analytics-core.footer.prefetch.enabled", "false",
                     "gcs.analytics-core.small-file.cache.threshold-bytes", "0"), "gcs.");
-    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+		URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
 
-    ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
+		ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
 
-    List<ColumnDescriptor> columnDescriptorsList = metadata.getFileMetaData().getSchema().getColumns();
-    assertThat(columnDescriptorsList)
-        .containsExactlyElementsIn(ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS);
-  }
+		List<ColumnDescriptor> columnDescriptorsList = metadata.getFileMetaData().getSchema().getColumns();
+		assertThat(columnDescriptorsList)
+				.containsExactlyElementsIn(ParquetHelper.TPCDS_CUSTOMER_TABLE_COLUMNS);
+	}
 
-  @ParameterizedTest
+	@ParameterizedTest
   @ValueSource(
       strings = {
-        IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
-        IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
-        IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE
-      })
-  void initializeWithGcsItemId_readsFileSuccessfully(String fileName) throws IOException {
-    String bucket = System.getProperty("gcs.integration.test.bucket");
-    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
-    BlobId blobId = BlobId.fromGsUtilUri(uri.toString());
-    GcsItemId gcsItemId = GcsItemId.builder().setBucketName(blobId.getBucket()).setObjectName(blobId.getName()).build();
+			IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
+			IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+			IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE
+	})
+	void initializeWithGcsItemId_readsFileSuccessfully(String fileName) throws IOException {
+		String bucket = System.getProperty("gcs.integration.test.bucket");
+		URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+		BlobId blobId = BlobId.fromGsUtilUri(uri.toString());
+		GcsItemId gcsItemId = GcsItemId.builder().setBucketName(blobId.getBucket()).setObjectName(blobId.getName()).build();
     GcsFileSystemOptions gcsFileSystemOptions =
         GcsFileSystemOptions.createFromOptions(
-            Map.of(
-                "gcs.analytics-core.small-file.footer.prefetch.size-bytes",
-                "102400",
-                "gcs.analytics-core.large-file.footer.prefetch.size-bytes",
-                "1048576",
-                "gcs.analytics-core.small-file.cache.threshold-bytes",
-                "1048576"),
-            "gcs.");
-    GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
+				Map.of(
+						"gcs.analytics-core.small-file.footer.prefetch.size-bytes",
+						"102400",
+						"gcs.analytics-core.large-file.footer.prefetch.size-bytes",
+						"1048576",
+						"gcs.analytics-core.small-file.cache.threshold-bytes",
+						"1048576"),
+				"gcs.");
+		GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
     GoogleCloudStorageInputStream googleCloudStorageInputStream =
             GoogleCloudStorageInputStream.create(gcsFileSystem, gcsItemId);
 
-    byte[] buffer = new byte[1024];
-    int bytesRead = googleCloudStorageInputStream.read(buffer);
-    assertTrue(bytesRead > 0);
-    googleCloudStorageInputStream.close();
-  }
+		byte[] buffer = new byte[1024];
+		int bytesRead = googleCloudStorageInputStream.read(buffer);
+		assertTrue(bytesRead > 0);
+		googleCloudStorageInputStream.close();
+	}
+
+	@Test
+	void read_capturesTelemetryAttributes_withCorrectReadLength() throws IOException {
+		GcsAnalyticsCoreTelemetry telemetry = GcsAnalyticsCoreTelemetry.getInstance();
+		AtomicReference<Map<MetricKey, Long>> capturedMetrics = new AtomicReference<>();
+		GcsOperationMetricsListener listener = new GcsOperationMetricsListener() {
+			@Override
+			public void onOperationStart(GcsOperation operation) {
+			}
+
+			@Override
+			public void onOperationEnd(GcsOperation operation, Map<MetricKey, Long> metrics) {
+				if (operation.getType() == GcsOperationType.READ) {
+					capturedMetrics.set(metrics);
+				}
+			}
+		};
+		telemetry.addListener(listener);
+		String fileName = IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE;
+		URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+		BlobId blobId = BlobId.fromGsUtilUri(uri.toString());
+		GcsItemId gcsItemId = GcsItemId.builder().setBucketName(blobId.getBucket())
+				.setObjectName(blobId.getName()).build();
+		GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(Map.of(), "gcs.");
+		GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
+		ByteBuffer buffer = ByteBuffer.allocate(10);
+		buffer.limit(5);
+
+		try (GoogleCloudStorageInputStream googleCloudStorageInputStream = GoogleCloudStorageInputStream
+				.create(gcsFileSystem, gcsItemId)) {
+			googleCloudStorageInputStream.read(buffer);
+		}
+		telemetry.removeListener(listener);
+		Map<MetricKey, Long> metrics = capturedMetrics.get();
+		MetricKey bytesReadKey = metrics.keySet().stream()
+				.filter(k -> k.getName().equals(GcsAnalyticsCoreMetrics.GCS_BYTES_READ))
+				.filter(k -> k.getAttributes().readLength().isPresent())
+				.findFirst().get();
+
+		assertThat(bytesReadKey.getAttributes().readLength().get()).isEqualTo(5);
+	}
 }

@@ -26,15 +26,22 @@ public final class GcsAnalyticsCoreMetrics {
   public static final String GCS_READ_CHANNEL_OPEN_COUNT =
       "gcs.analytics-core.GCS_READ_CHANNEL_OPEN_COUNT";
 
+  public static final String GCS_READ_CHANNEL_CLOSE_COUNT =
+      "gcs.analytics-core.GCS_READ_CHANNEL_CLOSE_COUNT";
+
   public static final String GCS_BYTES_READ = "gcs.analytics-core.GCS_BYTES_READ";
 
   public static final String GCS_READ_DURATION = "gcs.analytics-core.GCS_READ_DURATION";
 
   public static final String GCS_CLIENT_EXCEPTIONS = "gcs.analytics-core.GCS_CLIENT_EXCEPTIONS";
 
-  public static final String GCS_READ_CACHE_HIT = "gcs.analytics-core.GCS_READ_CACHE_HIT";
+  public static final String GCS_READ_CACHE_HIT_COUNT =
+      "gcs.analytics-core.GCS_READ_CACHE_HIT_COUNT";
 
-  public static final String GCS_READ_CACHE_MISS = "gcs.analytics-core.GCS_READ_CACHE_MISS";
+  public static final String GCS_READ_CACHE_MISS_COUNT =
+      "gcs.analytics-core.GCS_READ_CACHE_MISS_COUNT";
+
+  public static final String GCS_SEEK_DISTANCE = "gcs.analytics-core.GCS_SEEK_DISTANCE";
 
   private GcsAnalyticsCoreMetrics() {}
 }

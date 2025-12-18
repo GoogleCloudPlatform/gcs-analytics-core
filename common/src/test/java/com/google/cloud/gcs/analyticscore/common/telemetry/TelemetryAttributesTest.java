@@ -25,8 +25,8 @@ class TelemetryAttributesTest {
   @Test
   void builder_validValues_setsValuesCorrectly() {
     String className = "TestClass";
-    Long readOffset = 0L;
-    Long readLength = 100L;
+    Integer readOffset = 0;
+    Integer readLength = 100;
     String threadId = "thread-1";
 
     TelemetryAttributes attributes =
@@ -46,9 +46,9 @@ class TelemetryAttributesTest {
   @Test
   void equals_sameValues_returnsTrue() {
     TelemetryAttributes attr1 =
-        TelemetryAttributes.builder().setClassName("ClassA").setReadOffset(10L).build();
+        TelemetryAttributes.builder().setClassName("ClassA").setReadOffset(10).build();
     TelemetryAttributes attr2 =
-        TelemetryAttributes.builder().setClassName("ClassA").setReadOffset(10L).build();
+        TelemetryAttributes.builder().setClassName("ClassA").setReadOffset(10).build();
 
     assertEquals(attr1, attr2);
     assertEquals(attr1.hashCode(), attr2.hashCode());
@@ -57,9 +57,9 @@ class TelemetryAttributesTest {
   @Test
   void equals_differentValues_returnsFalse() {
     TelemetryAttributes attr1 =
-        TelemetryAttributes.builder().setClassName("ClassA").setReadOffset(10L).build();
+        TelemetryAttributes.builder().setClassName("ClassA").setReadOffset(10).build();
     TelemetryAttributes attr2 =
-        TelemetryAttributes.builder().setClassName("ClassB").setReadOffset(10L).build();
+        TelemetryAttributes.builder().setClassName("ClassB").setReadOffset(10).build();
 
     assertNotEquals(attr1, attr2);
   }

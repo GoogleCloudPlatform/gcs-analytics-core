@@ -24,11 +24,13 @@ public abstract class TelemetryAttributes {
 
   public abstract Optional<String> className();
 
-  public abstract Optional<Long> readOffset();
+  public abstract Optional<Integer> readOffset();
 
-  public abstract Optional<Long> readLength();
+  public abstract Optional<Integer> readLength();
 
   public abstract Optional<String> threadId();
+
+  public abstract Builder toBuilder();
 
   public static Builder builder() {
     return new AutoValue_TelemetryAttributes.Builder();
@@ -38,9 +40,9 @@ public abstract class TelemetryAttributes {
   public abstract static class Builder {
     public abstract Builder setClassName(String className);
 
-    public abstract Builder setReadOffset(Long readOffset);
+    public abstract Builder setReadOffset(Integer readOffset);
 
-    public abstract Builder setReadLength(Long readLength);
+    public abstract Builder setReadLength(Integer readLength);
 
     public abstract Builder setThreadId(String threadId);
 

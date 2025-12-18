@@ -18,6 +18,11 @@ package com.google.cloud.gcs.analyticscore.core;
 import static com.google.common.base.Preconditions.*;
 
 import com.google.cloud.gcs.analyticscore.client.*;
+import com.google.cloud.gcs.analyticscore.common.telemetry.GcsAnalyticsCoreMetrics;
+import com.google.cloud.gcs.analyticscore.common.telemetry.GcsAnalyticsCoreTelemetry;
+import com.google.cloud.gcs.analyticscore.common.telemetry.GcsOperation;
+import com.google.cloud.gcs.analyticscore.common.telemetry.GcsOperationType;
+import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryAttributes;
 import com.google.cloud.storage.BlobId;
 import java.io.EOFException;
 import java.io.IOException;
@@ -49,6 +54,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   private long prefetchSize;
   private long fileSize;
   private volatile ByteBuffer prefetchBuffer;
+  private TelemetryAttributes telemetryAttributes;
 
   private GcsFileInfo gcsFileInfo;
 
@@ -92,6 +98,10 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         URI.create(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()).toGsUtilUri());
     this.gcsItemId = itemId;
     this.position = 0;
+    this.telemetryAttributes =
+        TelemetryAttributes.builder()
+            .setClassName(GoogleCloudStorageInputStream.class.getName())
+            .build();
   }
 
   @Override
@@ -101,44 +111,95 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   @Override
   public void seek(long newPos) throws IOException {
-    checkArgument(newPos >= 0, "position can't be negative: %s", newPos);
-    checkNotClosed("Cannot seek: already closed");
-    position = newPos;
-    channel.position(newPos);
+    GcsAnalyticsCoreTelemetry.getInstance()
+        .measure(
+            GcsOperation.builder()
+                .setAttributes(telemetryAttributes)
+                .setType(GcsOperationType.SEEK)
+                .build(),
+            recorder -> {
+              checkArgument(newPos >= 0, "position can't be negative: %s", newPos);
+              checkNotClosed("Cannot seek: already closed");
+              position = newPos;
+              channel.position(newPos);
+              recorder.record(
+                  GcsAnalyticsCoreMetrics.GCS_SEEK_DISTANCE,
+                  newPos - position,
+                  telemetryAttributes);
+              return null;
+            });
   }
 
   @Override
   public int read() throws IOException {
-    checkNotClosed("Cannot read: already closed");
-    // Delegate to the byte array read method to reuse the cache logic.
-    int bytesRead = read(singleByteBuffer.array(), 0, 1);
-    if (bytesRead == -1) {
-      return -1;
-    }
-    return singleByteBuffer.array()[0] & 0xFF;
+    return GcsAnalyticsCoreTelemetry.getInstance()
+        .measure(
+            GcsOperation.builder()
+                .setType(GcsOperationType.READ)
+                .setAttributes(telemetryAttributes)
+                .setDurationMetricName(GcsAnalyticsCoreMetrics.GCS_READ_DURATION)
+                .build(),
+            recorder -> {
+              checkNotClosed("Cannot read: already closed");
+              // Delegate to the byte array read method to reuse the cache logic.
+              int bytesRead = read(singleByteBuffer.array(), 0, 1);
+              if (bytesRead == -1) {
+                return -1;
+              }
+              recorder.record(
+                  GcsAnalyticsCoreMetrics.GCS_BYTES_READ, bytesRead, telemetryAttributes);
+
+              return singleByteBuffer.array()[0] & 0xFF;
+            });
   }
 
   @Override
   public int read(ByteBuffer byteBuffer) throws IOException {
-    checkNotClosed("Cannot read: already closed");
-    if (isMetadataInitialized() && prefetchBuffer == null && position >= fileSize - prefetchSize) {
-      cacheObjectOrFooter();
-    }
-    if (prefetchBuffer != null && (position >= fileSize - prefetchSize)) {
-      return serveFromCache(byteBuffer);
-    }
-    long channelPosition = channel.position();
-    checkState(
-        channelPosition == position,
-        "Channel position (%s) and stream position (%s) should be the same",
-        channelPosition,
-        position);
+    return GcsAnalyticsCoreTelemetry.getInstance()
+        .measure(
+            GcsOperation.builder()
+                .setType(GcsOperationType.READ)
+                .setDurationMetricName(GcsAnalyticsCoreMetrics.GCS_READ_DURATION)
+                .build(),
+            recorder -> {
+              TelemetryAttributes metricAttributes =
+                  telemetryAttributes.toBuilder()
+                      .setReadLength(byteBuffer.remaining())
+                      .setReadOffset(byteBuffer.position())
+                      .build();
+              checkNotClosed("Cannot read: already closed");
+              if (isMetadataInitialized()
+                  && prefetchBuffer == null
+                  && position >= fileSize - prefetchSize) {
+                cacheObjectOrFooter();
+              }
+              if (prefetchBuffer != null && (position >= fileSize - prefetchSize)) {
+                int bytesRead = serveFromCache(byteBuffer);
+                if (bytesRead > 0) {
+                  recorder.record(
+                      GcsAnalyticsCoreMetrics.GCS_BYTES_READ, bytesRead, metricAttributes);
+                  recorder.record(
+                      GcsAnalyticsCoreMetrics.GCS_READ_CACHE_HIT_COUNT, 1, metricAttributes);
+                }
+                return bytesRead;
+              }
+              recorder.record(
+                  GcsAnalyticsCoreMetrics.GCS_READ_CACHE_MISS_COUNT, 1, metricAttributes);
+              long channelPosition = channel.position();
+              checkState(
+                  channelPosition == position,
+                  "Channel position (%s) and stream position (%s) should be the same",
+                  channelPosition,
+                  position);
 
-    int bytesRead = channel.read(byteBuffer);
-    if (bytesRead > 0) {
-      position += bytesRead;
-    }
-    return bytesRead;
+              int bytesRead = channel.read(byteBuffer);
+              if (bytesRead > 0) {
+                position += bytesRead;
+                recorder.record(
+                    GcsAnalyticsCoreMetrics.GCS_BYTES_READ, bytesRead, metricAttributes);
+              }
+              return bytesRead;
+            });
   }
 
   @Override
@@ -157,12 +218,18 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   @Override
   public void close() throws IOException {
-    if (!closed) {
-      closed = true;
-      if (channel != null) {
-        channel.close();
-      }
-    }
+    GcsAnalyticsCoreTelemetry.getInstance()
+        .measure(
+            GcsOperation.builder().setType(GcsOperationType.CLOSE).build(),
+            recorder -> {
+              if (!closed) {
+                closed = true;
+                if (channel != null) {
+                  channel.close();
+                }
+              }
+              return null;
+            });
   }
 
   private void checkNotClosed(String msg) throws IOException {
@@ -173,29 +240,53 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   @Override
   public void readFully(long position, byte[] buffer, int offset, int length) throws IOException {
-    try (VectoredSeekableByteChannel byteChannel = openReadChannel()) {
-      byteChannel.position(position);
-      int numberOfBytesRead = byteChannel.read(ByteBuffer.wrap(buffer, offset, length));
-      if (numberOfBytesRead < length) {
-        throw new EOFException(
-            "Reached the end of stream with "
-                + (length - numberOfBytesRead)
-                + " bytes left to read");
-      }
-    }
+    GcsAnalyticsCoreTelemetry.getInstance()
+        .measure(
+            GcsOperation.builder()
+                .setType(GcsOperationType.READ)
+                .setDurationMetricName(GcsAnalyticsCoreMetrics.GCS_READ_DURATION)
+                .build(),
+            recorder -> {
+              try (VectoredSeekableByteChannel byteChannel = openReadChannel()) {
+                byteChannel.position(position);
+                int numberOfBytesRead = byteChannel.read(ByteBuffer.wrap(buffer, offset, length));
+                if (numberOfBytesRead < length) {
+                  throw new EOFException(
+                      "Reached the end of stream with "
+                          + (length - numberOfBytesRead)
+                          + " bytes left to read");
+                }
+                recorder.record(
+                    GcsAnalyticsCoreMetrics.GCS_BYTES_READ, numberOfBytesRead, telemetryAttributes);
+              }
+              return null;
+            });
   }
 
   @Override
   public int readTail(byte[] buffer, int offset, int length) throws IOException {
-    if (!isMetadataInitialized()) {
-      initializeMetadata();
-    }
-    try (VectoredSeekableByteChannel byteChannel = openReadChannel()) {
-      long size = gcsFileInfo.getItemInfo().getSize();
-      long startPosition = Math.max(0, size - length);
-      byteChannel.position(startPosition);
-      return byteChannel.read(ByteBuffer.wrap(buffer, offset, length));
-    }
+    return GcsAnalyticsCoreTelemetry.getInstance()
+        .measure(
+            GcsOperation.builder()
+                .setType(GcsOperationType.READ)
+                .setDurationMetricName(GcsAnalyticsCoreMetrics.GCS_READ_DURATION)
+                .build(),
+            recorder -> {
+              if (!isMetadataInitialized()) {
+                initializeMetadata();
+              }
+              try (VectoredSeekableByteChannel byteChannel = openReadChannel()) {
+                long size = gcsFileInfo.getItemInfo().getSize();
+                long startPosition = Math.max(0, size - length);
+                byteChannel.position(startPosition);
+                int bytesRead = byteChannel.read(ByteBuffer.wrap(buffer, offset, length));
+                if (bytesRead > 0) {
+                  recorder.record(
+                      GcsAnalyticsCoreMetrics.GCS_BYTES_READ, bytesRead, telemetryAttributes);
+                }
+                return bytesRead;
+              }
+            });
   }
 
   @Override
