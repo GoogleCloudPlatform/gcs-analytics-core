@@ -31,11 +31,8 @@ import java.nio.channels.SeekableByteChannel;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.function.IntFunction;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 class GcsReadChannel implements VectoredSeekableByteChannel {
-  private static final Logger LOG = LoggerFactory.getLogger(GcsReadChannel.class);
   private Storage storage;
   private GcsReadOptions readOptions;
   private ReadChannel readChannel;

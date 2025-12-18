@@ -27,6 +27,7 @@ limitations under the License.
     <modules>
         <module>core</module>
         <module>client</module>
+        <module>common</module>
         <module>coverage</module>
         <module>test-lib</module>
     </modules>
