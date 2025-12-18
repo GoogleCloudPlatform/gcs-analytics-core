@@ -25,6 +25,10 @@ import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemImpl;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
+import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
@@ -32,8 +36,10 @@ import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -161,5 +167,56 @@ class GoogleCloudStorageInputStreamIntegrationTest {
     int bytesRead = googleCloudStorageInputStream.read(buffer);
     assertTrue(bytesRead > 0);
     googleCloudStorageInputStream.close();
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
+      })
+  void read_capturesTelemetryAttributes_withCorrectReadLength(String fileName) throws IOException {
+    Telemetry telemetry = Telemetry.getInstance();
+    AtomicReference<Map<MetricKey, Long>> capturedReadMetrics = new AtomicReference<>();
+    AtomicReference<Operation> capturedReadOperation = new AtomicReference<>();
+    OperationListener listener =
+        new OperationListener() {
+          @Override
+          public void onOperationStart(Operation operation) {}
+
+          @Override
+          public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {
+            if (operation.getName().equals("READ")) {
+              capturedReadOperation.set(operation);
+              capturedReadMetrics.set(metrics);
+            }
+          }
+        };
+    telemetry.addListener(listener);
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+    BlobId blobId = BlobId.fromGsUtilUri(uri.toString());
+    GcsItemId gcsItemId =
+        GcsItemId.builder()
+            .setBucketName(blobId.getBucket())
+            .setObjectName(blobId.getName())
+            .build();
+    GcsFileSystemOptions gcsFileSystemOptions =
+        GcsFileSystemOptions.createFromOptions(Map.of(), "gcs.");
+    GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
+    ByteBuffer buffer = ByteBuffer.allocate(10);
+    buffer.limit(5);
+
+    try (GoogleCloudStorageInputStream googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(gcsFileSystem, gcsItemId)) {
+      googleCloudStorageInputStream.read(buffer);
+    }
+    telemetry.removeListener(listener);
+    
+    MetricKey bytesReadKey =
+        capturedReadMetrics.get().keySet().stream()
+            .filter(k -> k.getName().equals("gcs-analytics-core.read.bytes"))
+            .findFirst()
+            .get();
+    assertThat(capturedReadMetrics.get().get(bytesReadKey)).isEqualTo(5L);
+    assertThat(capturedReadOperation.get().getAttributes().get("gcs-analytics-core.read.length")).isEqualTo("5");
   }
 }
