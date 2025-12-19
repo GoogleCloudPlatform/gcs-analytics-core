@@ -38,42 +38,12 @@ public class ParquetFooterParsingBenchmark {
     @Warmup(iterations = 1, time = 1)
     @Measurement(iterations = 2, time = 1)
     @Fork(value = 2, warmups = 1)
-    public void smallFile(ParquetFooterParsingState state) throws IOException {
-      GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-              Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
-                      "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
-                      "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
-        URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE);
-        ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
-    }
-
-    @Benchmark
-    @BenchmarkMode(Mode.AverageTime)
-    @OutputTimeUnit(TimeUnit.MILLISECONDS)
-    @Warmup(iterations = 1, time = 1)
-    @Measurement(iterations = 2, time = 1)
-    @Fork(value = 2, warmups = 1)
     public void mediumFile(ParquetFooterParsingState state) throws IOException {
       GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
               Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
         URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE);
-        ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
-    }
-
-    @Benchmark
-    @BenchmarkMode(Mode.AverageTime)
-    @OutputTimeUnit(TimeUnit.MILLISECONDS)
-    @Warmup(iterations = 1, time = 1)
-    @Measurement(iterations = 2, time = 1)
-    @Fork(value = 2, warmups = 1)
-    public void largeFile(ParquetFooterParsingState state) throws IOException {
-      GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-              Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
-                      "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
-                      "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
-        URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE);
         ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
     }
 }

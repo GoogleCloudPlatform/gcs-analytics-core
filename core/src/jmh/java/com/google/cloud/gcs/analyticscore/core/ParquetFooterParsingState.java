@@ -23,7 +23,7 @@ import org.openjdk.jmh.annotations.State;
 
 @State(Scope.Benchmark)
 public class ParquetFooterParsingState {
-    // 0KB ie: Disabled, 50KB, 100KB, 200KB, 500KB, 1MB, 2MB
-    @Param({ "0", "51200", "102400", "204800", "512000", "1048576", "2097152" })
+    // 0KB ie: Disabled, 100KB
+    @Param({ "0", "102400"})
     public String footerPrefetchSize;
 }
