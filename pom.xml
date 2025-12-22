@@ -76,7 +76,7 @@ limitations under the License.
         <mockito.version>5.21.0</mockito.version>
         <truth.version>1.4.5</truth.version>
         <junit.jupiter.version>5.14.1</junit.jupiter.version>
-        <cloud.libraries.bom.version>26.72.0</cloud.libraries.bom.version>
+        <cloud.libraries.bom.version>26.73.0</cloud.libraries.bom.version>
         <apache.commons.version>3.20.0</apache.commons.version>
         <apache.parquet.version>1.16.0</apache.parquet.version>
         <apache.avro.version>1.12.1</apache.avro.version>
