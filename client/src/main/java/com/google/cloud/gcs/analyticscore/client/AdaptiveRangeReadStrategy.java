@@ -30,79 +30,83 @@ class AdaptiveRangeReadStrategy {
   private final GcsItemInfo itemInfo;
   private boolean randomAccess;
 
-  private long lastRangeRequestEnd = -1;
-  private int sequentialReadCount = 0;
-  private final int sequentialRangeReadThreshold;
+  private long lastAdaptiveReadSessionEnd = -1;
+  private int sequentialReadSessionCount = 0;
+  private final int sequentialReadSessionThreshold;
 
   AdaptiveRangeReadStrategy(GcsReadOptions readOptions, GcsItemInfo itemInfo) {
     this.readOptions = readOptions;
     this.itemInfo = itemInfo;
     this.randomAccess = readOptions.getFileAccessPattern() == FileAccessPattern.RANDOM;
-    this.sequentialRangeReadThreshold = readOptions.getSequentialRangeReadThreshold();
+    this.sequentialReadSessionThreshold = readOptions.getSequentialReadSessionThreshold();
   }
 
-  long calculateRangeRequestEnd(long currentPosition, long bytesToRead, long objectSize) {
-    if (randomAccess) {
-      if (currentPosition == lastRangeRequestEnd) {
-        sequentialReadCount++;
-        if (sequentialReadCount > sequentialRangeReadThreshold
-            && readOptions.getFileAccessPattern() == FileAccessPattern.AUTO) {
-          randomAccess = false;
-          LOG.debug(
-              "Detected sequential read pattern, switching to sequential IO for '{}'",
-              itemInfo.getItemId());
-        }
-      } else {
-        sequentialReadCount = 0;
-      }
-    }
-
+  long calculateAdaptiveReadSessionEnd(
+      long readSessionPosition, long bytesToRead, long objectSize) {
     long endPosition = objectSize;
     if (randomAccess) {
       // In random access mode, we only read what is requested plus a minimum size,
       // rather than reading until the end of the file.
-      endPosition = currentPosition + max(bytesToRead, readOptions.getMinRangeRequestSize());
+      endPosition = readSessionPosition + max(bytesToRead, readOptions.getMinRangeRequestSize());
     }
-    long result = min(endPosition, objectSize);
-    lastRangeRequestEnd = result;
+    long newEndPosition = min(endPosition, objectSize);
+    lastAdaptiveReadSessionEnd = newEndPosition;
 
-    return result;
+    return newEndPosition;
   }
 
-  void detectRandomAccess(long currentPosition, long contentChannelCurrentPosition) {
-    if (shouldDetectRandomAccess()) {
-      if (currentPosition < contentChannelCurrentPosition) {
-        LOG.debug(
-            "Detected backward read from {} to {} position, switching to random IO for '{}'",
-            contentChannelCurrentPosition,
-            currentPosition,
-            itemInfo.getItemId());
-        randomAccess = true;
-      } else if (contentChannelCurrentPosition >= 0
-          && contentChannelCurrentPosition + readOptions.getInplaceSeekLimit() < currentPosition) {
-        LOG.debug(
-            "Detected forward read from {} to {} position over {} threshold, switching to random IO for '{}'",
-            contentChannelCurrentPosition,
-            currentPosition,
-            readOptions.getInplaceSeekLimit(),
-            itemInfo.getItemId());
-        randomAccess = true;
-      }
+  void detectSequentialAccess(long readChannelPosition) {
+    sequentialReadSessionCount =
+        (readChannelPosition == lastAdaptiveReadSessionEnd) ? sequentialReadSessionCount + 1 : 0;
+    if (!shouldDetectSequentialAccess()) {
+      return;
+    }
+    LOG.debug(
+        "Detected sequential read pattern, switching to sequential IO for '{}'",
+        itemInfo.getItemId());
+    randomAccess = false;
+  }
+
+  void detectRandomAccess(long readChannelPosition, long readSessionPosition) {
+    if (!shouldDetectRandomAccess()) {
+      return;
+    }
+    if (readChannelPosition < readSessionPosition) {
+      LOG.debug(
+          "Detected backward read from {} to {} position, switching to random IO for '{}'",
+          readSessionPosition,
+          readChannelPosition,
+          itemInfo.getItemId());
+      randomAccess = true;
+    } else if (readSessionPosition >= 0
+        && readSessionPosition + readOptions.getInplaceSeekLimit() < readChannelPosition) {
+      LOG.debug(
+          "Detected forward read from {} to {} position over {} threshold, switching to random IO for '{}'",
+          readSessionPosition,
+          readChannelPosition,
+          readOptions.getInplaceSeekLimit(),
+          itemInfo.getItemId());
+      randomAccess = true;
     }
   }
 
-  boolean shouldSeekInPlace(
-      long currentPosition, long contentChannelCurrentPosition, long contentChannelEnd) {
-    long seekDistance = currentPosition - contentChannelCurrentPosition;
+  boolean shouldSeekInPlace(long channelPosition, long sessionPosition, long sessionEnd) {
+    long seekDistance = channelPosition - sessionPosition;
     boolean result =
         seekDistance > 0
             && seekDistance <= readOptions.getInplaceSeekLimit()
-            && currentPosition < contentChannelEnd;
+            && channelPosition < sessionEnd;
     return result;
   }
 
-  boolean shouldDetectRandomAccess() {
+  private boolean shouldDetectRandomAccess() {
     return !randomAccess && readOptions.getFileAccessPattern() == FileAccessPattern.AUTO;
+  }
+
+  private boolean shouldDetectSequentialAccess() {
+    return randomAccess
+        && readOptions.getFileAccessPattern() == FileAccessPattern.AUTO
+        && sequentialReadSessionCount >= sequentialReadSessionThreshold;
   }
 
   boolean isRandomAccess() {

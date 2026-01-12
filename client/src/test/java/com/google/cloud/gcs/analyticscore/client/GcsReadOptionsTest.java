@@ -44,7 +44,8 @@ class GcsReadOptionsTest {
             .put("gcs.analytics-core.read.adaptive-range.file-access-pattern", "sequential")
             .put("gcs.analytics-core.read.adaptive-range.min-range-request-size-bytes", "512")
             .put("gcs.analytics-core.read.adaptive-range.inplace-seek-limit-bytes", "256")
-            .put("gcs.analytics-core.read.adaptive-range.sequential-range-read-threshold", "5")
+            .put("gcs.analytics-core.read.adaptive-range.sequential-read-session-threshold", "5")
+            .put("gcs.analytics-core.read.adaptive-range.enabled", "true")
             .build();
     String prefix = "gcs.";
 
@@ -63,7 +64,8 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.SEQUENTIAL);
     assertThat(readOptions.getMinRangeRequestSize()).isEqualTo(512);
     assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(256);
-    assertThat(readOptions.getSequentialRangeReadThreshold()).isEqualTo(5);
+    assertThat(readOptions.getSequentialReadSessionThreshold()).isEqualTo(5);
+    assertThat(readOptions.getAdaptiveRangeReadEnabled()).isTrue();
   }
 
   @Test
@@ -86,7 +88,8 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.AUTO);
     assertThat(readOptions.getMinRangeRequestSize()).isEqualTo(2 * 1024 * 1024);
     assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(8 * 1024 * 1024);
-    assertThat(readOptions.getSequentialRangeReadThreshold()).isEqualTo(1);
+    assertThat(readOptions.getSequentialReadSessionThreshold()).isEqualTo(1);
+    assertThat(readOptions.getAdaptiveRangeReadEnabled()).isFalse();
   }
 
   @ParameterizedTest
@@ -97,7 +100,7 @@ class GcsReadOptionsTest {
         "gcs.analytics-core.large-file.footer.prefetch.size-bytes",
         "gcs.analytics-core.read.adaptive-range.min-range-request-size-bytes",
         "gcs.analytics-core.read.adaptive-range.inplace-seek-limit-bytes",
-        "gcs.analytics-core.read.adaptive-range.sequential-range-read-threshold",
+        "gcs.analytics-core.read.adaptive-range.sequential-read-session-threshold",
       })
   void createFromOptions_integerValuesGreaterThanIntegerMax_throwsIllegalArgumentException(
       String propertyKey) {

@@ -25,7 +25,7 @@ import java.util.concurrent.ExecutorService;
 
 class GcsSimpleReadChannel extends GcsReadChannel {
 
-  private final ReadChannel readChannel;
+  private final ReadChannel storageReadChannel;
 
   GcsSimpleReadChannel(
       Storage storage,
@@ -34,7 +34,7 @@ class GcsSimpleReadChannel extends GcsReadChannel {
       Supplier<ExecutorService> executorServiceSupplier)
       throws IOException {
     super(storage, itemInfo, readOptions, executorServiceSupplier);
-    this.readChannel = openReadChannel(itemId, readOptions);
+    this.storageReadChannel = openUnboundedReadChannel(itemId, readOptions);
   }
 
   GcsSimpleReadChannel(
@@ -44,12 +44,12 @@ class GcsSimpleReadChannel extends GcsReadChannel {
       Supplier<ExecutorService> executorServiceSupplier)
       throws IOException {
     super(storage, itemId, readOptions, executorServiceSupplier);
-    this.readChannel = openReadChannel(itemId, readOptions);
+    this.storageReadChannel = openUnboundedReadChannel(itemId, readOptions);
   }
 
   @Override
   public int read(ByteBuffer dst) throws IOException {
-    int bytesRead = readChannel.read(dst);
+    int bytesRead = storageReadChannel.read(dst);
     position += bytesRead;
 
     return bytesRead;
@@ -58,7 +58,7 @@ class GcsSimpleReadChannel extends GcsReadChannel {
   @Override
   public SeekableByteChannel position(long newPosition) throws IOException {
     validatePosition(newPosition);
-    readChannel.seek(newPosition);
+    storageReadChannel.seek(newPosition);
     position = newPosition;
 
     return this;
@@ -66,13 +66,13 @@ class GcsSimpleReadChannel extends GcsReadChannel {
 
   @Override
   public boolean isOpen() {
-    return readChannel.isOpen();
+    return storageReadChannel.isOpen();
   }
 
   @Override
   public void close() throws IOException {
-    if (readChannel.isOpen()) {
-      readChannel.close();
+    if (storageReadChannel.isOpen()) {
+      storageReadChannel.close();
     }
   }
 }

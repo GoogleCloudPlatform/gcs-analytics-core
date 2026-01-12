@@ -45,15 +45,15 @@ public abstract class GcsReadOptions {
       "analytics-core.read.adaptive-range.min-range-request-size-bytes";
   private static final String INPLACE_SEEK_LIMIT_KEY =
       "analytics-core.read.adaptive-range.inplace-seek-limit-bytes";
-  private static final String SEQUENTIAL_RANGE_READ_THRESHOLD_KEY =
-      "analytics-core.read.adaptive-range.sequential-range-read-threshold";
+  private static final String SEQUENTIAL_READ_SESSION_THRESHOLD_KEY =
+      "analytics-core.read.adaptive-range.sequential-read-session-threshold";
   private static final String ADAPTIVE_RANGE_READ_ENABLED_KEY =
       "analytics-core.read.adaptive-range.enabled";
 
   private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN = FileAccessPattern.AUTO;
   private static final int DEFAULT_MIN_RANGE_REQUEST_SIZE = 2 * 1024 * 1024; // 2MB
   private static final int DEFAULT_INPLACE_SEEK_LIMIT = 8 * 1024 * 1024; // 8MB
-  private static final int DEFAULT_SEQUENTIAL_RANGE_READ_THRESHOLD = 1;
+  private static final int DEFAULT_SEQUENTIAL_READ_SESSION_THRESHOLD = 1;
 
   public abstract Optional<Integer> getChunkSize();
 
@@ -77,7 +77,7 @@ public abstract class GcsReadOptions {
 
   public abstract int getInplaceSeekLimit();
 
-  public abstract int getSequentialRangeReadThreshold();
+  public abstract int getSequentialReadSessionThreshold();
 
   public abstract Boolean getAdaptiveRangeReadEnabled();
 
@@ -93,7 +93,7 @@ public abstract class GcsReadOptions {
         .setFileAccessPattern(DEFAULT_FILE_ACCESS_PATTERN)
         .setMinRangeRequestSize(DEFAULT_MIN_RANGE_REQUEST_SIZE)
         .setInplaceSeekLimit(DEFAULT_INPLACE_SEEK_LIMIT)
-        .setSequentialRangeReadThreshold(DEFAULT_SEQUENTIAL_RANGE_READ_THRESHOLD)
+        .setSequentialReadSessionThreshold(DEFAULT_SEQUENTIAL_READ_SESSION_THRESHOLD)
         .setAdaptiveRangeReadEnabled(false);
   }
 
@@ -139,9 +139,9 @@ public abstract class GcsReadOptions {
       optionsBuilder.setInplaceSeekLimit(
           safeParseInteger(analyticsCoreOptions, prefix + INPLACE_SEEK_LIMIT_KEY));
     }
-    if (analyticsCoreOptions.containsKey(prefix + SEQUENTIAL_RANGE_READ_THRESHOLD_KEY)) {
-      optionsBuilder.setSequentialRangeReadThreshold(
-          safeParseInteger(analyticsCoreOptions, prefix + SEQUENTIAL_RANGE_READ_THRESHOLD_KEY));
+    if (analyticsCoreOptions.containsKey(prefix + SEQUENTIAL_READ_SESSION_THRESHOLD_KEY)) {
+      optionsBuilder.setSequentialReadSessionThreshold(
+          safeParseInteger(analyticsCoreOptions, prefix + SEQUENTIAL_READ_SESSION_THRESHOLD_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + ADAPTIVE_RANGE_READ_ENABLED_KEY)) {
       optionsBuilder.setAdaptiveRangeReadEnabled(
@@ -190,7 +190,7 @@ public abstract class GcsReadOptions {
 
     public abstract Builder setInplaceSeekLimit(int inplaceSeekLimit);
 
-    public abstract Builder setSequentialRangeReadThreshold(int sequentialRangeReadThreshold);
+    public abstract Builder setSequentialReadSessionThreshold(int sequentialReadSessionThreshold);
 
     public abstract Builder setAdaptiveRangeReadEnabled(Boolean adaptiveRangeReadEnabled);
 

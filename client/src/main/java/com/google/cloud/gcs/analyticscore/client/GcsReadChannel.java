@@ -123,7 +123,7 @@ abstract class GcsReadChannel implements VectoredSeekableByteChannel {
 
   void readCombinedRange(
       GcsObjectCombinedRange combinedObjectRange, IntFunction<ByteBuffer> allocate) {
-    try (ReadChannel channel = openReadChannel(itemId, readOptions)) {
+    try (ReadChannel channel = openUnboundedReadChannel(itemId, readOptions)) {
       validatePosition(combinedObjectRange.getOffset());
       channel.seek(combinedObjectRange.getOffset());
       channel.limit(combinedObjectRange.getOffset() + combinedObjectRange.getLength());
@@ -192,7 +192,7 @@ abstract class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
-  protected ReadChannel openReadChannel(GcsItemId gcsItemId, GcsReadOptions readOptions)
+  protected ReadChannel openUnboundedReadChannel(GcsItemId gcsItemId, GcsReadOptions readOptions)
       throws IOException {
     checkArgument(gcsItemId.isGcsObject(), "Expected Gcs Object but got %s", gcsItemId);
     String bucketName = gcsItemId.getBucketName();

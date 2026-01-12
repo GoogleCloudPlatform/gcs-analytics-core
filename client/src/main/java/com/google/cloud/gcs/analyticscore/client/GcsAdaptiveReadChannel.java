@@ -24,6 +24,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SeekableByteChannel;
 import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
@@ -31,7 +32,7 @@ import org.slf4j.LoggerFactory;
 
 class GcsAdaptiveReadChannel extends GcsReadChannel {
   private static final Logger LOG = LoggerFactory.getLogger(GcsAdaptiveReadChannel.class);
-  private ContentReadChannel contentReadChannel;
+  private AdaptiveReadSession adaptiveReadSession;
   private boolean open = false;
 
   GcsAdaptiveReadChannel(
@@ -44,7 +45,7 @@ class GcsAdaptiveReadChannel extends GcsReadChannel {
         checkNotNull(itemInfo, "itemInfo cannot be null"),
         readOptions,
         executorServiceSupplier);
-    this.contentReadChannel = new ContentReadChannel();
+    this.adaptiveReadSession = new AdaptiveReadSession();
     this.open = true;
   }
 
@@ -55,17 +56,15 @@ class GcsAdaptiveReadChannel extends GcsReadChannel {
       return 0;
     }
 
-    return contentReadChannel.readContent(dst);
+    return adaptiveReadSession.readContent(dst);
   }
 
   @Override
   public SeekableByteChannel position(long newPosition) throws IOException {
     throwIfNotOpen();
-    if (newPosition == position) {
-      return this;
-    }
     validatePosition(newPosition);
     position = newPosition;
+
     return this;
   }
 
@@ -78,9 +77,9 @@ class GcsAdaptiveReadChannel extends GcsReadChannel {
   public void close() throws IOException {
     if (open) {
       try {
-        contentReadChannel.closeContentChannel();
+        adaptiveReadSession.closeSession();
       } finally {
-        contentReadChannel = null;
+        adaptiveReadSession = null;
         open = false;
       }
     }
@@ -88,24 +87,24 @@ class GcsAdaptiveReadChannel extends GcsReadChannel {
 
   private void throwIfNotOpen() throws IOException {
     if (!isOpen()) {
-      throw new java.nio.channels.ClosedChannelException();
+      throw new ClosedChannelException();
     }
   }
 
   @VisibleForTesting
-  ContentReadChannel getContentReadChannel() {
-    return contentReadChannel;
+  AdaptiveReadSession getAdaptiveReadSession() {
+    return adaptiveReadSession;
   }
 
-  class ContentReadChannel {
+  class AdaptiveReadSession {
     private static final int SKIP_BUFFER_SIZE = 8192;
-    private long contentChannelCurrentPosition = -1;
-    private long contentChannelEnd = -1;
-    private ReadChannel byteChannel = null;
+    private long sessionPosition = -1;
+    private long sessionEnd = -1;
+    private ReadChannel sessionReadChannel = null;
     private byte[] skipBuffer = null;
     private final AdaptiveRangeReadStrategy adaptiveRangeReadStrategy;
 
-    ContentReadChannel() {
+    AdaptiveReadSession() {
       this.adaptiveRangeReadStrategy = new AdaptiveRangeReadStrategy(readOptions, itemInfo);
     }
 
@@ -114,54 +113,60 @@ class GcsAdaptiveReadChannel extends GcsReadChannel {
       int totalBytesRead = 0;
       while (dst.hasRemaining()) {
         try {
-          if (byteChannel == null) {
-            byteChannel = openByteChannel(dst.remaining());
+          if (sessionReadChannel == null) {
+            sessionReadChannel = openBoundedReadChannel(dst.remaining());
           }
-          int bytesRead = byteChannel.read(dst);
+          int bytesRead = sessionReadChannel.read(dst);
           if (bytesRead == 0) {
             LOG.atDebug().log(
                 "Read %d from storage-client's byte channel at position: %d with channel ending at: %d for resourceId: %s of size: %d",
-                bytesRead, position, contentChannelEnd, itemId, itemInfo.getSize());
+                bytesRead, sessionPosition, sessionEnd, itemId, itemInfo.getSize());
           }
           if (bytesRead < 0) {
-            if (position != contentChannelEnd && position != itemInfo.getSize()) {
-
-              throw new IOException(
-                  String.format(
-                      "Received end of stream result before all requestedBytes were received;"
-                          + "EndOf stream signal received at offset: %d where as stream was suppose to end at: %d for resource: %s of size: %d",
-                      position, contentChannelEnd, itemId, itemInfo.getSize()));
-            }
-            if (contentChannelEnd != itemInfo.getSize() && position == contentChannelEnd) {
-              closeContentChannel();
-              continue;
-            } else {
+            // Check if EOF is reached.
+            if (sessionPosition == itemInfo.getSize()) {
+              // Return -1 if EOF is reached before reading any bytes.
               if (totalBytesRead == 0) {
                 return -1;
               }
               break;
             }
+            // Check if the current read channel reached the end of the specified range,
+            // but there is still more data in the object to read, then close the current channel
+            // and continue.
+            if (sessionPosition == sessionEnd) {
+              closeSession();
+              continue;
+            }
+            // If EOF is reached before end of channel and before the end of object then throw an IO
+            // exception.
+            throw new IOException(
+                String.format(
+                    "Received end of stream result before all requestedBytes were received;"
+                        + "EndOf stream signal received at offset: %d where as stream was suppose to end at: %d for resource: %s of size: %d",
+                    sessionPosition, sessionEnd, itemId, itemInfo.getSize()));
           }
           totalBytesRead += bytesRead;
+          sessionPosition += bytesRead;
           position += bytesRead;
-          contentChannelCurrentPosition += bytesRead;
         } catch (IOException e) {
-          closeContentChannel();
+          closeSession();
           throw e;
         }
       }
       return totalBytesRead;
     }
 
-    private ReadChannel openByteChannel(long bytesToRead) throws IOException {
-      contentChannelCurrentPosition = position;
-      contentChannelEnd =
-          adaptiveRangeReadStrategy.calculateRangeRequestEnd(
-              position, bytesToRead, itemInfo.getSize());
-      ReadChannel channel = openReadChannel(itemId, readOptions);
+    private ReadChannel openBoundedReadChannel(long bytesToRead) throws IOException {
+      sessionPosition = position;
+      adaptiveRangeReadStrategy.detectSequentialAccess(sessionPosition);
+      sessionEnd =
+          adaptiveRangeReadStrategy.calculateAdaptiveReadSessionEnd(
+              sessionPosition, bytesToRead, itemInfo.getSize());
+      ReadChannel channel = openUnboundedReadChannel(itemId, readOptions);
       try {
-        channel.seek(contentChannelCurrentPosition);
-        channel.limit(contentChannelEnd);
+        channel.seek(sessionPosition);
+        channel.limit(sessionEnd);
         return channel;
       } catch (Exception e) {
         throw new IOException(
@@ -170,55 +175,57 @@ class GcsAdaptiveReadChannel extends GcsReadChannel {
     }
 
     private void performPendingSeeks() throws IOException {
-      if (position == contentChannelCurrentPosition && byteChannel != null) {
+      if (sessionReadChannel != null && position == sessionPosition) {
         return;
       }
       if (canSeekInPlace()) {
         skipInPlace();
-      } else {
-        adaptiveRangeReadStrategy.detectRandomAccess(position, contentChannelCurrentPosition);
-        closeContentChannel();
+        return;
       }
+      adaptiveRangeReadStrategy.detectRandomAccess(position, sessionPosition);
+      closeSession();
     }
 
     private boolean canSeekInPlace() {
-      return byteChannel != null
-          && adaptiveRangeReadStrategy.shouldSeekInPlace(
-              position, contentChannelCurrentPosition, contentChannelEnd);
+      return sessionReadChannel != null
+          && adaptiveRangeReadStrategy.shouldSeekInPlace(position, sessionPosition, sessionEnd);
     }
 
     private void skipInPlace() throws IOException {
       if (skipBuffer == null) {
         skipBuffer = new byte[SKIP_BUFFER_SIZE];
       }
-      long seekDistance = position - contentChannelCurrentPosition;
-      while (seekDistance > 0 && byteChannel != null) {
+      long seekDistance = position - sessionPosition;
+      while (seekDistance > 0 && sessionReadChannel != null) {
         try {
           int bufferSize = (int) min((long) skipBuffer.length, seekDistance);
-          int bytesRead = byteChannel.read(ByteBuffer.wrap(skipBuffer, 0, bufferSize));
+          int bytesRead = sessionReadChannel.read(ByteBuffer.wrap(skipBuffer, 0, bufferSize));
           if (bytesRead < 0) {
-            closeContentChannel();
-          } else {
-            seekDistance -= bytesRead;
-            contentChannelCurrentPosition += bytesRead;
+            closeSession();
+            return;
           }
+          seekDistance -= bytesRead;
+          sessionPosition += bytesRead;
         } catch (IOException e) {
-          closeContentChannel();
+          closeSession();
           throw e;
         }
       }
     }
 
-    void closeContentChannel() {
-      if (byteChannel != null) {
+    void closeSession() {
+      if (sessionReadChannel != null) {
         try {
-          byteChannel.close();
+          sessionReadChannel.close();
         } catch (Exception e) {
-          LOG.debug("Got an exception on contentChannel.close() for '{}'; ignoring it.", itemId, e);
+          LOG.debug(
+              "Got an exception on closing AdaptiveReadChannelSession for '{}'; ignoring it.",
+              itemId,
+              e);
         } finally {
-          byteChannel = null;
-          contentChannelCurrentPosition = -1;
-          contentChannelEnd = -1;
+          sessionReadChannel = null;
+          sessionPosition = -1;
+          sessionEnd = -1;
         }
       }
     }

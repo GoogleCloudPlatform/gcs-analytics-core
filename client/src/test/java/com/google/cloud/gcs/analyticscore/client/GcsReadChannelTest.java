@@ -38,6 +38,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.IntFunction;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -286,6 +287,28 @@ class GcsReadChannelTest {
   }
 
   @Test
+  void close_forClosedChannel_noOp() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "hello world";
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(objectData.length())
+            .setContentGeneration(0L)
+            .build();
+    createBlobInStorage(
+        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    TestGcsReadChannel gcsReadChannel =
+        new TestGcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+    gcsReadChannel.close();
+
+    gcsReadChannel.close();
+
+    assertThat(gcsReadChannel.isOpen()).isFalse();
+  }
+
+  @Test
   void size_returnsBlobContentLength() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
@@ -432,6 +455,37 @@ class GcsReadChannelTest {
     assertThat(e).hasCauseThat().hasMessageThat().contains("Error while populating childRange");
     assertThat(e.getCause().getCause()).isInstanceOf(RuntimeException.class);
     assertThat(e.getCause().getCause()).hasMessageThat().isEqualTo("Allocation failed");
+  }
+
+  @Test
+  void readVectored_submissionError_completesFuturesExceptionally() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "hello world";
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(objectData.length())
+            .setContentGeneration(0L)
+            .build();
+    createBlobInStorage(
+        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+
+    ExecutorService mockExecutor = Mockito.mock(ExecutorService.class);
+    Mockito.doThrow(new RejectedExecutionException("Submission failed"))
+        .when(mockExecutor)
+        .submit(Mockito.any(Runnable.class));
+
+    TestGcsReadChannel gcsReadChannel =
+        new TestGcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, Suppliers.memoize(() -> mockExecutor));
+
+    ImmutableList<GcsObjectRange> ranges = createRanges(ImmutableMap.of(0L, 5));
+
+    gcsReadChannel.readVectored(ranges, ByteBuffer::allocate);
+
+    assertThat(ranges.get(0).getByteBufferFuture().isDone()).isTrue();
+    assertThat(ranges.get(0).getByteBufferFuture().isCompletedExceptionally()).isTrue();
   }
 
   @Test

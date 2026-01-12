@@ -25,16 +25,12 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
@@ -174,7 +170,7 @@ class GcsAdaptiveReadChannelTest {
   }
 
   @Test
-  void read_withSequentialFileAccessPattern_readsUntilEnd() throws IOException {
+  void read_withSequentialFileAccessPattern_opensUnboundedReadChannel() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     String objectData = "hello world this is a test string for sequential access";
@@ -212,8 +208,9 @@ class GcsAdaptiveReadChannelTest {
   }
 
   @Test
-  void read_withSequentialFileAccessPattern_doesNotSwitchToRandomOnBackwardSeek()
-      throws IOException {
+  void
+      read_withSequentialFileAccessPattern_opensUnboundedReadChannelForBackwardAndLargeForwardSeek()
+          throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     String objectData = "0123456789";
@@ -229,6 +226,7 @@ class GcsAdaptiveReadChannelTest {
         TEST_GCS_READ_OPTIONS.toBuilder()
             .setFileAccessPattern(FileAccessPattern.SEQUENTIAL)
             .setMinRangeRequestSize(2)
+            .setInplaceSeekLimit(2)
             .build();
     List<ReadChannel> capturedChannels = Lists.newArrayList();
     Mockito.doAnswer(
@@ -244,16 +242,21 @@ class GcsAdaptiveReadChannelTest {
         new GcsAdaptiveReadChannel(storage, itemInfo, options, executorServiceSupplier);
 
     gcsReadChannel.read(ByteBuffer.allocate(2));
+    // backward seek.
     gcsReadChannel.position(0);
     gcsReadChannel.read(ByteBuffer.allocate(2));
+    // large forward seek.
+    gcsReadChannel.position(6);
+    gcsReadChannel.read(ByteBuffer.allocate(2));
 
-    assertThat(capturedChannels).hasSize(2);
+    assertThat(capturedChannels).hasSize(3);
     Mockito.verify(capturedChannels.get(0)).limit(objectData.length());
+    Mockito.verify(capturedChannels.get(1)).limit(objectData.length());
     Mockito.verify(capturedChannels.get(1)).limit(objectData.length());
   }
 
   @Test
-  void read_withAutoFileAccessPattern_startsSequential() throws IOException {
+  void read_withAutoFileAccessPattern_defaultOpensUnboundedReadChannel() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     String objectData = "hello world";
@@ -290,7 +293,8 @@ class GcsAdaptiveReadChannelTest {
   }
 
   @Test
-  void read_withAutoFileAccessPattern_switchesToRandomOnLargeForwardSeek() throws IOException {
+  void read_withAutoFileAccessPattern_opensBoundedReadChannelOnLargeForwardSeek()
+      throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     String objectData = "01234567890123456789"; // 20 bytes
@@ -331,7 +335,50 @@ class GcsAdaptiveReadChannelTest {
   }
 
   @Test
-  void read_withAutoFileAccessPattern_staysRandomAfterSwitch() throws IOException {
+  void read_withAutoFileAccessPattern_opensBoundedReadChannelOnBackwardSeek() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "01234567890123456789"; // 20 bytes
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(objectData.length())
+            .setContentGeneration(0L)
+            .build();
+    createBlobInStorage(
+        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    GcsReadOptions options =
+        TEST_GCS_READ_OPTIONS.toBuilder()
+            .setFileAccessPattern(FileAccessPattern.AUTO)
+            .setMinRangeRequestSize(2)
+            .setInplaceSeekLimit(2)
+            .build();
+    List<ReadChannel> capturedChannels = Lists.newArrayList();
+    Mockito.doAnswer(
+            invocation -> {
+              ReadChannel realChannel = (ReadChannel) invocation.callRealMethod();
+              ReadChannel spyChannel = Mockito.spy(realChannel);
+              capturedChannels.add(spyChannel);
+              return spyChannel;
+            })
+        .when(storage)
+        .reader(Mockito.any(BlobId.class), Mockito.any());
+    GcsAdaptiveReadChannel gcsReadChannel =
+        new GcsAdaptiveReadChannel(storage, itemInfo, options, executorServiceSupplier);
+
+    gcsReadChannel.read(ByteBuffer.allocate(2));
+    gcsReadChannel.position(0);
+    gcsReadChannel.read(ByteBuffer.allocate(2));
+
+    assertThat(capturedChannels).hasSize(2);
+    Mockito.verify(capturedChannels.get(0)).limit(objectData.length());
+    Mockito.verify(capturedChannels.get(1)).limit(2);
+  }
+
+  @Test
+  void
+      read_withAutoFileAccessPattern_switchesBackToBoundedReadChannelForSequentialReadsBeyondThreshold()
+          throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     String objectData = "0123456789";
@@ -347,6 +394,7 @@ class GcsAdaptiveReadChannelTest {
         TEST_GCS_READ_OPTIONS.toBuilder()
             .setFileAccessPattern(FileAccessPattern.AUTO)
             .setMinRangeRequestSize(2)
+            .setSequentialReadSessionThreshold(2)
             .build();
     List<ReadChannel> capturedChannels = Lists.newArrayList();
     Mockito.doAnswer(
@@ -365,52 +413,13 @@ class GcsAdaptiveReadChannelTest {
     gcsReadChannel.position(0);
     gcsReadChannel.read(ByteBuffer.allocate(2));
     gcsReadChannel.read(ByteBuffer.allocate(2));
+    gcsReadChannel.read(ByteBuffer.allocate(2));
 
-    assertThat(capturedChannels).hasSize(3);
+    assertThat(capturedChannels).hasSize(4);
     Mockito.verify(capturedChannels.get(0)).limit(objectData.length());
     Mockito.verify(capturedChannels.get(1)).limit(2);
     Mockito.verify(capturedChannels.get(2)).limit(4);
-  }
-
-  private GcsObjectRange createRange(long offset, int length) {
-    return GcsObjectRange.builder()
-        .setOffset(offset)
-        .setLength(length)
-        .setByteBufferFuture(new CompletableFuture<>())
-        .build();
-  }
-
-  private ImmutableList<GcsObjectRange> createRanges(
-      ImmutableMap<Long, Integer> offsetToLengthMap) {
-    return offsetToLengthMap.entrySet().stream()
-        .map(entry -> createRange(entry.getKey(), entry.getValue()))
-        .collect(ImmutableList.toImmutableList());
-  }
-
-  private void createBlobInStorage(BlobId blobId, String blobContent) {
-    BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
-    storage.create(blobInfo, blobContent.getBytes(StandardCharsets.UTF_8));
-  }
-
-  private String getGcsObjectRangeData(GcsObjectRange range)
-      throws ExecutionException, InterruptedException {
-    return StandardCharsets.UTF_8.decode(range.getByteBufferFuture().get()).toString();
-  }
-
-  @Test
-  void read_zeroRemaining_returnsZero() throws IOException {
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder().setItemId(itemId).setSize(10).setContentGeneration(0L).build();
-    GcsAdaptiveReadChannel gcsReadChannel =
-        new GcsAdaptiveReadChannel(
-            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
-    ByteBuffer buffer = ByteBuffer.allocate(0);
-
-    int bytesRead = gcsReadChannel.read(buffer);
-
-    assertThat(bytesRead).isEqualTo(0);
+    Mockito.verify(capturedChannels.get(3)).limit(10); // unbounded read.
   }
 
   @Test
@@ -431,6 +440,26 @@ class GcsAdaptiveReadChannelTest {
   }
 
   @Test
+  void read_pastEndOfFile_returnsPartialBytes() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "0123456789";
+    createBlobInStorage(
+        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(10).setContentGeneration(0L).build();
+    GcsAdaptiveReadChannel gcsReadChannel =
+        new GcsAdaptiveReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+    gcsReadChannel.position(8);
+    ByteBuffer buffer = ByteBuffer.allocate(4);
+
+    int bytesRead = gcsReadChannel.read(buffer);
+
+    assertThat(bytesRead).isEqualTo(2);
+  }
+
+  @Test
   void read_closedChannel_throwsClosedChannelException() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
@@ -443,6 +472,26 @@ class GcsAdaptiveReadChannelTest {
     ByteBuffer buffer = ByteBuffer.allocate(1);
 
     assertThrows(ClosedChannelException.class, () -> gcsReadChannel.read(buffer));
+  }
+
+  @Test
+  void read_withEmptyBuffer_returnsZeroBytes() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "0123456789";
+    createBlobInStorage(
+        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(10).setContentGeneration(0L).build();
+    GcsAdaptiveReadChannel gcsReadChannel =
+        new GcsAdaptiveReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+    gcsReadChannel.position(8);
+    ByteBuffer buffer = ByteBuffer.allocate(0);
+
+    int bytesRead = gcsReadChannel.read(buffer);
+
+    assertThat(bytesRead).isEqualTo(0);
   }
 
   @Test
@@ -497,7 +546,8 @@ class GcsAdaptiveReadChannelTest {
   }
 
   @Test
-  void openByteChannel_exception_throwsIOException() throws IOException {
+  void openBoundedReadChannel_unExpectedExceptionOnStorageChannelSeek_throwsIOException()
+      throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     GcsItemInfo itemInfo =
@@ -519,7 +569,34 @@ class GcsAdaptiveReadChannelTest {
   }
 
   @Test
-  void skipInPlace_eof_closesChannel() throws IOException {
+  void skipInPlace_successfulSkip_updatesPosition() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(100).setContentGeneration(0L).build();
+    GcsReadOptions options = TEST_GCS_READ_OPTIONS.toBuilder().setInplaceSeekLimit(100).build();
+    Storage mockStorage = Mockito.mock(Storage.class);
+    GcsAdaptiveReadChannel gcsReadChannel =
+        new GcsAdaptiveReadChannel(mockStorage, itemInfo, options, executorServiceSupplier);
+    ReadChannel mockChannel = Mockito.mock(ReadChannel.class);
+    Mockito.when(mockStorage.reader(Mockito.any(BlobId.class), Mockito.any()))
+        .thenReturn(mockChannel);
+    Mockito.when(mockChannel.read(Mockito.any(ByteBuffer.class))).thenAnswer(answerFillBuffer());
+    ArgumentCaptor<ByteBuffer> captor = ArgumentCaptor.forClass(ByteBuffer.class);
+
+    gcsReadChannel.read(ByteBuffer.allocate(10));
+    gcsReadChannel.position(15);
+    gcsReadChannel.read(ByteBuffer.allocate(10));
+
+    Mockito.verify(mockChannel, Mockito.times(3)).read(captor.capture());
+    List<ByteBuffer> buffers = captor.getAllValues();
+    assertThat(buffers.get(0).capacity()).isEqualTo(10);
+    assertThat(buffers.get(1).limit()).isEqualTo(5);
+    assertThat(buffers.get(2).capacity()).isEqualTo(10);
+  }
+
+  @Test
+  void skipInPlace_pastEOF_closesSession() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     GcsItemInfo itemInfo =
@@ -544,7 +621,7 @@ class GcsAdaptiveReadChannelTest {
   }
 
   @Test
-  void skipInPlace_exception_closesChannel() throws IOException {
+  void skipInPlace_unexpectedException_closesSession() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     GcsItemInfo itemInfo =
@@ -564,11 +641,11 @@ class GcsAdaptiveReadChannelTest {
     gcsReadChannel.position(20);
 
     assertThrows(IOException.class, () -> gcsReadChannel.read(ByteBuffer.allocate(10)));
-    Mockito.verify(mockChannel, Mockito.atLeast(1)).close();
+    Mockito.verify(mockChannel).close();
   }
 
   @Test
-  void closeContentChannel_exception_ignores() throws IOException {
+  void closeContentChannel_unExpectedException_closesSession() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     GcsItemInfo itemInfo =
@@ -591,7 +668,7 @@ class GcsAdaptiveReadChannelTest {
   }
 
   @Test
-  void read_exception_closesContentChannel() throws IOException {
+  void read_unExpectedException_closesContentChannel() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     GcsItemInfo itemInfo =
@@ -611,6 +688,11 @@ class GcsAdaptiveReadChannelTest {
     Mockito.verify(mockChannel).close();
   }
 
+  private void createBlobInStorage(BlobId blobId, String blobContent) {
+    BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
+    storage.create(blobInfo, blobContent.getBytes(StandardCharsets.UTF_8));
+  }
+
   private static Answer<Integer> answerFillBuffer() {
     return invocation -> {
       ByteBuffer buffer = invocation.getArgument(0);
@@ -618,32 +700,5 @@ class GcsAdaptiveReadChannelTest {
       buffer.position(buffer.position() + remaining);
       return remaining;
     };
-  }
-
-  @Test
-  void skipInPlace_successfulSkip_updatesPosition() throws IOException {
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder().setItemId(itemId).setSize(100).setContentGeneration(0L).build();
-    GcsReadOptions options = TEST_GCS_READ_OPTIONS.toBuilder().setInplaceSeekLimit(100).build();
-    Storage mockStorage = Mockito.mock(Storage.class);
-    GcsAdaptiveReadChannel gcsReadChannel =
-        new GcsAdaptiveReadChannel(mockStorage, itemInfo, options, executorServiceSupplier);
-    ReadChannel mockChannel = Mockito.mock(ReadChannel.class);
-    Mockito.when(mockStorage.reader(Mockito.any(BlobId.class), Mockito.any()))
-        .thenReturn(mockChannel);
-    Mockito.when(mockChannel.read(Mockito.any(ByteBuffer.class))).thenAnswer(answerFillBuffer());
-
-    gcsReadChannel.read(ByteBuffer.allocate(10));
-    gcsReadChannel.position(15);
-    gcsReadChannel.read(ByteBuffer.allocate(10));
-
-    ArgumentCaptor<ByteBuffer> captor = ArgumentCaptor.forClass(ByteBuffer.class);
-    Mockito.verify(mockChannel, Mockito.times(3)).read(captor.capture());
-    List<ByteBuffer> buffers = captor.getAllValues();
-    assertThat(buffers.get(0).capacity()).isEqualTo(10);
-    assertThat(buffers.get(1).limit()).isEqualTo(5);
-    assertThat(buffers.get(2).capacity()).isEqualTo(10);
   }
 }

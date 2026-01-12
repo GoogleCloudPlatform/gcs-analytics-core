@@ -27,60 +27,48 @@ class AdaptiveRangeReadStrategyTest {
   private static final int INPLACE_SEEK_LIMIT = 50;
 
   @Test
-  void calculateRangeRequestEnd_sequential_readsUntilEnd() {
-    GcsReadOptions options = createOptions(FileAccessPattern.SEQUENTIAL);
-    AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
-
-    long end = strategy.calculateRangeRequestEnd(0, 10, OBJECT_SIZE);
-
-    assertThat(end).isEqualTo(OBJECT_SIZE);
-  }
-
-  @Test
-  void calculateRangeRequestEnd_random_readsMinRange() {
-    GcsReadOptions options = createOptions(FileAccessPattern.RANDOM);
-    AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
-
-    long end = strategy.calculateRangeRequestEnd(0, 10, OBJECT_SIZE);
-
-    assertThat(end).isEqualTo(100);
-  }
-
-  @Test
-  void calculateRangeRequestEnd_random_readsRequestedIfLargerThanMin() {
-    GcsReadOptions options = createOptions(FileAccessPattern.RANDOM);
-    AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
-
-    long end = strategy.calculateRangeRequestEnd(0, 200, OBJECT_SIZE);
-
-    assertThat(end).isEqualTo(200);
-  }
-
-  @Test
   void detectRandomAccess_backwardRead_switchesToRandom() {
-    GcsReadOptions options = createOptions(FileAccessPattern.AUTO);
+    GcsReadOptions options =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setFileAccessPattern(FileAccessPattern.AUTO)
+            .setMinRangeRequestSize(MIN_RANGE_REQUEST_SIZE)
+            .setInplaceSeekLimit(INPLACE_SEEK_LIMIT)
+            .build();
     AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
 
     strategy.detectRandomAccess(50, 100);
 
-    long end = strategy.calculateRangeRequestEnd(50, 10, OBJECT_SIZE);
+    long end = strategy.calculateAdaptiveReadSessionEnd(50, 10, OBJECT_SIZE);
     assertThat(end).isEqualTo(50 + MIN_RANGE_REQUEST_SIZE);
   }
 
   @Test
   void detectRandomAccess_forwardReadBeyondLimit_switchesToRandom() {
-    GcsReadOptions options = createOptions(FileAccessPattern.AUTO);
+    GcsReadOptions options =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setFileAccessPattern(FileAccessPattern.AUTO)
+            .setMinRangeRequestSize(MIN_RANGE_REQUEST_SIZE)
+            .setInplaceSeekLimit(INPLACE_SEEK_LIMIT)
+            .build();
     AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
 
     strategy.detectRandomAccess(60, 0);
-    long end = strategy.calculateRangeRequestEnd(60, 10, OBJECT_SIZE);
+    long end = strategy.calculateAdaptiveReadSessionEnd(60, 10, OBJECT_SIZE);
 
     assertThat(end).isEqualTo(60 + MIN_RANGE_REQUEST_SIZE);
   }
 
   @Test
   void shouldSeekInPlace_withinLimit_returnsTrue() {
-    GcsReadOptions options = createOptions(FileAccessPattern.AUTO);
+    GcsReadOptions options =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setFileAccessPattern(FileAccessPattern.AUTO)
+            .setMinRangeRequestSize(MIN_RANGE_REQUEST_SIZE)
+            .setInplaceSeekLimit(INPLACE_SEEK_LIMIT)
+            .build();
     AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
 
     boolean result = strategy.shouldSeekInPlace(10, 0, OBJECT_SIZE);
@@ -90,7 +78,13 @@ class AdaptiveRangeReadStrategyTest {
 
   @Test
   void shouldSeekInPlace_beyondLimit_returnsFalse() {
-    GcsReadOptions options = createOptions(FileAccessPattern.AUTO);
+    GcsReadOptions options =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setFileAccessPattern(FileAccessPattern.AUTO)
+            .setMinRangeRequestSize(MIN_RANGE_REQUEST_SIZE)
+            .setInplaceSeekLimit(INPLACE_SEEK_LIMIT)
+            .build();
     AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
 
     boolean result = strategy.shouldSeekInPlace(60, 0, OBJECT_SIZE);
@@ -100,7 +94,13 @@ class AdaptiveRangeReadStrategyTest {
 
   @Test
   void shouldSeekInPlace_backward_returnsFalse() {
-    GcsReadOptions options = createOptions(FileAccessPattern.AUTO);
+    GcsReadOptions options =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setFileAccessPattern(FileAccessPattern.AUTO)
+            .setMinRangeRequestSize(MIN_RANGE_REQUEST_SIZE)
+            .setInplaceSeekLimit(INPLACE_SEEK_LIMIT)
+            .build();
     AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
 
     boolean result = strategy.shouldSeekInPlace(0, 10, OBJECT_SIZE);
@@ -109,63 +109,120 @@ class AdaptiveRangeReadStrategyTest {
   }
 
   @Test
-  void calculateRangeRequestEnd_auto_switchesToSequentialAfterThreshold() {
-    int threshold = 2;
+  void detectSequentialAccess_switchesToSequential_afterThreshold() {
     GcsReadOptions options =
         GcsReadOptions.builder()
             .setUserProjectId("test-project")
             .setFileAccessPattern(FileAccessPattern.AUTO)
-            .setMinRangeRequestSize(MIN_RANGE_REQUEST_SIZE)
-            .setInplaceSeekLimit(INPLACE_SEEK_LIMIT)
-            .setSequentialRangeReadThreshold(threshold)
+            .setMinRangeRequestSize(100)
+            .setInplaceSeekLimit(50)
+            .setSequentialReadSessionThreshold(2)
             .build();
     AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
-    strategy.detectRandomAccess(0, 100); // Force random access
+    boolean initialRandomAccess = strategy.isRandomAccess();
+    // Forcing the random access to true.
+    strategy.detectRandomAccess(100, 200);
+    boolean randomAccessAfterForceSet = strategy.isRandomAccess();
 
-    long end1 = strategy.calculateRangeRequestEnd(0, 10, OBJECT_SIZE);
-    long end2 = strategy.calculateRangeRequestEnd(MIN_RANGE_REQUEST_SIZE, 10, OBJECT_SIZE);
-    long end3 = strategy.calculateRangeRequestEnd(MIN_RANGE_REQUEST_SIZE * 2, 10, OBJECT_SIZE);
-    long end4 = strategy.calculateRangeRequestEnd(MIN_RANGE_REQUEST_SIZE * 3, 10, OBJECT_SIZE);
+    long firstSessionEnd =
+        strategy.calculateAdaptiveReadSessionEnd(
+            100, 10, OBJECT_SIZE); // lastAdaptiveReadSessionEnd = 100
+    strategy.detectSequentialAccess(firstSessionEnd);
+    boolean randomAccessAfterFirstSequentialRead = strategy.isRandomAccess();
+    long secondSessionEnd =
+        strategy.calculateAdaptiveReadSessionEnd(
+            firstSessionEnd, 10, OBJECT_SIZE); // lastAdaptiveReadSessionEnd = 200
+    strategy.detectSequentialAccess(secondSessionEnd);
+    boolean randomAccessAfterSecondSequentialRead = strategy.isRandomAccess();
 
-    assertThat(strategy.isRandomAccess()).isFalse();
-    assertThat(end1).isEqualTo(MIN_RANGE_REQUEST_SIZE);
-    assertThat(end2).isEqualTo(MIN_RANGE_REQUEST_SIZE * 2);
-    assertThat(end3).isEqualTo(MIN_RANGE_REQUEST_SIZE * 3);
-    assertThat(end4).isEqualTo(OBJECT_SIZE);
+    assertThat(initialRandomAccess).isFalse();
+    assertThat(randomAccessAfterForceSet).isTrue();
+    assertThat(randomAccessAfterFirstSequentialRead).isTrue();
+    assertThat(randomAccessAfterSecondSequentialRead).isFalse();
   }
 
   @Test
-  void calculateRangeRequestEnd_random_doesNotSwitchToSequential() {
-    int threshold = 2;
+  void detectSequentialAccess_ignoredIfRandomMode() {
+    GcsReadOptions options =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setFileAccessPattern(FileAccessPattern.RANDOM)
+            .setMinRangeRequestSize(100)
+            .setInplaceSeekLimit(10)
+            .setSequentialReadSessionThreshold(0)
+            .build();
+    AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
+    long sessionEnd = strategy.calculateAdaptiveReadSessionEnd(0, 10, OBJECT_SIZE); // end = 100
+
+    strategy.detectSequentialAccess(sessionEnd);
+
+    // Should stay random because explicit RANDOM mode was requested
+    assertThat(strategy.isRandomAccess()).isTrue();
+  }
+
+  @Test
+  void calculateAdaptiveReadSessionEnd_sequentialAccess_returnsObjectSize() {
+    GcsReadOptions options =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setFileAccessPattern(FileAccessPattern.SEQUENTIAL)
+            .setMinRangeRequestSize(MIN_RANGE_REQUEST_SIZE)
+            .setInplaceSeekLimit(INPLACE_SEEK_LIMIT)
+            .build();
+    AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
+
+    long end = strategy.calculateAdaptiveReadSessionEnd(0, 10, OBJECT_SIZE);
+
+    assertThat(end).isEqualTo(OBJECT_SIZE);
+  }
+
+  @Test
+  void calculateAdaptiveReadSessionEnd_randomAccess_smallRead_expandsToMinRange() {
     GcsReadOptions options =
         GcsReadOptions.builder()
             .setUserProjectId("test-project")
             .setFileAccessPattern(FileAccessPattern.RANDOM)
             .setMinRangeRequestSize(MIN_RANGE_REQUEST_SIZE)
             .setInplaceSeekLimit(INPLACE_SEEK_LIMIT)
-            .setSequentialRangeReadThreshold(threshold)
             .build();
     AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
 
-    long end1 = strategy.calculateRangeRequestEnd(0, 10, OBJECT_SIZE);
-    long end2 = strategy.calculateRangeRequestEnd(MIN_RANGE_REQUEST_SIZE, 10, OBJECT_SIZE);
-    long end3 = strategy.calculateRangeRequestEnd(MIN_RANGE_REQUEST_SIZE * 2, 10, OBJECT_SIZE);
-    long end4 = strategy.calculateRangeRequestEnd(MIN_RANGE_REQUEST_SIZE * 3, 10, OBJECT_SIZE);
+    long end = strategy.calculateAdaptiveReadSessionEnd(50, 10, OBJECT_SIZE);
 
-    assertThat(strategy.isRandomAccess()).isTrue();
-    assertThat(end1).isEqualTo(MIN_RANGE_REQUEST_SIZE);
-    assertThat(end2).isEqualTo(MIN_RANGE_REQUEST_SIZE * 2);
-    assertThat(end3).isEqualTo(MIN_RANGE_REQUEST_SIZE * 3);
-    assertThat(end4).isEqualTo(MIN_RANGE_REQUEST_SIZE * 4);
+    assertThat(end).isEqualTo(50 + MIN_RANGE_REQUEST_SIZE);
   }
 
-  private GcsReadOptions createOptions(FileAccessPattern fileAccessPattern) {
-    return GcsReadOptions.builder()
-        .setUserProjectId("test-project")
-        .setFileAccessPattern(fileAccessPattern)
-        .setMinRangeRequestSize(MIN_RANGE_REQUEST_SIZE)
-        .setInplaceSeekLimit(INPLACE_SEEK_LIMIT)
-        .build();
+  @Test
+  void calculateAdaptiveReadSessionEnd_randomAccess_largeRead_respectsBytesToRead() {
+    GcsReadOptions options =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setFileAccessPattern(FileAccessPattern.RANDOM)
+            .setMinRangeRequestSize(MIN_RANGE_REQUEST_SIZE)
+            .setInplaceSeekLimit(INPLACE_SEEK_LIMIT)
+            .build();
+    AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
+
+    long end = strategy.calculateAdaptiveReadSessionEnd(50, 200, OBJECT_SIZE);
+
+    assertThat(end).isEqualTo(50 + 200);
+  }
+
+  @Test
+  void calculateAdaptiveReadSessionEnd_randomAccess_nearEndOfFile_clampsToObjectSize() {
+    GcsReadOptions options =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setFileAccessPattern(FileAccessPattern.RANDOM)
+            .setMinRangeRequestSize(MIN_RANGE_REQUEST_SIZE)
+            .setInplaceSeekLimit(INPLACE_SEEK_LIMIT)
+            .build();
+    AdaptiveRangeReadStrategy strategy = new AdaptiveRangeReadStrategy(options, createItemInfo());
+
+    long pos = OBJECT_SIZE - 10;
+    long end = strategy.calculateAdaptiveReadSessionEnd(pos, 100, OBJECT_SIZE);
+
+    assertThat(end).isEqualTo(OBJECT_SIZE);
   }
 
   private GcsItemInfo createItemInfo() {
