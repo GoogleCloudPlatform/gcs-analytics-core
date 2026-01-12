@@ -22,7 +22,7 @@ import com.google.common.base.Supplier;
 import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 
-public class FakeGcsReadChannel extends GcsReadChannel {
+public class FakeGcsReadChannel extends GcsSimpleReadChannel {
   private static int openReadChannelCount = 0;
 
   public FakeGcsReadChannel(

@@ -41,6 +41,10 @@ class GcsReadOptionsTest {
             .put("gcs.analytics-core.large-file.footer.prefetch.size-bytes", "4194304")
             .put("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "41943")
             .put("gcs.analytics-core.small-file.cache.threshold-bytes", "102400")
+            .put("gcs.analytics-core.read.adaptive-range.file-access-pattern", "sequential")
+            .put("gcs.analytics-core.read.adaptive-range.min-range-request-size-bytes", "512")
+            .put("gcs.analytics-core.read.adaptive-range.inplace-seek-limit-bytes", "256")
+            .put("gcs.analytics-core.read.adaptive-range.sequential-range-read-threshold", "5")
             .build();
     String prefix = "gcs.";
 
@@ -56,6 +60,10 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getSmallObjectCacheSize()).isEqualTo(102400);
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(1024);
     assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(2048);
+    assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.SEQUENTIAL);
+    assertThat(readOptions.getMinRangeRequestSize()).isEqualTo(512);
+    assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(256);
+    assertThat(readOptions.getSequentialRangeReadThreshold()).isEqualTo(5);
   }
 
   @Test
@@ -75,6 +83,10 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getSmallObjectCacheSize()).isEqualTo(0);
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(4 * 1024);
     assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(8 * 1024 * 1024);
+    assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.AUTO);
+    assertThat(readOptions.getMinRangeRequestSize()).isEqualTo(2 * 1024 * 1024);
+    assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(8 * 1024 * 1024);
+    assertThat(readOptions.getSequentialRangeReadThreshold()).isEqualTo(1);
   }
 
   @ParameterizedTest
@@ -83,6 +95,9 @@ class GcsReadOptionsTest {
         "gcs.analytics-core.small-file.footer.prefetch.size-bytes",
         "gcs.analytics-core.small-file.cache.threshold-bytes",
         "gcs.analytics-core.large-file.footer.prefetch.size-bytes",
+        "gcs.analytics-core.read.adaptive-range.min-range-request-size-bytes",
+        "gcs.analytics-core.read.adaptive-range.inplace-seek-limit-bytes",
+        "gcs.analytics-core.read.adaptive-range.sequential-range-read-threshold",
       })
   void createFromOptions_integerValuesGreaterThanIntegerMax_throwsIllegalArgumentException(
       String propertyKey) {

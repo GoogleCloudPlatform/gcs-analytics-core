@@ -211,6 +211,63 @@ class GcsClientImplTest {
   }
 
   @Test
+  void openReadChannel_adaptiveRangeReadEnabled_returnsGcsAdaptiveReadChannel() throws IOException {
+    GcsClientOptions options = GcsClientOptions.builder().setProjectId("test-project").build();
+    GcsClient client =
+        new GcsClientImpl(options, executorServiceSupplier) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return GcsClientImplTest.this.storage;
+          }
+        };
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket-name")
+            .setObjectName("test-object-name")
+            .build();
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(100L).setContentGeneration(0L).build();
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setAdaptiveRangeReadEnabled(true)
+            .build();
+
+    try (SeekableByteChannel channel = client.openReadChannel(itemInfo, readOptions)) {
+      assertThat(channel).isInstanceOf(GcsAdaptiveReadChannel.class);
+    }
+  }
+
+  @Test
+  void openReadChannel_adaptiveRangeReadDisabled_returnsGcsReadChannel() throws IOException {
+    GcsClientOptions options = GcsClientOptions.builder().setProjectId("test-project").build();
+    GcsClient client =
+        new GcsClientImpl(options, executorServiceSupplier) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return GcsClientImplTest.this.storage;
+          }
+        };
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket-name")
+            .setObjectName("test-object-name")
+            .build();
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(100L).setContentGeneration(0L).build();
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setAdaptiveRangeReadEnabled(false)
+            .build();
+
+    try (SeekableByteChannel channel = client.openReadChannel(itemInfo, readOptions)) {
+      assertThat(channel).isInstanceOf(GcsReadChannel.class);
+      assertThat(channel).isNotInstanceOf(GcsAdaptiveReadChannel.class);
+    }
+  }
+
+  @Test
   void createStore_withCredentials_usesProvidedCredentials() throws IOException {
     GcsClientImpl client =
         new GcsClientImpl(

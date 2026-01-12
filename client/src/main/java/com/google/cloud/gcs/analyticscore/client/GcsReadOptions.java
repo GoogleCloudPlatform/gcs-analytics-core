@@ -39,6 +39,22 @@ public abstract class GcsReadOptions {
   private static final int DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE = 1024 * 1024; // 1mb
   private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = 0; // 0 bytes = disabled
 
+  private static final String FILE_ACCESS_PATTERN_KEY =
+      "analytics-core.read.adaptive-range.file-access-pattern";
+  private static final String MIN_RANGE_REQUEST_SIZE_KEY =
+      "analytics-core.read.adaptive-range.min-range-request-size-bytes";
+  private static final String INPLACE_SEEK_LIMIT_KEY =
+      "analytics-core.read.adaptive-range.inplace-seek-limit-bytes";
+  private static final String SEQUENTIAL_RANGE_READ_THRESHOLD_KEY =
+      "analytics-core.read.adaptive-range.sequential-range-read-threshold";
+  private static final String ADAPTIVE_RANGE_READ_ENABLED_KEY =
+      "analytics-core.read.adaptive-range.enabled";
+
+  private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN = FileAccessPattern.AUTO;
+  private static final int DEFAULT_MIN_RANGE_REQUEST_SIZE = 2 * 1024 * 1024; // 2MB
+  private static final int DEFAULT_INPLACE_SEEK_LIMIT = 8 * 1024 * 1024; // 8MB
+  private static final int DEFAULT_SEQUENTIAL_RANGE_READ_THRESHOLD = 1;
+
   public abstract Optional<Integer> getChunkSize();
 
   public abstract Optional<String> getDecryptionKey();
@@ -55,13 +71,30 @@ public abstract class GcsReadOptions {
 
   public abstract GcsVectoredReadOptions getGcsVectoredReadOptions();
 
+  public abstract FileAccessPattern getFileAccessPattern();
+
+  public abstract int getMinRangeRequestSize();
+
+  public abstract int getInplaceSeekLimit();
+
+  public abstract int getSequentialRangeReadThreshold();
+
+  public abstract Boolean getAdaptiveRangeReadEnabled();
+
+  public abstract Builder toBuilder();
+
   public static Builder builder() {
     return new AutoValue_GcsReadOptions.Builder()
         .setGcsVectoredReadOptions(GcsVectoredReadOptions.builder().build())
         .setFooterPrefetchEnabled(DEFAULT_FOOTER_PREFETCH_ENABLED)
         .setFooterPrefetchSizeSmallFile(DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE)
         .setFooterPrefetchSizeLargeFile(DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE)
-        .setSmallObjectCacheSize(DEFAULT_SMALL_FILE_CACHE_THRESHOLD);
+        .setSmallObjectCacheSize(DEFAULT_SMALL_FILE_CACHE_THRESHOLD)
+        .setFileAccessPattern(DEFAULT_FILE_ACCESS_PATTERN)
+        .setMinRangeRequestSize(DEFAULT_MIN_RANGE_REQUEST_SIZE)
+        .setInplaceSeekLimit(DEFAULT_INPLACE_SEEK_LIMIT)
+        .setSequentialRangeReadThreshold(DEFAULT_SEQUENTIAL_RANGE_READ_THRESHOLD)
+        .setAdaptiveRangeReadEnabled(false);
   }
 
   public static GcsReadOptions createFromOptions(
@@ -92,6 +125,27 @@ public abstract class GcsReadOptions {
     if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_CACHE_THRESHOLD_KEY)) {
       optionsBuilder.setSmallObjectCacheSize(
           safeParseInteger(analyticsCoreOptions, prefix + SMALL_FILE_CACHE_THRESHOLD_KEY));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + FILE_ACCESS_PATTERN_KEY)) {
+      optionsBuilder.setFileAccessPattern(
+          FileAccessPattern.valueOf(
+              analyticsCoreOptions.get(prefix + FILE_ACCESS_PATTERN_KEY).toUpperCase()));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + MIN_RANGE_REQUEST_SIZE_KEY)) {
+      optionsBuilder.setMinRangeRequestSize(
+          safeParseInteger(analyticsCoreOptions, prefix + MIN_RANGE_REQUEST_SIZE_KEY));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + INPLACE_SEEK_LIMIT_KEY)) {
+      optionsBuilder.setInplaceSeekLimit(
+          safeParseInteger(analyticsCoreOptions, prefix + INPLACE_SEEK_LIMIT_KEY));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + SEQUENTIAL_RANGE_READ_THRESHOLD_KEY)) {
+      optionsBuilder.setSequentialRangeReadThreshold(
+          safeParseInteger(analyticsCoreOptions, prefix + SEQUENTIAL_RANGE_READ_THRESHOLD_KEY));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + ADAPTIVE_RANGE_READ_ENABLED_KEY)) {
+      optionsBuilder.setAdaptiveRangeReadEnabled(
+          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + ADAPTIVE_RANGE_READ_ENABLED_KEY)));
     }
     optionsBuilder.setGcsVectoredReadOptions(
         GcsVectoredReadOptions.createFromOptions(analyticsCoreOptions, prefix));
@@ -129,6 +183,16 @@ public abstract class GcsReadOptions {
     public abstract Builder setFooterPrefetchSizeLargeFile(int footerPrefetchSizeLargeFile);
 
     public abstract Builder setSmallObjectCacheSize(int smallObjectCacheSize);
+
+    public abstract Builder setFileAccessPattern(FileAccessPattern fileAccessPattern);
+
+    public abstract Builder setMinRangeRequestSize(int minRangeRequestSize);
+
+    public abstract Builder setInplaceSeekLimit(int inplaceSeekLimit);
+
+    public abstract Builder setSequentialRangeReadThreshold(int sequentialRangeReadThreshold);
+
+    public abstract Builder setAdaptiveRangeReadEnabled(Boolean adaptiveRangeReadEnabled);
 
     public abstract GcsReadOptions build();
   }

@@ -31,58 +31,50 @@ import java.nio.channels.SeekableByteChannel;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.function.IntFunction;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-class GcsReadChannel implements VectoredSeekableByteChannel {
-  private static final Logger LOG = LoggerFactory.getLogger(GcsReadChannel.class);
-  private Storage storage;
-  private GcsReadOptions readOptions;
-  private ReadChannel readChannel;
+abstract class GcsReadChannel implements VectoredSeekableByteChannel {
+
+  protected final Storage storage;
+  protected final GcsReadOptions readOptions;
   protected GcsItemInfo itemInfo;
   protected GcsItemId itemId;
-  private long position = 0;
-  private Supplier<ExecutorService> executorServiceSupplier;
+  protected final Supplier<ExecutorService> executorServiceSupplier;
+  protected long position = 0;
 
   GcsReadChannel(
       Storage storage,
       GcsItemInfo itemInfo,
       GcsReadOptions readOptions,
-      Supplier<ExecutorService> executorServiceSupplier)
-      throws IOException {
-    checkNotNull(storage, "Storage instance cannot be null");
-    checkNotNull(itemInfo, "Item info cannot be null");
-    checkNotNull(executorServiceSupplier, "Thread pool supplier must not be null");
-    this.storage = storage;
-    this.readOptions = readOptions;
-    this.itemInfo = itemInfo;
-    this.itemId = itemInfo.getItemId();
-    this.executorServiceSupplier = executorServiceSupplier;
-    this.readChannel = openReadChannel(itemId, readOptions);
+      Supplier<ExecutorService> executorServiceSupplier) {
+    this(
+        storage,
+        checkNotNull(itemInfo, "Item info cannot be null").getItemId(),
+        itemInfo,
+        readOptions,
+        executorServiceSupplier);
   }
 
   GcsReadChannel(
       Storage storage,
       GcsItemId itemId,
       GcsReadOptions readOptions,
-      Supplier<ExecutorService> executorServiceSupplier)
-      throws IOException {
-    checkNotNull(storage, "Storage instance cannot be null");
-    checkNotNull(itemId, "Item id cannot be null");
-    checkNotNull(executorServiceSupplier, "Thread pool supplier must not be null");
-    this.storage = storage;
-    this.readOptions = readOptions;
-    this.itemId = itemId;
-    this.executorServiceSupplier = executorServiceSupplier;
-    this.readChannel = openReadChannel(itemId, readOptions);
+      Supplier<ExecutorService> executorServiceSupplier) {
+    this(storage, itemId, null, readOptions, executorServiceSupplier);
   }
 
-  @Override
-  public int read(ByteBuffer dst) throws IOException {
-    int bytesRead = readChannel.read(dst);
-    position += bytesRead;
-
-    return bytesRead;
+  private GcsReadChannel(
+      Storage storage,
+      GcsItemId itemId,
+      GcsItemInfo itemInfo,
+      GcsReadOptions readOptions,
+      Supplier<ExecutorService> executorServiceSupplier) {
+    this.storage = checkNotNull(storage, "Storage instance cannot be null");
+    this.itemId = checkNotNull(itemId, "Item id cannot be null");
+    this.itemInfo = itemInfo;
+    checkArgument(this.itemId.isGcsObject(), "Expected Gcs Object but got %s", this.itemId);
+    this.readOptions = readOptions;
+    this.executorServiceSupplier =
+        checkNotNull(executorServiceSupplier, "Thread pool supplier must not be null");
   }
 
   @Override
@@ -93,15 +85,6 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   @Override
   public long position() throws IOException {
     return position;
-  }
-
-  @Override
-  public SeekableByteChannel position(long newPosition) throws IOException {
-    validatePosition(newPosition);
-    readChannel.seek(newPosition);
-    position = newPosition;
-
-    return this;
   }
 
   @Override
@@ -118,18 +101,6 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   }
 
   @Override
-  public boolean isOpen() {
-    return readChannel.isOpen();
-  }
-
-  @Override
-  public void close() throws IOException {
-    if (readChannel.isOpen()) {
-      readChannel.close();
-    }
-  }
-
-  @Override
   public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException {
     ExecutorService executorService = executorServiceSupplier.get();
@@ -142,11 +113,11 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             vectoredReadOptions.getMaxMergeSize());
 
     for (GcsObjectCombinedRange combinedRange : combinedRanges) {
-      var unused =
-          executorService.submit(
-              () -> {
-                readCombinedRange(combinedRange, allocate);
-              });
+      try {
+        var unused = executorService.submit(() -> readCombinedRange(combinedRange, allocate));
+      } catch (Exception e) {
+        completeWithException(combinedRange, new IOException("Failed to submit read task", e));
+      }
     }
   }
 
@@ -245,7 +216,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     return readChannel;
   }
 
-  private void validatePosition(long position) throws IOException {
+  protected void validatePosition(long position) throws IOException {
     if (position < 0) {
       throw new EOFException(
           String.format(
