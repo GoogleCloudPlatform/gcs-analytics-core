@@ -22,7 +22,7 @@ import com.google.common.base.Supplier;
 import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 
-public class FakeGcsReadChannel extends GcsReadChannel {
+public class FakeGcsReadChannel extends GcsSimpleReadChannel {
   private static int openReadChannelCount = 0;
 
   public FakeGcsReadChannel(
@@ -35,10 +35,10 @@ public class FakeGcsReadChannel extends GcsReadChannel {
   }
 
   @Override
-  protected ReadChannel openReadChannel(GcsItemId itemId, GcsReadOptions readOptions)
+  protected ReadChannel openUnboundedReadChannel(GcsItemId itemId, GcsReadOptions readOptions)
       throws IOException {
     openReadChannelCount++;
-    return super.openReadChannel(itemId, readOptions);
+    return super.openUnboundedReadChannel(itemId, readOptions);
   }
 
   public static int getOpenReadChannelCount() {

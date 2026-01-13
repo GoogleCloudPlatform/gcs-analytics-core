@@ -154,12 +154,53 @@ class GoogleCloudStorageInputStreamIntegrationTest {
                 "1048576"),
             "gcs.");
     GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
-    GoogleCloudStorageInputStream googleCloudStorageInputStream =
-            GoogleCloudStorageInputStream.create(gcsFileSystem, gcsItemId);
+    GoogleCloudStorageInputStream googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(gcsFileSystem,
+        gcsItemId);
 
     byte[] buffer = new byte[1024];
     int bytesRead = googleCloudStorageInputStream.read(buffer);
     assertTrue(bytesRead > 0);
     googleCloudStorageInputStream.close();
   }
+
+  @ParameterizedTest
+  @ValueSource(strings = { IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE })
+  void sequentialRead_withAdaptiveRangeReadEnabled_InAutoMode_succeeds(String fileName) throws IOException {
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(Map
+        .of("gcs.analytics-core.file-access-pattern", "AUTO", "gcs.analytics-core.adaptive-range-read-enabled", "true"),
+        "gcs.");
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+
+    try (GoogleCloudStorageInputStream input = GoogleCloudStorageInputStream.create(new GcsFileSystemImpl(options),
+        uri)) {
+      byte[] buffer = new byte[1024];
+      int bytesRead = input.read(buffer);
+
+      assertEquals(1024, bytesRead);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = { IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE })
+  void randomRead_withAdaptiveRangeReadEnabled_InAutoMode_succeeds(String fileName) throws IOException {
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(Map
+        .of("gcs.analytics-core.file-access-pattern", "AUTO", "gcs.analytics-core.adaptive-range-read-enabled", "true"),
+        "gcs.");
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+
+    try (GoogleCloudStorageInputStream input = GoogleCloudStorageInputStream.create(new GcsFileSystemImpl(options),
+        uri)) {
+      byte[] buffer = new byte[100];
+      input.read(buffer);
+      // Seek forward (large skip)
+      input.seek(50000);
+      int forwardReadBytesRead = input.read(buffer);
+      // Seek backward
+      input.seek(1000);
+      int backwardReadBytesRead = input.read(buffer);
+      assertEquals(100, forwardReadBytesRead);
+      assertEquals(100, backwardReadBytesRead);
+    }
+  }
+
 }

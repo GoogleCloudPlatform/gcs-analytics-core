@@ -65,7 +65,10 @@ class GcsClientImpl implements GcsClient {
         gcsItemInfo.getItemId().isGcsObject(),
         "Expected GCS object to be provided. But got: " + gcsItemInfo.getItemId());
 
-    return new GcsReadChannel(storage, gcsItemInfo, readOptions, executorServiceSupplier);
+    if (readOptions.getAdaptiveRangeReadEnabled()) {
+      return new GcsAdaptiveReadChannel(storage, gcsItemInfo, readOptions, executorServiceSupplier);
+    }
+    return new GcsSimpleReadChannel(storage, gcsItemInfo, readOptions, executorServiceSupplier);
   }
 
   @Override
@@ -73,7 +76,7 @@ class GcsClientImpl implements GcsClient {
       GcsItemId gcsItemId, GcsReadOptions readOptions) throws IOException {
     checkNotNull(gcsItemId, "gcsItemId should not be null");
     checkNotNull(readOptions, "readOptions should not be null");
-    return new GcsReadChannel(storage, gcsItemId, readOptions, executorServiceSupplier) {
+    return new GcsSimpleReadChannel(storage, gcsItemId, readOptions, executorServiceSupplier) {
       @Override
       public long size() throws IOException {
         if (itemInfo == null) {
