@@ -17,13 +17,13 @@ package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import java.util.Map;
 
-public interface GcsOperationMetricsListener {
+public interface OperationListener {
   /**
    * Triggered when an operation starts.
    *
    * @param operation the operation context
    */
-  void onOperationStart(GcsOperation operation);
+  void onOperationStart(Operation operation);
 
   /**
    * Triggered when an operation ends.
@@ -31,5 +31,5 @@ public interface GcsOperationMetricsListener {
    * @param operation the operation context
    * @param metrics a map of collected metrics (key includes name and attributes)
    */
-  void onOperationEnd(GcsOperation operation, Map<MetricKey, Long> metrics);
+  void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics);
 }

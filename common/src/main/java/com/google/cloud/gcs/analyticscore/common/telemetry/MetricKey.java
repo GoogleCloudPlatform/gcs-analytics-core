@@ -16,24 +16,26 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
+import java.util.Collections;
+import java.util.Map;
 
-/** Unique identifier used as a key in metric maps. */
+/** Unique identifier used as a key for metric maps. */
 @AutoValue
 public abstract class MetricKey {
 
   public abstract String getName();
 
-  public abstract TelemetryAttributes getAttributes();
+  public abstract Map<String, String> getAttributes();
 
   public static Builder builder() {
-    return new AutoValue_MetricKey.Builder().setAttributes(TelemetryAttributes.builder().build());
+    return new AutoValue_MetricKey.Builder().setAttributes(Collections.emptyMap());
   }
 
   @AutoValue.Builder
   public abstract static class Builder {
     public abstract Builder setName(String name);
 
-    public abstract Builder setAttributes(TelemetryAttributes attributes);
+    public abstract Builder setAttributes(Map<String, String> attributes);
 
     public abstract MetricKey build();
   }

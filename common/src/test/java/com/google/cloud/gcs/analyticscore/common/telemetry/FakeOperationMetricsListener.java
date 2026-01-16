@@ -19,28 +19,28 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-public class FakeGcsOperationMetricsListener implements GcsOperationMetricsListener {
+public class FakeOperationMetricsListener implements OperationListener {
 
-  private final List<GcsOperation> startedOperations = new ArrayList<>();
-  private final List<GcsOperation> endedOperations = new ArrayList<>();
+  private final List<Operation> startedOperations = new ArrayList<>();
+  private final List<Operation> endedOperations = new ArrayList<>();
   private final List<Map<MetricKey, Long>> endedMetrics = new ArrayList<>();
 
   @Override
-  public void onOperationStart(GcsOperation operation) {
+  public void onOperationStart(Operation operation) {
     startedOperations.add(operation);
   }
 
   @Override
-  public void onOperationEnd(GcsOperation operation, Map<MetricKey, Long> metrics) {
+  public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {
     endedOperations.add(operation);
     endedMetrics.add(metrics);
   }
 
-  public List<GcsOperation> getStartedOperations() {
+  public List<Operation> getStartedOperations() {
     return startedOperations;
   }
 
-  public List<GcsOperation> getEndedOperations() {
+  public List<Operation> getEndedOperations() {
     return endedOperations;
   }
 

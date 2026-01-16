@@ -16,34 +16,38 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
+import java.util.Collections;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
-/** Represents a set of attributes for telemetry context. */
 @AutoValue
-public abstract class TelemetryAttributes {
+public abstract class Operation {
 
-  public abstract Optional<String> className();
+  public abstract String getName();
 
-  public abstract Optional<Long> readOffset();
+  public abstract Map<String, String> getAttributes();
 
-  public abstract Optional<Long> readLength();
+  public abstract String getOperationId();
 
-  public abstract Optional<String> threadId();
+  public abstract Optional<String> getDurationMetricName();
 
   public static Builder builder() {
-    return new AutoValue_TelemetryAttributes.Builder();
+    return new AutoValue_Operation.Builder()
+        .setAttributes(Collections.emptyMap())
+        .setOperationId(UUID.randomUUID().toString());
   }
 
   @AutoValue.Builder
   public abstract static class Builder {
-    public abstract Builder setClassName(String className);
+    public abstract Builder setName(String name);
 
-    public abstract Builder setReadOffset(Long readOffset);
+    public abstract Builder setAttributes(Map<String, String> attributes);
 
-    public abstract Builder setReadLength(Long readLength);
+    public abstract Builder setOperationId(String operationId);
 
-    public abstract Builder setThreadId(String threadId);
+    public abstract Builder setDurationMetricName(String durationMetricName);
 
-    public abstract TelemetryAttributes build();
+    public abstract Operation build();
   }
 }

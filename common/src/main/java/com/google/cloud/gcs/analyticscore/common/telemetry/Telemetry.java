@@ -21,26 +21,26 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-public class GcsAnalyticsCoreTelemetry {
+public class Telemetry {
 
-  private static final GcsAnalyticsCoreTelemetry INSTANCE = new GcsAnalyticsCoreTelemetry();
-  private final List<GcsOperationMetricsListener> listeners = new CopyOnWriteArrayList<>();
+  private static final Telemetry INSTANCE = new Telemetry();
+  private final List<OperationListener> listeners = new CopyOnWriteArrayList<>();
 
-  public static GcsAnalyticsCoreTelemetry getInstance() {
+  public static Telemetry getInstance() {
     return INSTANCE;
   }
 
-  public void addListener(GcsOperationMetricsListener listener) {
+  public void addListener(OperationListener listener) {
     listeners.add(listener);
   }
 
-  public void removeListener(GcsOperationMetricsListener listener) {
+  public void removeListener(OperationListener listener) {
     listeners.remove(listener);
   }
 
   /** Executes an operation with telemetry tracking. */
   public <T, E extends Throwable> T measure(
-      GcsOperation operation, OperationSupplier<T, E> operationSupplier) throws E {
+      Operation operation, OperationSupplier<T, E> operationSupplier) throws E {
     Map<MetricKey, Long> currentMetrics = new ConcurrentHashMap<>();
     MetricsRecorder recorder =
         (name, value, attributes) -> {
@@ -67,21 +67,21 @@ public class GcsAnalyticsCoreTelemetry {
    * Records metric that is not associated with any specific operation context. This is useful for
    * interceptors or background processes where no operation scope is available.
    */
-  public void recordMetric(String name, long value, TelemetryAttributes attributes) {
+  public void recordMetric(String name, long value, Map<String, String> attributes) {
     notifyEnd(
-        GcsOperation.builder().setType(GcsOperationType.NA).build(),
+        Operation.builder().setName("UNKNOWN").build(),
         Collections.singletonMap(
             MetricKey.builder().setName(name).setAttributes(attributes).build(), value));
   }
 
-  private void notifyStart(GcsOperation operation) {
-    for (GcsOperationMetricsListener listener : listeners) {
+  private void notifyStart(Operation operation) {
+    for (OperationListener listener : listeners) {
       listener.onOperationStart(operation);
     }
   }
 
-  private void notifyEnd(GcsOperation operation, Map<MetricKey, Long> metrics) {
-    for (GcsOperationMetricsListener listener : listeners) {
+  private void notifyEnd(Operation operation, Map<MetricKey, Long> metrics) {
+    for (OperationListener listener : listeners) {
       listener.onOperationEnd(operation, metrics);
     }
   }

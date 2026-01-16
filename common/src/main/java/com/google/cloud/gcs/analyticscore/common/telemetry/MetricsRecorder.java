@@ -15,14 +15,16 @@
  */
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
+import java.util.Map;
+
 @FunctionalInterface
 public interface MetricsRecorder {
   /**
    * Records a metric value with specific attributes.
    *
-   * @param key The metric name
+   * @param name The metric name
    * @param value The value to record
    * @param attributes Contextual tags for the metric
    */
-  void record(String key, long value, TelemetryAttributes attributes);
+  void record(String name, long value, Map<String, String> attributes);
 }
