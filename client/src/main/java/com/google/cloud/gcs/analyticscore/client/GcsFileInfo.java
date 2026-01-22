@@ -38,6 +38,7 @@ public abstract class GcsFileInfo {
    *
    * @return A map of file attributes
    */
+  @SuppressWarnings("AutoValueImmutableFields")
   public abstract Map<String, byte[]> getAttributes();
 
   public static Builder builder() {
