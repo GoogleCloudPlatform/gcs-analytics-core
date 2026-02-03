@@ -379,7 +379,7 @@ class GcsFileSystemImplTest {
 
     var unused = new GcsFileSystemImpl(options);
     Telemetry.getInstance()
-        .measure(Operation.builder().setName("test-op").build(), (recorder) -> null);
+        .measure("test-op", "test-duration", Collections.emptyMap(), (recorder) -> null);
 
     verify(mockListener).onOperationStart(any(Operation.class));
   }

@@ -45,14 +45,25 @@ class TelemetryTest {
     Operation operation =
         Operation.builder().setName("READ").setDurationMetricName("duration").build();
 
-    String result = telemetry.measure(operation, recorder -> "result");
+    String result =
+        telemetry.measure(
+            operation.getName(),
+            operation.getDurationMetricName().orElse(null),
+            operation.getAttributes(),
+            recorder -> "result");
 
     Map<MetricKey, Long> metrics = listener.getEndedMetrics().get(0);
+    Operation startedOp = listener.getStartedOperations().get(0);
+    Operation endedOp = listener.getEndedOperations().get(0);
     assertThat(result).isEqualTo("result");
     assertThat(listener.getStartedOperations()).hasSize(1);
-    assertThat(listener.getStartedOperations()).contains(operation);
+    assertThat(startedOp.getName()).isEqualTo(operation.getName());
+    assertThat(startedOp.getAttributes()).isEqualTo(operation.getAttributes());
+    assertThat(startedOp.getDurationMetricName()).isEqualTo(operation.getDurationMetricName());
     assertThat(listener.getEndedOperations()).hasSize(1);
-    assertThat(listener.getEndedOperations()).contains(operation);
+    assertThat(endedOp.getName()).isEqualTo(operation.getName());
+    assertThat(endedOp.getAttributes()).isEqualTo(operation.getAttributes());
+    assertThat(endedOp.getDurationMetricName()).isEqualTo(operation.getDurationMetricName());
     assertThat(listener.getEndedMetrics()).hasSize(1);
     assertThat(metrics.keySet().stream().anyMatch(key -> "duration".equals(key.getName())))
         .isTrue();
