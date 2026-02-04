@@ -40,8 +40,18 @@ public class Telemetry {
 
   /** Executes an operation with telemetry tracking. */
   public <T, E extends Throwable> T measure(
-      Operation operation, OperationSupplier<T, E> operationSupplier) throws E {
+      String operationName,
+      String durationMetricName,
+      Map<String, String> operationAttributes,
+      OperationSupplier<T, E> operationSupplier)
+      throws E {
     Map<MetricKey, Long> currentMetrics = new ConcurrentHashMap<>();
+    Operation operation =
+        Operation.builder()
+            .setName(operationName)
+            .setDurationMetricName(durationMetricName)
+            .setAttributes(operationAttributes)
+            .build();
     MetricsRecorder recorder =
         (name, value, attributes) -> {
           MetricKey key = MetricKey.builder().setName(name).setAttributes(attributes).build();
@@ -53,12 +63,9 @@ public class Telemetry {
       return operationSupplier.get(recorder);
     } finally {
       long durationNs = System.nanoTime() - startTime;
-      operation
-          .getDurationMetricName()
-          .ifPresent(
-              durationMetric ->
-                  currentMetrics.put(
-                      MetricKey.builder().setName(durationMetric).build(), durationNs));
+      if (durationMetricName != null && !durationMetricName.isEmpty()) {
+        currentMetrics.put(MetricKey.builder().setName(durationMetricName).build(), durationNs);
+      }
       notifyEnd(operation, currentMetrics);
     }
   }
