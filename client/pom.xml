@@ -53,6 +53,11 @@ limitations under the License.
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-lang3</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.google.cloud.gcs.analytics</groupId>
+            <artifactId>common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!--Test Dependencies-->
         <dependency>
             <groupId>com.google.truth</groupId>

@@ -20,7 +20,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.google.cloud.NoCredentials;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -359,5 +364,23 @@ class GcsFileSystemImplTest {
   @Test
   void getGcsClient_shouldReturnConfiguredClient() {
     assertEquals(mockClient, gcsFileSystem.getGcsClient());
+  }
+
+  @Test
+  void initializeTelemetry_registerListenersToTelemetry() {
+    OperationListener mockListener = mock(OperationListener.class);
+    TelemetryOptions telemetryOptions =
+        TelemetryOptions.builder().setOperationListeners(ImmutableList.of(mockListener)).build();
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
+            .build();
+
+    var unused = new GcsFileSystemImpl(options);
+    Telemetry.getInstance()
+        .measure("test-op", "test-duration", Collections.emptyMap(), (recorder) -> null);
+
+    verify(mockListener).onOperationStart(any(Operation.class));
   }
 }
