@@ -29,6 +29,7 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.cloud.storage.BlobId;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
@@ -37,6 +38,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -175,7 +177,6 @@ class GoogleCloudStorageInputStreamIntegrationTest {
         IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
       })
   void read_capturesTelemetryAttributes_withCorrectReadLength(String fileName) throws IOException {
-    Telemetry telemetry = Telemetry.getInstance();
     AtomicReference<Map<MetricKey, Long>> capturedReadMetrics = new AtomicReference<>();
     AtomicReference<Operation> capturedReadOperation = new AtomicReference<>();
     OperationListener listener =
@@ -191,7 +192,8 @@ class GoogleCloudStorageInputStreamIntegrationTest {
             }
           }
         };
-    telemetry.addListener(listener);
+    List<OperationListener> listeners = new ArrayList<>();
+    listeners.add(listener);
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
     BlobId blobId = BlobId.fromGsUtilUri(uri.toString());
     GcsItemId gcsItemId =
@@ -201,6 +203,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
             .build();
     GcsFileSystemOptions gcsFileSystemOptions =
         GcsFileSystemOptions.createFromOptions(Map.of(), "gcs.");
+    gcsFileSystemOptions = gcsFileSystemOptions.toBuilder().setAnalyticsCoreTelemetryOptions(TelemetryOptions.builder().setOperationListeners(listeners).build()).build();
     GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
     ByteBuffer buffer = ByteBuffer.allocate(10);
     buffer.limit(5);
@@ -209,7 +212,6 @@ class GoogleCloudStorageInputStreamIntegrationTest {
         GoogleCloudStorageInputStream.create(gcsFileSystem, gcsItemId)) {
       googleCloudStorageInputStream.read(buffer);
     }
-    telemetry.removeListener(listener);
     
     MetricKey bytesReadKey =
         capturedReadMetrics.get().keySet().stream()

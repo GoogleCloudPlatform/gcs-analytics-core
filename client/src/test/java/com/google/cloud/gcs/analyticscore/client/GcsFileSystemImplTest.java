@@ -381,6 +381,6 @@ class GcsFileSystemImplTest {
     Telemetry.getInstance()
         .measure("test-op", "test-duration", Collections.emptyMap(), (recorder) -> null);
 
-    verify(mockListener).onOperationStart(any(Operation.class));
+    verify(mockListener, times(2)).onOperationStart(any(Operation.class));
   }
 }
