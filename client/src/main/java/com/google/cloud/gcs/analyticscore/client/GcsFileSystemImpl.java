@@ -26,7 +26,9 @@ import com.google.cloud.storage.BlobId;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+
 import java.io.IOException;
 import java.net.URI;
 import java.util.Collections;
@@ -167,7 +169,11 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
   @VisibleForTesting
   static Telemetry createTelemetry(TelemetryOptions telemetryOptions) {
-    return new Telemetry(telemetryOptions.getOperationListeners());
+    return new Telemetry(
+        telemetryOptions
+            .getCustomTelemetryOptions()
+            .map(options -> options.getOperationListeners())
+            .orElse(ImmutableList.of()));
   }
 
   @VisibleForTesting

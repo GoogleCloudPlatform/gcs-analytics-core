@@ -17,13 +17,19 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.google.cloud.NoCredentials;
+import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableList;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -378,10 +384,12 @@ class GcsFileSystemImplTest {
   @Test
   void initializeTelemetry_registerListenersToTelemetry() {
     OperationListener mockListener = mock(OperationListener.class);
-    TelemetryOptions telemetryOptions =
-        TelemetryOptions.builder()
-            .setOperationListeners(Collections.singletonList(mockListener))
+    CustomTelemetryOptions customTelemetryOptions =
+        CustomTelemetryOptions.builder()
+            .setOperationListeners(ImmutableList.of(mockListener))
             .build();
+    TelemetryOptions telemetryOptions =
+        TelemetryOptions.builder().setCustomTelemetryOptions(customTelemetryOptions).build();
     GcsFileSystemOptions options =
         GcsFileSystemOptions.builder()
             .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)

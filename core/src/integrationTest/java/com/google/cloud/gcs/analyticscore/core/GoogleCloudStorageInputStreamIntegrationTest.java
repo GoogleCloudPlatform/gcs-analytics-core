@@ -26,6 +26,7 @@ import com.google.cloud.gcs.analyticscore.client.GcsFileSystemImpl;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey;
+import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
@@ -203,7 +204,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
             .build();
     GcsFileSystemOptions gcsFileSystemOptions =
         GcsFileSystemOptions.createFromOptions(Map.of(), "gcs.");
-    gcsFileSystemOptions = gcsFileSystemOptions.toBuilder().setAnalyticsCoreTelemetryOptions(TelemetryOptions.builder().setOperationListeners(listeners).build()).build();
+    gcsFileSystemOptions = gcsFileSystemOptions.toBuilder().setAnalyticsCoreTelemetryOptions(TelemetryOptions.builder().setCustomTelemetryOptions(CustomTelemetryOptions.builder().setOperationListeners(listeners).build()).build()).build();
     GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
     ByteBuffer buffer = ByteBuffer.allocate(10);
     buffer.limit(5);
@@ -212,6 +213,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
         GoogleCloudStorageInputStream.create(gcsFileSystem, gcsItemId)) {
       googleCloudStorageInputStream.read(buffer);
     }
+    gcsFileSystem.close();
     
     MetricKey bytesReadKey =
         capturedReadMetrics.get().keySet().stream()
