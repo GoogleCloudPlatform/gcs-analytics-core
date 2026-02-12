@@ -20,6 +20,10 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
+import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
+import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
+import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.cloud.storage.BlobId;
@@ -31,7 +35,9 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -56,7 +62,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
             Collections.emptyMap(),
             recorder ->
                 new GcsClientImpl(
-                    getGcsClientOptions(fileSystemOptions), executorServiceSupplier, telemetry));
+                    fileSystemOptions.getGcsClientOptions(), executorServiceSupplier, telemetry));
   }
 
   public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions) {
@@ -71,7 +77,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
             recorder ->
                 new GcsClientImpl(
                     credentials,
-                    getGcsClientOptions(fileSystemOptions),
+                    fileSystemOptions.getGcsClientOptions(),
                     executorServiceSupplier,
                     telemetry));
   }
@@ -161,19 +167,16 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     gcsClient.close();
   }
 
-  private static GcsClientOptions getGcsClientOptions(GcsFileSystemOptions fileSystemOptions) {
-    return fileSystemOptions.getGcsClientOptions() == null
-        ? GcsClientOptions.builder().build()
-        : fileSystemOptions.getGcsClientOptions();
-  }
-
   @VisibleForTesting
   static Telemetry createTelemetry(TelemetryOptions telemetryOptions) {
-    return new Telemetry(
-        telemetryOptions
-            .getCustomTelemetryOptions()
-            .map(options -> options.getOperationListeners())
-            .orElse(ImmutableList.of()));
+    ImmutableList.Builder<OperationListener> listeners = ImmutableList.builder();
+    telemetryOptions.getLoggingTelemetryOptions()
+    .filter(LoggingTelemetryOptions::isEnabled)
+    .ifPresent(options -> listeners.add(new LoggingTelemetryReporter(options)));
+    telemetryOptions
+        .getCustomTelemetryOptions()
+        .ifPresent(options -> listeners.addAll(options.getOperationListeners()));
+    return new Telemetry(listeners.build());
   }
 
   @VisibleForTesting

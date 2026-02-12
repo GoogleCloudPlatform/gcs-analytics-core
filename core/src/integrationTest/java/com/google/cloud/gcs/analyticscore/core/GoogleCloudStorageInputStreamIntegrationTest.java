@@ -162,14 +162,13 @@ class GoogleCloudStorageInputStreamIntegrationTest {
                 "gcs.analytics-core.small-file.cache.threshold-bytes",
                 "1048576"),
             "gcs.");
-    GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
-    GoogleCloudStorageInputStream googleCloudStorageInputStream =
-            GoogleCloudStorageInputStream.create(gcsFileSystem, gcsItemId);
-
-    byte[] buffer = new byte[1024];
-    int bytesRead = googleCloudStorageInputStream.read(buffer);
-    assertTrue(bytesRead > 0);
-    googleCloudStorageInputStream.close();
+    try (GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
+         GoogleCloudStorageInputStream googleCloudStorageInputStream =
+             GoogleCloudStorageInputStream.create(gcsFileSystem, gcsItemId)) {
+      byte[] buffer = new byte[1024];
+      int bytesRead = googleCloudStorageInputStream.read(buffer);
+      assertTrue(bytesRead > 0);
+    }
   }
 
   @ParameterizedTest
@@ -204,16 +203,24 @@ class GoogleCloudStorageInputStreamIntegrationTest {
             .build();
     GcsFileSystemOptions gcsFileSystemOptions =
         GcsFileSystemOptions.createFromOptions(Map.of(), "gcs.");
-    gcsFileSystemOptions = gcsFileSystemOptions.toBuilder().setAnalyticsCoreTelemetryOptions(TelemetryOptions.builder().setCustomTelemetryOptions(CustomTelemetryOptions.builder().setOperationListeners(listeners).build()).build()).build();
-    GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
-    ByteBuffer buffer = ByteBuffer.allocate(10);
-    buffer.limit(5);
+    gcsFileSystemOptions =
+        gcsFileSystemOptions.toBuilder()
+            .setAnalyticsCoreTelemetryOptions(
+                TelemetryOptions.builder()
+                    .setCustomTelemetryOptions(
+                        CustomTelemetryOptions.builder()
+                            .setOperationListeners(listeners)
+                            .build())
+                    .build())
+            .build();
+    try (GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
+        GoogleCloudStorageInputStream googleCloudStorageInputStream =
+            GoogleCloudStorageInputStream.create(gcsFileSystem, gcsItemId)) {
+      ByteBuffer buffer = ByteBuffer.allocate(10);
+      buffer.limit(5);
 
-    try (GoogleCloudStorageInputStream googleCloudStorageInputStream =
-        GoogleCloudStorageInputStream.create(gcsFileSystem, gcsItemId)) {
       googleCloudStorageInputStream.read(buffer);
     }
-    gcsFileSystem.close();
     
     MetricKey bytesReadKey =
         capturedReadMetrics.get().keySet().stream()
