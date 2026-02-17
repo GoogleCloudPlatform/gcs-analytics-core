@@ -121,6 +121,9 @@ public class Telemetry implements AutoCloseable {
 
   @Override
   public void close() {
+    for (OperationListener listener : listeners) {
+      listener.close();
+    }
     listeners.clear();
   }
 }
