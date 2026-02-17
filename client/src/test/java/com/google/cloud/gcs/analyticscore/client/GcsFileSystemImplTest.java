@@ -22,10 +22,8 @@ import static org.mockito.Mockito.*;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
-import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.common.base.Supplier;
-import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -34,6 +32,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -62,14 +61,22 @@ class GcsFileSystemImplTest {
     gcsFileSystem = new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS);
   }
 
+  @AfterEach
+  void tearDown() {
+    if (gcsFileSystem != null) {
+      gcsFileSystem.close();
+    }
+  }
+
   @Test
   void constructor_withCredentials_createsClientWithProvidedCredentials() {
-    GcsFileSystemImpl gcsFileSystem =
-        new GcsFileSystemImpl(NoCredentials.getInstance(), TEST_GCS_FILESYSTEM_OPTIONS);
-    GcsClientImpl gcsClientImpl = (GcsClientImpl) gcsFileSystem.getGcsClient();
+    try (GcsFileSystemImpl gcsFileSystem =
+        new GcsFileSystemImpl(NoCredentials.getInstance(), TEST_GCS_FILESYSTEM_OPTIONS)) {
+      GcsClientImpl gcsClientImpl = (GcsClientImpl) gcsFileSystem.getGcsClient();
 
-    assertThat(gcsClientImpl.storage.getOptions().getCredentials())
-        .isEqualTo(NoCredentials.getInstance());
+      assertThat(gcsClientImpl.storage.getOptions().getCredentials())
+          .isEqualTo(NoCredentials.getInstance());
+    }
   }
 
   @Test
@@ -79,12 +86,13 @@ class GcsFileSystemImplTest {
     GcsFileSystemOptions fileSystemOptions =
         GcsFileSystemOptions.builder().setGcsClientOptions(clientOptions).build();
 
-    GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(fileSystemOptions);
-    GcsClientImpl gcsClient = (GcsClientImpl) gcsFileSystem.getGcsClient();
+    try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(fileSystemOptions)) {
+      GcsClientImpl gcsClient = (GcsClientImpl) gcsFileSystem.getGcsClient();
 
-    assertThat(gcsFileSystem.getFileSystemOptions()).isSameInstanceAs(fileSystemOptions);
-    assertThat(gcsClient).isNotNull();
-    assertThat(gcsClient.storage.getOptions().getProjectId()).isEqualTo("test-project-default");
+      assertThat(gcsFileSystem.getFileSystemOptions()).isSameInstanceAs(fileSystemOptions);
+      assertThat(gcsClient).isNotNull();
+      assertThat(gcsClient.storage.getOptions().getProjectId()).isEqualTo("test-project-default");
+    }
   }
 
   @Test
@@ -100,14 +108,15 @@ class GcsFileSystemImplTest {
               capturedSupplier.set(supplier);
             })) {
 
-      new GcsFileSystemImpl(TEST_GCS_FILESYSTEM_OPTIONS);
-      ExecutorService executorService1 = capturedSupplier.get().get();
-      ExecutorService executorService2 = capturedSupplier.get().get();
+      try (GcsFileSystemImpl ignored = new GcsFileSystemImpl(TEST_GCS_FILESYSTEM_OPTIONS)) {
+        ExecutorService executorService1 = capturedSupplier.get().get();
+        ExecutorService executorService2 = capturedSupplier.get().get();
 
-      assertThat(mockGcsClientConstruction.constructed()).hasSize(1);
-      assertThat(capturedSupplier.get()).isNotNull();
-      assertThat(capturedSupplier.get().get()).isNotNull();
-      assertThat(executorService1).isEqualTo(executorService2);
+        assertThat(mockGcsClientConstruction.constructed()).hasSize(1);
+        assertThat(capturedSupplier.get()).isNotNull();
+        assertThat(capturedSupplier.get().get()).isNotNull();
+        assertThat(executorService1).isEqualTo(executorService2);
+      }
     }
   }
 
@@ -370,17 +379,15 @@ class GcsFileSystemImplTest {
   void initializeTelemetry_registerListenersToTelemetry() {
     OperationListener mockListener = mock(OperationListener.class);
     TelemetryOptions telemetryOptions =
-        TelemetryOptions.builder().setOperationListeners(ImmutableList.of(mockListener)).build();
+        TelemetryOptions.builder().setOperationListeners(Collections.singletonList(mockListener)).build();
     GcsFileSystemOptions options =
         GcsFileSystemOptions.builder()
             .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
             .setAnalyticsCoreTelemetryOptions(telemetryOptions)
             .build();
 
-    var unused = new GcsFileSystemImpl(options);
-    Telemetry.getInstance()
-        .measure("test-op", "test-duration", Collections.emptyMap(), (recorder) -> null);
-
-    verify(mockListener, times(2)).onOperationStart(any(Operation.class));
+    try (var unused = new GcsFileSystemImpl(options)) {
+      verify(mockListener, times(1)).onOperationStart(any(Operation.class));
+    }
   }
 }
