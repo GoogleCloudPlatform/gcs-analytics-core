@@ -181,10 +181,10 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
                   if (bytesRead < 0) {
                     // EOF reached.
                     break;
-                  }  
+                  }
+                  recorder.record(Metric.READ_BYTES.name(), bytesRead, Collections.emptyMap());
                   numOfBytesRead += bytesRead;
                 }
-                recorder.record(Metric.READ_BYTES.name(), numOfBytesRead, Collections.emptyMap());
                 if (numOfBytesRead < combinedObjectRange.getLength()) {
                   throw new EOFException(
                       String.format(
