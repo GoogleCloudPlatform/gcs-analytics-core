@@ -19,6 +19,10 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.cloud.ReadChannel;
+import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
@@ -33,10 +37,14 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntFunction;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -439,6 +447,8 @@ class GcsReadChannelTest {
   @Test
   void readVectored_rangesCanBeMerged_readsRanges()
       throws IOException, ExecutionException, InterruptedException {
+    Telemetry telemetry = Telemetry.getInstance();
+    AtomicLong totalBytesReadFromMetrics = new AtomicLong(0L);
     GcsVectoredReadOptions vectoredReadOptions =
         GcsVectoredReadOptions.builder().setMaxMergeGap(10).build();
     List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
@@ -459,6 +469,20 @@ class GcsReadChannelTest {
             .build();
     BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L);
     createBlobInStorage(blobId, objectData);
+    OperationListener listener =
+        new OperationListener() {
+          @Override
+          public void onOperationStart(Operation operation) {}
+
+          @Override
+          public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {
+            if (operation.getName().equals("VECTORED_READ")) {
+              totalBytesReadFromMetrics.addAndGet(
+                  metrics.get(MetricKey.builder().setName("READ_BYTES").build()));
+            }
+          }
+        };
+    telemetry.addListener(listener);
     GcsReadChannel gcsReadChannel =
         new GcsReadChannel(storage, itemInfo, readOptions, executorServiceSupplier);
     // "hello", "world", "this", "string", "vectored"
@@ -474,6 +498,11 @@ class GcsReadChannelTest {
     assertThat(getGcsObjectRangeData(ranges.get(4))).isEqualTo("vectored");
     Mockito.verify(storage, Mockito.times(3))
         .reader(blobId, sourceOptions.toArray(new Storage.BlobSourceOption[0]));
+    assertThat(totalBytesReadFromMetrics.get()).isEqualTo(35L);
+
+    // Clean up.
+    telemetry.removeListener(listener);
+    gcsReadChannel.close();
   }
 
   @Test
@@ -559,6 +588,61 @@ class GcsReadChannelTest {
     gcsReadChannel.readVectored(ranges, ByteBuffer::allocate);
 
     assertThat(getGcsObjectRangeData(range1)).isEqualTo("abcdefghij");
+  }
+
+  @Test
+  void readVectored_eofReachedBeforeFullyRead_completesExceptionally() throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "abcde";
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(objectData.length())
+            .setContentGeneration(0L)
+            .build();
+    createBlobInStorage(
+        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    byte[] dataBytes = objectData.getBytes(StandardCharsets.UTF_8);
+    AtomicInteger callCount = new AtomicInteger(0);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buffer = invocation.getArgument(0);
+              if (callCount.get() == 0) {
+                // Return 5 bytes on the first call
+                buffer.put(dataBytes, 0, 5);
+                callCount.incrementAndGet();
+                return 5;
+              } else {
+                // Return EOF on the second call
+                return -1;
+              }
+            });
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(mockStorage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+    // Request 10 bytes, but only 5 are returned before EOF
+    GcsObjectRange range1 = createRange(0, 10);
+    ImmutableList<GcsObjectRange> ranges = ImmutableList.of(range1);
+
+    gcsReadChannel.readVectored(ranges, ByteBuffer::allocate);
+    gcsReadChannel.close();
+
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> range1.getByteBufferFuture().get());
+    assertThat(e).hasCauseThat().isInstanceOf(IOException.class);
+    assertThat(e).hasCauseThat().hasMessageThat().contains("Error while populating childRange");
+    assertThat(e.getCause().getCause()).isInstanceOf(EOFException.class);
+    assertThat(e.getCause().getCause())
+        .hasMessageThat()
+        .contains("EOF reached while reading combinedObjectRange");
   }
 
   private GcsObjectRange createRange(long offset, int length) {

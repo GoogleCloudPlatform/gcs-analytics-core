@@ -18,6 +18,9 @@ package com.google.cloud.gcs.analyticscore.core;
 import static com.google.common.base.Preconditions.*;
 
 import com.google.cloud.gcs.analyticscore.client.*;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Attribute;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.common.collect.ImmutableMap;
@@ -39,32 +42,6 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   private static final int LARGE_FILE_SIZE_THRESHOLD = 1024 * 1024 * 1024; // 1 GB.
   // Used for single-byte reads to avoid repeated allocation.
   private final ByteBuffer singleByteBuffer = ByteBuffer.wrap(new byte[1]);
-
-  private enum Attribute {
-    CLASS_NAME,
-    READ_LENGTH,
-    READ_OFFSET;
-  }
-
-  private enum Metric {
-    SEEK_DISTANCE,
-    SEEK_DURATION,
-    READ_BYTES,
-    READ_DURATION,
-    OPEN_DURATION,
-    READ_CACHE_HIT,
-    READ_CACHE_MISS,
-    CLOSE_DURATION;
-  }
-
-  private enum Operation {
-    SEEK,
-    READ,
-    CLOSE,
-    READ_FULLY,
-    READ_TAIL,
-    OPEN;
-  }
 
   private final GcsFileSystem gcsFileSystem;
   private final VectoredSeekableByteChannel channel;
