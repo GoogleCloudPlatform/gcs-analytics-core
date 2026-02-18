@@ -40,18 +40,8 @@ public class Telemetry {
 
   /** Executes an operation with telemetry tracking. */
   public <T, E extends Throwable> T measure(
-      String operationName,
-      String durationMetricName,
-      Map<String, String> operationAttributes,
-      OperationSupplier<T, E> operationSupplier)
-      throws E {
+      Operation operation, OperationSupplier<T, E> operationSupplier) throws E {
     Map<MetricKey, Long> currentMetrics = new ConcurrentHashMap<>();
-    Operation operation =
-        Operation.builder()
-            .setName(operationName)
-            .setDurationMetricName(durationMetricName)
-            .setAttributes(operationAttributes)
-            .build();
     MetricsRecorder recorder =
         (name, value, attributes) -> {
           MetricKey key = MetricKey.builder().setName(name).setAttributes(attributes).build();
@@ -63,11 +53,45 @@ public class Telemetry {
       return operationSupplier.get(recorder);
     } finally {
       long durationNs = System.nanoTime() - startTime;
-      if (durationMetricName != null && !durationMetricName.isEmpty()) {
-        currentMetrics.put(MetricKey.builder().setName(durationMetricName).build(), durationNs);
+      if (operation.getDurationMetricName().isPresent()) {
+        currentMetrics.put(
+            MetricKey.builder().setName(operation.getDurationMetricName().get()).build(),
+            durationNs);
       }
       notifyEnd(operation, currentMetrics);
     }
+  }
+
+  public <T, E extends Throwable> T measure(
+      String operationId,
+      String operationName,
+      String durationMetricName,
+      Map<String, String> operationAttributes,
+      OperationSupplier<T, E> operationSupplier)
+      throws E {
+    Operation operation =
+        Operation.builder()
+            .setOperationId(operationId)
+            .setName(operationName)
+            .setDurationMetricName(durationMetricName)
+            .setAttributes(operationAttributes)
+            .build();
+    return measure(operation, operationSupplier);
+  }
+
+  public <T, E extends Throwable> T measure(
+      String operationName,
+      String durationMetricName,
+      Map<String, String> operationAttributes,
+      OperationSupplier<T, E> operationSupplier)
+      throws E {
+    Operation operation =
+        Operation.builder()
+            .setName(operationName)
+            .setDurationMetricName(durationMetricName)
+            .setAttributes(operationAttributes)
+            .build();
+    return measure(operation, operationSupplier);
   }
 
   /**

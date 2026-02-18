@@ -19,6 +19,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.cloud.storage.BlobId;
@@ -43,18 +44,33 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
-    this.gcsClient =
-        new GcsClientImpl(getGcsClientOptions(fileSystemOptions), executorServiceSupplier);
     initializeTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
+    this.gcsClient =
+        Telemetry.getInstance()
+            .measure(
+                GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
+                GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION.name(),
+                Collections.emptyMap(),
+                recorder ->
+                    new GcsClientImpl(
+                        getGcsClientOptions(fileSystemOptions), executorServiceSupplier));
   }
 
   public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
-    this.gcsClient =
-        new GcsClientImpl(
-            credentials, getGcsClientOptions(fileSystemOptions), executorServiceSupplier);
     initializeTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
+    this.gcsClient =
+        Telemetry.getInstance()
+            .measure(
+                GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
+                GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION.name(),
+                Collections.emptyMap(),
+                recorder ->
+                    new GcsClientImpl(
+                        credentials,
+                        getGcsClientOptions(fileSystemOptions),
+                        executorServiceSupplier));
   }
 
   @VisibleForTesting
@@ -124,6 +140,10 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       executorService.shutdownNow();
       Thread.currentThread().interrupt();
     }
+    fileSystemOptions
+        .getAnalyticsCoreTelemetryOptions()
+        .getOperationListeners()
+        .forEach(Telemetry.getInstance()::removeListener);
     gcsClient.close();
   }
 

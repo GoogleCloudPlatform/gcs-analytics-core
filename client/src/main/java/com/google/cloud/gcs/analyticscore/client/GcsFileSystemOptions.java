@@ -40,6 +40,8 @@ public abstract class GcsFileSystemOptions {
 
   public abstract TelemetryOptions getAnalyticsCoreTelemetryOptions();
 
+  public abstract Builder toBuilder();
+
   public static Builder builder() {
     return new AutoValue_GcsFileSystemOptions.Builder()
         .setReadThreadCount(16)
