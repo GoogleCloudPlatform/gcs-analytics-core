@@ -41,44 +41,54 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   private final GcsFileSystemOptions fileSystemOptions;
   private final Supplier<ExecutorService> executorServiceSupplier;
 
+  private final Telemetry telemetry;
+
   public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
-    initializeTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
+    this.telemetry = createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
     this.gcsClient =
-        Telemetry.getInstance()
-            .measure(
-                GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
-                GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION.name(),
-                Collections.emptyMap(),
-                recorder ->
-                    new GcsClientImpl(
-                        getGcsClientOptions(fileSystemOptions), executorServiceSupplier));
+        telemetry.measure(
+            GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
+            GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION.name(),
+            Collections.emptyMap(),
+            recorder ->
+                new GcsClientImpl(
+                    getGcsClientOptions(fileSystemOptions), executorServiceSupplier, telemetry));
   }
 
   public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
-    initializeTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
+    this.telemetry = createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
     this.gcsClient =
-        Telemetry.getInstance()
-            .measure(
-                GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
-                GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION.name(),
-                Collections.emptyMap(),
-                recorder ->
-                    new GcsClientImpl(
-                        credentials,
-                        getGcsClientOptions(fileSystemOptions),
-                        executorServiceSupplier));
+        telemetry.measure(
+            GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
+            GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION.name(),
+            Collections.emptyMap(),
+            recorder ->
+                new GcsClientImpl(
+                    credentials,
+                    getGcsClientOptions(fileSystemOptions),
+                    executorServiceSupplier,
+                    telemetry));
   }
 
   @VisibleForTesting
   GcsFileSystemImpl(GcsClient gcsClient, GcsFileSystemOptions fileSystemOptions) {
+    this(
+        gcsClient,
+        fileSystemOptions,
+        createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions()));
+  }
+
+  @VisibleForTesting
+  GcsFileSystemImpl(
+      GcsClient gcsClient, GcsFileSystemOptions fileSystemOptions, Telemetry telemetry) {
     this.gcsClient = gcsClient;
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
-    initializeTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
+    this.telemetry = telemetry;
   }
 
   @Override
@@ -129,6 +139,11 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   @Override
+  public Telemetry getTelemetry() {
+    return telemetry;
+  }
+
+  @Override
   public void close() {
     ExecutorService executorService = executorServiceSupplier.get();
     executorService.shutdown();
@@ -140,10 +155,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       executorService.shutdownNow();
       Thread.currentThread().interrupt();
     }
-    fileSystemOptions
-        .getAnalyticsCoreTelemetryOptions()
-        .getOperationListeners()
-        .forEach(Telemetry.getInstance()::removeListener);
+    telemetry.close();
     gcsClient.close();
   }
 
@@ -154,8 +166,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   @VisibleForTesting
-  void initializeTelemetry(TelemetryOptions telemetryOptions) {
-    telemetryOptions.getOperationListeners().forEach(Telemetry.getInstance()::addListener);
+  static Telemetry createTelemetry(TelemetryOptions telemetryOptions) {
+    return new Telemetry(telemetryOptions.getOperationListeners());
   }
 
   @VisibleForTesting

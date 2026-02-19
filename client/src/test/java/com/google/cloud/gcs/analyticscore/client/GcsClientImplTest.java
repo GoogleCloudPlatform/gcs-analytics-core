@@ -19,8 +19,10 @@ import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import autovalue.shaded.com.google.common.collect.ImmutableList;
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.*;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
@@ -43,13 +45,14 @@ class GcsClientImplTest {
   private final Storage storage = LocalStorageHelper.getOptions().getService();
   private final Supplier<ExecutorService> executorServiceSupplier =
       Suppliers.memoize(() -> Executors.newFixedThreadPool(30));
+  private final Telemetry telemetry = new Telemetry(ImmutableList.of());
 
   private GcsClient gcsClient;
 
   @BeforeEach
   void setUp() throws IOException {
     gcsClient =
-        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier) {
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
           @Override
           protected Storage createStorage(Optional<Credentials> credentials) {
             return GcsClientImplTest.this.storage;
@@ -214,7 +217,10 @@ class GcsClientImplTest {
   void createStore_withCredentials_usesProvidedCredentials() throws IOException {
     GcsClientImpl client =
         new GcsClientImpl(
-            NoCredentials.getInstance(), TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier);
+            NoCredentials.getInstance(),
+            TEST_GCS_CLIENT_OPTIONS,
+            executorServiceSupplier,
+            telemetry);
 
     assertThat(client.storage.getOptions().getCredentials()).isEqualTo(NoCredentials.getInstance());
   }

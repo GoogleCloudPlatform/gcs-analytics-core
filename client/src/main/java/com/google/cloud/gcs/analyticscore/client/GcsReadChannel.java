@@ -50,20 +50,25 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private static final ImmutableMap<String, String> COMMON_ATTRIBUTES =
       ImmutableMap.of(Attribute.CLASS_NAME.name(), GcsReadChannel.class.getName());
 
+  private final Telemetry telemetry;
+
   GcsReadChannel(
       Storage storage,
       GcsItemInfo itemInfo,
       GcsReadOptions readOptions,
-      Supplier<ExecutorService> executorServiceSupplier)
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry)
       throws IOException {
     checkNotNull(storage, "Storage instance cannot be null");
     checkNotNull(itemInfo, "Item info cannot be null");
     checkNotNull(executorServiceSupplier, "Thread pool supplier must not be null");
+    checkNotNull(telemetry, "Telemetry instance cannot be null");
     this.storage = storage;
     this.readOptions = readOptions;
     this.itemInfo = itemInfo;
     this.itemId = itemInfo.getItemId();
     this.executorServiceSupplier = executorServiceSupplier;
+    this.telemetry = telemetry;
     this.readChannel = openReadChannel(itemId, readOptions);
   }
 
@@ -71,15 +76,18 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       Storage storage,
       GcsItemId itemId,
       GcsReadOptions readOptions,
-      Supplier<ExecutorService> executorServiceSupplier)
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry)
       throws IOException {
     checkNotNull(storage, "Storage instance cannot be null");
     checkNotNull(itemId, "Item id cannot be null");
     checkNotNull(executorServiceSupplier, "Thread pool supplier must not be null");
+    checkNotNull(telemetry, "Telemetry instance cannot be null");
     this.storage = storage;
     this.readOptions = readOptions;
     this.itemId = itemId;
     this.executorServiceSupplier = executorServiceSupplier;
+    this.telemetry = telemetry;
     this.readChannel = openReadChannel(itemId, readOptions);
   }
 
@@ -166,46 +174,45 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       GcsObjectCombinedRange combinedObjectRange,
       IntFunction<ByteBuffer> allocate,
       Operation operation) {
-    Telemetry.getInstance()
-        .measure(
-            operation,
-            recorder -> {
-              try (ReadChannel channel = openReadChannel(itemId, readOptions)) {
-                validatePosition(combinedObjectRange.getOffset());
-                channel.seek(combinedObjectRange.getOffset());
-                channel.limit(combinedObjectRange.getOffset() + combinedObjectRange.getLength());
-                ByteBuffer dataBuffer = allocate.apply(combinedObjectRange.getLength());
-                int numOfBytesRead = 0;
-                while (dataBuffer.hasRemaining()) {
-                  int bytesRead = channel.read(dataBuffer);
-                  if (bytesRead < 0) {
-                    // EOF reached.
-                    break;
-                  }
-                  recorder.record(Metric.READ_BYTES.name(), bytesRead, Collections.emptyMap());
-                  numOfBytesRead += bytesRead;
-                }
-                if (numOfBytesRead < combinedObjectRange.getLength()) {
-                  throw new EOFException(
-                      String.format(
-                          "EOF reached while reading combinedObjectRange, range: %s, item: "
-                              + "%s, numRead: %d, expected: %d",
-                          combinedObjectRange,
-                          itemId,
-                          numOfBytesRead,
-                          combinedObjectRange.getLength()));
-                }
-                // making it ready for reading
-                dataBuffer.flip();
-                for (GcsObjectRange underlyingRange : combinedObjectRange.getUnderlyingRanges()) {
-                  populateGcsObjectRangeFromCombinedObjectRange(
-                      combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer);
-                }
-              } catch (Exception e) {
-                completeWithException(combinedObjectRange, e);
+    telemetry.measure(
+        operation,
+        recorder -> {
+          try (ReadChannel channel = openReadChannel(itemId, readOptions)) {
+            validatePosition(combinedObjectRange.getOffset());
+            channel.seek(combinedObjectRange.getOffset());
+            channel.limit(combinedObjectRange.getOffset() + combinedObjectRange.getLength());
+            ByteBuffer dataBuffer = allocate.apply(combinedObjectRange.getLength());
+            int numOfBytesRead = 0;
+            while (dataBuffer.hasRemaining()) {
+              int bytesRead = channel.read(dataBuffer);
+              if (bytesRead < 0) {
+                // EOF reached.
+                break;
               }
-              return null;
-            });
+              recorder.record(Metric.READ_BYTES.name(), bytesRead, Collections.emptyMap());
+              numOfBytesRead += bytesRead;
+            }
+            if (numOfBytesRead < combinedObjectRange.getLength()) {
+              throw new EOFException(
+                  String.format(
+                      "EOF reached while reading combinedObjectRange, range: %s, item: "
+                          + "%s, numRead: %d, expected: %d",
+                      combinedObjectRange,
+                      itemId,
+                      numOfBytesRead,
+                      combinedObjectRange.getLength()));
+            }
+            // making it ready for reading
+            dataBuffer.flip();
+            for (GcsObjectRange underlyingRange : combinedObjectRange.getUnderlyingRanges()) {
+              populateGcsObjectRangeFromCombinedObjectRange(
+                  combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer);
+            }
+          } catch (Exception e) {
+            completeWithException(combinedObjectRange, e);
+          }
+          return null;
+        });
   }
 
   private void populateGcsObjectRangeFromCombinedObjectRange(
@@ -276,5 +283,4 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
               "Invalid seek offset: position value (%d) must be >= 0 for '%s'", position, itemId));
     }
   }
-
 }

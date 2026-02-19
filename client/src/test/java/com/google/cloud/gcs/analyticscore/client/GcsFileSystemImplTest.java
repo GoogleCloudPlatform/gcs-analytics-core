@@ -379,7 +379,9 @@ class GcsFileSystemImplTest {
   void initializeTelemetry_registerListenersToTelemetry() {
     OperationListener mockListener = mock(OperationListener.class);
     TelemetryOptions telemetryOptions =
-        TelemetryOptions.builder().setOperationListeners(Collections.singletonList(mockListener)).build();
+        TelemetryOptions.builder()
+            .setOperationListeners(Collections.singletonList(mockListener))
+            .build();
     GcsFileSystemOptions options =
         GcsFileSystemOptions.builder()
             .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)

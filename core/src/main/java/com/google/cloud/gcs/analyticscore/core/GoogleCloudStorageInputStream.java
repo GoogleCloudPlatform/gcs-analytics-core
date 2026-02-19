@@ -21,7 +21,6 @@ import com.google.cloud.gcs.analyticscore.client.*;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Attribute;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Operation;
-import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.common.collect.ImmutableMap;
 import java.io.EOFException;
@@ -105,7 +104,8 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   @Override
   public void seek(long newPos) throws IOException {
-    Telemetry.getInstance()
+    gcsFileSystem
+        .getTelemetry()
         .measure(
             Operation.SEEK.name(),
             Metric.SEEK_DURATION.name(),
@@ -141,7 +141,8 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             .put(Attribute.READ_LENGTH.name(), String.valueOf(byteBuffer.remaining()))
             .put(Attribute.READ_OFFSET.name(), String.valueOf(byteBuffer.position()))
             .build();
-    return Telemetry.getInstance()
+    return gcsFileSystem
+        .getTelemetry()
         .measure(
             Operation.READ.name(),
             Metric.READ_DURATION.name(),
@@ -194,7 +195,8 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   @Override
   public void close() throws IOException {
-    Telemetry.getInstance()
+    gcsFileSystem
+        .getTelemetry()
         .measure(
             Operation.CLOSE.name(),
             Metric.CLOSE_DURATION.name(),
@@ -218,7 +220,8 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   @Override
   public void readFully(long position, byte[] buffer, int offset, int length) throws IOException {
-    Telemetry.getInstance()
+    gcsFileSystem
+        .getTelemetry()
         .measure(
             Operation.READ_FULLY.name(),
             Metric.READ_DURATION.name(),
@@ -243,7 +246,8 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   @Override
   public int readTail(byte[] buffer, int offset, int length) throws IOException {
-    return Telemetry.getInstance()
+    return gcsFileSystem
+        .getTelemetry()
         .measure(
             Operation.READ_TAIL.name(),
             Metric.READ_DURATION.name(),
@@ -359,7 +363,8 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   private static VectoredSeekableByteChannel openReadChannel(
       GcsFileSystem gcsFileSystem, GcsItemId gcsItemId, GcsFileInfo gcsFileInfo)
       throws IOException {
-    return Telemetry.getInstance()
+    return gcsFileSystem
+        .getTelemetry()
         .measure(
             Operation.OPEN.name(),
             Metric.OPEN_DURATION.name(),

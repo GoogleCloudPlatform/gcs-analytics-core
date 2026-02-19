@@ -19,7 +19,6 @@ import static com.google.common.truth.Truth.assertThat;
 
 import java.util.Collections;
 import java.util.Map;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -30,14 +29,8 @@ class TelemetryTest {
 
   @BeforeEach
   void setUp() {
-    telemetry = Telemetry.getInstance();
     listener = new FakeOperationMetricsListener();
-    telemetry.addListener(listener);
-  }
-
-  @AfterEach
-  void tearDown() {
-    telemetry.removeListener(listener);
+    telemetry = new Telemetry(Collections.singletonList(listener));
   }
 
   @Test

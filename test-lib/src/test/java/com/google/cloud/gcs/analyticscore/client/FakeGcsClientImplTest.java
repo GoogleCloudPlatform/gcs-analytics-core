@@ -19,7 +19,9 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,7 +37,8 @@ class FakeGcsClientImplTest {
     fakeGcsClient =
         new FakeGcsClientImpl(
             options.getGcsClientOptions(),
-            Suppliers.ofInstance(Executors.newSingleThreadExecutor()));
+            Suppliers.ofInstance(Executors.newSingleThreadExecutor()),
+            new Telemetry(ImmutableList.of()));
     FakeGcsClientImpl.resetCounts();
   }
 
