@@ -20,22 +20,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class Telemetry {
+public class Telemetry implements AutoCloseable {
+  private static final Logger LOG = LoggerFactory.getLogger(Telemetry.class);
 
-  private static final Telemetry INSTANCE = new Telemetry();
   private final List<OperationListener> listeners = new CopyOnWriteArrayList<>();
 
-  public static Telemetry getInstance() {
-    return INSTANCE;
-  }
-
-  public void addListener(OperationListener listener) {
-    listeners.add(listener);
-  }
-
-  public void removeListener(OperationListener listener) {
-    listeners.remove(listener);
+  public Telemetry(List<OperationListener> listeners) {
+    this.listeners.addAll(listeners);
   }
 
   /** Executes an operation with telemetry tracking. */
@@ -47,8 +41,8 @@ public class Telemetry {
           MetricKey key = MetricKey.builder().setName(name).setAttributes(attributes).build();
           currentMetrics.merge(key, value, Long::sum);
         };
-    long startTime = System.nanoTime();
     notifyStart(operation);
+    long startTime = System.nanoTime();
     try {
       return operationSupplier.get(recorder);
     } finally {
@@ -107,13 +101,26 @@ public class Telemetry {
 
   private void notifyStart(Operation operation) {
     for (OperationListener listener : listeners) {
-      listener.onOperationStart(operation);
+      try {
+        listener.onOperationStart(operation);
+      } catch (Exception e) {
+        LOG.error("Exception in notifyStart for listener {}", listener.getClass().getName(), e);
+      }
     }
   }
 
   private void notifyEnd(Operation operation, Map<MetricKey, Long> metrics) {
     for (OperationListener listener : listeners) {
-      listener.onOperationEnd(operation, metrics);
+      try {
+        listener.onOperationEnd(operation, metrics);
+      } catch (Exception e) {
+        LOG.error("Exception in notifyEnd for listener {}", listener.getClass().getName(), e);
+      }
     }
+  }
+
+  @Override
+  public void close() {
+    listeners.clear();
   }
 }
