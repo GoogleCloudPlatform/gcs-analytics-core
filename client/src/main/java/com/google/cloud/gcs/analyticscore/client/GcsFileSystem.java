@@ -15,6 +15,7 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
@@ -60,6 +61,9 @@ public interface GcsFileSystem extends AutoCloseable {
 
   /** Retrieve the gcs client used to create this GcsFileSystem. */
   GcsClient getGcsClient();
+
+  /** Retrieve the telemetry instance used by this file system. */
+  Telemetry getTelemetry();
 
   /** Close the file system. */
   @Override

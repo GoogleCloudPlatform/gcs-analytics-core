@@ -1,11 +1,11 @@
 /*
- * Copyright 2025 Google LLC
+ * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,27 +16,37 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
-import java.util.Optional;
 
-/** Options for Telemetry. */
+/** Options for Logging Telemetry. */
 @AutoValue
-public abstract class TelemetryOptions {
+public abstract class LoggingTelemetryOptions {
 
-  public abstract Optional<CustomTelemetryOptions> getCustomTelemetryOptions();
+  public enum LogLevel {
+    TRACE,
+    DEBUG,
+    INFO,
+    WARNING,
+    ERROR
+  }
 
-  public abstract Optional<LoggingTelemetryOptions> getLoggingTelemetryOptions();
+  public abstract LogLevel getLogLevel();
+
+  public abstract boolean isEnabled();
 
   public static Builder builder() {
-    return new AutoValue_TelemetryOptions.Builder();
+    return new AutoValue_LoggingTelemetryOptions.Builder()
+        .setEnabled(false)
+        .setLogLevel(LogLevel.DEBUG);
   }
+
+  public abstract Builder toBuilder();
 
   @AutoValue.Builder
   public abstract static class Builder {
+    public abstract Builder setLogLevel(LogLevel logLevel);
 
-    public abstract Builder setCustomTelemetryOptions(CustomTelemetryOptions options);
+    public abstract Builder setEnabled(boolean enabled);
 
-    public abstract Builder setLoggingTelemetryOptions(LoggingTelemetryOptions options);
-
-    public abstract TelemetryOptions build();
+    public abstract LoggingTelemetryOptions build();
   }
 }

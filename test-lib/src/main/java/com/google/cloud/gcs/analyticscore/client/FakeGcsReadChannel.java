@@ -17,6 +17,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.cloud.ReadChannel;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Storage;
 import com.google.common.base.Supplier;
 import java.io.IOException;
@@ -29,9 +30,10 @@ public class FakeGcsReadChannel extends GcsReadChannel {
       Storage storage,
       GcsItemInfo itemInfo,
       GcsReadOptions readOptions,
-      Supplier<ExecutorService> executorServiceSupplier)
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry)
       throws IOException {
-    super(storage, itemInfo, readOptions, executorServiceSupplier);
+    super(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
   }
 
   @Override

@@ -1,11 +1,11 @@
 /*
- * Copyright 2025 Google LLC
+ * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,27 +16,23 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
-import java.util.Optional;
+import com.google.common.collect.ImmutableList;
+import java.util.List;
 
-/** Options for Telemetry. */
+/** Options for Custom Telemetry. */
 @AutoValue
-public abstract class TelemetryOptions {
+public abstract class CustomTelemetryOptions {
 
-  public abstract Optional<CustomTelemetryOptions> getCustomTelemetryOptions();
-
-  public abstract Optional<LoggingTelemetryOptions> getLoggingTelemetryOptions();
+  public abstract ImmutableList<OperationListener> getOperationListeners();
 
   public static Builder builder() {
-    return new AutoValue_TelemetryOptions.Builder();
+    return new AutoValue_CustomTelemetryOptions.Builder().setOperationListeners(ImmutableList.of());
   }
 
   @AutoValue.Builder
   public abstract static class Builder {
+    public abstract Builder setOperationListeners(List<OperationListener> operationListeners);
 
-    public abstract Builder setCustomTelemetryOptions(CustomTelemetryOptions options);
-
-    public abstract Builder setLoggingTelemetryOptions(LoggingTelemetryOptions options);
-
-    public abstract TelemetryOptions build();
+    public abstract CustomTelemetryOptions build();
   }
 }

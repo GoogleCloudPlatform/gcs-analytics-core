@@ -23,13 +23,7 @@ import org.junit.jupiter.api.Test;
 public class TelemetryOptionsTest {
 
   @Test
-  public void testDefaultBuilder() {
-    TelemetryOptions options = TelemetryOptions.builder().build();
-    assertThat(options.getOperationListeners()).isEmpty();
-  }
-
-  @Test
-  public void testBuilderWithOperationListeners() {
+  public void testBuilderWithCustomTelemetryOptions() {
     OperationListener listener =
         new OperationListener() {
           @Override
@@ -38,8 +32,12 @@ public class TelemetryOptionsTest {
           @Override
           public void onOperationEnd(Operation operation, java.util.Map<MetricKey, Long> metrics) {}
         };
+    CustomTelemetryOptions customTelemetryOptions =
+        CustomTelemetryOptions.builder().setOperationListeners(ImmutableList.of(listener)).build();
     TelemetryOptions options =
-        TelemetryOptions.builder().setOperationListeners(ImmutableList.of(listener)).build();
-    assertThat(options.getOperationListeners()).containsExactly(listener);
+        TelemetryOptions.builder().setCustomTelemetryOptions(customTelemetryOptions).build();
+
+    assertThat(options.getCustomTelemetryOptions().get().getOperationListeners())
+        .containsExactly(listener);
   }
 }

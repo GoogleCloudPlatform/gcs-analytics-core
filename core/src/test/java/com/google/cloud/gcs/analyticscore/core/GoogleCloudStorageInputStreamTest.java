@@ -21,6 +21,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import com.google.cloud.gcs.analyticscore.client.*;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.common.collect.ImmutableList;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.URI;
@@ -62,6 +64,7 @@ class GoogleCloudStorageInputStreamTest {
     when(mockGcsFileInfo.getUri()).thenReturn(testUri);
     when(mockGcsFileInfo.getItemInfo()).thenReturn(mockGcsItemInfo);
     when(mockGcsItemInfo.getSize()).thenReturn(fileSize);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
   }
 
   GoogleCloudStorageInputStream defaultGcsInputStream() throws IOException {

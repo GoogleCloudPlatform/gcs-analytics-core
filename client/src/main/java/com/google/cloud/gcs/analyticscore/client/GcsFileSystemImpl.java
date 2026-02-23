@@ -20,12 +20,16 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
+import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
+import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.cloud.storage.BlobId;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.IOException;
 import java.net.URI;
@@ -41,44 +45,54 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   private final GcsFileSystemOptions fileSystemOptions;
   private final Supplier<ExecutorService> executorServiceSupplier;
 
+  private final Telemetry telemetry;
+
   public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
-    initializeTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
+    this.telemetry = createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
     this.gcsClient =
-        Telemetry.getInstance()
-            .measure(
-                GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
-                GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION.name(),
-                Collections.emptyMap(),
-                recorder ->
-                    new GcsClientImpl(
-                        getGcsClientOptions(fileSystemOptions), executorServiceSupplier));
+        telemetry.measure(
+            GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
+            GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION.name(),
+            Collections.emptyMap(),
+            recorder ->
+                new GcsClientImpl(
+                    fileSystemOptions.getGcsClientOptions(), executorServiceSupplier, telemetry));
   }
 
   public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
-    initializeTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
+    this.telemetry = createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
     this.gcsClient =
-        Telemetry.getInstance()
-            .measure(
-                GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
-                GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION.name(),
-                Collections.emptyMap(),
-                recorder ->
-                    new GcsClientImpl(
-                        credentials,
-                        getGcsClientOptions(fileSystemOptions),
-                        executorServiceSupplier));
+        telemetry.measure(
+            GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
+            GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION.name(),
+            Collections.emptyMap(),
+            recorder ->
+                new GcsClientImpl(
+                    credentials,
+                    fileSystemOptions.getGcsClientOptions(),
+                    executorServiceSupplier,
+                    telemetry));
   }
 
   @VisibleForTesting
   GcsFileSystemImpl(GcsClient gcsClient, GcsFileSystemOptions fileSystemOptions) {
+    this(
+        gcsClient,
+        fileSystemOptions,
+        createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions()));
+  }
+
+  @VisibleForTesting
+  GcsFileSystemImpl(
+      GcsClient gcsClient, GcsFileSystemOptions fileSystemOptions, Telemetry telemetry) {
     this.gcsClient = gcsClient;
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
-    initializeTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
+    this.telemetry = telemetry;
   }
 
   @Override
@@ -129,6 +143,11 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   @Override
+  public Telemetry getTelemetry() {
+    return telemetry;
+  }
+
+  @Override
   public void close() {
     ExecutorService executorService = executorServiceSupplier.get();
     executorService.shutdown();
@@ -140,22 +159,21 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       executorService.shutdownNow();
       Thread.currentThread().interrupt();
     }
-    fileSystemOptions
-        .getAnalyticsCoreTelemetryOptions()
-        .getOperationListeners()
-        .forEach(Telemetry.getInstance()::removeListener);
     gcsClient.close();
-  }
-
-  private static GcsClientOptions getGcsClientOptions(GcsFileSystemOptions fileSystemOptions) {
-    return fileSystemOptions.getGcsClientOptions() == null
-        ? GcsClientOptions.builder().build()
-        : fileSystemOptions.getGcsClientOptions();
+    telemetry.close();
   }
 
   @VisibleForTesting
-  void initializeTelemetry(TelemetryOptions telemetryOptions) {
-    telemetryOptions.getOperationListeners().forEach(Telemetry.getInstance()::addListener);
+  static Telemetry createTelemetry(TelemetryOptions telemetryOptions) {
+    ImmutableList.Builder<OperationListener> listeners = ImmutableList.builder();
+    telemetryOptions
+        .getLoggingTelemetryOptions()
+        .filter(LoggingTelemetryOptions::isEnabled)
+        .ifPresent(options -> listeners.add(new LoggingTelemetryReporter(options)));
+    telemetryOptions
+        .getCustomTelemetryOptions()
+        .ifPresent(options -> listeners.addAll(options.getOperationListeners()));
+    return new Telemetry(listeners.build());
   }
 
   @VisibleForTesting
