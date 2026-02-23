@@ -19,7 +19,6 @@ import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import autovalue.shaded.com.google.common.collect.ImmutableList;
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
@@ -27,6 +26,7 @@ import com.google.cloud.storage.*;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;

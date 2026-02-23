@@ -104,7 +104,7 @@ public class Telemetry implements AutoCloseable {
       try {
         listener.onOperationStart(operation);
       } catch (Exception e) {
-        LOG.info("Exception in notifyStart for listener {}", listener.getClass().getName(), e);
+        LOG.error("Exception in notifyStart for listener {}", listener.getClass().getName(), e);
       }
     }
   }
@@ -114,7 +114,7 @@ public class Telemetry implements AutoCloseable {
       try {
         listener.onOperationEnd(operation, metrics);
       } catch (Exception e) {
-        LOG.info("Exception in notifyEnd for listener {}", listener.getClass().getName(), e);
+        LOG.error("Exception in notifyEnd for listener {}", listener.getClass().getName(), e);
       }
     }
   }

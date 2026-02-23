@@ -20,7 +20,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
-import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
@@ -32,12 +31,9 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-
 import java.io.IOException;
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -163,16 +159,17 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       executorService.shutdownNow();
       Thread.currentThread().interrupt();
     }
-    telemetry.close();
     gcsClient.close();
+    telemetry.close();
   }
 
   @VisibleForTesting
   static Telemetry createTelemetry(TelemetryOptions telemetryOptions) {
     ImmutableList.Builder<OperationListener> listeners = ImmutableList.builder();
-    telemetryOptions.getLoggingTelemetryOptions()
-    .filter(LoggingTelemetryOptions::isEnabled)
-    .ifPresent(options -> listeners.add(new LoggingTelemetryReporter(options)));
+    telemetryOptions
+        .getLoggingTelemetryOptions()
+        .filter(LoggingTelemetryOptions::isEnabled)
+        .ifPresent(options -> listeners.add(new LoggingTelemetryReporter(options)));
     telemetryOptions
         .getCustomTelemetryOptions()
         .ifPresent(options -> listeners.addAll(options.getOperationListeners()));

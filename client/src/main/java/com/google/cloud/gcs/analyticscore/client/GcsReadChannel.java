@@ -59,21 +59,28 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry)
       throws IOException {
-    checkNotNull(storage, "Storage instance cannot be null");
-    checkNotNull(itemInfo, "Item info cannot be null");
-    checkNotNull(executorServiceSupplier, "Thread pool supplier must not be null");
-    checkNotNull(telemetry, "Telemetry instance cannot be null");
-    this.storage = storage;
-    this.readOptions = readOptions;
-    this.itemInfo = itemInfo;
-    this.itemId = itemInfo.getItemId();
-    this.executorServiceSupplier = executorServiceSupplier;
-    this.telemetry = telemetry;
-    this.readChannel = openReadChannel(itemId, readOptions);
+    this(
+        storage,
+        itemInfo,
+        checkNotNull(itemInfo, "Item info cannot be null").getItemId(),
+        readOptions,
+        executorServiceSupplier,
+        telemetry);
   }
 
   GcsReadChannel(
       Storage storage,
+      GcsItemId itemId,
+      GcsReadOptions readOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry)
+      throws IOException {
+    this(storage, null, itemId, readOptions, executorServiceSupplier, telemetry);
+  }
+
+  private GcsReadChannel(
+      Storage storage,
+      GcsItemInfo itemInfo,
       GcsItemId itemId,
       GcsReadOptions readOptions,
       Supplier<ExecutorService> executorServiceSupplier,
@@ -85,6 +92,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     checkNotNull(telemetry, "Telemetry instance cannot be null");
     this.storage = storage;
     this.readOptions = readOptions;
+    this.itemInfo = itemInfo;
     this.itemId = itemId;
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
