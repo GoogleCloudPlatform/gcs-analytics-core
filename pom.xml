@@ -80,7 +80,7 @@ limitations under the License.
         <apache.commons.version>3.20.0</apache.commons.version>
         <apache.parquet.version>1.17.0</apache.parquet.version>
         <apache.avro.version>1.12.1</apache.avro.version>
-        <apache.hadoop.version>3.4.2</apache.hadoop.version>
+        <apache.hadoop.version>3.4.3</apache.hadoop.version>
     </properties>
 
     <profiles>
