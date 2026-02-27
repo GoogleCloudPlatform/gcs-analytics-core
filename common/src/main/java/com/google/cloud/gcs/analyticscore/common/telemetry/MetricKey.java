@@ -26,8 +26,7 @@ public abstract class MetricKey {
 
   public enum MetricType {
     COUNTER,
-    DURATION,
-    UNSPECIFIED
+    DURATION
   }
 
   public abstract String getName();
@@ -39,7 +38,7 @@ public abstract class MetricKey {
   public static Builder builder() {
     return new AutoValue_MetricKey.Builder()
         .setAttributes(Collections.emptyMap())
-        .setMetricType(MetricType.UNSPECIFIED);
+        .setMetricType(MetricType.COUNTER);
   }
 
   @AutoValue.Builder

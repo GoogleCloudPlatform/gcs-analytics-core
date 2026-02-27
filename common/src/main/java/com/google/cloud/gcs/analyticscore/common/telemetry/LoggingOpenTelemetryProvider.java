@@ -29,7 +29,7 @@ import java.time.Duration;
  */
 public class LoggingOpenTelemetryProvider implements OpenTelemetryProvider {
 
-  private volatile OpenTelemetrySdk sdk;
+  private volatile OpenTelemetrySdk openTelemetrySdk;
   private final Duration exportInterval;
 
   public LoggingOpenTelemetryProvider(OpenTelemetryOptions openTelemetryOptions) {
@@ -38,23 +38,24 @@ public class LoggingOpenTelemetryProvider implements OpenTelemetryProvider {
 
   @Override
   public OpenTelemetry getOpenTelemetry() {
-    if (sdk == null) {
+    if (openTelemetrySdk == null) {
       synchronized (this) {
-        if (sdk == null) {
-          sdk = OpenTelemetrySdk.builder().setMeterProvider(getLoggingExporter()).build();
+        if (openTelemetrySdk == null) {
+          openTelemetrySdk =
+              OpenTelemetrySdk.builder().setMeterProvider(getLoggingExporter()).build();
         }
       }
     }
-    return sdk;
+    return openTelemetrySdk;
   }
 
   @Override
   public void close() {
-    if (sdk != null) {
+    if (openTelemetrySdk != null) {
       synchronized (this) {
-        if (sdk != null) {
-          sdk.close();
-          sdk = null;
+        if (openTelemetrySdk != null) {
+          openTelemetrySdk.close();
+          openTelemetrySdk = null;
         }
       }
     }
