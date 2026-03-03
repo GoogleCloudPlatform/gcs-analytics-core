@@ -47,49 +47,63 @@ class LoggingTelemetryReporterTest {
 
   @Test
   public void testFormatMetrics_singleMetricWithoutAttributes() {
-    LoggingTelemetryReporter reporter =
-        new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build());
-    Map<MetricKey, Long> metrics = Map.of(MetricKey.builder().setName("TestMetric").build(), 100L);
+    try (LoggingTelemetryReporter reporter =
+        new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build())) {
+      Map<MetricKey, Long> metrics =
+          Map.of(
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("TestMetric", Metric.MetricType.COUNTER))
+                  .build(),
+              100L);
 
-    String formattedMetrics = reporter.formatMetrics(metrics);
+      String formattedMetrics = reporter.formatMetrics(metrics);
 
-    assertThat(formattedMetrics).isEqualTo("{TestMetric=100}");
+      assertThat(formattedMetrics).isEqualTo("{TestMetric=100}");
+    }
   }
 
   @Test
   public void testFormatMetrics_singleMetricWithAttributes() {
-    LoggingTelemetryReporter reporter =
-        new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build());
-    Map<MetricKey, Long> metrics =
-        Map.of(
-            MetricKey.builder()
-                .setName("TestMetric")
-                .setAttributes(Map.of("key1", "value1", "key2", "value2"))
-                .build(),
-            100L);
+    try (LoggingTelemetryReporter reporter =
+        new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build())) {
+      Map<MetricKey, Long> metrics =
+          Map.of(
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("TestMetric", Metric.MetricType.COUNTER))
+                  .setAttributes(Map.of("key1", "value1", "key2", "value2"))
+                  .build(),
+              100L);
 
-    String formattedMetrics = reporter.formatMetrics(metrics);
+      String formattedMetrics = reporter.formatMetrics(metrics);
 
-    assertThat(formattedMetrics)
-        .isAnyOf(
-            "{TestMetric{key1=value1, key2=value2}=100}",
-            "{TestMetric{key2=value2, key1=value1}=100}");
+      assertThat(formattedMetrics)
+          .isAnyOf(
+              "{TestMetric{key1=value1, key2=value2}=100}",
+              "{TestMetric{key2=value2, key1=value1}=100}");
+    }
   }
 
   @Test
   public void testFormatMetrics_multipleMetrics() {
-    LoggingTelemetryReporter reporter =
-        new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build());
-    Map<MetricKey, Long> metrics =
-        Map.of(
-            MetricKey.builder().setName("Metric1").build(),
-            100L,
-            MetricKey.builder().setName("Metric2").setAttributes(Map.of("key", "value")).build(),
-            200L);
+    try (LoggingTelemetryReporter reporter =
+        new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build())) {
+      Map<MetricKey, Long> metrics =
+          Map.of(
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("Metric1", Metric.MetricType.COUNTER))
+                  .build(),
+              100L,
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("Metric2", Metric.MetricType.COUNTER))
+                  .setAttributes(Map.of("key", "value"))
+                  .build(),
+              200L);
 
-    String formattedMetrics = reporter.formatMetrics(metrics);
+      String formattedMetrics = reporter.formatMetrics(metrics);
 
-    assertThat(formattedMetrics)
-        .isAnyOf("{Metric1=100, Metric2{key=value}=200}", "{Metric2{key=value}=200, Metric1=100}");
+      assertThat(formattedMetrics)
+          .isAnyOf(
+              "{Metric1=100, Metric2{key=value}=200}", "{Metric2{key=value}=200, Metric1=100}");
+    }
   }
 }

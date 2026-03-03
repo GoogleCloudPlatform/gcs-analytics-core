@@ -22,9 +22,9 @@ public interface MetricsRecorder {
   /**
    * Records a metric value with specific attributes.
    *
-   * @param name The metric name
+   * @param metric The metric to record
    * @param value The value to record
    * @param attributes Contextual tags for the metric
    */
-  void record(String name, long value, Map<String, String> attributes);
+  void record(Metric metric, long value, Map<String, String> attributes);
 }

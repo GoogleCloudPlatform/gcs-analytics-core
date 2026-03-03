@@ -37,8 +37,8 @@ public class Telemetry implements AutoCloseable {
       Operation operation, OperationSupplier<T, E> operationSupplier) throws E {
     Map<MetricKey, Long> currentMetrics = new ConcurrentHashMap<>();
     MetricsRecorder recorder =
-        (name, value, attributes) -> {
-          MetricKey key = MetricKey.builder().setName(name).setAttributes(attributes).build();
+        (metric, value, attributes) -> {
+          MetricKey key = MetricKey.builder().setMetric(metric).setAttributes(attributes).build();
           currentMetrics.merge(key, value, Long::sum);
         };
     notifyStart(operation);
@@ -47,11 +47,11 @@ public class Telemetry implements AutoCloseable {
       return operationSupplier.get(recorder);
     } finally {
       long durationNs = System.nanoTime() - startTime;
-      if (operation.getDurationMetricName().isPresent()) {
-        currentMetrics.put(
-            MetricKey.builder().setName(operation.getDurationMetricName().get()).build(),
-            durationNs);
-      }
+      operation
+          .getDurationMetric()
+          .ifPresent(
+              metric ->
+                  currentMetrics.put(MetricKey.builder().setMetric(metric).build(), durationNs));
       notifyEnd(operation, currentMetrics);
     }
   }
@@ -59,7 +59,7 @@ public class Telemetry implements AutoCloseable {
   public <T, E extends Throwable> T measure(
       String operationId,
       String operationName,
-      String durationMetricName,
+      Metric durationMetric,
       Map<String, String> operationAttributes,
       OperationSupplier<T, E> operationSupplier)
       throws E {
@@ -67,7 +67,7 @@ public class Telemetry implements AutoCloseable {
         Operation.builder()
             .setOperationId(operationId)
             .setName(operationName)
-            .setDurationMetricName(durationMetricName)
+            .setDurationMetric(durationMetric)
             .setAttributes(operationAttributes)
             .build();
     return measure(operation, operationSupplier);
@@ -75,14 +75,14 @@ public class Telemetry implements AutoCloseable {
 
   public <T, E extends Throwable> T measure(
       String operationName,
-      String durationMetricName,
+      Metric durationMetric,
       Map<String, String> operationAttributes,
       OperationSupplier<T, E> operationSupplier)
       throws E {
     Operation operation =
         Operation.builder()
             .setName(operationName)
-            .setDurationMetricName(durationMetricName)
+            .setDurationMetric(durationMetric)
             .setAttributes(operationAttributes)
             .build();
     return measure(operation, operationSupplier);
@@ -92,11 +92,11 @@ public class Telemetry implements AutoCloseable {
    * Records metric that is not associated with any specific operation context. This is useful for
    * interceptors or background processes where no operation scope is available.
    */
-  public void recordMetric(String name, long value, Map<String, String> attributes) {
+  public void recordMetric(Metric metric, long value, Map<String, String> attributes) {
     notifyEnd(
         Operation.builder().setName("UNKNOWN").build(),
         Collections.singletonMap(
-            MetricKey.builder().setName(name).setAttributes(attributes).build(), value));
+            MetricKey.builder().setMetric(metric).setAttributes(attributes).build(), value));
   }
 
   private void notifyStart(Operation operation) {
@@ -121,6 +121,9 @@ public class Telemetry implements AutoCloseable {
 
   @Override
   public void close() {
+    for (OperationListener listener : listeners) {
+      listener.close();
+    }
     listeners.clear();
   }
 }

@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
+import com.google.common.collect.ImmutableMap;
 import java.util.Collections;
 import java.util.Map;
 
@@ -23,9 +24,9 @@ import java.util.Map;
 @AutoValue
 public abstract class MetricKey {
 
-  public abstract String getName();
+  public abstract Metric getMetric();
 
-  public abstract Map<String, String> getAttributes();
+  public abstract ImmutableMap<String, String> getAttributes();
 
   public static Builder builder() {
     return new AutoValue_MetricKey.Builder().setAttributes(Collections.emptyMap());
@@ -33,7 +34,7 @@ public abstract class MetricKey {
 
   @AutoValue.Builder
   public abstract static class Builder {
-    public abstract Builder setName(String name);
+    public abstract Builder setMetric(Metric metric);
 
     public abstract Builder setAttributes(Map<String, String> attributes);
 

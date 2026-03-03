@@ -108,13 +108,13 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         .getTelemetry()
         .measure(
             Operation.SEEK.name(),
-            Metric.SEEK_DURATION.name(),
+            Metric.SEEK_DURATION,
             commonAttributes,
             recorder -> {
               checkArgument(newPos >= 0, "position can't be negative: %s", newPos);
               checkNotClosed("Cannot seek: already closed");
               recorder.record(
-                  Metric.SEEK_DISTANCE.name(), newPos - position, Collections.emptyMap());
+                  Metric.SEEK_DISTANCE, Math.abs(newPos - position), Collections.emptyMap());
               position = newPos;
               channel.position(newPos);
               return null;
@@ -145,7 +145,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         .getTelemetry()
         .measure(
             Operation.READ.name(),
-            Metric.READ_DURATION.name(),
+            Metric.READ_DURATION,
             telemetryAttributes,
             recorder -> {
               checkNotClosed("Cannot read: already closed");
@@ -157,12 +157,12 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
               if (prefetchBuffer != null && (position >= fileSize - prefetchSize)) {
                 int bytesRead = serveFromCache(byteBuffer);
                 if (bytesRead > 0) {
-                  recorder.record(Metric.READ_BYTES.name(), bytesRead, Collections.emptyMap());
-                  recorder.record(Metric.READ_CACHE_HIT.name(), 1, Collections.emptyMap());
+                  recorder.record(Metric.READ_BYTES, bytesRead, Collections.emptyMap());
+                  recorder.record(Metric.READ_CACHE_HIT, 1, Collections.emptyMap());
                 }
                 return bytesRead;
               }
-              recorder.record(Metric.READ_CACHE_MISS.name(), 1, Collections.emptyMap());
+              recorder.record(Metric.READ_CACHE_MISS, 1, Collections.emptyMap());
               long channelPosition = channel.position();
               checkState(
                   channelPosition == position,
@@ -173,7 +173,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
               int bytesRead = channel.read(byteBuffer);
               if (bytesRead > 0) {
                 position += bytesRead;
-                recorder.record(Metric.READ_BYTES.name(), bytesRead, Collections.emptyMap());
+                recorder.record(Metric.READ_BYTES, bytesRead, Collections.emptyMap());
               }
               return bytesRead;
             });
@@ -199,7 +199,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         .getTelemetry()
         .measure(
             Operation.CLOSE.name(),
-            Metric.CLOSE_DURATION.name(),
+            Metric.CLOSE_DURATION,
             commonAttributes,
             recorder -> {
               if (!closed) {
@@ -224,7 +224,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         .getTelemetry()
         .measure(
             Operation.READ_FULLY.name(),
-            Metric.READ_DURATION.name(),
+            Metric.READ_DURATION,
             commonAttributes,
             recorder -> {
               try (VectoredSeekableByteChannel byteChannel =
@@ -237,8 +237,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
                           + (length - numberOfBytesRead)
                           + " bytes left to read");
                 }
-                recorder.record(
-                    Metric.READ_BYTES.name(), numberOfBytesRead, Collections.emptyMap());
+                recorder.record(Metric.READ_BYTES, numberOfBytesRead, Collections.emptyMap());
               }
               return null;
             });
@@ -250,7 +249,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         .getTelemetry()
         .measure(
             Operation.READ_TAIL.name(),
-            Metric.READ_DURATION.name(),
+            Metric.READ_DURATION,
             commonAttributes,
             recorder -> {
               if (!isMetadataInitialized()) {
@@ -263,7 +262,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
                 byteChannel.position(startPosition);
                 int bytesRead = byteChannel.read(ByteBuffer.wrap(buffer, offset, length));
                 if (bytesRead > 0) {
-                  recorder.record(Metric.READ_BYTES.name(), bytesRead, Collections.emptyMap());
+                  recorder.record(Metric.READ_BYTES, bytesRead, Collections.emptyMap());
                 }
                 return bytesRead;
               }
@@ -367,7 +366,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         .getTelemetry()
         .measure(
             Operation.OPEN.name(),
-            Metric.OPEN_DURATION.name(),
+            Metric.OPEN_DURATION,
             buildCommonAttributes(),
             recorder -> {
               if (gcsFileInfo != null) {

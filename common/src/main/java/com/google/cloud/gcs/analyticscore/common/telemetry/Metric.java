@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Google LLC
+ * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,24 +15,14 @@
  */
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
-import java.util.Map;
+/** Represents a metric to be recorded. */
+public interface Metric {
+  enum MetricType {
+    COUNTER,
+    DURATION
+  }
 
-public interface OperationListener extends AutoCloseable {
-  /**
-   * Triggered when an operation starts.
-   *
-   * @param operation the operation context
-   */
-  void onOperationStart(Operation operation);
+  String getName();
 
-  /**
-   * Triggered when an operation ends.
-   *
-   * @param operation the operation context
-   * @param metrics a map of collected metrics (key includes name and attributes)
-   */
-  void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics);
-
-  @Override
-  default void close() {}
+  MetricType getType();
 }

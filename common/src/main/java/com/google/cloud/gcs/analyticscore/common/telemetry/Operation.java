@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
+import com.google.common.collect.ImmutableMap;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
@@ -26,11 +27,11 @@ public abstract class Operation {
 
   public abstract String getName();
 
-  public abstract Map<String, String> getAttributes();
+  public abstract ImmutableMap<String, String> getAttributes();
 
   public abstract String getOperationId();
 
-  public abstract Optional<String> getDurationMetricName();
+  public abstract Optional<Metric> getDurationMetric();
 
   public static Builder builder() {
     return new AutoValue_Operation.Builder()
@@ -46,7 +47,7 @@ public abstract class Operation {
 
     public abstract Builder setOperationId(String operationId);
 
-    public abstract Builder setDurationMetricName(String durationMetricName);
+    public abstract Builder setDurationMetric(Metric durationMetric);
 
     public abstract Operation build();
   }
