@@ -211,6 +211,14 @@ class GcsClientImplTest {
   }
 
   @Test
+  void computeUserAgent_prependsPrefix() {
+    GcsClientImpl client = new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier);
+    String userAgent = client.computeUserAgent();
+
+    assertThat(userAgent).startsWith("gcs-analytics-core/");
+  }
+
+  @Test
   void createStore_withCredentials_usesProvidedCredentials() throws IOException {
     GcsClientImpl client =
         new GcsClientImpl(

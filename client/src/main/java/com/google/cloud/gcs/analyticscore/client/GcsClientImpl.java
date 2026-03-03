@@ -36,6 +36,7 @@ class GcsClientImpl implements GcsClient {
   private static final Logger LOG = LoggerFactory.getLogger(GcsClientImpl.class);
   private static final List<Storage.BlobField> BLOB_METADATA_FIELDS =
       ImmutableList.of(Storage.BlobField.GENERATION, Storage.BlobField.SIZE);
+  private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
 
   @VisibleForTesting Storage storage;
   private final GcsClientOptions clientOptions;
@@ -107,18 +108,36 @@ class GcsClientImpl implements GcsClient {
   @VisibleForTesting
   protected Storage createStorage(Optional<Credentials> credentials) {
     StorageOptions.Builder builder = StorageOptions.newBuilder();
-    clientOptions
-        .getUserAgent()
-        .ifPresent(
-            userAgent ->
-                builder.setHeaderProvider(
-                    FixedHeaderProvider.create(ImmutableMap.of("User-agent", userAgent))));
+    String userAgent = computeUserAgent();
+    builder.setHeaderProvider(
+        FixedHeaderProvider.create(ImmutableMap.of("User-agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
     credentials.ifPresent(builder::setCredentials);
 
     return builder.build().getService();
+  }
+
+  private String getVersion() {
+    String version = "unknown";
+    try (java.io.InputStream stream = GcsClientImpl.class.getResourceAsStream(
+        "/META-INF/maven/com.google.cloud.gcs.analytics/client/pom.properties")) {
+      if (stream != null) {
+        java.util.Properties properties = new java.util.Properties();
+        properties.load(stream);
+        version = properties.getProperty("version", "unknown");
+      }
+    } catch (IOException e) {
+      LOG.warn("Failed to load client version", e);
+    }
+    return version;
+  }
+
+  @VisibleForTesting
+  String computeUserAgent() {
+    return USER_AGENT_PREFIX + getVersion()
+        + clientOptions.getUserAgent().map(agent -> " " + agent).orElse("");
   }
 
   private GcsItemInfo getGcsObjectInfo(GcsItemId itemId) throws IOException {
