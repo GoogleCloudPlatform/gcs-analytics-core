@@ -24,30 +24,19 @@ import java.util.Map;
 @AutoValue
 public abstract class MetricKey {
 
-  public enum MetricType {
-    COUNTER,
-    DURATION
-  }
-
-  public abstract String getName();
+  public abstract Metric getMetric();
 
   public abstract ImmutableMap<String, String> getAttributes();
 
-  public abstract MetricType getMetricType();
-
   public static Builder builder() {
-    return new AutoValue_MetricKey.Builder()
-        .setAttributes(Collections.emptyMap())
-        .setMetricType(MetricType.COUNTER);
+    return new AutoValue_MetricKey.Builder().setAttributes(Collections.emptyMap());
   }
 
   @AutoValue.Builder
   public abstract static class Builder {
-    public abstract Builder setName(String name);
+    public abstract Builder setMetric(Metric metric);
 
     public abstract Builder setAttributes(Map<String, String> attributes);
-
-    public abstract Builder setMetricType(MetricType metricType);
 
     public abstract MetricKey build();
   }

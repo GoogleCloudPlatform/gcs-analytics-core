@@ -22,16 +22,34 @@ public class GcsAnalyticsCoreTelemetryConstants {
     READ_OFFSET;
   }
 
-  public enum Metric {
-    SEEK_DISTANCE,
-    SEEK_DURATION,
-    READ_BYTES,
-    READ_DURATION,
-    OPEN_DURATION,
-    READ_CACHE_HIT,
-    READ_CACHE_MISS,
-    CLOSE_DURATION,
-    GCS_CLIENT_CREATE_DURATION;
+  public enum Metric implements com.google.cloud.gcs.analyticscore.common.telemetry.Metric {
+    SEEK_DISTANCE("gcs.analytics-core.client.seek.size", MetricType.COUNTER),
+    SEEK_DURATION("gcs.analytics-core.client.seek.duration", MetricType.DURATION),
+    READ_BYTES("gcs.analytics-core.client.read.size", MetricType.COUNTER),
+    READ_DURATION("gcs.analytics-core.client.read.duration", MetricType.DURATION),
+    OPEN_DURATION("gcs.analytics-core.client.open.duration", MetricType.DURATION),
+    READ_CACHE_HIT("gcs.analytics-core.client.read.cache.hits", MetricType.COUNTER),
+    READ_CACHE_MISS("gcs.analytics-core.client.read.cache.misses", MetricType.COUNTER),
+    CLOSE_DURATION("gcs.analytics-core.client.close.duration", MetricType.DURATION),
+    GCS_CLIENT_CREATE_DURATION("gcs.analytics-core.client.create.duration", MetricType.DURATION);
+
+    private final String name;
+    private final MetricType type;
+
+    Metric(String name, MetricType type) {
+      this.name = name;
+      this.type = type;
+    }
+
+    @Override
+    public String getName() {
+      return name;
+    }
+
+    @Override
+    public MetricType getType() {
+      return type;
+    }
   }
 
   public enum Operation {

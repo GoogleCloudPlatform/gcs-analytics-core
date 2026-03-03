@@ -35,13 +35,14 @@ class TelemetryTest {
 
   @Test
   void measure_validOperation_returnsResultAndRecordsMetrics() throws Exception {
+    Metric durationMetric = TestMetric.of("duration", Metric.MetricType.DURATION);
     Operation operation =
-        Operation.builder().setName("READ").setDurationMetricName("duration").build();
+        Operation.builder().setName("READ").setDurationMetric(durationMetric).build();
 
     String result =
         telemetry.measure(
             operation.getName(),
-            operation.getDurationMetricName().orElse(null),
+            operation.getDurationMetric().orElse(null),
             operation.getAttributes(),
             recorder -> "result");
 
@@ -52,30 +53,31 @@ class TelemetryTest {
     assertThat(listener.getStartedOperations()).hasSize(1);
     assertThat(startedOp.getName()).isEqualTo(operation.getName());
     assertThat(startedOp.getAttributes()).isEqualTo(operation.getAttributes());
-    assertThat(startedOp.getDurationMetricName()).isEqualTo(operation.getDurationMetricName());
+    assertThat(startedOp.getDurationMetric()).isEqualTo(operation.getDurationMetric());
     assertThat(listener.getEndedOperations()).hasSize(1);
     assertThat(endedOp.getName()).isEqualTo(operation.getName());
     assertThat(endedOp.getAttributes()).isEqualTo(operation.getAttributes());
-    assertThat(endedOp.getDurationMetricName()).isEqualTo(operation.getDurationMetricName());
+    assertThat(endedOp.getDurationMetric()).isEqualTo(operation.getDurationMetric());
     assertThat(listener.getEndedMetrics()).hasSize(1);
-    assertThat(metrics.keySet().stream().anyMatch(key -> "duration".equals(key.getName())))
+    assertThat(
+            metrics.keySet().stream().anyMatch(key -> "duration".equals(key.getMetric().getName())))
         .isTrue();
   }
 
   @Test
   void recordMetric_validInput_recordsMetricWithTypeNA() {
-    String name = "testMetric";
+    Metric testMetric = TestMetric.of("testMetric", Metric.MetricType.COUNTER);
     long value = 123L;
     Map<String, String> attributes = Collections.emptyMap();
 
-    telemetry.recordMetric(name, value, attributes);
+    telemetry.recordMetric(testMetric, value, attributes);
 
     Map<MetricKey, Long> metrics = listener.getEndedMetrics().get(0);
     MetricKey key = metrics.keySet().iterator().next();
     assertThat(listener.getEndedOperations()).hasSize(1);
     assertThat(listener.getEndedOperations().get(0).getName()).isEqualTo("UNKNOWN");
     assertThat(metrics).hasSize(1);
-    assertThat(key.getName()).isEqualTo(name);
+    assertThat(key.getMetric().getName()).isEqualTo("testMetric");
     assertThat(key.getAttributes()).isEqualTo(attributes);
     assertThat(metrics.get(key)).isEqualTo(value);
   }

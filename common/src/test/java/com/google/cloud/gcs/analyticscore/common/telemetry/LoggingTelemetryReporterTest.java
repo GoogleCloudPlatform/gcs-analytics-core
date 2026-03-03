@@ -50,7 +50,11 @@ class LoggingTelemetryReporterTest {
     try (LoggingTelemetryReporter reporter =
         new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build())) {
       Map<MetricKey, Long> metrics =
-          Map.of(MetricKey.builder().setName("TestMetric").build(), 100L);
+          Map.of(
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("TestMetric", Metric.MetricType.COUNTER))
+                  .build(),
+              100L);
 
       String formattedMetrics = reporter.formatMetrics(metrics);
 
@@ -65,7 +69,7 @@ class LoggingTelemetryReporterTest {
       Map<MetricKey, Long> metrics =
           Map.of(
               MetricKey.builder()
-                  .setName("TestMetric")
+                  .setMetric(TestMetric.of("TestMetric", Metric.MetricType.COUNTER))
                   .setAttributes(Map.of("key1", "value1", "key2", "value2"))
                   .build(),
               100L);
@@ -85,9 +89,14 @@ class LoggingTelemetryReporterTest {
         new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build())) {
       Map<MetricKey, Long> metrics =
           Map.of(
-              MetricKey.builder().setName("Metric1").build(),
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("Metric1", Metric.MetricType.COUNTER))
+                  .build(),
               100L,
-              MetricKey.builder().setName("Metric2").setAttributes(Map.of("key", "value")).build(),
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("Metric2", Metric.MetricType.COUNTER))
+                  .setAttributes(Map.of("key", "value"))
+                  .build(),
               200L);
 
       String formattedMetrics = reporter.formatMetrics(metrics);
