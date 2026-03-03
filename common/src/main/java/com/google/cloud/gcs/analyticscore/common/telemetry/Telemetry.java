@@ -23,6 +23,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey.MetricType;
+
 public class Telemetry implements AutoCloseable {
   private static final Logger LOG = LoggerFactory.getLogger(Telemetry.class);
 
@@ -49,7 +51,7 @@ public class Telemetry implements AutoCloseable {
       long durationNs = System.nanoTime() - startTime;
       if (operation.getDurationMetricName().isPresent()) {
         currentMetrics.put(
-            MetricKey.builder().setName(operation.getDurationMetricName().get()).build(),
+            MetricKey.builder().setName(operation.getDurationMetricName().get()).setMetricType(MetricType.DURATION).build(),
             durationNs);
       }
       notifyEnd(operation, currentMetrics);
@@ -121,6 +123,9 @@ public class Telemetry implements AutoCloseable {
 
   @Override
   public void close() {
+    for (OperationListener listener : listeners) {
+      listener.close();
+    }
     listeners.clear();
   }
 }

@@ -1,11 +1,11 @@
 /*
- * Copyright 2025 Google LLC
+ * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,24 +15,19 @@
  */
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
-import java.util.Map;
+import io.opentelemetry.api.OpenTelemetry;
 
-public interface OperationListener extends AutoCloseable {
-  /**
-   * Triggered when an operation starts.
-   *
-   * @param operation the operation context
-   */
-  void onOperationStart(Operation operation);
+/** Interface for providing and managing OpenTelemetry instances. */
+public interface OpenTelemetryProvider extends AutoCloseable {
 
   /**
-   * Triggered when an operation ends.
+   * Returns the referenced OpenTelemetry instance.
    *
-   * @param operation the operation context
-   * @param metrics a map of collected metrics (key includes name and attributes)
+   * @return the OpenTelemetry instance.
    */
-  void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics);
+  OpenTelemetry getOpenTelemetry();
 
+  /** Shuts down the provider, releasing any internal resources bound to it. */
   @Override
   default void close() {}
 }
