@@ -56,7 +56,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.gcsClient =
         telemetry.measure(
             GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
-            GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION.name(),
+            GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION,
             Collections.emptyMap(),
             recorder ->
                 new GcsClientImpl(
@@ -70,7 +70,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.gcsClient =
         telemetry.measure(
             GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
-            GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION.name(),
+            GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION,
             Collections.emptyMap(),
             recorder ->
                 new GcsClientImpl(

@@ -157,7 +157,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     Operation operation =
         Operation.builder()
             .setName(GcsAnalyticsCoreTelemetryConstants.Operation.VECTORED_READ.name())
-            .setDurationMetricName(Metric.READ_DURATION.name())
+            .setDurationMetric(Metric.READ_DURATION)
             .setAttributes(COMMON_ATTRIBUTES)
             .build();
     ExecutorService executorService = executorServiceSupplier.get();
@@ -197,7 +197,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
                 // EOF reached.
                 break;
               }
-              recorder.record(Metric.READ_BYTES.name(), bytesRead, Collections.emptyMap());
+              recorder.record(Metric.READ_BYTES, bytesRead, Collections.emptyMap());
               numOfBytesRead += bytesRead;
             }
             if (numOfBytesRead < combinedObjectRange.getLength()) {

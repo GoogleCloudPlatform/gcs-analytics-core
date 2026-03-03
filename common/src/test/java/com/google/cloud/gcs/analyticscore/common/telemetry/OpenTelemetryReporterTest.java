@@ -80,20 +80,23 @@ class OpenTelemetryReporterTest {
       Operation operation =
           Operation.builder()
               .setName("testOp")
-              .setDurationMetricName("testOp.duration")
+              .setDurationMetric(TestMetric.of("testOp.duration", Metric.MetricType.DURATION))
               .setAttributes(opAttrs)
               .build();
       Map<MetricKey, Long> metrics = new HashMap<>();
       metrics.put(
           MetricKey.builder()
-              .setName("testOp.duration")
-              .setMetricType(MetricKey.MetricType.DURATION)
+              .setMetric(TestMetric.of("testOp.duration", Metric.MetricType.DURATION))
               .build(),
           1500L);
       Map<String, String> metricAttrs = new HashMap<>();
       metricAttrs.put("status", "OK");
       metrics.put(
-          MetricKey.builder().setName("testOp.bytes").setAttributes(metricAttrs).build(), 1024L);
+          MetricKey.builder()
+              .setMetric(TestMetric.of("testOp.bytes", Metric.MetricType.COUNTER))
+              .setAttributes(metricAttrs)
+              .build(),
+          1024L);
 
       reporter.onOperationEnd(operation, metrics);
 
