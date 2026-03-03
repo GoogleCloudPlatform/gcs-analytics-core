@@ -26,6 +26,8 @@ import com.google.cloud.NoCredentials;
 import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OpenTelemetryOptions;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OpenTelemetryReporter;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
@@ -442,6 +444,65 @@ class GcsFileSystemImplTest {
     try (GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options)) {
       assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
     }
+  }
+
+  @Test
+  void initializeTelemetry_withOpenTelemetryOptionsEnabled_registersOpenTelemetryReporter() {
+    OpenTelemetryOptions openTelemetryOptions =
+        OpenTelemetryOptions.builder().setEnabled(true).build();
+    TelemetryOptions telemetryOptions =
+        TelemetryOptions.builder().setOpenTelemetryOptions(openTelemetryOptions).build();
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
+            .build();
+
+    try (GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options)) {
+      List<OperationListener> registeredListeners =
+          getRegisteredTelemetryListeners(fileSystem.getTelemetry());
+      OperationListener reporter = registeredListeners.get(0);
+
+      assertThat(reporter).isInstanceOf(OpenTelemetryReporter.class);
+    }
+  }
+
+  @Test
+  void initializeTelemetry_withOpenTelemetryOptionsDisabled_doesNotRegisterOpenTelemetryReporter() {
+    OpenTelemetryOptions openTelemetryOptions =
+        OpenTelemetryOptions.builder().setEnabled(false).build();
+    TelemetryOptions telemetryOptions =
+        TelemetryOptions.builder().setOpenTelemetryOptions(openTelemetryOptions).build();
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
+            .build();
+
+    try (GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options)) {
+      assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
+    }
+  }
+
+  @Test
+  void close_removesRegisteredOpenTelemetryReporters() {
+    OpenTelemetryOptions openTelemetryOptions =
+        OpenTelemetryOptions.builder().setEnabled(true).build();
+    TelemetryOptions telemetryOptions =
+        TelemetryOptions.builder().setOpenTelemetryOptions(openTelemetryOptions).build();
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
+            .build();
+
+    GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options);
+    int listnerCountBeforeClose = getRegisteredTelemetryListeners(fileSystem.getTelemetry()).size();
+
+    fileSystem.close();
+
+    assertThat(listnerCountBeforeClose).isEqualTo(1);
+    assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
   }
 
   @Test

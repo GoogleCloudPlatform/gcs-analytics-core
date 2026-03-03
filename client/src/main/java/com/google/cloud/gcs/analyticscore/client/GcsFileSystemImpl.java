@@ -22,6 +22,8 @@ import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OpenTelemetryOptions;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OpenTelemetryReporter;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
@@ -170,6 +172,10 @@ public class GcsFileSystemImpl implements GcsFileSystem {
         .getLoggingTelemetryOptions()
         .filter(LoggingTelemetryOptions::isEnabled)
         .ifPresent(options -> listeners.add(new LoggingTelemetryReporter(options)));
+    telemetryOptions
+        .getOpenTelemetryOptions()
+        .filter(OpenTelemetryOptions::isEnabled)
+        .ifPresent(options -> listeners.add(new OpenTelemetryReporter(options)));
     telemetryOptions
         .getCustomTelemetryOptions()
         .ifPresent(options -> listeners.addAll(options.getOperationListeners()));

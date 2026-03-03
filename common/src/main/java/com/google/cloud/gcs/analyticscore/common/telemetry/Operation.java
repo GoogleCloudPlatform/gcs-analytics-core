@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
+import com.google.common.collect.ImmutableMap;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
@@ -26,7 +27,7 @@ public abstract class Operation {
 
   public abstract String getName();
 
-  public abstract Map<String, String> getAttributes();
+  public abstract ImmutableMap<String, String> getAttributes();
 
   public abstract String getOperationId();
 
