@@ -72,7 +72,7 @@ public class LoggingTelemetryReporter implements OperationListener {
       }
       first = false;
       MetricKey key = entry.getKey();
-      sb.append(key.getName());
+      sb.append(key.getMetric().getName());
       if (key.getAttributes() != null && !key.getAttributes().isEmpty()) {
         sb.append(key.getAttributes());
       }

@@ -224,7 +224,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
     
     MetricKey bytesReadKey =
         capturedReadMetrics.get().keySet().stream()
-            .filter(k -> k.getName().equals("READ_BYTES"))
+            .filter(k -> k.getMetric().getName().equals("READ_BYTES"))
             .findFirst()
             .get();
     assertThat(capturedReadMetrics.get().get(bytesReadKey)).isEqualTo(5L);
