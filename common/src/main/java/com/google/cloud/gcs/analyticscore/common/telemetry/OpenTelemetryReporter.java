@@ -84,15 +84,16 @@ public class OpenTelemetryReporter implements OperationListener {
               .putAll(operationAttributes)
               .putAll(toOpenTelemetryAttributes(metricKey.getAttributes()))
               .build();
-      if (metricKey.getMetricType() == MetricKey.MetricType.DURATION) {
+      if (metricKey.getMetric().getType() == Metric.MetricType.DURATION) {
         LongHistogram histogram =
             histograms.computeIfAbsent(
-                metricKey.getName(), name -> meter.histogramBuilder(name).ofLongs().build());
+                metricKey.getMetric().getName(),
+                name -> meter.histogramBuilder(name).ofLongs().build());
         histogram.record(metricValue, mergedAttributes);
       } else {
         LongCounter counter =
             counters.computeIfAbsent(
-                metricKey.getName(), name -> meter.counterBuilder(name).build());
+                metricKey.getMetric().getName(), name -> meter.counterBuilder(name).build());
         counter.add(metricValue, mergedAttributes);
       }
     }

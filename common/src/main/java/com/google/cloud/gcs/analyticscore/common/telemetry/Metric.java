@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Google LLC
+ * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,14 @@
  */
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
-import java.util.Map;
+/** Represents a metric to be recorded. */
+public interface Metric {
+  enum MetricType {
+    COUNTER,
+    DURATION
+  }
 
-@FunctionalInterface
-public interface MetricsRecorder {
-  /**
-   * Records a metric value with specific attributes.
-   *
-   * @param metric The metric to record
-   * @param value The value to record
-   * @param attributes Contextual tags for the metric
-   */
-  void record(Metric metric, long value, Map<String, String> attributes);
+  String getName();
+
+  MetricType getType();
 }
