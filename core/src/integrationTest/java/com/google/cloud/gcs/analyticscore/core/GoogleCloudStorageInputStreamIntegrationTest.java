@@ -25,6 +25,7 @@ import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemImpl;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
 import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey;
 import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
@@ -224,7 +225,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
     
     MetricKey bytesReadKey =
         capturedReadMetrics.get().keySet().stream()
-            .filter(k -> k.getMetric().getName().equals("READ_BYTES"))
+            .filter(k -> k.getMetric().getName().equals(GcsAnalyticsCoreTelemetryConstants.Metric.READ_BYTES.getName()))
             .findFirst()
             .get();
     assertThat(capturedReadMetrics.get().get(bytesReadKey)).isEqualTo(5L);
