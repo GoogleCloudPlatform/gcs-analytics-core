@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Google LLC
+ * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,28 +16,17 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
-import com.google.common.collect.ImmutableMap;
-import java.util.Collections;
-import java.util.Map;
 
-/** Unique identifier used as a key for metric maps. */
 @AutoValue
-public abstract class MetricKey {
+public abstract class TestMetric implements Metric {
 
-  public abstract Metric getMetric();
-
-  public abstract ImmutableMap<String, String> getAttributes();
-
-  public static Builder builder() {
-    return new AutoValue_MetricKey.Builder().setAttributes(Collections.emptyMap());
+  public static TestMetric of(String name, MetricType type) {
+    return new AutoValue_TestMetric(name, type);
   }
 
-  @AutoValue.Builder
-  public abstract static class Builder {
-    public abstract Builder setMetric(Metric metric);
+  @Override
+  public abstract String getName();
 
-    public abstract Builder setAttributes(Map<String, String> attributes);
-
-    public abstract MetricKey build();
-  }
+  @Override
+  public abstract MetricType getType();
 }
