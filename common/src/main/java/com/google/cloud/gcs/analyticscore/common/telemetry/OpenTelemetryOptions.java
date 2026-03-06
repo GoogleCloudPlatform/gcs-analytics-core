@@ -62,28 +62,31 @@ public abstract class OpenTelemetryOptions {
 
   public static Optional<OpenTelemetryOptions> createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
-    if (!analyticsCoreOptions.containsKey(prefix + OPENTELEMETRY_ENABLED_KEY)
-        && !analyticsCoreOptions.containsKey(prefix + OPENTELEMETRY_PROVIDER_TYPE_KEY)
-        && !analyticsCoreOptions.containsKey(prefix + OPENTELEMETRY_EXPORT_INTERVAL_SECONDS_KEY)) {
+    String enabledStr = analyticsCoreOptions.get(prefix + OPENTELEMETRY_ENABLED_KEY);
+    String providerTypeStr = analyticsCoreOptions.get(prefix + OPENTELEMETRY_PROVIDER_TYPE_KEY);
+    String intervalStr = analyticsCoreOptions.get(prefix + OPENTELEMETRY_EXPORT_INTERVAL_SECONDS_KEY);
+
+    if (enabledStr == null && providerTypeStr == null && intervalStr == null) {
       return Optional.empty();
     }
+
     Builder builder = builder();
-    if (analyticsCoreOptions.containsKey(prefix + OPENTELEMETRY_ENABLED_KEY)) {
-      builder.setEnabled(
-          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + OPENTELEMETRY_ENABLED_KEY)));
+    if (enabledStr != null) {
+      builder.setEnabled(Boolean.parseBoolean(enabledStr));
     }
-    if (analyticsCoreOptions.containsKey(prefix + OPENTELEMETRY_PROVIDER_TYPE_KEY)) {
-      String providerTypeStr = analyticsCoreOptions.get(prefix + OPENTELEMETRY_PROVIDER_TYPE_KEY);
+    if (providerTypeStr != null) {
       try {
         builder.setProviderType(ProviderType.valueOf(providerTypeStr.toUpperCase()));
       } catch (IllegalArgumentException e) {
         LOG.warn("Invalid provider type provided: {}. Using default.", providerTypeStr);
       }
     }
-    if (analyticsCoreOptions.containsKey(prefix + OPENTELEMETRY_EXPORT_INTERVAL_SECONDS_KEY)) {
-      builder.setExportIntervalSeconds(
-          Integer.parseInt(
-              analyticsCoreOptions.get(prefix + OPENTELEMETRY_EXPORT_INTERVAL_SECONDS_KEY)));
+    if (intervalStr != null) {
+      try {
+        builder.setExportIntervalSeconds(Integer.parseInt(intervalStr));
+      } catch (NumberFormatException e) {
+        LOG.warn("Invalid export interval provided: '{}'. Using default.", intervalStr);
+      }
     }
     return Optional.of(builder.build());
   }

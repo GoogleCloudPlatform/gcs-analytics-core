@@ -55,4 +55,19 @@ class LoggingTelemetryOptionsTest {
     assertThat(telemetryOptions.get().getLogLevel())
         .isEqualTo(LoggingTelemetryOptions.LogLevel.ERROR);
   }
+
+  @Test
+  void testCreateFromOptions_WithInvalidLevel_fallsbackToDefaults() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.logging.enabled", "true");
+    options.put("prefix.telemetry.logging.level", "INVALID_LEVEL");
+
+    Optional<LoggingTelemetryOptions> telemetryOptions =
+        LoggingTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isPresent();
+    assertThat(telemetryOptions.get().isEnabled()).isTrue();
+    assertThat(telemetryOptions.get().getLogLevel())
+        .isEqualTo(LoggingTelemetryOptions.LogLevel.DEBUG);
+  }
 }

@@ -88,4 +88,21 @@ class OpenTelemetryOptionsTest {
         .isEqualTo(OpenTelemetryOptions.ProviderType.PRE_CONFIGURED);
     assertThat(telemetryOptions.get().getExportIntervalSeconds()).isEqualTo(120);
   }
+
+  @Test
+  void testCreateFromOptions_WithInvalidValues_fallsbackToDefaults() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.opentelemetry.enabled", "true");
+    options.put("prefix.telemetry.opentelemetry.provider-type", "INVALID_PROVIDER");
+    options.put("prefix.telemetry.opentelemetry.export-interval-seconds", "not-a-number");
+
+    Optional<OpenTelemetryOptions> telemetryOptions =
+        OpenTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isPresent();
+    assertThat(telemetryOptions.get().isEnabled()).isTrue();
+    assertThat(telemetryOptions.get().getProviderType())
+        .isEqualTo(OpenTelemetryOptions.ProviderType.GLOBAL);
+    assertThat(telemetryOptions.get().getExportIntervalSeconds()).isEqualTo(60);
+  }
 }
