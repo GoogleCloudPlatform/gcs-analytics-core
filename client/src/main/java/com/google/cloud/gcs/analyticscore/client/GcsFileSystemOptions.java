@@ -63,6 +63,8 @@ public abstract class GcsFileSystemOptions {
     }
     optionsBuilder.setGcsClientOptions(
         GcsClientOptions.createFromOptions(analyticsCoreOptions, prefix));
+    optionsBuilder.setAnalyticsCoreTelemetryOptions(
+        TelemetryOptions.createFromOptions(analyticsCoreOptions, prefix));
 
     return optionsBuilder.build();
   }
