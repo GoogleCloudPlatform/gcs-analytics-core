@@ -16,10 +16,15 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
+import java.util.Map;
+import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Options for Logging Telemetry. */
 @AutoValue
 public abstract class LoggingTelemetryOptions {
+  private static final Logger LOG = LoggerFactory.getLogger(LoggingTelemetryOptions.class);
 
   public enum LogLevel {
     TRACE,
@@ -33,10 +38,36 @@ public abstract class LoggingTelemetryOptions {
 
   public abstract boolean isEnabled();
 
+  private static final String LOGGING_TELEMETRY_ENABLED_KEY = "telemetry.logging.enabled";
+  private static final String LOGGING_TELEMETRY_LEVEL_KEY = "telemetry.logging.level";
+
   public static Builder builder() {
     return new AutoValue_LoggingTelemetryOptions.Builder()
         .setEnabled(false)
         .setLogLevel(LogLevel.DEBUG);
+  }
+
+  public static Optional<LoggingTelemetryOptions> createFromOptions(
+      Map<String, String> analyticsCoreOptions, String prefix) {
+    String enabled = analyticsCoreOptions.get(prefix + LOGGING_TELEMETRY_ENABLED_KEY);
+    String level = analyticsCoreOptions.get(prefix + LOGGING_TELEMETRY_LEVEL_KEY);
+
+    if (enabled == null && level == null) {
+      return Optional.empty();
+    }
+
+    Builder builder = builder();
+    if (enabled != null) {
+      builder.setEnabled(Boolean.parseBoolean(enabled));
+    }
+    if (level != null) {
+      try {
+        builder.setLogLevel(LogLevel.valueOf(level.toUpperCase()));
+      } catch (IllegalArgumentException e) {
+        LOG.warn("Invalid log level provided: {}. Using default.", level);
+      }
+    }
+    return Optional.of(builder.build());
   }
 
   public abstract Builder toBuilder();

@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
+import java.util.Map;
 import java.util.Optional;
 
 /** Options for Telemetry. */
@@ -30,6 +31,19 @@ public abstract class TelemetryOptions {
 
   public static Builder builder() {
     return new AutoValue_TelemetryOptions.Builder();
+  }
+
+  public static TelemetryOptions createFromOptions(
+      Map<String, String> analyticsCoreOptions, String prefix) {
+    TelemetryOptions.Builder optionsBuilder = builder();
+
+    LoggingTelemetryOptions.createFromOptions(analyticsCoreOptions, prefix)
+        .ifPresent(optionsBuilder::setLoggingTelemetryOptions);
+
+    OpenTelemetryOptions.createFromOptions(analyticsCoreOptions, prefix)
+        .ifPresent(optionsBuilder::setOpenTelemetryOptions);
+
+    return optionsBuilder.build();
   }
 
   @AutoValue.Builder

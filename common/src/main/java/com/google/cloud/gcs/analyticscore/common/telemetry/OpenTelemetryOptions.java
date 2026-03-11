@@ -17,11 +17,15 @@ package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
 import io.opentelemetry.api.OpenTelemetry;
+import java.util.Map;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Options for OpenTelemetry integration. */
 @AutoValue
 public abstract class OpenTelemetryOptions {
+  private static final Logger LOG = LoggerFactory.getLogger(OpenTelemetryOptions.class);
 
   /** Types of OpenTelemetry Metric Providers that can be specified by the user. */
   public enum ProviderType {
@@ -43,11 +47,49 @@ public abstract class OpenTelemetryOptions {
 
   public abstract int getExportIntervalSeconds();
 
+  private static final String OPENTELEMETRY_ENABLED_KEY = "telemetry.opentelemetry.enabled";
+  private static final String OPENTELEMETRY_PROVIDER_TYPE_KEY =
+      "telemetry.opentelemetry.provider-type";
+  private static final String OPENTELEMETRY_EXPORT_INTERVAL_SECONDS_KEY =
+      "telemetry.opentelemetry.export-interval-seconds";
+
   public static Builder builder() {
     return new AutoValue_OpenTelemetryOptions.Builder()
         .setEnabled(false)
         .setExportIntervalSeconds(60)
         .setProviderType(ProviderType.GLOBAL);
+  }
+
+  public static Optional<OpenTelemetryOptions> createFromOptions(
+      Map<String, String> analyticsCoreOptions, String prefix) {
+    String enabled = analyticsCoreOptions.get(prefix + OPENTELEMETRY_ENABLED_KEY);
+    String provider = analyticsCoreOptions.get(prefix + OPENTELEMETRY_PROVIDER_TYPE_KEY);
+    String exportIntervalSeconds =
+        analyticsCoreOptions.get(prefix + OPENTELEMETRY_EXPORT_INTERVAL_SECONDS_KEY);
+
+    if (enabled == null && provider == null && exportIntervalSeconds == null) {
+      return Optional.empty();
+    }
+
+    Builder builder = builder();
+    if (enabled != null) {
+      builder.setEnabled(Boolean.parseBoolean(enabled));
+    }
+    if (provider != null) {
+      try {
+        builder.setProviderType(ProviderType.valueOf(provider.toUpperCase()));
+      } catch (IllegalArgumentException e) {
+        LOG.warn("Invalid provider type provided: {}. Using default.", provider);
+      }
+    }
+    if (exportIntervalSeconds != null) {
+      try {
+        builder.setExportIntervalSeconds(Integer.parseInt(exportIntervalSeconds));
+      } catch (NumberFormatException e) {
+        LOG.warn("Invalid export interval provided: '{}'. Using default.", exportIntervalSeconds);
+      }
+    }
+    return Optional.of(builder.build());
   }
 
   @AutoValue.Builder
