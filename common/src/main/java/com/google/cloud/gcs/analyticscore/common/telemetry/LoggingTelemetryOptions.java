@@ -49,22 +49,22 @@ public abstract class LoggingTelemetryOptions {
 
   public static Optional<LoggingTelemetryOptions> createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
-    String enabledStr = analyticsCoreOptions.get(prefix + LOGGING_TELEMETRY_ENABLED_KEY);
-    String levelStr = analyticsCoreOptions.get(prefix + LOGGING_TELEMETRY_LEVEL_KEY);
+    String enabled = analyticsCoreOptions.get(prefix + LOGGING_TELEMETRY_ENABLED_KEY);
+    String level = analyticsCoreOptions.get(prefix + LOGGING_TELEMETRY_LEVEL_KEY);
 
-    if (enabledStr == null && levelStr == null) {
+    if (enabled == null && level == null) {
       return Optional.empty();
     }
 
     Builder builder = builder();
-    if (enabledStr != null) {
-      builder.setEnabled(Boolean.parseBoolean(enabledStr));
+    if (enabled != null) {
+      builder.setEnabled(Boolean.parseBoolean(enabled));
     }
-    if (levelStr != null) {
+    if (level != null) {
       try {
-        builder.setLogLevel(LogLevel.valueOf(levelStr.toUpperCase()));
+        builder.setLogLevel(LogLevel.valueOf(level.toUpperCase()));
       } catch (IllegalArgumentException e) {
-        LOG.warn("Invalid log level provided: {}. Using default.", levelStr);
+        LOG.warn("Invalid log level provided: {}. Using default.", level);
       }
     }
     return Optional.of(builder.build());

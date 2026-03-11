@@ -23,16 +23,7 @@ import org.openjdk.jmh.annotations.State;
 @State(Scope.Benchmark)
 public class TelemetryBenchmarkState {
 
-    public enum TelemetryProfile {
-        DISABLED,
-        LOGGING,
-        OPENTELEMETRY,
-        CUSTOM
-    }
-
-    @Param({"DISABLED", "LOGGING", "OPENTELEMETRY", "CUSTOM"})
-    public TelemetryProfile telemetryProfile;
-
-    @Param({"true"})
-    public boolean enableVectoredRead;
+    @Param({"true", "false"})
+    public boolean enableTelemetry;
+    
 }

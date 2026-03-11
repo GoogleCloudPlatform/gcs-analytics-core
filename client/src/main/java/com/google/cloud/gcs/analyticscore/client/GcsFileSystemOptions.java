@@ -63,8 +63,9 @@ public abstract class GcsFileSystemOptions {
     }
     optionsBuilder.setGcsClientOptions(
         GcsClientOptions.createFromOptions(analyticsCoreOptions, prefix));
+    // Analytics Core telemetry options are prefixed with "analytics-core."
     optionsBuilder.setAnalyticsCoreTelemetryOptions(
-        TelemetryOptions.createFromOptions(analyticsCoreOptions, prefix));
+        TelemetryOptions.createFromOptions(analyticsCoreOptions, prefix + "analytics-core."));
 
     return optionsBuilder.build();
   }

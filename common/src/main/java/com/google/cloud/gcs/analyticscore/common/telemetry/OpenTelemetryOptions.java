@@ -62,30 +62,31 @@ public abstract class OpenTelemetryOptions {
 
   public static Optional<OpenTelemetryOptions> createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
-    String enabledStr = analyticsCoreOptions.get(prefix + OPENTELEMETRY_ENABLED_KEY);
-    String providerTypeStr = analyticsCoreOptions.get(prefix + OPENTELEMETRY_PROVIDER_TYPE_KEY);
-    String intervalStr = analyticsCoreOptions.get(prefix + OPENTELEMETRY_EXPORT_INTERVAL_SECONDS_KEY);
+    String enabled = analyticsCoreOptions.get(prefix + OPENTELEMETRY_ENABLED_KEY);
+    String provider = analyticsCoreOptions.get(prefix + OPENTELEMETRY_PROVIDER_TYPE_KEY);
+    String exportIntervalSeconds =
+        analyticsCoreOptions.get(prefix + OPENTELEMETRY_EXPORT_INTERVAL_SECONDS_KEY);
 
-    if (enabledStr == null && providerTypeStr == null && intervalStr == null) {
+    if (enabled == null && provider == null && exportIntervalSeconds == null) {
       return Optional.empty();
     }
 
     Builder builder = builder();
-    if (enabledStr != null) {
-      builder.setEnabled(Boolean.parseBoolean(enabledStr));
+    if (enabled != null) {
+      builder.setEnabled(Boolean.parseBoolean(enabled));
     }
-    if (providerTypeStr != null) {
+    if (provider != null) {
       try {
-        builder.setProviderType(ProviderType.valueOf(providerTypeStr.toUpperCase()));
+        builder.setProviderType(ProviderType.valueOf(provider.toUpperCase()));
       } catch (IllegalArgumentException e) {
-        LOG.warn("Invalid provider type provided: {}. Using default.", providerTypeStr);
+        LOG.warn("Invalid provider type provided: {}. Using default.", provider);
       }
     }
-    if (intervalStr != null) {
+    if (exportIntervalSeconds != null) {
       try {
-        builder.setExportIntervalSeconds(Integer.parseInt(intervalStr));
+        builder.setExportIntervalSeconds(Integer.parseInt(exportIntervalSeconds));
       } catch (NumberFormatException e) {
-        LOG.warn("Invalid export interval provided: '{}'. Using default.", intervalStr);
+        LOG.warn("Invalid export interval provided: '{}'. Using default.", exportIntervalSeconds);
       }
     }
     return Optional.of(builder.build());
