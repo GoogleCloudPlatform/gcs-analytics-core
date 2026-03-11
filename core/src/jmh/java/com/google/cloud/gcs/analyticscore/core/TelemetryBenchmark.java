@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableList;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
+import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
@@ -44,7 +45,7 @@ import java.util.concurrent.TimeUnit;
 @State(Scope.Benchmark)
 public class TelemetryBenchmark {
 
-    @Setup(org.openjdk.jmh.annotations.Level.Trial)
+    @Setup(Level.Trial)
     public void uploadSampleFiles() throws IOException {
         IntegrationTestHelper.uploadSampleParquetFilesIfNotExists();
     }
@@ -61,20 +62,15 @@ public class TelemetryBenchmark {
     @Warmup(iterations = 5, time = 1)
     @Measurement(iterations = 10, time = 1)
     @Fork(value = 2, warmups = 1)
-    public long openTelemetryWithPeriodicLoggingProvider(TelemetryBenchmarkState state) throws IOException {
-        TelemetryOptions.Builder telemetryOptionsBuilder = TelemetryOptions.builder();
-        if (state.enableTelemetry) {
-            telemetryOptionsBuilder.setOpenTelemetryOptions(
-                    OpenTelemetryOptions.builder()
-                            .setEnabled(true)
-                            .setProviderType(OpenTelemetryOptions.ProviderType.LOGGING)
-                            .build());
-        }
-        GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.builder()
-                .setAnalyticsCoreTelemetryOptions(telemetryOptionsBuilder.build())
+    public long openTelemetryWithPeriodicLoggingProvider() throws IOException {
+        TelemetryOptions telemetryOptions = TelemetryOptions.builder()
+                .setOpenTelemetryOptions(
+                        OpenTelemetryOptions.builder()
+                                .setEnabled(true)
+                                .setProviderType(OpenTelemetryOptions.ProviderType.LOGGING)
+                                .build())
                 .build();
-        URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE);
-        return ParquetHelper.readParquetObjectRecords(uri, REQUESTED_SCHEMA, true, gcsFileSystemOptions);
+        return readParquetObjectRecordsWithTelemetry(telemetryOptions);
     }
 
     @Benchmark
@@ -83,20 +79,15 @@ public class TelemetryBenchmark {
     @Warmup(iterations = 5, time = 1)
     @Measurement(iterations = 10, time = 1)
     @Fork(value = 2, warmups = 1)
-    public long loggingTelemetry(TelemetryBenchmarkState state) throws IOException {
-        TelemetryOptions.Builder telemetryOptionsBuilder = TelemetryOptions.builder();
-        if (state.enableTelemetry) {
-            telemetryOptionsBuilder.setLoggingTelemetryOptions(
-                    LoggingTelemetryOptions.builder()
-                            .setEnabled(true)
-                            .setLogLevel(LoggingTelemetryOptions.LogLevel.INFO)
-                            .build());
-        }
-        GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.builder()
-                .setAnalyticsCoreTelemetryOptions(telemetryOptionsBuilder.build())
+    public long loggingTelemetry() throws IOException {
+        TelemetryOptions telemetryOptions = TelemetryOptions.builder()
+                .setLoggingTelemetryOptions(
+                        LoggingTelemetryOptions.builder()
+                                .setEnabled(true)
+                                .setLogLevel(LoggingTelemetryOptions.LogLevel.INFO)
+                                .build())
                 .build();
-        URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE);
-        return ParquetHelper.readParquetObjectRecords(uri, REQUESTED_SCHEMA, true, gcsFileSystemOptions);
+        return readParquetObjectRecordsWithTelemetry(telemetryOptions);
     }
 
     @Benchmark
@@ -105,25 +96,38 @@ public class TelemetryBenchmark {
     @Warmup(iterations = 5, time = 1)
     @Measurement(iterations = 10, time = 1)
     @Fork(value = 2, warmups = 1)
-    public long customTelemetry(TelemetryBenchmarkState state) throws IOException {
-        TelemetryOptions.Builder telemetryOptionsBuilder = TelemetryOptions.builder();
-        if (state.enableTelemetry) {
-            telemetryOptionsBuilder.setCustomTelemetryOptions(
-                    CustomTelemetryOptions.builder()
-                            .setOperationListeners(
-                                    ImmutableList.of(
-                                            new OperationListener() {
-                                                @Override
-                                                public void onOperationStart(Operation operation) {}
+    public long customTelemetry() throws IOException {
+        TelemetryOptions telemetryOptions = TelemetryOptions.builder()
+                .setCustomTelemetryOptions(
+                        CustomTelemetryOptions.builder()
+                                .setOperationListeners(
+                                        ImmutableList.of(
+                                                new OperationListener() {
+                                                    @Override
+                                                    public void onOperationStart(Operation operation) {}
 
-                                                @Override
-                                                public void onOperationEnd(
-                                                        Operation operation, Map<MetricKey, Long> metrics) {}
-                                            }))
-                            .build());
-        }
+                                                    @Override
+                                                    public void onOperationEnd(
+                                                            Operation operation, Map<MetricKey, Long> metrics) {}
+                                                }))
+                                .build())
+                .build();
+        return readParquetObjectRecordsWithTelemetry(telemetryOptions);
+    }
+
+    @Benchmark
+    @BenchmarkMode(Mode.AverageTime)
+    @OutputTimeUnit(TimeUnit.MILLISECONDS)
+    @Warmup(iterations = 5, time = 1)
+    @Measurement(iterations = 10, time = 1)
+    @Fork(value = 2, warmups = 1)
+    public long noTelemetry() throws IOException {
+        return readParquetObjectRecordsWithTelemetry(TelemetryOptions.builder().build());
+    }
+
+    private long readParquetObjectRecordsWithTelemetry(TelemetryOptions telemetryOptions) throws IOException {
         GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.builder()
-                .setAnalyticsCoreTelemetryOptions(telemetryOptionsBuilder.build())
+                .setAnalyticsCoreTelemetryOptions(telemetryOptions)
                 .build();
         URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE);
         return ParquetHelper.readParquetObjectRecords(uri, REQUESTED_SCHEMA, true, gcsFileSystemOptions);
