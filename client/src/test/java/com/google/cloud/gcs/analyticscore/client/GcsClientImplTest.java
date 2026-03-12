@@ -209,13 +209,25 @@ class GcsClientImplTest {
         .hasMessageThat()
         .isEqualTo("Expected GCS object to be provided. But got: " + directoryItemId);
   }
-
   @Test
-  void computeUserAgent_prependsPrefix() {
+  void computeUserAgent_noOptionalUserAgent() {
     GcsClientImpl client = new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier);
     String userAgent = client.computeUserAgent();
 
-    assertThat(userAgent).startsWith("gcs-analytics-core/");
+    assertThat(userAgent).matches("gcs-analytics-core/.+");
+  }
+
+  @Test
+  void computeUserAgent_withOptionalUserAgent() {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId("test-project")
+            .setUserAgent("custom-app/1.0")
+            .build();
+    GcsClientImpl client = new GcsClientImpl(options, executorServiceSupplier);
+    String userAgent = client.computeUserAgent();
+
+    assertThat(userAgent).matches("gcs-analytics-core/.+ custom-app/1.0");
   }
 
   @Test

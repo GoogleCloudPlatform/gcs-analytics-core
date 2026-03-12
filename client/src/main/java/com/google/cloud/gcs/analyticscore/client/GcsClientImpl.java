@@ -26,8 +26,10 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -119,19 +121,28 @@ class GcsClientImpl implements GcsClient {
     return builder.build().getService();
   }
 
-  private String getVersion() {
-    String version = "unknown";
-    try (java.io.InputStream stream = GcsClientImpl.class.getResourceAsStream(
-        "/META-INF/maven/com.google.cloud.gcs.analytics/client/pom.properties")) {
-      if (stream != null) {
-        java.util.Properties properties = new java.util.Properties();
-        properties.load(stream);
-        version = properties.getProperty("version", "unknown");
+  private static class VersionHolder {
+    static final String VERSION = loadVersion();
+
+    private static String loadVersion() {
+      String version = "unknown";
+      try (InputStream stream =
+          GcsClientImpl.class.getResourceAsStream(
+              "/META-INF/maven/com.google.cloud.gcs.analytics/client/pom.properties")) {
+        if (stream != null) {
+          Properties properties = new Properties();
+          properties.load(stream);
+          version = properties.getProperty("version", "unknown");
+        }
+      } catch (IOException e) {
+        LOG.warn("Failed to load client version", e);
       }
-    } catch (IOException e) {
-      LOG.warn("Failed to load client version", e);
+      return version;
     }
-    return version;
+  }
+
+  private String getVersion() {
+    return VersionHolder.VERSION;
   }
 
   @VisibleForTesting
