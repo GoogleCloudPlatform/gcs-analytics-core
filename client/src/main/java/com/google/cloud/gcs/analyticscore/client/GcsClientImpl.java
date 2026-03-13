@@ -26,10 +26,8 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.List;
 import java.util.Optional;
-import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -110,9 +108,9 @@ class GcsClientImpl implements GcsClient {
   @VisibleForTesting
   protected Storage createStorage(Optional<Credentials> credentials) {
     StorageOptions.Builder builder = StorageOptions.newBuilder();
-    String userAgent = computeUserAgent();
+    String userAgent = getUserAgent();
     builder.setHeaderProvider(
-        FixedHeaderProvider.create(ImmutableMap.of("User-agent", userAgent)));
+        FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
@@ -121,32 +119,12 @@ class GcsClientImpl implements GcsClient {
     return builder.build().getService();
   }
 
-  private static class VersionHolder {
-    static final String VERSION = loadVersion();
-
-    private static String loadVersion() {
-      String version = "unknown";
-      try (InputStream stream =
-          GcsClientImpl.class.getResourceAsStream(
-              "/META-INF/maven/com.google.cloud.gcs.analytics/client/pom.properties")) {
-        if (stream != null) {
-          Properties properties = new Properties();
-          properties.load(stream);
-          version = properties.getProperty("version", "unknown");
-        }
-      } catch (IOException e) {
-        LOG.warn("Failed to load client version", e);
-      }
-      return version;
-    }
-  }
-
   private String getVersion() {
-    return VersionHolder.VERSION;
+    return VersionHelper.VERSION;
   }
 
   @VisibleForTesting
-  String computeUserAgent() {
+  String getUserAgent() {
     return USER_AGENT_PREFIX + getVersion()
         + clientOptions.getUserAgent().map(agent -> " " + agent).orElse("");
   }

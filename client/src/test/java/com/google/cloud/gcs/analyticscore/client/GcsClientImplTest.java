@@ -210,24 +210,25 @@ class GcsClientImplTest {
         .isEqualTo("Expected GCS object to be provided. But got: " + directoryItemId);
   }
   @Test
-  void computeUserAgent_noOptionalUserAgent() {
+  void getUserAgent_noOptionalUserAgent() {
     GcsClientImpl client = new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier);
-    String userAgent = client.computeUserAgent();
+    String userAgent = client.getUserAgent();
 
-    assertThat(userAgent).matches("gcs-analytics-core/.+");
+    assertThat(userAgent).isEqualTo("gcs-analytics-core/" + VersionHelper.VERSION);
   }
 
   @Test
-  void computeUserAgent_withOptionalUserAgent() {
+  void getUserAgent_withOptionalUserAgent() {
     GcsClientOptions options =
         GcsClientOptions.builder()
             .setProjectId("test-project")
             .setUserAgent("custom-app/1.0")
             .build();
     GcsClientImpl client = new GcsClientImpl(options, executorServiceSupplier);
-    String userAgent = client.computeUserAgent();
+    String userAgent = client.getUserAgent();
 
-    assertThat(userAgent).matches("gcs-analytics-core/.+ custom-app/1.0");
+    assertThat(userAgent)
+        .isEqualTo("gcs-analytics-core/" + VersionHelper.VERSION + " custom-app/1.0");
   }
 
   @Test
