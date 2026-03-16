@@ -36,8 +36,13 @@ final class VersionHelper {
 
   private VersionHelper() {}
 
+  @VisibleForTesting
+  static InputStream getResourceAsStream(String pomPath) {
+    return VersionHelper.class.getResourceAsStream(pomPath);
+  }
+
   static String loadVersion(String pomPath) {
-    try (InputStream stream = VersionHelper.class.getResourceAsStream(pomPath)) {
+    try (InputStream stream = getResourceAsStream(pomPath)) {
       return loadVersion(stream);
     } catch (IOException e) {
       LOG.warn("Failed to close or access resource stream", e);

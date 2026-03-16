@@ -16,11 +16,19 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 class VersionHelperTest {
 
@@ -36,5 +44,28 @@ class VersionHelperTest {
   void loadVersion_nullStream_returnsDefault() {
     String version = VersionHelper.loadVersion((InputStream) null);
     assertThat(version).isEqualTo(VersionHelper.DEFAULT_VERSION);
+  }
+
+  @Test
+  void loadVersion_ioExceptionOnRead_returnsDefault() throws IOException {
+    InputStream mockStream = mock(InputStream.class);
+    when(mockStream.read(any(byte[].class))).thenThrow(new IOException("test exception"));
+    String version = VersionHelper.loadVersion(mockStream);
+    assertThat(version).isEqualTo(VersionHelper.DEFAULT_VERSION);
+  }
+
+  @Test
+  void loadVersion_ioExceptionOnClose_returnsDefault() throws IOException {
+    try (MockedStatic<VersionHelper> mockedVersionHelper = mockStatic(VersionHelper.class)) {
+      InputStream mockStream = mock(InputStream.class);
+      doThrow(new IOException("test close exception")).when(mockStream).close();
+      
+      mockedVersionHelper.when(() -> VersionHelper.getResourceAsStream(anyString())).thenReturn(mockStream);
+      mockedVersionHelper.when(() -> VersionHelper.loadVersion(anyString())).thenCallRealMethod();
+      mockedVersionHelper.when(() -> VersionHelper.loadVersion(any(InputStream.class))).thenCallRealMethod();
+
+      String version = VersionHelper.loadVersion("dummyPath");
+      assertThat(version).isEqualTo(VersionHelper.DEFAULT_VERSION);
+    }
   }
 }
