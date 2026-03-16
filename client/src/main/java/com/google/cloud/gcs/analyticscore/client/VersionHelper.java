@@ -20,25 +20,42 @@ import java.io.InputStream;
 import java.util.Properties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.google.common.annotations.VisibleForTesting;
 
 final class VersionHelper {
   private static final Logger LOG = LoggerFactory.getLogger(VersionHelper.class);
-  static final String VERSION = loadVersion();
+  
+  @VisibleForTesting
+  static final String PACKAGE_POM_PATH =
+      "/META-INF/maven/com.google.cloud.gcs.analytics/client/pom.properties";
+  
+  @VisibleForTesting
+  static final String DEFAULT_VERSION = "unknown";
+
+  static final String VERSION = loadVersion(PACKAGE_POM_PATH);
 
   private VersionHelper() {}
 
-  private static String loadVersion() {
-    String version = "unknown";
-    try (InputStream stream =
-        VersionHelper.class.getResourceAsStream(
-            "/META-INF/maven/com.google.cloud.gcs.analytics/client/pom.properties")) {
-      if (stream != null) {
+  static String loadVersion(String pomPath) {
+    try (InputStream stream = VersionHelper.class.getResourceAsStream(pomPath)) {
+      return loadVersion(stream);
+    } catch (IOException e) {
+      LOG.warn("Failed to close or access resource stream", e);
+      return DEFAULT_VERSION;
+    }
+  }
+
+  @VisibleForTesting
+  static String loadVersion(InputStream stream) {
+    String version = DEFAULT_VERSION;
+    if (stream != null) {
+      try {
         Properties properties = new Properties();
         properties.load(stream);
-        version = properties.getProperty("version", "unknown");
+        version = properties.getProperty("version", DEFAULT_VERSION);
+      } catch (IOException e) {
+        LOG.warn("Failed to load client version", e);
       }
-    } catch (IOException e) {
-      LOG.warn("Failed to load client version", e);
     }
     return version;
   }

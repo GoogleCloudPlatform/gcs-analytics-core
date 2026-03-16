@@ -213,7 +213,6 @@ class GcsClientImplTest {
   void getUserAgent_noOptionalUserAgent() {
     GcsClientImpl client = new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier);
     String userAgent = client.getUserAgent();
-
     assertThat(userAgent).isEqualTo("gcs-analytics-core/" + VersionHelper.VERSION);
   }
 
@@ -226,7 +225,6 @@ class GcsClientImplTest {
             .build();
     GcsClientImpl client = new GcsClientImpl(options, executorServiceSupplier);
     String userAgent = client.getUserAgent();
-
     assertThat(userAgent)
         .isEqualTo("gcs-analytics-core/" + VersionHelper.VERSION + " custom-app/1.0");
   }
@@ -236,7 +234,6 @@ class GcsClientImplTest {
     GcsClientImpl client =
         new GcsClientImpl(
             NoCredentials.getInstance(), TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier);
-
     assertThat(client.storage.getOptions().getCredentials()).isEqualTo(NoCredentials.getInstance());
   }
 
