@@ -32,17 +32,17 @@ final class VersionHelper {
   @VisibleForTesting
   static final String DEFAULT_VERSION = "unknown";
 
-  static final String VERSION = loadVersion(PACKAGE_POM_PATH);
+  static final String VERSION = loadVersion();
 
   private VersionHelper() {}
 
   @VisibleForTesting
-  static InputStream getResourceAsStream(String pomPath) {
-    return VersionHelper.class.getResourceAsStream(pomPath);
+  static InputStream openPomFileInputStream() {
+    return VersionHelper.class.getResourceAsStream(PACKAGE_POM_PATH);
   }
 
-  static String loadVersion(String pomPath) {
-    try (InputStream stream = getResourceAsStream(pomPath)) {
+  static String loadVersion() {
+    try (InputStream stream = openPomFileInputStream()) {
       return loadVersion(stream);
     } catch (IOException e) {
       LOG.warn("Failed to close or access resource stream", e);

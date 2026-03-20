@@ -17,7 +17,6 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -60,11 +59,11 @@ class VersionHelperTest {
       InputStream mockStream = mock(InputStream.class);
       doThrow(new IOException("test close exception")).when(mockStream).close();
       
-      mockedVersionHelper.when(() -> VersionHelper.getResourceAsStream(anyString())).thenReturn(mockStream);
-      mockedVersionHelper.when(() -> VersionHelper.loadVersion(anyString())).thenCallRealMethod();
+      mockedVersionHelper.when(() -> VersionHelper.openPomFileInputStream()).thenReturn(mockStream);
+      mockedVersionHelper.when(() -> VersionHelper.loadVersion()).thenCallRealMethod();
       mockedVersionHelper.when(() -> VersionHelper.loadVersion(any(InputStream.class))).thenCallRealMethod();
 
-      String version = VersionHelper.loadVersion("dummyPath");
+      String version = VersionHelper.loadVersion();
       assertThat(version).isEqualTo(VersionHelper.DEFAULT_VERSION);
     }
   }
