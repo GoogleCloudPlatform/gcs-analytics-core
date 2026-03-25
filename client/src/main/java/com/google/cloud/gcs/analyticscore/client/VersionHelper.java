@@ -52,16 +52,16 @@ final class VersionHelper {
 
   @VisibleForTesting
   static String loadVersion(InputStream stream) {
-    String version = DEFAULT_VERSION;
-    if (stream != null) {
-      try {
-        Properties properties = new Properties();
-        properties.load(stream);
-        version = properties.getProperty("version", DEFAULT_VERSION);
-      } catch (IOException e) {
-        LOG.warn("Failed to load client version", e);
-      }
+    if (stream == null) {
+      return DEFAULT_VERSION;
     }
-    return version;
+    try {
+      Properties properties = new Properties();
+      properties.load(stream);
+      return properties.getProperty("version", DEFAULT_VERSION);
+    } catch (IOException e) {
+      LOG.warn("Failed to load client version", e);
+    }
+    return DEFAULT_VERSION;
   }
 }
