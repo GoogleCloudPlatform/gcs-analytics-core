@@ -24,8 +24,7 @@ import com.google.common.annotations.VisibleForTesting;
 
 final class VersionHelper {
   private static final Logger LOG = LoggerFactory.getLogger(VersionHelper.class);
-  
-  @VisibleForTesting
+
   static final String PACKAGE_POM_PATH =
       "/META-INF/maven/com.google.cloud.gcs.analytics/client/pom.properties";
   
