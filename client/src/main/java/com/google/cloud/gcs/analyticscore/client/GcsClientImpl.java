@@ -41,6 +41,7 @@ class GcsClientImpl implements GcsClient {
   private static final Logger LOG = LoggerFactory.getLogger(GcsClientImpl.class);
   private static final List<Storage.BlobField> BLOB_METADATA_FIELDS =
       ImmutableList.of(Storage.BlobField.GENERATION, Storage.BlobField.SIZE);
+  private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
 
   @VisibleForTesting Storage storage;
   private final GcsClientOptions clientOptions;
@@ -125,18 +126,25 @@ class GcsClientImpl implements GcsClient {
   @VisibleForTesting
   protected Storage createStorage(Optional<Credentials> credentials) {
     StorageOptions.Builder builder = StorageOptions.newBuilder();
-    clientOptions
-        .getUserAgent()
-        .ifPresent(
-            userAgent ->
-                builder.setHeaderProvider(
-                    FixedHeaderProvider.create(ImmutableMap.of("User-agent", userAgent))));
+    String userAgent = getUserAgent();
+    builder.setHeaderProvider(
+        FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
     credentials.ifPresent(builder::setCredentials);
 
     return builder.build().getService();
+  }
+
+  private String getVersion() {
+    return VersionHelper.VERSION;
+  }
+
+  @VisibleForTesting
+  String getUserAgent() {
+    return USER_AGENT_PREFIX + getVersion()
+        + clientOptions.getUserAgent().map(agent -> " " + agent).orElse("");
   }
 
   private GcsItemInfo getGcsObjectInfo(GcsItemId itemId) throws IOException {
