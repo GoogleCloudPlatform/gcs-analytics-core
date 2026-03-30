@@ -212,6 +212,25 @@ class GcsClientImplTest {
         .hasMessageThat()
         .isEqualTo("Expected GCS object to be provided. But got: " + directoryItemId);
   }
+  @Test
+  void getUserAgent_noOptionalUserAgent() {
+    GcsClientImpl client = new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    String userAgent = client.getUserAgent();
+    assertThat(userAgent).isEqualTo("gcs-analytics-core/" + VersionHelper.VERSION);
+  }
+
+  @Test
+  void getUserAgent_withOptionalUserAgent() {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId("test-project")
+            .setUserAgent("custom-app/1.0")
+            .build();
+    GcsClientImpl client = new GcsClientImpl(options, executorServiceSupplier, telemetry);
+    String userAgent = client.getUserAgent();
+    assertThat(userAgent)
+        .isEqualTo("gcs-analytics-core/" + VersionHelper.VERSION + " custom-app/1.0");
+  }
 
   @Test
   void createStore_withCredentials_usesProvidedCredentials() throws IOException {
@@ -221,7 +240,6 @@ class GcsClientImplTest {
             TEST_GCS_CLIENT_OPTIONS,
             executorServiceSupplier,
             telemetry);
-
     assertThat(client.storage.getOptions().getCredentials()).isEqualTo(NoCredentials.getInstance());
   }
 
