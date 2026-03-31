@@ -20,7 +20,12 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.auth.Credentials;
-import com.google.cloud.storage.*;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageException;
+import com.google.cloud.storage.StorageOptions;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -41,20 +46,32 @@ class GcsClientImpl implements GcsClient {
   @VisibleForTesting Storage storage;
   private final GcsClientOptions clientOptions;
   private Supplier<ExecutorService> executorServiceSupplier;
+  private final Telemetry telemetry;
 
   GcsClientImpl(
       Credentials credentials,
       GcsClientOptions clientOptions,
-      Supplier<ExecutorService> executorServiceSupplier) {
-    this.clientOptions = clientOptions;
-    this.storage = createStorage(Optional.of(credentials));
-    this.executorServiceSupplier = executorServiceSupplier;
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry) {
+    this(Optional.of(credentials), clientOptions, executorServiceSupplier, telemetry);
   }
 
-  GcsClientImpl(GcsClientOptions clientOptions, Supplier<ExecutorService> executorServiceSupplier) {
+  GcsClientImpl(
+      GcsClientOptions clientOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry) {
+    this(Optional.empty(), clientOptions, executorServiceSupplier, telemetry);
+  }
+
+  private GcsClientImpl(
+      Optional<Credentials> credentials,
+      GcsClientOptions clientOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry) {
     this.clientOptions = clientOptions;
-    this.storage = createStorage(Optional.empty());
     this.executorServiceSupplier = executorServiceSupplier;
+    this.telemetry = telemetry;
+    this.storage = createStorage(credentials);
   }
 
   @Override
@@ -66,7 +83,8 @@ class GcsClientImpl implements GcsClient {
         gcsItemInfo.getItemId().isGcsObject(),
         "Expected GCS object to be provided. But got: " + gcsItemInfo.getItemId());
 
-    return new GcsReadChannel(storage, gcsItemInfo, readOptions, executorServiceSupplier);
+    return new GcsReadChannel(
+        storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
   }
 
   @Override
@@ -74,7 +92,7 @@ class GcsClientImpl implements GcsClient {
       GcsItemId gcsItemId, GcsReadOptions readOptions) throws IOException {
     checkNotNull(gcsItemId, "gcsItemId should not be null");
     checkNotNull(readOptions, "readOptions should not be null");
-    return new GcsReadChannel(storage, gcsItemId, readOptions, executorServiceSupplier) {
+    return new GcsReadChannel(storage, gcsItemId, readOptions, executorServiceSupplier, telemetry) {
       @Override
       public long size() throws IOException {
         if (itemInfo == null) {

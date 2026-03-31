@@ -19,23 +19,27 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.cloud.ReadChannel;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Attribute;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.function.IntFunction;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 class GcsReadChannel implements VectoredSeekableByteChannel {
-  private static final Logger LOG = LoggerFactory.getLogger(GcsReadChannel.class);
   private Storage storage;
   private GcsReadOptions readOptions;
   private ReadChannel readChannel;
@@ -43,37 +47,55 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   protected GcsItemId itemId;
   private long position = 0;
   private Supplier<ExecutorService> executorServiceSupplier;
+  private static final ImmutableMap<String, String> COMMON_ATTRIBUTES =
+      ImmutableMap.of(Attribute.CLASS_NAME.name(), GcsReadChannel.class.getName());
+
+  private final Telemetry telemetry;
 
   GcsReadChannel(
       Storage storage,
       GcsItemInfo itemInfo,
       GcsReadOptions readOptions,
-      Supplier<ExecutorService> executorServiceSupplier)
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry)
       throws IOException {
-    checkNotNull(storage, "Storage instance cannot be null");
-    checkNotNull(itemInfo, "Item info cannot be null");
-    checkNotNull(executorServiceSupplier, "Thread pool supplier must not be null");
-    this.storage = storage;
-    this.readOptions = readOptions;
-    this.itemInfo = itemInfo;
-    this.itemId = itemInfo.getItemId();
-    this.executorServiceSupplier = executorServiceSupplier;
-    this.readChannel = openReadChannel(itemId, readOptions);
+    this(
+        storage,
+        itemInfo,
+        checkNotNull(itemInfo, "Item info cannot be null").getItemId(),
+        readOptions,
+        executorServiceSupplier,
+        telemetry);
   }
 
   GcsReadChannel(
       Storage storage,
       GcsItemId itemId,
       GcsReadOptions readOptions,
-      Supplier<ExecutorService> executorServiceSupplier)
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry)
+      throws IOException {
+    this(storage, null, itemId, readOptions, executorServiceSupplier, telemetry);
+  }
+
+  private GcsReadChannel(
+      Storage storage,
+      GcsItemInfo itemInfo,
+      GcsItemId itemId,
+      GcsReadOptions readOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry)
       throws IOException {
     checkNotNull(storage, "Storage instance cannot be null");
     checkNotNull(itemId, "Item id cannot be null");
     checkNotNull(executorServiceSupplier, "Thread pool supplier must not be null");
+    checkNotNull(telemetry, "Telemetry instance cannot be null");
     this.storage = storage;
     this.readOptions = readOptions;
+    this.itemInfo = itemInfo;
     this.itemId = itemId;
     this.executorServiceSupplier = executorServiceSupplier;
+    this.telemetry = telemetry;
     this.readChannel = openReadChannel(itemId, readOptions);
   }
 
@@ -132,6 +154,12 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   @Override
   public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException {
+    Operation operation =
+        Operation.builder()
+            .setName(GcsAnalyticsCoreTelemetryConstants.Operation.VECTORED_READ.name())
+            .setDurationMetric(Metric.READ_DURATION)
+            .setAttributes(COMMON_ATTRIBUTES)
+            .build();
     ExecutorService executorService = executorServiceSupplier.get();
     checkNotNull(executorService, "Thread pool must not be null");
     GcsVectoredReadOptions vectoredReadOptions = readOptions.getGcsVectoredReadOptions();
@@ -145,43 +173,54 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       var unused =
           executorService.submit(
               () -> {
-                readCombinedRange(combinedRange, allocate);
+                readCombinedRange(combinedRange, allocate, operation);
               });
     }
   }
 
   void readCombinedRange(
-      GcsObjectCombinedRange combinedObjectRange, IntFunction<ByteBuffer> allocate) {
-    try (ReadChannel channel = openReadChannel(itemId, readOptions)) {
-      validatePosition(combinedObjectRange.getOffset());
-      channel.seek(combinedObjectRange.getOffset());
-      channel.limit(combinedObjectRange.getOffset() + combinedObjectRange.getLength());
-      ByteBuffer dataBuffer = allocate.apply(combinedObjectRange.getLength());
-      int numOfBytesRead = 0;
-      while (dataBuffer.hasRemaining()) {
-        int bytesRead = channel.read(dataBuffer);
-        if (bytesRead < 0) {
-          // EOF reached.
-          break;
-        }
-        numOfBytesRead += bytesRead;
-      }
-      if (numOfBytesRead < combinedObjectRange.getLength()) {
-        throw new EOFException(
-            String.format(
-                "EOF reached while reading combinedObjectRange, range: %s, item: "
-                    + "%s, numRead: %d, expected: %d",
-                combinedObjectRange, itemId, numOfBytesRead, combinedObjectRange.getLength()));
-      }
-      // making it ready for reading
-      dataBuffer.flip();
-      for (GcsObjectRange underlyingRange : combinedObjectRange.getUnderlyingRanges()) {
-        populateGcsObjectRangeFromCombinedObjectRange(
-            combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer);
-      }
-    } catch (Exception e) {
-      completeWithException(combinedObjectRange, e);
-    }
+      GcsObjectCombinedRange combinedObjectRange,
+      IntFunction<ByteBuffer> allocate,
+      Operation operation) {
+    telemetry.measure(
+        operation,
+        recorder -> {
+          try (ReadChannel channel = openReadChannel(itemId, readOptions)) {
+            validatePosition(combinedObjectRange.getOffset());
+            channel.seek(combinedObjectRange.getOffset());
+            channel.limit(combinedObjectRange.getOffset() + combinedObjectRange.getLength());
+            ByteBuffer dataBuffer = allocate.apply(combinedObjectRange.getLength());
+            int numOfBytesRead = 0;
+            while (dataBuffer.hasRemaining()) {
+              int bytesRead = channel.read(dataBuffer);
+              if (bytesRead < 0) {
+                // EOF reached.
+                break;
+              }
+              recorder.record(Metric.READ_BYTES, bytesRead, Collections.emptyMap());
+              numOfBytesRead += bytesRead;
+            }
+            if (numOfBytesRead < combinedObjectRange.getLength()) {
+              throw new EOFException(
+                  String.format(
+                      "EOF reached while reading combinedObjectRange, range: %s, item: "
+                          + "%s, numRead: %d, expected: %d",
+                      combinedObjectRange,
+                      itemId,
+                      numOfBytesRead,
+                      combinedObjectRange.getLength()));
+            }
+            // making it ready for reading
+            dataBuffer.flip();
+            for (GcsObjectRange underlyingRange : combinedObjectRange.getUnderlyingRanges()) {
+              populateGcsObjectRangeFromCombinedObjectRange(
+                  combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer);
+            }
+          } catch (Exception e) {
+            completeWithException(combinedObjectRange, e);
+          }
+          return null;
+        });
   }
 
   private void populateGcsObjectRangeFromCombinedObjectRange(
