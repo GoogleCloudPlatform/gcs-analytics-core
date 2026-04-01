@@ -17,6 +17,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
@@ -33,13 +34,16 @@ public class FakeGcsClientImpl extends GcsClientImpl {
   FakeGcsClientImpl(
       Credentials credentials,
       GcsClientOptions clientOptions,
-      Supplier<ExecutorService> executorServiceSupplier) {
-    super(credentials, clientOptions, executorServiceSupplier);
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry) {
+    super(credentials, clientOptions, executorServiceSupplier, telemetry);
   }
 
   FakeGcsClientImpl(
-      GcsClientOptions clientOptions, Supplier<ExecutorService> executorServiceSupplier) {
-    super(clientOptions, executorServiceSupplier);
+      GcsClientOptions clientOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry) {
+    super(clientOptions, executorServiceSupplier, telemetry);
   }
 
   @Override

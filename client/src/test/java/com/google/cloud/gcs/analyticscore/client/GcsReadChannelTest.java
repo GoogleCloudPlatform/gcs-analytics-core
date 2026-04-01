@@ -19,6 +19,11 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.cloud.ReadChannel;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
+import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
@@ -32,11 +37,15 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntFunction;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -50,6 +59,7 @@ class GcsReadChannelTest {
   private final Supplier<ExecutorService> executorServiceSupplier =
       Suppliers.memoize(() -> Executors.newFixedThreadPool(30));
   private final Storage storage = Mockito.spy(LocalStorageHelper.getOptions().getService());
+  private final Telemetry telemetry = new Telemetry(ImmutableList.of());
 
   @Test
   void constructor_nullStorage_throwsNullPointerException() {
@@ -67,7 +77,8 @@ class GcsReadChannelTest {
         assertThrows(
             NullPointerException.class,
             () ->
-                new GcsReadChannel(null, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
+                new GcsReadChannel(
+                    null, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry));
 
     assertThat(e).hasMessageThat().isEqualTo("Storage instance cannot be null");
   }
@@ -82,7 +93,7 @@ class GcsReadChannelTest {
             IllegalArgumentException.class,
             () ->
                 new GcsReadChannel(
-                    storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
+                    storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry));
 
     assertThat(e).hasMessageThat().isEqualTo("Expected Gcs Object but got " + itemInfo.getItemId());
   }
@@ -95,7 +106,9 @@ class GcsReadChannelTest {
     NullPointerException e =
         assertThrows(
             NullPointerException.class,
-            () -> new GcsReadChannel(null, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
+            () ->
+                new GcsReadChannel(
+                    null, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry));
 
     assertThat(e).hasMessageThat().isEqualTo("Storage instance cannot be null");
   }
@@ -109,7 +122,7 @@ class GcsReadChannelTest {
             IllegalArgumentException.class,
             () ->
                 new GcsReadChannel(
-                    storage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
+                    storage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry));
 
     assertThat(e).hasMessageThat().isEqualTo("Expected Gcs Object but got " + itemId);
   }
@@ -121,7 +134,11 @@ class GcsReadChannelTest {
             NullPointerException.class,
             () ->
                 new GcsReadChannel(
-                    storage, (GcsItemId) null, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
+                    storage,
+                    (GcsItemId) null,
+                    TEST_GCS_READ_OPTIONS,
+                    executorServiceSupplier,
+                    telemetry));
 
     assertThat(e).hasMessageThat().isEqualTo("Item id cannot be null");
   }
@@ -133,7 +150,11 @@ class GcsReadChannelTest {
             NullPointerException.class,
             () ->
                 new GcsReadChannel(
-                    storage, (GcsItemInfo) null, TEST_GCS_READ_OPTIONS, executorServiceSupplier));
+                    storage,
+                    (GcsItemInfo) null,
+                    TEST_GCS_READ_OPTIONS,
+                    executorServiceSupplier,
+                    telemetry));
 
     assertThat(e).hasMessageThat().isEqualTo("Item info cannot be null");
   }
@@ -154,7 +175,7 @@ class GcsReadChannelTest {
         .thenReturn(mockReadChannel);
     Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
 
-    new GcsReadChannel(mockStorage, itemInfo, readOptions, executorServiceSupplier);
+    new GcsReadChannel(mockStorage, itemInfo, readOptions, executorServiceSupplier, telemetry);
 
     Mockito.verify(mockReadChannel).setChunkSize(1024);
   }
@@ -173,7 +194,8 @@ class GcsReadChannelTest {
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
     ByteBuffer buffer1 = ByteBuffer.allocate(5);
     ByteBuffer buffer2 = ByteBuffer.allocate(6);
 
@@ -201,7 +223,8 @@ class GcsReadChannelTest {
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
     ByteBuffer buffer = ByteBuffer.allocate(objectData.length());
 
     int bytesRead = gcsReadChannel.read(buffer);
@@ -225,7 +248,8 @@ class GcsReadChannelTest {
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
     gcsReadChannel.position(6);
     ByteBuffer buffer = ByteBuffer.allocate(5);
 
@@ -250,7 +274,8 @@ class GcsReadChannelTest {
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
 
     EOFException e = assertThrows(EOFException.class, () -> gcsReadChannel.position(-1L));
 
@@ -273,7 +298,8 @@ class GcsReadChannelTest {
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
     long size = objectData.length();
 
     gcsReadChannel.position(size + 1);
@@ -295,7 +321,8 @@ class GcsReadChannelTest {
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
     ByteBuffer src = ByteBuffer.allocate(10);
 
     assertThrows(UnsupportedOperationException.class, () -> gcsReadChannel.write(src));
@@ -315,7 +342,8 @@ class GcsReadChannelTest {
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
 
     assertThrows(UnsupportedOperationException.class, () -> gcsReadChannel.truncate(5L));
   }
@@ -334,7 +362,8 @@ class GcsReadChannelTest {
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
 
     assertThat(gcsReadChannel.isOpen()).isTrue();
   }
@@ -353,7 +382,8 @@ class GcsReadChannelTest {
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
     gcsReadChannel.close();
 
     assertThat(gcsReadChannel.isOpen()).isFalse();
@@ -373,7 +403,8 @@ class GcsReadChannelTest {
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
 
     assertThat(gcsReadChannel.size()).isEqualTo(objectData.length());
   }
@@ -384,7 +415,8 @@ class GcsReadChannelTest {
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     // Do not create the blob in storage to ensure metadata is not loaded
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            storage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
 
     IOException e = assertThrows(IOException.class, () -> gcsReadChannel.size());
     assertThat(e).hasMessageThat().isEqualTo("Object metadata not initialized");
@@ -397,7 +429,8 @@ class GcsReadChannelTest {
     GcsItemInfo itemInfo =
         GcsItemInfo.builder().setItemId(itemId).setSize(100).setContentGeneration(0L).build();
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, Suppliers.memoize(() -> null));
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, Suppliers.memoize(() -> null), telemetry);
 
     NullPointerException e =
         assertThrows(
@@ -421,7 +454,7 @@ class GcsReadChannelTest {
     GcsReadOptions readOptions =
         TEST_GCS_READ_OPTIONS.builder().setGcsVectoredReadOptions(vectoredReadOptions).build();
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, readOptions, executorServiceSupplier);
+        new GcsReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
     List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
     BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get());
     // "hello", "this", "test string"
@@ -439,6 +472,8 @@ class GcsReadChannelTest {
   @Test
   void readVectored_rangesCanBeMerged_readsRanges()
       throws IOException, ExecutionException, InterruptedException {
+
+    AtomicLong totalBytesReadFromMetrics = new AtomicLong(0L);
     GcsVectoredReadOptions vectoredReadOptions =
         GcsVectoredReadOptions.builder().setMaxMergeGap(10).build();
     List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
@@ -459,8 +494,22 @@ class GcsReadChannelTest {
             .build();
     BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L);
     createBlobInStorage(blobId, objectData);
+    OperationListener listener =
+        new OperationListener() {
+          @Override
+          public void onOperationStart(Operation operation) {}
+
+          @Override
+          public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {
+            if (operation.getName().equals("VECTORED_READ")) {
+              totalBytesReadFromMetrics.addAndGet(
+                  metrics.get(MetricKey.builder().setMetric(Metric.READ_BYTES).build()));
+            }
+          }
+        };
+    Telemetry telemetry = new Telemetry(Collections.singletonList(listener));
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, readOptions, executorServiceSupplier);
+        new GcsReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
     // "hello", "world", "this", "string", "vectored"
     ImmutableList<GcsObjectRange> ranges =
         createRanges(ImmutableMap.of(0L, 5, 6L, 5, 12L, 4, 27L, 6, 38L, 8));
@@ -474,6 +523,11 @@ class GcsReadChannelTest {
     assertThat(getGcsObjectRangeData(ranges.get(4))).isEqualTo("vectored");
     Mockito.verify(storage, Mockito.times(3))
         .reader(blobId, sourceOptions.toArray(new Storage.BlobSourceOption[0]));
+    assertThat(totalBytesReadFromMetrics.get()).isEqualTo(35L);
+
+    // Clean up.
+
+    gcsReadChannel.close();
   }
 
   @Test
@@ -490,7 +544,8 @@ class GcsReadChannelTest {
     createBlobInStorage(
         BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
     ImmutableList<GcsObjectRange> ranges = createRanges(ImmutableMap.of(0L, 5));
     IntFunction<ByteBuffer> badAllocator =
         size -> {
@@ -553,12 +608,69 @@ class GcsReadChannelTest {
             });
 
     GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(mockStorage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier);
+        new GcsReadChannel(
+            mockStorage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
     GcsObjectRange range1 = createRange(0, 10);
     ImmutableList<GcsObjectRange> ranges = ImmutableList.of(range1);
     gcsReadChannel.readVectored(ranges, ByteBuffer::allocate);
 
     assertThat(getGcsObjectRangeData(range1)).isEqualTo("abcdefghij");
+  }
+
+  @Test
+  void readVectored_eofReachedBeforeFullyRead_completesExceptionally() throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "abcde";
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(objectData.length())
+            .setContentGeneration(0L)
+            .build();
+    createBlobInStorage(
+        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    byte[] dataBytes = objectData.getBytes(StandardCharsets.UTF_8);
+    AtomicInteger callCount = new AtomicInteger(0);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buffer = invocation.getArgument(0);
+              if (callCount.get() == 0) {
+                // Return 5 bytes on the first call
+                buffer.put(dataBytes, 0, 5);
+                callCount.incrementAndGet();
+                return 5;
+              } else {
+                // Return EOF on the second call
+                return -1;
+              }
+            });
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            mockStorage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+    // Request 10 bytes, but only 5 are returned before EOF
+    GcsObjectRange range1 = createRange(0, 10);
+    ImmutableList<GcsObjectRange> ranges = ImmutableList.of(range1);
+
+    gcsReadChannel.readVectored(ranges, ByteBuffer::allocate);
+    gcsReadChannel.close();
+
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> range1.getByteBufferFuture().get());
+    assertThat(e).hasCauseThat().isInstanceOf(IOException.class);
+    assertThat(e).hasCauseThat().hasMessageThat().contains("Error while populating childRange");
+    assertThat(e.getCause().getCause()).isInstanceOf(EOFException.class);
+    assertThat(e.getCause().getCause())
+        .hasMessageThat()
+        .contains("EOF reached while reading combinedObjectRange");
   }
 
   private GcsObjectRange createRange(long offset, int length) {

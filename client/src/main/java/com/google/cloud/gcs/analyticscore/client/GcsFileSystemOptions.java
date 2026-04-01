@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import java.util.Map;
 
 /** Configuration options for the GCS File System. */
@@ -37,11 +38,16 @@ public abstract class GcsFileSystemOptions {
 
   public abstract GcsClientOptions getGcsClientOptions();
 
+  public abstract TelemetryOptions getAnalyticsCoreTelemetryOptions();
+
+  public abstract Builder toBuilder();
+
   public static Builder builder() {
     return new AutoValue_GcsFileSystemOptions.Builder()
         .setReadThreadCount(16)
         .setClientType(ClientType.HTTP_CLIENT)
-        .setGcsClientOptions(GcsClientOptions.builder().build());
+        .setGcsClientOptions(GcsClientOptions.builder().build())
+        .setAnalyticsCoreTelemetryOptions(TelemetryOptions.builder().build());
   }
 
   public static GcsFileSystemOptions createFromOptions(
@@ -57,6 +63,9 @@ public abstract class GcsFileSystemOptions {
     }
     optionsBuilder.setGcsClientOptions(
         GcsClientOptions.createFromOptions(analyticsCoreOptions, prefix));
+    // Analytics Core telemetry options are prefixed with "analytics-core."
+    optionsBuilder.setAnalyticsCoreTelemetryOptions(
+        TelemetryOptions.createFromOptions(analyticsCoreOptions, prefix + "analytics-core."));
 
     return optionsBuilder.build();
   }
@@ -70,6 +79,8 @@ public abstract class GcsFileSystemOptions {
     public abstract Builder setReadThreadCount(int readThreadCount);
 
     public abstract Builder setGcsClientOptions(GcsClientOptions gcsClientOptions);
+
+    public abstract Builder setAnalyticsCoreTelemetryOptions(TelemetryOptions telemetryOptions);
 
     public abstract GcsFileSystemOptions build();
   }

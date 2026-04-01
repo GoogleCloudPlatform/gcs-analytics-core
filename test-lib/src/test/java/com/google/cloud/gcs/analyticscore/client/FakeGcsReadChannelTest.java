@@ -18,9 +18,11 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +50,8 @@ class FakeGcsReadChannelTest {
             LocalStorageHelper.getOptions().getService(),
             itemInfo,
             readOptions,
-            Suppliers.ofInstance(Executors.newSingleThreadExecutor()));
+            Suppliers.ofInstance(Executors.newSingleThreadExecutor()),
+            new Telemetry(ImmutableList.of()));
     FakeGcsReadChannel.resetCounts();
   }
 

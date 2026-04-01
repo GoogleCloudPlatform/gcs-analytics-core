@@ -17,18 +17,33 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.google.cloud.NoCredentials;
+import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
+import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
+import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OpenTelemetryOptions;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OpenTelemetryReporter;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -57,14 +72,22 @@ class GcsFileSystemImplTest {
     gcsFileSystem = new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS);
   }
 
+  @AfterEach
+  void tearDown() {
+    if (gcsFileSystem != null) {
+      gcsFileSystem.close();
+    }
+  }
+
   @Test
   void constructor_withCredentials_createsClientWithProvidedCredentials() {
-    GcsFileSystemImpl gcsFileSystem =
-        new GcsFileSystemImpl(NoCredentials.getInstance(), TEST_GCS_FILESYSTEM_OPTIONS);
-    GcsClientImpl gcsClientImpl = (GcsClientImpl) gcsFileSystem.getGcsClient();
+    try (GcsFileSystemImpl gcsFileSystem =
+        new GcsFileSystemImpl(NoCredentials.getInstance(), TEST_GCS_FILESYSTEM_OPTIONS)) {
+      GcsClientImpl gcsClientImpl = (GcsClientImpl) gcsFileSystem.getGcsClient();
 
-    assertThat(gcsClientImpl.storage.getOptions().getCredentials())
-        .isEqualTo(NoCredentials.getInstance());
+      assertThat(gcsClientImpl.storage.getOptions().getCredentials())
+          .isEqualTo(NoCredentials.getInstance());
+    }
   }
 
   @Test
@@ -74,12 +97,13 @@ class GcsFileSystemImplTest {
     GcsFileSystemOptions fileSystemOptions =
         GcsFileSystemOptions.builder().setGcsClientOptions(clientOptions).build();
 
-    GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(fileSystemOptions);
-    GcsClientImpl gcsClient = (GcsClientImpl) gcsFileSystem.getGcsClient();
+    try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(fileSystemOptions)) {
+      GcsClientImpl gcsClient = (GcsClientImpl) gcsFileSystem.getGcsClient();
 
-    assertThat(gcsFileSystem.getFileSystemOptions()).isSameInstanceAs(fileSystemOptions);
-    assertThat(gcsClient).isNotNull();
-    assertThat(gcsClient.storage.getOptions().getProjectId()).isEqualTo("test-project-default");
+      assertThat(gcsFileSystem.getFileSystemOptions()).isSameInstanceAs(fileSystemOptions);
+      assertThat(gcsClient).isNotNull();
+      assertThat(gcsClient.storage.getOptions().getProjectId()).isEqualTo("test-project-default");
+    }
   }
 
   @Test
@@ -95,14 +119,15 @@ class GcsFileSystemImplTest {
               capturedSupplier.set(supplier);
             })) {
 
-      new GcsFileSystemImpl(TEST_GCS_FILESYSTEM_OPTIONS);
-      ExecutorService executorService1 = capturedSupplier.get().get();
-      ExecutorService executorService2 = capturedSupplier.get().get();
+      try (GcsFileSystemImpl fs = new GcsFileSystemImpl(TEST_GCS_FILESYSTEM_OPTIONS)) {
+        ExecutorService executorService1 = capturedSupplier.get().get();
+        ExecutorService executorService2 = capturedSupplier.get().get();
 
-      assertThat(mockGcsClientConstruction.constructed()).hasSize(1);
-      assertThat(capturedSupplier.get()).isNotNull();
-      assertThat(capturedSupplier.get().get()).isNotNull();
-      assertThat(executorService1).isEqualTo(executorService2);
+        assertThat(mockGcsClientConstruction.constructed()).hasSize(1);
+        assertThat(capturedSupplier.get()).isNotNull();
+        assertThat(capturedSupplier.get().get()).isNotNull();
+        assertThat(executorService1).isEqualTo(executorService2);
+      }
     }
   }
 
@@ -359,5 +384,161 @@ class GcsFileSystemImplTest {
   @Test
   void getGcsClient_shouldReturnConfiguredClient() {
     assertEquals(mockClient, gcsFileSystem.getGcsClient());
+  }
+
+  @Test
+  void initializeTelemetry_registerListenersToTelemetry() {
+    OperationListener mockListener = mock(OperationListener.class);
+    CustomTelemetryOptions customTelemetryOptions =
+        CustomTelemetryOptions.builder()
+            .setOperationListeners(ImmutableList.of(mockListener))
+            .build();
+    TelemetryOptions telemetryOptions =
+        TelemetryOptions.builder().setCustomTelemetryOptions(customTelemetryOptions).build();
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
+            .build();
+
+    try (GcsFileSystemImpl unused = new GcsFileSystemImpl(options)) {
+      verify(mockListener, times(1)).onOperationStart(any(Operation.class));
+    }
+  }
+
+  @Test
+  void initializeTelemetry_withLoggingTelemetryOptionsEnabled_registersLoggingTelemetryReporter() {
+    LoggingTelemetryOptions loggingOptions =
+        LoggingTelemetryOptions.builder().setEnabled(true).build();
+    TelemetryOptions telemetryOptions =
+        TelemetryOptions.builder().setLoggingTelemetryOptions(loggingOptions).build();
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
+            .build();
+
+    try (GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options)) {
+      List<OperationListener> registeredListeners =
+          getRegisteredTelemetryListeners(fileSystem.getTelemetry());
+      OperationListener reporter = registeredListeners.get(0);
+
+      assertThat(reporter).isInstanceOf(LoggingTelemetryReporter.class);
+      assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).contains(reporter);
+    }
+  }
+
+  @Test
+  void
+      initializeTelemetry_withLoggingTelemetryOptionsDisabled_doesNotRegisterLoggingTelemetryReporter() {
+    LoggingTelemetryOptions loggingOptions =
+        LoggingTelemetryOptions.builder().setEnabled(false).build();
+    TelemetryOptions telemetryOptions =
+        TelemetryOptions.builder().setLoggingTelemetryOptions(loggingOptions).build();
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
+            .build();
+
+    try (GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options)) {
+      assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
+    }
+  }
+
+  @Test
+  void initializeTelemetry_withOpenTelemetryOptionsEnabled_registersOpenTelemetryReporter() {
+    OpenTelemetryOptions openTelemetryOptions =
+        OpenTelemetryOptions.builder().setEnabled(true).build();
+    TelemetryOptions telemetryOptions =
+        TelemetryOptions.builder().setOpenTelemetryOptions(openTelemetryOptions).build();
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
+            .build();
+
+    try (GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options)) {
+      List<OperationListener> registeredListeners =
+          getRegisteredTelemetryListeners(fileSystem.getTelemetry());
+      OperationListener reporter = registeredListeners.get(0);
+
+      assertThat(reporter).isInstanceOf(OpenTelemetryReporter.class);
+    }
+  }
+
+  @Test
+  void initializeTelemetry_withOpenTelemetryOptionsDisabled_doesNotRegisterOpenTelemetryReporter() {
+    OpenTelemetryOptions openTelemetryOptions =
+        OpenTelemetryOptions.builder().setEnabled(false).build();
+    TelemetryOptions telemetryOptions =
+        TelemetryOptions.builder().setOpenTelemetryOptions(openTelemetryOptions).build();
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
+            .build();
+
+    try (GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options)) {
+      assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
+    }
+  }
+
+  @Test
+  void close_removesRegisteredOpenTelemetryReporters() {
+    OpenTelemetryOptions openTelemetryOptions =
+        OpenTelemetryOptions.builder().setEnabled(true).build();
+    TelemetryOptions telemetryOptions =
+        TelemetryOptions.builder().setOpenTelemetryOptions(openTelemetryOptions).build();
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
+            .build();
+
+    GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options);
+    int listnerCountBeforeClose = getRegisteredTelemetryListeners(fileSystem.getTelemetry()).size();
+
+    fileSystem.close();
+
+    assertThat(listnerCountBeforeClose).isEqualTo(1);
+    assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
+  }
+
+  @Test
+  void close_removesRegisteredLoggingTelemetryReporters() {
+    LoggingTelemetryOptions loggingOptions =
+        LoggingTelemetryOptions.builder().setEnabled(true).build();
+    TelemetryOptions telemetryOptions =
+        TelemetryOptions.builder().setLoggingTelemetryOptions(loggingOptions).build();
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
+            .build();
+
+    GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options);
+    List<OperationListener> registeredListeners =
+        getRegisteredTelemetryListeners(fileSystem.getTelemetry());
+    assertThat(registeredListeners).hasSize(1);
+    OperationListener reporter = registeredListeners.get(0);
+
+    assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).contains(reporter);
+
+    fileSystem.close();
+
+    assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
+    assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).doesNotContain(reporter);
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<OperationListener> getRegisteredTelemetryListeners(Telemetry telemetry) {
+    try {
+      java.lang.reflect.Field field = Telemetry.class.getDeclaredField("listeners");
+      field.setAccessible(true);
+      return (List<OperationListener>) field.get(telemetry);
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to get Telemetry listeners", e);
+    }
   }
 }
