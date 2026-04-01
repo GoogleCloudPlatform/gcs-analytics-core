@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.2.3...v1.3.0) (2026-04-01)
+
+
+### Features
+
+* Add telemetry in gcs-analytics-core classes ([84ed4c9](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/84ed4c9c5e4b784b253092f4a2e9ede22ec64269))
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([#206](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/206)) ([fc6181d](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/fc6181d679a5b25597fde35e7084ed32a21ba68e))
+* Prepend unique identifier and version in user agent ([98949ae](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/98949aede80c58272b638957f2096ff58075517b))
+
 ## [1.2.3](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.2.2...v1.2.3) (2025-12-17)
 
 
