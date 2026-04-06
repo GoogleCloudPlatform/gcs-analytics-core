@@ -56,8 +56,8 @@ class FakeGcsReadChannelTest {
   }
 
   @Test
-  void openReadChannel_incrementsOpenReadChannelCount() throws Exception {
-    fakeGcsReadChannel.openReadChannel(itemInfo.getItemId(), readOptions);
+  void openSdkReadChannel_incrementsOpenReadChannelCount() throws Exception {
+    fakeGcsReadChannel.openSdkReadChannel(itemInfo.getItemId(), readOptions);
 
     assertEquals(1, FakeGcsReadChannel.getOpenReadChannelCount());
   }
