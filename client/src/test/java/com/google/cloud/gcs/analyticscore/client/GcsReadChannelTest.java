@@ -262,10 +262,7 @@ class GcsReadChannelTest {
 
   @Test
   void read_emptyBuffer_returnsZero() throws IOException {
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder().setItemId(itemId).setSize(100).setContentGeneration(0L).build();
+    GcsItemInfo itemInfo = createItemInfoWith(100);
     try (GcsReadChannel gcsReadChannel =
         new GcsReadChannel(
             storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry)) {
@@ -279,10 +276,7 @@ class GcsReadChannelTest {
 
   @Test
   void read_eof_doesNotAdvancePosition() throws IOException {
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder().setItemId(itemId).setSize(100).setContentGeneration(0L).build();
+    GcsItemInfo itemInfo = createItemInfoWith(100);
     Storage mockStorage = Mockito.mock(Storage.class);
     ReadChannel mockSdkReadChannel = Mockito.mock(ReadChannel.class);
     Mockito.when(
@@ -719,10 +713,7 @@ class GcsReadChannelTest {
 
   @Test
   void position_doesNotSeekImmediately() throws IOException {
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder().setItemId(itemId).setSize(100).setContentGeneration(0L).build();
+    GcsItemInfo itemInfo = createItemInfoWith(100);
     Storage mockStorage = Mockito.mock(Storage.class);
     ReadChannel mockSdkReadChannel = Mockito.mock(ReadChannel.class);
     Mockito.when(
@@ -742,203 +733,139 @@ class GcsReadChannelTest {
 
   @Test
   void read_inPlaceSeek_readsBytes() throws IOException {
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder().setItemId(itemId).setSize(100).setContentGeneration(0L).build();
-    Storage mockStorage = Mockito.mock(Storage.class);
-    ReadChannel mockSdkReadChannel = Mockito.mock(ReadChannel.class);
-    Mockito.when(
-            mockStorage.reader(
-                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
-        .thenReturn(mockSdkReadChannel);
-    Mockito.when(mockSdkReadChannel.isOpen()).thenReturn(true);
-    Mockito.when(mockSdkReadChannel.read(Mockito.any(ByteBuffer.class)))
-        .thenAnswer(
-            invocation -> {
-              ByteBuffer buffer = invocation.getArgument(0);
-              int remaining = buffer.remaining();
-              buffer.position(buffer.position() + remaining);
-              return remaining;
-            });
+    GcsItemInfo itemInfo = createItemInfoWith(100);
+    createBlobInStorage(
+        BlobId.of(
+            itemInfo.getItemId().getBucketName(), itemInfo.getItemId().getObjectName().get(), 0L),
+        "a".repeat(100));
+    try (FakeGcsReadChannel gcsReadChannel =
+        new FakeGcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry)) {
+      TrackingReadChannel trackingReadChannel = gcsReadChannel.getTrackingReadChannel();
 
-    try (GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(
-            mockStorage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry)) {
       gcsReadChannel.read(ByteBuffer.allocate(5));
       gcsReadChannel.position(10);
       gcsReadChannel.read(ByteBuffer.allocate(5));
       gcsReadChannel.position(20);
       gcsReadChannel.read(ByteBuffer.allocate(5));
 
-      Mockito.verify(mockSdkReadChannel, Mockito.times(5)).read(Mockito.any(ByteBuffer.class));
-      Mockito.verify(mockSdkReadChannel, Mockito.never()).seek(Mockito.anyLong());
+      assertThat(trackingReadChannel.getReadCalls()).isEqualTo(5);
+      assertThat(trackingReadChannel.getSeekCalls()).isEqualTo(0);
     }
   }
 
   @Test
   void read_largeSeek_fallsBackToSeek() throws IOException {
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder().setItemId(itemId).setSize(100).setContentGeneration(0L).build();
-    Storage mockStorage = Mockito.mock(Storage.class);
-    ReadChannel mockSdkReadChannel = Mockito.mock(ReadChannel.class);
-    Mockito.when(
-            mockStorage.reader(
-                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
-        .thenReturn(mockSdkReadChannel);
-    Mockito.when(mockSdkReadChannel.isOpen()).thenReturn(true);
-    Mockito.when(mockSdkReadChannel.read(Mockito.any(ByteBuffer.class))).thenReturn(5);
-
-    try (GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(
-            mockStorage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry)) {
+    GcsItemInfo itemInfo = createItemInfoWith(100);
+    createBlobInStorage(
+        BlobId.of(
+            itemInfo.getItemId().getBucketName(), itemInfo.getItemId().getObjectName().get(), 0L),
+        "a".repeat(100));
+    try (FakeGcsReadChannel gcsReadChannel =
+        new FakeGcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry)) {
+      TrackingReadChannel trackingReadChannel = gcsReadChannel.getTrackingReadChannel();
       long largeSeek = 5 + 9 * 1024 * 1024;
 
       gcsReadChannel.position(largeSeek);
       gcsReadChannel.read(ByteBuffer.allocate(5));
 
-      Mockito.verify(mockSdkReadChannel).seek(largeSeek);
+      assertThat(trackingReadChannel.getSeekCalls()).isEqualTo(1);
     }
   }
 
   @Test
   void read_inPlaceSeek_EOF_fallsBackToSeek() throws IOException {
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder().setItemId(itemId).setSize(100).setContentGeneration(0L).build();
-    Storage mockStorage = Mockito.mock(Storage.class);
-    ReadChannel mockSdkReadChannel = Mockito.mock(ReadChannel.class);
-    Mockito.when(
-            mockStorage.reader(
-                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
-        .thenReturn(mockSdkReadChannel);
-    Mockito.when(mockSdkReadChannel.isOpen()).thenReturn(true);
-    AtomicInteger callCount = new AtomicInteger(0);
-    Mockito.when(mockSdkReadChannel.read(Mockito.any(ByteBuffer.class)))
-        .thenAnswer(
-            invocation -> {
-              ByteBuffer buffer = invocation.getArgument(0);
-              int count = callCount.incrementAndGet();
-              if (count == 1) {
-                int remaining = buffer.remaining();
-                buffer.position(buffer.position() + remaining);
-                return remaining;
-              } else if (count == 2) {
-                return -1; // Simulate EOF during skipInPlace
-              } else {
-                int remaining = buffer.remaining();
-                buffer.position(buffer.position() + remaining);
-                return remaining;
-              }
-            });
+    GcsItemInfo itemInfo = createItemInfoWith(100);
+    createBlobInStorage(
+        BlobId.of(
+            itemInfo.getItemId().getBucketName(), itemInfo.getItemId().getObjectName().get(), 0L),
+        "a".repeat(100));
+    try (FakeGcsReadChannel gcsReadChannel =
+        new FakeGcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry)) {
+      TrackingReadChannel trackingReadChannel = gcsReadChannel.getTrackingReadChannel();
+      trackingReadChannel.setEofAtCall(2); // Simulate EOF during skipInPlace
 
-    try (GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(
-            mockStorage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry)) {
       gcsReadChannel.read(ByteBuffer.allocate(5));
       gcsReadChannel.position(10);
       gcsReadChannel.read(ByteBuffer.allocate(5));
 
-      Mockito.verify(mockSdkReadChannel).seek(10);
-      Mockito.verify(mockSdkReadChannel, Mockito.times(3)).read(Mockito.any(ByteBuffer.class));
+      assertThat(trackingReadChannel.getSeekCalls()).isEqualTo(1);
+      assertThat(trackingReadChannel.getReadCalls()).isEqualTo(3);
     }
   }
 
   @Test
   void read_inPlaceSeek_largerThanSkipBufferSize_loopsAndReads() throws IOException {
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder()
-            .setItemId(itemId)
-            .setSize(500 * 1024)
-            .setContentGeneration(0L)
-            .build();
-    Storage mockStorage = Mockito.mock(Storage.class);
-    ReadChannel mockSdkReadChannel = Mockito.mock(ReadChannel.class);
-    Mockito.when(
-            mockStorage.reader(
-                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
-        .thenReturn(mockSdkReadChannel);
-    Mockito.when(mockSdkReadChannel.isOpen()).thenReturn(true);
-    Mockito.when(mockSdkReadChannel.read(Mockito.any(ByteBuffer.class)))
-        .thenAnswer(
-            invocation -> {
-              ByteBuffer buffer = invocation.getArgument(0);
-              int remaining = buffer.remaining();
-              buffer.position(buffer.position() + remaining);
-              return remaining;
-            });
-
+    GcsItemInfo itemInfo = createItemInfoWith(500 * 1024);
+    createBlobInStorage(
+        BlobId.of(
+            itemInfo.getItemId().getBucketName(), itemInfo.getItemId().getObjectName().get(), 0L),
+        "a".repeat(500 * 1024));
     GcsReadOptions customOptions =
         GcsReadOptions.builder()
             .setUserProjectId(TEST_PROJECT_ID)
             .setInplaceSeekLimit(500 * 1024)
             .build();
-    try (GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(
-            mockStorage, itemInfo, customOptions, executorServiceSupplier, telemetry)) {
+    try (FakeGcsReadChannel gcsReadChannel =
+        new FakeGcsReadChannel(
+            storage, itemInfo, customOptions, executorServiceSupplier, telemetry)) {
+      TrackingReadChannel trackingReadChannel = gcsReadChannel.getTrackingReadChannel();
+
       gcsReadChannel.read(ByteBuffer.allocate(5));
       long newPosition = 300 * 1024;
       gcsReadChannel.position(newPosition);
 
       gcsReadChannel.read(ByteBuffer.allocate(5));
 
-      Mockito.verify(mockSdkReadChannel, Mockito.times(5)).read(Mockito.any(ByteBuffer.class));
-      Mockito.verify(mockSdkReadChannel, Mockito.never()).seek(Mockito.anyLong());
+      assertThat(trackingReadChannel.getReadCalls()).isEqualTo(5);
+      assertThat(trackingReadChannel.getSeekCalls()).isEqualTo(0);
     }
   }
 
   @Test
   void read_backwardSeek_fallsBackToSeek() throws IOException {
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder().setItemId(itemId).setSize(100).setContentGeneration(0L).build();
-    Storage mockStorage = Mockito.mock(Storage.class);
-    ReadChannel mockSdkReadChannel = Mockito.mock(ReadChannel.class);
-    Mockito.when(
-            mockStorage.reader(
-                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
-        .thenReturn(mockSdkReadChannel);
-    Mockito.when(mockSdkReadChannel.isOpen()).thenReturn(true);
-    Mockito.when(mockSdkReadChannel.read(Mockito.any(ByteBuffer.class))).thenReturn(5);
+    GcsItemInfo itemInfo = createItemInfoWith(100);
+    createBlobInStorage(
+        BlobId.of(
+            itemInfo.getItemId().getBucketName(), itemInfo.getItemId().getObjectName().get(), 0L),
+        "a".repeat(100));
+    try (FakeGcsReadChannel gcsReadChannel =
+        new FakeGcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry)) {
+      TrackingReadChannel trackingReadChannel = gcsReadChannel.getTrackingReadChannel();
 
-    try (GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(
-            mockStorage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry)) {
       gcsReadChannel.read(ByteBuffer.allocate(5));
       gcsReadChannel.position(2);
       gcsReadChannel.read(ByteBuffer.allocate(2));
 
-      Mockito.verify(mockSdkReadChannel).seek(2);
+      assertThat(trackingReadChannel.getSeekCalls()).isEqualTo(1);
     }
   }
 
   @Test
   void close_calledTwice_closesOnlyOnce() throws IOException {
-    Storage mockStorage = Mockito.mock(Storage.class);
-    ReadChannel mockSdkReadChannel = Mockito.mock(ReadChannel.class);
-    Mockito.when(
-            mockStorage.reader(
-                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
-        .thenReturn(mockSdkReadChannel);
-    Mockito.when(mockSdkReadChannel.isOpen()).thenReturn(true).thenReturn(false);
+    GcsItemInfo itemInfo = createItemInfoWith(100);
+    createBlobInStorage(
+        BlobId.of(
+            itemInfo.getItemId().getBucketName(), itemInfo.getItemId().getObjectName().get(), 0L),
+        "a".repeat(100));
+    FakeGcsReadChannel gcsReadChannel =
+        new FakeGcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+    TrackingReadChannel trackingReadChannel = gcsReadChannel.getTrackingReadChannel();
+
+    gcsReadChannel.close();
+    gcsReadChannel.close();
+
+    assertThat(trackingReadChannel.getCloseCalls()).isEqualTo(1);
+  }
+
+  private GcsItemInfo createItemInfoWith(long size) {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder().setItemId(itemId).setSize(100).setContentGeneration(0L).build();
-    GcsReadChannel gcsReadChannel =
-        new GcsReadChannel(
-            mockStorage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
-
-    gcsReadChannel.close();
-    gcsReadChannel.close();
-
-    Mockito.verify(mockSdkReadChannel, Mockito.times(1)).close();
+    return GcsItemInfo.builder().setItemId(itemId).setSize(size).setContentGeneration(0L).build();
   }
 
   private GcsObjectRange createRange(long offset, int length) {
