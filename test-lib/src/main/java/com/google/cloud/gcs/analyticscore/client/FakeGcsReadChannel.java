@@ -26,6 +26,7 @@ import java.util.concurrent.ExecutorService;
 public class FakeGcsReadChannel extends GcsReadChannel {
   private static int openReadChannelCount = 0;
   private TrackingReadChannel trackingReadChannel;
+  private int defaultEofAtCall = -1;
 
   public FakeGcsReadChannel(
       Storage storage,
@@ -37,12 +38,29 @@ public class FakeGcsReadChannel extends GcsReadChannel {
     super(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
   }
 
+  public FakeGcsReadChannel(
+      Storage storage,
+      GcsItemId itemId,
+      GcsReadOptions readOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry)
+      throws IOException {
+    super(storage, itemId, readOptions, executorServiceSupplier, telemetry);
+  }
+
+  public void setDefaultEofAtCall(int eofAtCall) {
+    this.defaultEofAtCall = eofAtCall;
+  }
+
   @Override
   protected ReadChannel openSdkReadChannel(GcsItemId itemId, GcsReadOptions readOptions)
       throws IOException {
     openReadChannelCount++;
     ReadChannel delegate = super.openSdkReadChannel(itemId, readOptions);
     trackingReadChannel = new TrackingReadChannel(delegate);
+    if (defaultEofAtCall != -1) {
+      trackingReadChannel.setEofAtCall(defaultEofAtCall);
+    }
     return trackingReadChannel;
   }
 

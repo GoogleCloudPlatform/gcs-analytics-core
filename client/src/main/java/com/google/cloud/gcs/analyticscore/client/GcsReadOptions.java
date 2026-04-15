@@ -35,12 +35,14 @@ public abstract class GcsReadOptions {
   private static final String USER_PROJECT_KEY = "user-project";
   private static final String INPLACE_SEEK_LIMIT_KEY =
       "analytics-core.read.inplace-seek-limit-bytes";
+  private static final String FILE_ACCESS_PATTERN_KEY = "analytics-core.read.file-access-pattern";
 
   private static final boolean DEFAULT_FOOTER_PREFETCH_ENABLED = true;
   private static final int DEFAULT_INPLACE_SEEK_LIMIT = 128 * 1024; // 128kb
   private static final int DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE = 100 * 1024; // 100kb
   private static final int DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE = 1024 * 1024; // 1mb
   private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = 0; // 0 bytes = disabled
+  private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN = FileAccessPattern.SEQUENTIAL;
 
   public abstract Optional<Integer> getChunkSize();
 
@@ -60,6 +62,8 @@ public abstract class GcsReadOptions {
 
   public abstract int getInplaceSeekLimit();
 
+  public abstract FileAccessPattern getFileAccessPattern();
+
   public static Builder builder() {
     return new AutoValue_GcsReadOptions.Builder()
         .setGcsVectoredReadOptions(GcsVectoredReadOptions.builder().build())
@@ -67,7 +71,8 @@ public abstract class GcsReadOptions {
         .setFooterPrefetchSizeSmallFile(DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE)
         .setFooterPrefetchSizeLargeFile(DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE)
         .setSmallObjectCacheSize(DEFAULT_SMALL_FILE_CACHE_THRESHOLD)
-        .setInplaceSeekLimit(DEFAULT_INPLACE_SEEK_LIMIT);
+        .setInplaceSeekLimit(DEFAULT_INPLACE_SEEK_LIMIT)
+        .setFileAccessPattern(DEFAULT_FILE_ACCESS_PATTERN);
   }
 
   public static GcsReadOptions createFromOptions(
@@ -103,6 +108,12 @@ public abstract class GcsReadOptions {
       optionsBuilder.setInplaceSeekLimit(
           safeParseInteger(analyticsCoreOptions, prefix + INPLACE_SEEK_LIMIT_KEY));
     }
+    if (analyticsCoreOptions.containsKey(prefix + FILE_ACCESS_PATTERN_KEY)) {
+      optionsBuilder.setFileAccessPattern(
+          FileAccessPattern.valueOf(
+              analyticsCoreOptions.get(prefix + FILE_ACCESS_PATTERN_KEY).toUpperCase()));
+    }
+
     optionsBuilder.setGcsVectoredReadOptions(
         GcsVectoredReadOptions.createFromOptions(analyticsCoreOptions, prefix));
 
@@ -141,6 +152,8 @@ public abstract class GcsReadOptions {
     public abstract Builder setSmallObjectCacheSize(int smallObjectCacheSize);
 
     public abstract Builder setInplaceSeekLimit(int inplaceSeekLimit);
+
+    public abstract Builder setFileAccessPattern(FileAccessPattern fileAccessPattern);
 
     public abstract GcsReadOptions build();
   }

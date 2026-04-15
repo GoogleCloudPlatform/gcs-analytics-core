@@ -27,6 +27,8 @@ public class TrackingReadChannel implements ReadChannel {
   private int seekCalls = 0;
   private int eofAtCall = -1;
   private int closeCalls = 0;
+  private Integer lastChunkSize;
+  private Long lastLimit;
 
   public TrackingReadChannel(ReadChannel delegate) {
     this.delegate = delegate;
@@ -64,11 +66,13 @@ public class TrackingReadChannel implements ReadChannel {
 
   @Override
   public void setChunkSize(int chunkSize) {
+    this.lastChunkSize = chunkSize;
     delegate.setChunkSize(chunkSize);
   }
 
   @Override
   public ReadChannel limit(long limit) {
+    this.lastLimit = limit;
     delegate.limit(limit);
     return this;
   }
@@ -88,5 +92,13 @@ public class TrackingReadChannel implements ReadChannel {
 
   public int getCloseCalls() {
     return closeCalls;
+  }
+
+  public Integer getLastChunkSize() {
+    return lastChunkSize;
+  }
+
+  public Long getLastLimit() {
+    return lastLimit;
   }
 }
