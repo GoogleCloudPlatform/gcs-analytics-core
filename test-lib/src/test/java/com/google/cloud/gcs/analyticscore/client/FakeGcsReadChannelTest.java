@@ -72,7 +72,7 @@ class FakeGcsReadChannelTest {
   void openSdkReadChannel_createsTrackingReadChannelThatReadsFromStorage() throws Exception {
     TrackingReadChannel tracking = fakeGcsReadChannel.getTrackingReadChannel();
     ByteBuffer dst = ByteBuffer.allocate(100);
-    
+
     int bytesRead = tracking.read(dst);
 
     assertThat(bytesRead).isEqualTo(100);

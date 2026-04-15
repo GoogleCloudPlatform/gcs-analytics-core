@@ -58,10 +58,12 @@ class VersionHelperTest {
     try (MockedStatic<VersionHelper> mockedVersionHelper = mockStatic(VersionHelper.class)) {
       InputStream mockStream = mock(InputStream.class);
       doThrow(new IOException("test close exception")).when(mockStream).close();
-      
+
       mockedVersionHelper.when(() -> VersionHelper.openPomFileInputStream()).thenReturn(mockStream);
       mockedVersionHelper.when(() -> VersionHelper.loadVersion()).thenCallRealMethod();
-      mockedVersionHelper.when(() -> VersionHelper.loadVersion(any(InputStream.class))).thenCallRealMethod();
+      mockedVersionHelper
+          .when(() -> VersionHelper.loadVersion(any(InputStream.class)))
+          .thenCallRealMethod();
 
       String version = VersionHelper.loadVersion();
       assertThat(version).isEqualTo(VersionHelper.DEFAULT_VERSION);
