@@ -16,13 +16,15 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static com.google.common.truth.Truth.assertThat;
 
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import java.nio.ByteBuffer;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +34,7 @@ class FakeGcsReadChannelTest {
   private FakeGcsReadChannel fakeGcsReadChannel;
   private GcsItemInfo itemInfo;
   private GcsReadOptions readOptions;
+  private Storage storage;
 
   @BeforeEach
   void createDefaultInstances() throws Exception {
@@ -40,14 +43,12 @@ class FakeGcsReadChannelTest {
     itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
     readOptions = GcsReadOptions.builder().build();
     byte[] data = TestDataGenerator.generateSeededRandomBytes(100, 1);
-    LocalStorageHelper.getOptions()
-        .getService()
-        .create(
-            BlobInfo.newBuilder(itemId.getBucketName(), itemId.getObjectName().get()).build(),
-            data);
+    storage = LocalStorageHelper.getOptions().getService();
+    storage.create(
+        BlobInfo.newBuilder(itemId.getBucketName(), itemId.getObjectName().get()).build(), data);
     fakeGcsReadChannel =
         new FakeGcsReadChannel(
-            LocalStorageHelper.getOptions().getService(),
+            storage,
             itemInfo,
             readOptions,
             Suppliers.ofInstance(Executors.newSingleThreadExecutor()),
@@ -56,9 +57,24 @@ class FakeGcsReadChannelTest {
   }
 
   @Test
-  void openReadChannel_incrementsOpenReadChannelCount() throws Exception {
-    fakeGcsReadChannel.openReadChannel(itemInfo.getItemId(), readOptions);
+  void openSdkReadChannel_incrementsOpenReadChannelCount() throws Exception {
+    fakeGcsReadChannel.openSdkReadChannel(itemInfo.getItemId(), readOptions);
 
-    assertEquals(1, FakeGcsReadChannel.getOpenReadChannelCount());
+    assertThat(FakeGcsReadChannel.getOpenReadChannelCount()).isEqualTo(1);
+  }
+
+  @Test
+  void getTrackingReadChannel_returnsAutoCreatedWrapper() {
+    assertThat(fakeGcsReadChannel.getTrackingReadChannel()).isNotNull();
+  }
+
+  @Test
+  void openSdkReadChannel_createsTrackingReadChannelThatReadsFromStorage() throws Exception {
+    TrackingReadChannel tracking = fakeGcsReadChannel.getTrackingReadChannel();
+    ByteBuffer dst = ByteBuffer.allocate(100);
+
+    int bytesRead = tracking.read(dst);
+
+    assertThat(bytesRead).isEqualTo(100);
   }
 }

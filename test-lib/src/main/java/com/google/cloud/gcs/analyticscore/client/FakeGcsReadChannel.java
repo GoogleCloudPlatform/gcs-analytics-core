@@ -25,6 +25,7 @@ import java.util.concurrent.ExecutorService;
 
 public class FakeGcsReadChannel extends GcsReadChannel {
   private static int openReadChannelCount = 0;
+  private TrackingReadChannel trackingReadChannel;
 
   public FakeGcsReadChannel(
       Storage storage,
@@ -37,10 +38,16 @@ public class FakeGcsReadChannel extends GcsReadChannel {
   }
 
   @Override
-  protected ReadChannel openReadChannel(GcsItemId itemId, GcsReadOptions readOptions)
+  protected ReadChannel openSdkReadChannel(GcsItemId itemId, GcsReadOptions readOptions)
       throws IOException {
     openReadChannelCount++;
-    return super.openReadChannel(itemId, readOptions);
+    ReadChannel delegate = super.openSdkReadChannel(itemId, readOptions);
+    trackingReadChannel = new TrackingReadChannel(delegate);
+    return trackingReadChannel;
+  }
+
+  public TrackingReadChannel getTrackingReadChannel() {
+    return trackingReadChannel;
   }
 
   public static int getOpenReadChannelCount() {

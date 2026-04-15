@@ -15,21 +15,20 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.google.common.annotations.VisibleForTesting;
 
 final class VersionHelper {
   private static final Logger LOG = LoggerFactory.getLogger(VersionHelper.class);
 
   static final String PACKAGE_POM_PATH =
       "/META-INF/maven/com.google.cloud.gcs.analytics/client/pom.properties";
-  
-  @VisibleForTesting
-  static final String DEFAULT_VERSION = "unknown";
+
+  @VisibleForTesting static final String DEFAULT_VERSION = "unknown";
 
   static final String VERSION = loadVersion();
 

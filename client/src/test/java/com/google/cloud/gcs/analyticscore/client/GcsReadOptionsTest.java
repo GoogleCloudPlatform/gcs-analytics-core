@@ -41,6 +41,7 @@ class GcsReadOptionsTest {
             .put("gcs.analytics-core.large-file.footer.prefetch.size-bytes", "4194304")
             .put("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "41943")
             .put("gcs.analytics-core.small-file.cache.threshold-bytes", "102400")
+            .put("gcs.analytics-core.read.inplace-seek-limit-bytes", "16777216")
             .build();
     String prefix = "gcs.";
 
@@ -54,6 +55,7 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(41943);
     assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(4194304);
     assertThat(readOptions.getSmallObjectCacheSize()).isEqualTo(102400);
+    assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(16777216);
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(1024);
     assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(2048);
   }
@@ -73,6 +75,7 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(100 * 1024);
     assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(1024 * 1024);
     assertThat(readOptions.getSmallObjectCacheSize()).isEqualTo(0);
+    assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(128 * 1024);
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(4 * 1024);
     assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(8 * 1024 * 1024);
   }
@@ -83,6 +86,7 @@ class GcsReadOptionsTest {
         "gcs.analytics-core.small-file.footer.prefetch.size-bytes",
         "gcs.analytics-core.small-file.cache.threshold-bytes",
         "gcs.analytics-core.large-file.footer.prefetch.size-bytes",
+        "gcs.analytics-core.read.inplace-seek-limit-bytes",
       })
   void createFromOptions_integerValuesGreaterThanIntegerMax_throwsIllegalArgumentException(
       String propertyKey) {
