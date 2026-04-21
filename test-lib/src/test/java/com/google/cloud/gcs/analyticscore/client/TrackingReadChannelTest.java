@@ -91,22 +91,24 @@ class TrackingReadChannelTest {
   }
 
   @Test
-  void setChunkSize_delegates() {
+  void setChunkSize_delegatesAndTracks() {
     int chunkSize = 1024;
 
     trackingReadChannel.setChunkSize(chunkSize);
 
+    assertThat(trackingReadChannel.getLastChunkSize()).isEqualTo(chunkSize);
     verify(delegate).setChunkSize(chunkSize);
   }
 
   @Test
-  void limit_delegates() {
+  void limit_delegatesAndTracks() {
     long limit = 500L;
     when(delegate.limit(limit)).thenReturn(delegate);
 
     ReadChannel result = trackingReadChannel.limit(limit);
 
     assertThat(result).isEqualTo(trackingReadChannel);
+    assertThat(trackingReadChannel.getLastLimit()).isEqualTo(limit);
     verify(delegate).limit(limit);
   }
 

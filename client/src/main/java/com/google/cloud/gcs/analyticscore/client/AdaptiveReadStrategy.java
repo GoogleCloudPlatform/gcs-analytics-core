@@ -16,14 +16,26 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import org.openjdk.jmh.annotations.Param;
-import org.openjdk.jmh.annotations.Scope;
-import org.openjdk.jmh.annotations.State;
-import com.google.cloud.gcs.analyticscore.client.FileAccessPattern;
+class AdaptiveReadStrategy {
 
-@State(Scope.Benchmark)
-public class GcsReadChannelBenchmarkState {
+  private final FileAccessPattern fileAccessPattern;
+  private final boolean randomAccess;
 
-    @Param({"SEQUENTIAL", "RANDOM"})
-    public FileAccessPattern accessPattern;
+  AdaptiveReadStrategy(GcsReadOptions readOptions) {
+    this.fileAccessPattern = readOptions.getFileAccessPattern();
+    this.randomAccess = this.fileAccessPattern == FileAccessPattern.RANDOM;
+  }
+
+  long calculateAdaptiveReadChannelLimit(
+      long readChannelPosition, long bytesToRead, long objectSize) {
+    long limit = objectSize;
+    if (randomAccess) {
+      limit = readChannelPosition + bytesToRead;
+    }
+    return Math.min(limit, objectSize);
+  }
+
+  boolean isRandomAccess() {
+    return randomAccess;
+  }
 }

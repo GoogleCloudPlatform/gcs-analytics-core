@@ -33,6 +33,7 @@ import com.google.common.collect.Lists;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SeekableByteChannel;
 import java.util.Collections;
 import java.util.List;
@@ -54,6 +55,9 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private static final int SKIP_BUFFER_SIZE = 128 * 1024; // 128 KiB
   private static final ThreadLocal<ByteBuffer> SKIP_BUFFER_HOLDER =
       ThreadLocal.withInitial(() -> ByteBuffer.allocate(SKIP_BUFFER_SIZE));
+  private final AdaptiveReadStrategy strategy;
+  private long sdkReadChannelLimit = -1;
+  private boolean isGcsReadChannelOpen = true;
 
   GcsReadChannel(
       Storage storage,
@@ -99,23 +103,114 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     this.itemId = itemId;
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
-    this.sdkReadChannel = openSdkReadChannel(itemId, readOptions);
-    this.sdkReadChannelPosition = 0;
+    this.strategy = new AdaptiveReadStrategy(readOptions);
+    if (!strategy.isRandomAccess()) {
+      this.sdkReadChannel = openAdaptiveReadChannel(Long.MAX_VALUE);
+    }
   }
 
   @Override
   public int read(ByteBuffer dst) throws IOException {
+    checkChannelOpen();
     if (dst.remaining() == 0) {
       return 0;
     }
     performPendingSeeks();
-    int bytesRead = sdkReadChannel.read(dst);
-    if (bytesRead > 0) {
-      gcsReadChannelPosition += bytesRead;
-      sdkReadChannelPosition += bytesRead;
+    int totalBytesRead = 0;
+    while (dst.hasRemaining()) {
+      int bytesRead = readNextChunk(dst);
+      if (bytesRead < 0) {
+        return totalBytesRead == 0 ? -1 : totalBytesRead;
+      }
+      totalBytesRead += bytesRead;
     }
 
-    return bytesRead;
+    return totalBytesRead;
+  }
+
+  private int readNextChunk(ByteBuffer dst) throws IOException {
+    int bytesRead = getOrCreateSdkChannel(dst.remaining()).read(dst);
+    if (bytesRead >= 0) {
+      updatePositions(bytesRead);
+      return bytesRead;
+    }
+    if (isEof()) {
+      return -1;
+    }
+    if (isChannelLimitReached()) {
+      closeSdkReadChannel();
+      return 0;
+    }
+    throw createUnexpectedEofException();
+  }
+
+  private void checkChannelOpen() throws ClosedChannelException {
+    if (!isGcsReadChannelOpen) {
+      throw new ClosedChannelException();
+    }
+  }
+
+  private ReadChannel getOrCreateSdkChannel(int remaining) throws IOException {
+    if (sdkReadChannel == null) {
+      sdkReadChannel = openAdaptiveReadChannel(remaining);
+    }
+    return sdkReadChannel;
+  }
+
+  private void updatePositions(int bytesRead) {
+    gcsReadChannelPosition += bytesRead;
+    sdkReadChannelPosition += bytesRead;
+  }
+
+  private boolean isEof() {
+    return (itemInfo != null && gcsReadChannelPosition >= itemInfo.getSize())
+        || (itemInfo == null && gcsReadChannelPosition != sdkReadChannelLimit);
+  }
+
+  private boolean isChannelLimitReached() {
+    return gcsReadChannelPosition == sdkReadChannelLimit;
+  }
+
+  private IOException createUnexpectedEofException() {
+    long itemSize = itemInfo.getSize();
+    return new IOException(
+        String.format(
+            "Received end of stream signal before all requestedBytes were received; "
+                + "EndOf stream signal received at offset: %d whereas stream was supposed to end at: %d for resource: %s of size: %d",
+            gcsReadChannelPosition, sdkReadChannelLimit, itemId, itemSize));
+  }
+
+  private ReadChannel openAdaptiveReadChannel(long bytesToRead) throws IOException {
+    long size = (itemInfo != null) ? itemInfo.getSize() : Long.MAX_VALUE;
+    sdkReadChannelLimit =
+        strategy.calculateAdaptiveReadChannelLimit(gcsReadChannelPosition, bytesToRead, size);
+    try {
+      ReadChannel channel = openSdkReadChannel(itemId, readOptions);
+      if (strategy.isRandomAccess()) {
+        channel.setChunkSize(0);
+        channel.limit(sdkReadChannelLimit);
+      }
+      if (gcsReadChannelPosition > 0) {
+        channel.seek(gcsReadChannelPosition);
+      }
+      sdkReadChannelPosition = gcsReadChannelPosition;
+      return channel;
+    } catch (IOException e) {
+      throw new IOException(
+          String.format("Unable to update the boundaries/Range of contentChannel %s", itemId), e);
+    }
+  }
+
+  private void closeSdkReadChannel() {
+    if (sdkReadChannel != null) {
+      try {
+        sdkReadChannel.close();
+      } finally {
+        sdkReadChannel = null;
+        sdkReadChannelLimit = -1;
+        sdkReadChannelPosition = -1;
+      }
+    }
   }
 
   @Override
@@ -125,11 +220,18 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public long position() throws IOException {
+    if (!isGcsReadChannelOpen) {
+      throw new ClosedChannelException();
+    }
+
     return gcsReadChannelPosition;
   }
 
   @Override
   public SeekableByteChannel position(long newPosition) throws IOException {
+    if (!isGcsReadChannelOpen) {
+      throw new ClosedChannelException();
+    }
     validatePosition(newPosition);
     gcsReadChannelPosition = newPosition;
 
@@ -151,18 +253,25 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public boolean isOpen() {
-    return sdkReadChannel.isOpen();
+    return isGcsReadChannelOpen;
   }
 
   @Override
   public void close() throws IOException {
-    if (sdkReadChannel.isOpen()) {
-      sdkReadChannel.close();
+    if (isGcsReadChannelOpen) {
+      isGcsReadChannelOpen = false;
+      closeSdkReadChannel();
     }
   }
 
   private void performPendingSeeks() throws IOException {
-    if (gcsReadChannelPosition == sdkReadChannelPosition) {
+    if (sdkReadChannel == null || gcsReadChannelPosition == sdkReadChannelPosition) {
+      return;
+    }
+    // If the seek distance is greater than the current channel limit, close the current channel
+    // and open a new one.
+    if (gcsReadChannelPosition > sdkReadChannelLimit) {
+      closeSdkReadChannel();
       return;
     }
     if (canSeekInPlace()) {
@@ -187,9 +296,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       skipBuffer.limit(bufferSize);
       int bytesRead = sdkReadChannel.read(skipBuffer);
       if (bytesRead <= 0) {
-        // EOF, fallback to seek
-        sdkReadChannel.seek(gcsReadChannelPosition);
-        sdkReadChannelPosition = gcsReadChannelPosition;
+        closeSdkReadChannel();
         return;
       }
       seekDistance -= bytesRead;
