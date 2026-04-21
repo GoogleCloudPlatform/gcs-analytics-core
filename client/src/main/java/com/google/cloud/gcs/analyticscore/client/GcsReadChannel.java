@@ -111,47 +111,73 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public int read(ByteBuffer dst) throws IOException {
-    if (!isGcsReadChannelOpen) {
-      throw new ClosedChannelException();
-    }
+    checkChannelOpen();
     if (dst.remaining() == 0) {
       return 0;
     }
     performPendingSeeks();
     int totalBytesRead = 0;
     while (dst.hasRemaining()) {
-      if (sdkReadChannel == null) {
-        sdkReadChannel = openAdaptiveReadChannel(dst.remaining());
-      }
-      int bytesRead = sdkReadChannel.read(dst);
-      if (bytesRead >= 0) {
-        totalBytesRead += bytesRead;
-        gcsReadChannelPosition += bytesRead;
-        sdkReadChannelPosition += bytesRead;
-        continue;
-      }
-      // Valid EOF: reached file size OR stream ended before hitting sdkReadChannelLimit
-      boolean isEof =
-          (itemInfo != null && gcsReadChannelPosition >= itemInfo.getSize())
-              || (itemInfo == null && gcsReadChannelPosition != sdkReadChannelLimit);
-      if (isEof) {
+      int bytesRead = readNextChunk(dst);
+      if (bytesRead < 0) {
         return totalBytesRead == 0 ? -1 : totalBytesRead;
       }
-      // If the sdkReadChannelPosition has reached the sdkReadChannelLimit, it means we have read
-      // all the bytes from the current channel. So we close the current channel and open a new one.
-      if (gcsReadChannelPosition == sdkReadChannelLimit) {
-        closeSdkReadChannel();
-        continue;
-      }
-      long itemSize = itemInfo.getSize();
-      throw new IOException(
-          String.format(
-              "Received end of stream signal before all requestedBytes were received; "
-                  + "EndOf stream signal received at offset: %d whereas stream was supposed to end at: %d for resource: %s of size: %d",
-              gcsReadChannelPosition, sdkReadChannelLimit, itemId, itemSize));
+      totalBytesRead += bytesRead;
     }
 
     return totalBytesRead;
+  }
+
+  private int readNextChunk(ByteBuffer dst) throws IOException {
+    int bytesRead = getOrCreateSdkChannel(dst.remaining()).read(dst);
+    if (bytesRead >= 0) {
+      updatePositions(bytesRead);
+      return bytesRead;
+    }
+    if (isEof()) {
+      return -1;
+    }
+    if (isChannelLimitReached()) {
+      closeSdkReadChannel();
+      return 0;
+    }
+    throw createUnexpectedEofException();
+  }
+
+  private void checkChannelOpen() throws ClosedChannelException {
+    if (!isGcsReadChannelOpen) {
+      throw new ClosedChannelException();
+    }
+  }
+
+  private ReadChannel getOrCreateSdkChannel(int remaining) throws IOException {
+    if (sdkReadChannel == null) {
+      sdkReadChannel = openAdaptiveReadChannel(remaining);
+    }
+    return sdkReadChannel;
+  }
+
+  private void updatePositions(int bytesRead) {
+    gcsReadChannelPosition += bytesRead;
+    sdkReadChannelPosition += bytesRead;
+  }
+
+  private boolean isEof() {
+    return (itemInfo != null && gcsReadChannelPosition >= itemInfo.getSize())
+        || (itemInfo == null && gcsReadChannelPosition != sdkReadChannelLimit);
+  }
+
+  private boolean isChannelLimitReached() {
+    return gcsReadChannelPosition == sdkReadChannelLimit;
+  }
+
+  private IOException createUnexpectedEofException() {
+    long itemSize = itemInfo.getSize();
+    return new IOException(
+        String.format(
+            "Received end of stream signal before all requestedBytes were received; "
+                + "EndOf stream signal received at offset: %d whereas stream was supposed to end at: %d for resource: %s of size: %d",
+            gcsReadChannelPosition, sdkReadChannelLimit, itemId, itemSize));
   }
 
   private ReadChannel openAdaptiveReadChannel(long bytesToRead) throws IOException {
