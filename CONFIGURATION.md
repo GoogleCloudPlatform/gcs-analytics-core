@@ -22,3 +22,8 @@ All configuration properties can be prefixed with a common string, e.g., `gcs.`.
 | `analytics-core.read.thread.count`                         | Number of threads for parallel read operations like vectored IO.                                            | 16            |
 | `analytics-core.read.vectored.range.merge-gap.max-bytes`   | Maximum gap (in bytes) between ranges to merge in vectored reads.                                           | 4096 (4 KB)   |
 | `analytics-core.read.vectored.range.merged-size.max-bytes` | Maximum size (in bytes) of a merged range in vectored reads.                                                | 8388608 (8 MB)  |
+| `analytics-core.telemetry.logging.enabled`                   | Enable or disable logging telemetry.                                                                        | `false`        |
+| `analytics-core.telemetry.logging.level`                     | The log level to use for telemetry logs. Options: `TRACE`, `DEBUG`, `INFO`, `WARNING`, `ERROR`.             | `DEBUG`        |
+| `analytics-core.telemetry.opentelemetry.enabled`             | Enable or disable OpenTelemetry integration.                                                                | `false`        |
+| `analytics-core.telemetry.opentelemetry.provider-type`       | The type of OpenTelemetry provider to use. Options: `GLOBAL`, `PRE_CONFIGURED`, `LOGGING`.                  | `GLOBAL`       |
+| `analytics-core.telemetry.opentelemetry.export-interval-seconds` | The interval in seconds at which metrics are exported.                                                      | `60`          |
