@@ -139,6 +139,51 @@ implementation:
                 .setGcsClientOption(GcsClientOptions.builder().setProjectId("my-project-id").build())
                 .build();
         ```
+ 
+    3. Create configuration object with telemetry (Combinations):
+        
+        * **Logging Telemetry Only**:
+            ```java
+            ImmutableMap<String, String> loggingOnly = ImmutableMap.of(
+                    "gcs.project-id", "my-project-id",
+                    "gcs.analytics-core.telemetry.logging.enabled", "true",
+                    "gcs.analytics-core.telemetry.logging.level", "INFO");
+            GcsAnalyticsCoreOptions options = new GcsAnalyticsCoreOptions("gcs.", loggingOnly);
+            ```
+        
+        * **OpenTelemetry Only (Logging Provider)**:
+            ```java
+            ImmutableMap<String, String> otelOnly = ImmutableMap.of(
+                    "gcs.project-id", "my-project-id",
+                    "gcs.analytics-core.telemetry.opentelemetry.enabled", "true",
+                    "gcs.analytics-core.telemetry.opentelemetry.provider-type", "LOGGING",
+                    "gcs.analytics-core.telemetry.opentelemetry.export-interval-seconds", "30");
+            GcsAnalyticsCoreOptions options = new GcsAnalyticsCoreOptions("gcs.", otelOnly);
+            ```
+            
+        * **Custom Telemetry (Operation Listener)**:
+            ```java
+            OperationListener myListener = new OperationListener() {
+                @Override
+                public void onOperationStart(Operation operation) {
+                    // custom logic when operation starts
+                }
+                
+                @Override
+                public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {
+                    // custom logic when operation ends with metrics
+                }
+            };
+
+            GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.builder()
+                .setGcsClientOptions(GcsClientOptions.builder().setProjectId("my-project-id").build())
+                .setAnalyticsCoreTelemetryOptions(TelemetryOptions.builder()
+                    .setCustomTelemetryOptions(CustomTelemetryOptions.builder()
+                        .setOperationListeners(ImmutableList.of(myListener))
+                        .build())
+                    .build())
+                .build();
+            ```
 
 2. Initialize [`GcsFileSystem`](client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsFileSystem.java) with configuration:
     ```java
