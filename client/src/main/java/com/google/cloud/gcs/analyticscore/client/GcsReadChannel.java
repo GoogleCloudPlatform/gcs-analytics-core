@@ -44,6 +44,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   protected GcsItemId itemId;
   private long gcsReadChannelPosition = 0;
   private Supplier<ExecutorService> executorServiceSupplier;
+  private GcsBidiVectoredReader bidiVectoredReader;
   private static final ImmutableMap<String, String> COMMON_ATTRIBUTES =
       ImmutableMap.of(Attribute.CLASS_NAME.name(), GcsReadChannel.class.getName());
   private final Telemetry telemetry;
@@ -197,9 +198,21 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
+  private synchronized GcsBidiVectoredReader getBidiVectoredReader() {
+    if (bidiVectoredReader == null) {
+      bidiVectoredReader = new GcsBidiVectoredReader(storage, itemId, executorServiceSupplier.get());
+    }
+    return bidiVectoredReader;
+  }
+
   @Override
   public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException {
+    if (readOptions.isBidiVectoredReadEnabled()) {
+      getBidiVectoredReader().readVectored(ranges, allocate);
+      return;
+    }
+
     Operation operation =
         Operation.builder()
             .setName(GcsAnalyticsCoreTelemetryConstants.Operation.VECTORED_READ.name())
