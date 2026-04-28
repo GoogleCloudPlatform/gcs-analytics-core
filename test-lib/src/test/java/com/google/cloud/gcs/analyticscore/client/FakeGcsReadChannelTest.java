@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.cloud.ReadChannel;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
@@ -64,17 +65,32 @@ class FakeGcsReadChannelTest {
   }
 
   @Test
-  void getTrackingReadChannel_returnsAutoCreatedWrapper() {
+  void getTrackingReadChannel_returnsAutoCreatedWrapper() throws Exception {
+    fakeGcsReadChannel.openSdkReadChannel(itemInfo.getItemId(), readOptions);
+
     assertThat(fakeGcsReadChannel.getTrackingReadChannel()).isNotNull();
   }
 
   @Test
   void openSdkReadChannel_createsTrackingReadChannelThatReadsFromStorage() throws Exception {
+    fakeGcsReadChannel.openSdkReadChannel(itemInfo.getItemId(), readOptions);
     TrackingReadChannel tracking = fakeGcsReadChannel.getTrackingReadChannel();
     ByteBuffer dst = ByteBuffer.allocate(100);
 
     int bytesRead = tracking.read(dst);
 
     assertThat(bytesRead).isEqualTo(100);
+  }
+
+  @Test
+  void openSdkReadChannel_setsDefaultEofAtCall() throws Exception {
+    fakeGcsReadChannel.setDefaultEofAtCall(1);
+
+    ReadChannel channel = fakeGcsReadChannel.openSdkReadChannel(itemInfo.getItemId(), readOptions);
+    ByteBuffer dst = ByteBuffer.allocate(10);
+
+    int bytesRead = channel.read(dst);
+
+    assertThat(bytesRead).isEqualTo(-1);
   }
 }

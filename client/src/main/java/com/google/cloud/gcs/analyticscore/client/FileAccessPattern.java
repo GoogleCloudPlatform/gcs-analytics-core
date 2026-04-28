@@ -16,14 +16,7 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import org.openjdk.jmh.annotations.Param;
-import org.openjdk.jmh.annotations.Scope;
-import org.openjdk.jmh.annotations.State;
-import com.google.cloud.gcs.analyticscore.client.FileAccessPattern;
-
-@State(Scope.Benchmark)
-public class GcsReadChannelBenchmarkState {
-
-    @Param({"SEQUENTIAL", "RANDOM"})
-    public FileAccessPattern accessPattern;
+public enum FileAccessPattern {
+  RANDOM,
+  SEQUENTIAL
 }

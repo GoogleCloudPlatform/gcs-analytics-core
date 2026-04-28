@@ -13,17 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.google.cloud.gcs.analyticscore.client;
 
-import org.openjdk.jmh.annotations.Param;
-import org.openjdk.jmh.annotations.Scope;
-import org.openjdk.jmh.annotations.State;
-import com.google.cloud.gcs.analyticscore.client.FileAccessPattern;
+import com.google.cloud.ReadChannel;
+import java.io.IOException;
 
-@State(Scope.Benchmark)
-public class GcsReadChannelBenchmarkState {
+public interface ReadStrategy {
+  ReadChannel getReadChannel(long requestedPosition, int bytesToRead) throws IOException;
 
-    @Param({"SEQUENTIAL", "RANDOM"})
-    public FileAccessPattern accessPattern;
+  void position(long newPosition);
+
+  long getLimit();
+
+  boolean isEof(long position);
+
+  void close() throws IOException;
 }
