@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.google.cloud.gcs.analyticscore.core;
 
 import static com.google.common.truth.Truth.assertThat;
@@ -80,38 +96,6 @@ class GoogleCloudStorageWriteChannelTest {
   }
 
   @Test
-  void testExceptionTranslation_FileAlreadyExistsOnCreate() throws Exception {
-    StorageException e412 = new StorageException(412, "Precondition Failed");
-    when(mockBlobWriteSession.open()).thenThrow(e412);
-
-    assertThrows(
-        FileAlreadyExistsException.class,
-        () -> new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions));
-  }
-
-  @Test
-  void testExceptionTranslation_AccessDeniedOnWrite() throws Exception {
-    GoogleCloudStorageWriteChannel channel =
-        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
-    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
-    
-    StorageException e403 = new StorageException(403, "Forbidden");
-    when(mockInternalChannel.write(buffer)).thenThrow(e403);
-
-    assertThrows(AccessDeniedException.class, () -> channel.write(buffer));
-  }
-
-  @Test
-  void testExceptionTranslation_NotFoundOnClose() throws Exception {
-    GoogleCloudStorageWriteChannel channel =
-        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
-    StorageException e404 = new StorageException(404, "Not Found");
-    doThrow(e404).when(mockInternalChannel).close();
-
-    assertThrows(FileNotFoundException.class, channel::close);
-  }
-
-  @Test
   void testWriteWhenClosedThrowsException() throws Exception {
     GoogleCloudStorageWriteChannel channel =
         new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
@@ -151,6 +135,7 @@ class GoogleCloudStorageWriteChannelTest {
     GcsFileSystem fakeGcsFileSystem = mockGcsFileSystem;
     Telemetry realTelemetry = new Telemetry(ImmutableList.of());
     when(fakeGcsFileSystem.getTelemetry()).thenReturn(realTelemetry);
+    
     GoogleCloudStorageWriteChannel channel =
         new GoogleCloudStorageWriteChannel(fakeGcsFileSystem, fakeStorage, bInfo, writeOptions);
     byte[] data1 = new byte[] {1, 2, 3};
@@ -158,9 +143,7 @@ class GoogleCloudStorageWriteChannelTest {
     ByteBuffer buffer1 = ByteBuffer.wrap(data1);
     ByteBuffer buffer2 = ByteBuffer.wrap(data2);
   
-    // write chunk1
     channel.write(buffer1);
-    //write chunk 2
     channel.write(buffer2);
     channel.close();
 
@@ -170,59 +153,17 @@ class GoogleCloudStorageWriteChannelTest {
   }
 
   @Test
-  void testWrite_GenericException() throws Exception {
-    GoogleCloudStorageWriteChannel channel =
-        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
-    
-    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
-    
-    // Simulate a non-StorageException (e.g., a RuntimeException from the SDK or network)
-    // to hit the `catch (Exception e)` fallback branch in write()
-    when(mockInternalChannel.write(buffer)).thenThrow(new RuntimeException("Generic Network Error"));
+  void testExceptionTranslation_FileAlreadyExistsOnCreate() throws Exception {
+    StorageException e412 = new StorageException(412, "Precondition Failed");
+    when(mockBlobWriteSession.open()).thenThrow(e412);
 
-    assertThrows(IOException.class, () -> channel.write(buffer));
-  }
-
-  @Test
-  void testClose_GenericException() throws Exception {
-    GoogleCloudStorageWriteChannel channel =
-        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
-    
-    // Simulate a non-StorageException during close to hit the `catch (Exception e)` fallback branch
-    doThrow(new RuntimeException("Generic Close Error")).when(mockInternalChannel).close();
-
-    assertThrows(IOException.class, channel::close);
-  }
-
-  @Test
-  void testClose_AlreadyClosed() throws Exception {
-    GoogleCloudStorageWriteChannel channel =
-        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
-    
-    channel.close(); // First close executes normally
-    channel.close(); // Second close should trigger the early return branch: `if (closed) return;`
-
-    // Verify the internal channel was only closed once despite calling close() twice
-    verify(mockInternalChannel, times(1)).close();
-  }
-
-  @Test
-  void testExceptionTranslation_NotFoundOnWrite() throws Exception {
-    GoogleCloudStorageWriteChannel channel =
-        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
-    
-    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
-    
-    // Simulate a 404 during write (e.g. bucket deleted mid-flight)
-    StorageException e404 = new StorageException(404, "Not Found");
-    when(mockInternalChannel.write(buffer)).thenThrow(e404);
-
-    assertThrows(FileNotFoundException.class, () -> channel.write(buffer));
+    assertThrows(
+        FileAlreadyExistsException.class,
+        () -> new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions));
   }
 
   @Test
   void testExceptionTranslation_AccessDeniedOnCreate() throws Exception {
-    // Simulate 403 Forbidden during initialization
     StorageException e403 = new StorageException(403, "Forbidden");
     when(mockBlobWriteSession.open()).thenThrow(e403);
 
@@ -232,18 +173,114 @@ class GoogleCloudStorageWriteChannelTest {
   }
 
   @Test
+  void testExceptionTranslation_AccessDeniedOnWrite() throws Exception {
+    GoogleCloudStorageWriteChannel channel =
+        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
+    StorageException e403 = new StorageException(403, "Forbidden");
+    when(mockInternalChannel.write(buffer)).thenThrow(e403);
+
+    assertThrows(AccessDeniedException.class, () -> channel.write(buffer));
+  }
+
+  @Test
+  void testExceptionTranslation_NotFoundOnWrite() throws Exception {
+    GoogleCloudStorageWriteChannel channel =
+        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
+    StorageException e404 = new StorageException(404, "Not Found");
+    when(mockInternalChannel.write(buffer)).thenThrow(e404);
+
+    assertThrows(FileNotFoundException.class, () -> channel.write(buffer));
+  }
+
+  @Test
+  void testExceptionTranslation_NotFoundOnClose() throws Exception {
+    GoogleCloudStorageWriteChannel channel =
+        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
+    StorageException e404 = new StorageException(404, "Not Found");
+    doThrow(e404).when(mockInternalChannel).close();
+
+    assertThrows(FileNotFoundException.class, channel::close);
+  }
+
+  @Test
+  void testConstructor_GenericStorageException() throws Exception {
+    StorageException e500 = new StorageException(500, "Internal Server Error");
+    when(mockStorage.blobWriteSession(eq(blobInfo), any(BlobWriteOption[].class))).thenThrow(e500);
+
+    IOException thrown = assertThrows(IOException.class, () ->
+        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions));
+    assertThat(thrown).hasMessageThat().contains("Failed to initialize BlobWriteSession");
+  }
+
+  @Test
+  void testWrite_GenericStorageException() throws Exception {
+    GoogleCloudStorageWriteChannel channel =
+        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
+    
+    StorageException e500 = new StorageException(500, "Internal Server Error");
+    when(mockInternalChannel.write(buffer)).thenThrow(e500);
+
+    IOException thrown = assertThrows(IOException.class, () -> channel.write(buffer));
+    assertThat(thrown).hasMessageThat().contains("Error writing to GCS");
+  }
+
+  @Test
+  void testClose_GenericStorageException() throws Exception {
+    GoogleCloudStorageWriteChannel channel =
+        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
+    StorageException e500 = new StorageException(500, "Internal Server Error");
+    doThrow(e500).when(mockInternalChannel).close();
+
+    IOException thrown = assertThrows(IOException.class, channel::close);
+    assertThat(thrown).hasMessageThat().contains("Upload failed for");
+  }
+
+  @Test
+  void testWrite_GenericException() throws Exception {
+    GoogleCloudStorageWriteChannel channel =
+        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
+    
+    when(mockInternalChannel.write(buffer)).thenThrow(new RuntimeException("Generic Network Error"));
+
+    IOException thrown = assertThrows(IOException.class, () -> channel.write(buffer));
+    assertThat(thrown).hasMessageThat().contains("Error writing to GCS");
+  }
+
+  @Test
+  void testClose_GenericException() throws Exception {
+    GoogleCloudStorageWriteChannel channel =
+        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
+    
+    doThrow(new RuntimeException("Generic Close Error")).when(mockInternalChannel).close();
+
+    IOException thrown = assertThrows(IOException.class, channel::close);
+    assertThat(thrown).hasMessageThat().contains("Upload failed for");
+  }
+
+  @Test
+  void testClose_AlreadyClosed() throws Exception {
+    GoogleCloudStorageWriteChannel channel =
+        new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, writeOptions);
+    
+    channel.close(); // First close executes normally
+    channel.close(); // Second close should trigger the early return branch
+    
+    verify(mockInternalChannel, times(1)).close();
+  }
+
+  @Test
   void testGenerateWriteOptions_NullOptions() throws Exception {
-    // Tests the early return branch `if (writeOptions == null)` in generateWriteOptions
     GoogleCloudStorageWriteChannel channel =
         new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, null);
-    
     assertThat(channel.isOpen()).isTrue();
   }
 
   @Test
   void testGenerateWriteOptions_AllOptionsEnabled() throws Exception {
-    // This single test hits EVERY setter in GcsWriteOptions.Builder (boosting it to ~100% coverage)
-    // AND hits every 'if' branch inside the `generateWriteOptions` method!
     GcsWriteOptions allOptions = GcsWriteOptions.builder()
         .setChecksumValidationEnabled(true)
         .setDisableGzipContent(true)
@@ -259,21 +296,17 @@ class GoogleCloudStorageWriteChannelTest {
         
     GoogleCloudStorageWriteChannel channel =
         new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfo, allOptions);
-    
     assertThat(channel.isOpen()).isTrue();
   }
 
   @Test
   void testGenerateWriteOptions_WithGenerationId() throws Exception {
-    // Tests the `if (blobInfo.getBlobId().getGeneration() != null)` branch in generateWriteOptions
     BlobInfo blobInfoWithGen = BlobInfo.newBuilder(BlobId.of("test-bucket", "test-object", 12345L)).build();
-    
     when(mockStorage.blobWriteSession(eq(blobInfoWithGen), any(BlobWriteOption[].class)))
         .thenReturn(mockBlobWriteSession);
         
     GoogleCloudStorageWriteChannel channel =
         new GoogleCloudStorageWriteChannel(mockGcsFileSystem, mockStorage, blobInfoWithGen, writeOptions);
-        
     assertThat(channel.isOpen()).isTrue();
   }
 }

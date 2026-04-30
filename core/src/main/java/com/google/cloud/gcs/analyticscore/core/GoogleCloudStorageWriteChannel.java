@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.google.cloud.gcs.analyticscore.core;
 
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
@@ -62,16 +78,14 @@ public class GoogleCloudStorageWriteChannel implements WritableByteChannel {
           
       GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(e);
       if (errorType == GcsExceptionUtil.ErrorType.ALREADY_EXISTS) {
-        FileAlreadyExistsException faee = new FileAlreadyExistsException(
-            String.format("Object gs://%s/%s already exists.", blobInfo.getBucket(), blobInfo.getName()));
-        faee.initCause(e);
-        throw faee;
+        throw (FileAlreadyExistsException) new FileAlreadyExistsException(
+            String.format("Object gs://%s/%s already exists.", blobInfo.getBucket(), blobInfo.getName()))
+            .initCause(e);
       } else if (errorType == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
-        AccessDeniedException ade = new AccessDeniedException(
+        throw (AccessDeniedException) new AccessDeniedException(
             String.format("gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()), null, 
-            String.format("Access denied to object during initialization: %s", e.getMessage()));
-        ade.initCause(e);
-        throw ade;
+            String.format("Access denied to object during initialization: %s", e.getMessage()))
+            .initCause(e);
       }
       
       throw new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId(), e);
@@ -107,16 +121,14 @@ public class GoogleCloudStorageWriteChannel implements WritableByteChannel {
                   
               GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(e);
               if (errorType == GcsExceptionUtil.ErrorType.NOT_FOUND) {
-                FileNotFoundException fnfe = new FileNotFoundException(
-                    String.format("Location does not exist or generation not found: gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()));
-                fnfe.initCause(e);
-                throw fnfe;
+                throw (FileNotFoundException) new FileNotFoundException(
+                    String.format("Location does not exist or generation not found: gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()))
+                    .initCause(e);
               } else if (errorType == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
-                AccessDeniedException ade = new AccessDeniedException(
+                throw (AccessDeniedException) new AccessDeniedException(
                     String.format("gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()), null, 
-                    String.format("Access denied to object during write: %s", e.getMessage()));
-                ade.initCause(e);
-                throw ade;
+                    String.format("Access denied to object during write: %s", e.getMessage()))
+                    .initCause(e);
               }
               
               throw new IOException(
@@ -159,10 +171,9 @@ public class GoogleCloudStorageWriteChannel implements WritableByteChannel {
               
               GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(e);
               if (errorType == GcsExceptionUtil.ErrorType.NOT_FOUND) {
-                FileNotFoundException fnfe = new FileNotFoundException(
-                    String.format("Location does not exist or generation not found: gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()));
-                fnfe.initCause(e);
-                throw fnfe;
+                throw (FileNotFoundException) new FileNotFoundException(
+                    String.format("Location does not exist or generation not found: gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()))
+                    .initCause(e);
               }
               
               throw new IOException(String.format("Upload failed for '%s'. reason=%s", 
