@@ -14,16 +14,15 @@
  * limitations under the License.
  */
 
-package com.google.cloud.gcs.analyticscore.core;
+package com.google.cloud.gcs.analyticscore.client;
 
 /**
  * Configuration options for writing objects to Google Cloud Storage.
- * <p>
- * This class abstracts client-specific configurations into a unified, 
- * generic set of properties utilized by {@code gcs-analytics-core}. By centralizing
- * these options, it ensures that any integrating analytics framework or compute 
- * engine can leverage the exact same underlying upload strategies and performance 
- * optimizations.
+ *
+ * <p>This class abstracts client-specific configurations into a unified, generic set of properties
+ * utilized by {@code gcs-analytics-core}. By centralizing these options, it ensures that any
+ * integrating analytics framework or compute engine can leverage the exact same underlying upload
+ * strategies and performance optimizations.
  */
 public class GcsWriteOptions {
 
@@ -61,18 +60,49 @@ public class GcsWriteOptions {
     this.encryptionKey = builder.encryptionKey;
   }
 
-  public boolean isChecksumValidationEnabled() { return checksumValidationEnabled; }
-  public boolean isDisableGzipContent() { return disableGzipContent; }
-  public boolean isOverwriteExisting() { return overwriteExisting; }
-  public int getUploadChunkSize() { return uploadChunkSize; }
-  public UploadType getUploadType() { return uploadType; }
-  public int getPcuBufferCount() { return pcuBufferCount; }
-  public int getPcuBufferCapacity() { return pcuBufferCapacity; }
-  public String getKmsKeyName() { return kmsKeyName; }
-  public String getUserProject() { return userProject; }
-  public String getEncryptionKey() { return encryptionKey; }
+  public boolean isChecksumValidationEnabled() {
+    return checksumValidationEnabled;
+  }
 
-  public static Builder builder() { return new Builder(); }
+  public boolean isDisableGzipContent() {
+    return disableGzipContent;
+  }
+
+  public boolean isOverwriteExisting() {
+    return overwriteExisting;
+  }
+
+  public int getUploadChunkSize() {
+    return uploadChunkSize;
+  }
+
+  public UploadType getUploadType() {
+    return uploadType;
+  }
+
+  public int getPcuBufferCount() {
+    return pcuBufferCount;
+  }
+
+  public int getPcuBufferCapacity() {
+    return pcuBufferCapacity;
+  }
+
+  public String getKmsKeyName() {
+    return kmsKeyName;
+  }
+
+  public String getUserProject() {
+    return userProject;
+  }
+
+  public String getEncryptionKey() {
+    return encryptionKey;
+  }
+
+  public static Builder builder() {
+    return new Builder();
+  }
 
   public static class Builder {
     private boolean checksumValidationEnabled = false;
@@ -86,17 +116,58 @@ public class GcsWriteOptions {
     private String userProject = null;
     private String encryptionKey = null;
 
-    public Builder setChecksumValidationEnabled(boolean enabled) { this.checksumValidationEnabled = enabled; return this; }
-    public Builder setDisableGzipContent(boolean disable) { this.disableGzipContent = disable; return this; }
-    public Builder setOverwriteExisting(boolean overwrite) { this.overwriteExisting = overwrite; return this; }
-    public Builder setUploadChunkSize(int size) { this.uploadChunkSize = size; return this; }
-    public Builder setUploadType(UploadType type) { this.uploadType = type; return this; }
-    public Builder setPcuBufferCount(int count) { this.pcuBufferCount = count; return this; }
-    public Builder setPcuBufferCapacity(int capacity) { this.pcuBufferCapacity = capacity; return this; }
-    public Builder setKmsKeyName(String key) { this.kmsKeyName = key; return this; }
-    public Builder setUserProject(String project) { this.userProject = project; return this; }
-    public Builder setEncryptionKey(String key) { this.encryptionKey = key; return this; }
+    public Builder setChecksumValidationEnabled(boolean enabled) {
+      this.checksumValidationEnabled = enabled;
+      return this;
+    }
 
-    public GcsWriteOptions build() { return new GcsWriteOptions(this); }
+    public Builder setDisableGzipContent(boolean disable) {
+      this.disableGzipContent = disable;
+      return this;
+    }
+
+    public Builder setOverwriteExisting(boolean overwrite) {
+      this.overwriteExisting = overwrite;
+      return this;
+    }
+
+    public Builder setUploadChunkSize(int size) {
+      this.uploadChunkSize = size;
+      return this;
+    }
+
+    public Builder setUploadType(UploadType type) {
+      this.uploadType = type;
+      return this;
+    }
+
+    public Builder setPcuBufferCount(int count) {
+      this.pcuBufferCount = count;
+      return this;
+    }
+
+    public Builder setPcuBufferCapacity(int capacity) {
+      this.pcuBufferCapacity = capacity;
+      return this;
+    }
+
+    public Builder setKmsKeyName(String key) {
+      this.kmsKeyName = key;
+      return this;
+    }
+
+    public Builder setUserProject(String project) {
+      this.userProject = project;
+      return this;
+    }
+
+    public Builder setEncryptionKey(String key) {
+      this.encryptionKey = key;
+      return this;
+    }
+
+    public GcsWriteOptions build() {
+      return new GcsWriteOptions(this);
+    }
   }
 }

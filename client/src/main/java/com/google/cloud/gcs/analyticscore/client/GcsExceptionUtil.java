@@ -14,14 +14,12 @@
  * limitations under the License.
  */
 
-package com.google.cloud.gcs.analyticscore.core;
+package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.cloud.storage.StorageException;
 import java.net.HttpURLConnection;
 
-/**
- * Centralized utility for classifying GCS transport exceptions.
- */
+/** Centralized utility for classifying GCS transport exceptions. */
 public class GcsExceptionUtil {
 
   public enum ErrorType {
@@ -31,9 +29,7 @@ public class GcsExceptionUtil {
     UNKNOWN
   }
 
-  /**
-   * Determines the logical error type from a StorageException.
-   */
+  /** Determines the logical error type from a StorageException. */
   public static ErrorType getErrorType(StorageException e) {
     switch (e.getCode()) {
       case HttpURLConnection.HTTP_NOT_FOUND: // 404
