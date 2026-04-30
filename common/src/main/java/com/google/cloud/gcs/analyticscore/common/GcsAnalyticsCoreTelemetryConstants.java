@@ -31,7 +31,9 @@ public class GcsAnalyticsCoreTelemetryConstants {
     READ_CACHE_HIT("gcs.analytics-core.client.read.cache.hits", MetricType.COUNTER),
     READ_CACHE_MISS("gcs.analytics-core.client.read.cache.misses", MetricType.COUNTER),
     CLOSE_DURATION("gcs.analytics-core.client.close.duration", MetricType.DURATION),
-    GCS_CLIENT_CREATE_DURATION("gcs.analytics-core.client.create.duration", MetricType.DURATION);
+    GCS_CLIENT_CREATE_DURATION("gcs.analytics-core.client.create.duration", MetricType.DURATION),
+    WRITE_BYTES("gcs.analytics-core.client.write.size", MetricType.COUNTER),
+    WRITE_DURATION("gcs.analytics-core.client.write.duration", MetricType.DURATION);
 
     private final String name;
     private final MetricType type;
@@ -60,6 +62,7 @@ public class GcsAnalyticsCoreTelemetryConstants {
     READ_TAIL,
     OPEN,
     VECTORED_READ,
-    GCS_CLIENT_CREATE;
+    GCS_CLIENT_CREATE,
+    WRITE;
   }
 }

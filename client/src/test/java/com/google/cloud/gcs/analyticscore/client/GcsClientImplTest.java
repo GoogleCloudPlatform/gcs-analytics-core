@@ -18,6 +18,11 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
@@ -30,12 +35,16 @@ import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
+import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class GcsClientImplTest {
 
@@ -48,6 +57,7 @@ class GcsClientImplTest {
   private final Telemetry telemetry = new Telemetry(ImmutableList.of());
 
   private GcsClient gcsClient;
+  private Storage tempMockStorage;
 
   @BeforeEach
   void setUp() throws IOException {
@@ -212,9 +222,11 @@ class GcsClientImplTest {
         .hasMessageThat()
         .isEqualTo("Expected GCS object to be provided. But got: " + directoryItemId);
   }
+
   @Test
   void getUserAgent_noOptionalUserAgent() {
-    GcsClientImpl client = new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    GcsClientImpl client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
     String userAgent = client.getUserAgent();
     assertThat(userAgent).isEqualTo("gcs-analytics-core/" + VersionHelper.VERSION);
   }
@@ -246,5 +258,133 @@ class GcsClientImplTest {
   private void createBlobInStorage(BlobId blobId, String blobContent) {
     BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
     storage.create(blobInfo, blobContent.getBytes(StandardCharsets.UTF_8));
+  }
+
+  @Test
+  void create_writeAndClose_successWithLocalStorage() throws Exception {
+    GcsClientImpl client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return GcsClientImplTest.this.storage;
+          }
+        };
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of("test-bucket", "test-write-object")).build();
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    WritableByteChannel channel = client.create(blobInfo, options);
+
+    byte[] data = "hello write world".getBytes(StandardCharsets.UTF_8);
+    int bytesWritten = channel.write(ByteBuffer.wrap(data));
+    channel.close();
+
+    assertThat(bytesWritten).isEqualTo(data.length);
+    byte[] readData = storage.readAllBytes(blobInfo.getBlobId());
+    assertThat(new String(readData, StandardCharsets.UTF_8)).isEqualTo("hello write world");
+  }
+
+  @Test
+  void create_TranslatesAccessDeniedException() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of("test-bucket", "test-object")).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    StorageException e403 = new StorageException(403, "Forbidden");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e403);
+
+    assertThrows(AccessDeniedException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+  }
+
+  @Test
+  void create_GenericStorageException() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of("test-bucket", "test-object")).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    StorageException e500 = new StorageException(500, "Internal Server Error");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e500);
+
+    IOException thrown =
+        assertThrows(IOException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+
+    assertThat(thrown).hasMessageThat().contains("Failed to initialize BlobWriteSession");
+  }
+
+  @Test
+  void create_GenerateWriteOptions_NullOptions() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    when(mockSession.open()).thenReturn(mockChannel);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = mockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of("test-bucket", "test-object")).build();
+
+    WritableByteChannel returnedChannel = clientWithMock.create(blobInfo, null);
+
+    assertThat(returnedChannel).isEqualTo(mockChannel);
+  }
+
+  @Test
+  void create_GenerateWriteOptions_AllOptionsEnabled() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    when(mockSession.open()).thenReturn(mock(WritableByteChannel.class));
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = mockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of("test-bucket", "test-object")).build();
+    GcsWriteOptions allOptions =
+        GcsWriteOptions.builder()
+            .setChecksumValidationEnabled(true)
+            .setDisableGzipContent(true)
+            .setOverwriteExisting(false)
+            .setKmsKeyName("kms-key")
+            .setEncryptionKey("MDEyMzQ1Njc4OUFCQ0RFRkdISUpLTE1OT1BRUlNUVVU=")
+            .setUserProject("user-project")
+            .build();
+
+    clientWithMock.create(blobInfo, allOptions);
+
+    ArgumentCaptor<Storage.BlobWriteOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobWriteOption[].class);
+    verify(mockStorage).blobWriteSession(eq(blobInfo), optionsCaptor.capture());
+    String capturedOptionsString = Arrays.toString(optionsCaptor.getValue());
+    assertThat(capturedOptionsString).contains("Crc32cMatchExtractor");
+    assertThat(capturedOptionsString).contains("IF_GENERATION_MATCH");
+    assertThat(capturedOptionsString).contains("KMS_KEY_NAME");
+    assertThat(capturedOptionsString).contains("CUSTOMER_SUPPLIED_KEY");
+  }
+
+  @Test
+  void create_GenerateWriteOptions_WithGenerationId() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    when(mockSession.open()).thenReturn(mock(WritableByteChannel.class));
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = mockStorage;
+    BlobInfo blobInfoWithGen =
+        BlobInfo.newBuilder(BlobId.of("test-bucket", "test-object", 12345L)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+
+    clientWithMock.create(blobInfoWithGen, writeOptions);
+
+    ArgumentCaptor<Storage.BlobWriteOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobWriteOption[].class);
+    verify(mockStorage).blobWriteSession(eq(blobInfoWithGen), optionsCaptor.capture());
+    assertThat(Arrays.toString(optionsCaptor.getValue())).contains("GenerationMatchExtractor");
   }
 }
