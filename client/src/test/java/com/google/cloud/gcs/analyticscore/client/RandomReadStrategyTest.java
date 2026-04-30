@@ -18,8 +18,6 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.google.cloud.ReadChannel;
-import com.google.cloud.storage.BlobId;
-import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import java.io.IOException;
@@ -29,11 +27,11 @@ import org.junit.jupiter.api.Test;
 
 class RandomReadStrategyTest {
 
-  private final Storage storage = LocalStorageHelper.getOptions().getService();
-  private final GcsItemId itemId =
+  private static final Storage storage = LocalStorageHelper.getOptions().getService();
+  private static final GcsItemId itemId =
       GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-  private final GcsReadOptions options = GcsReadOptions.builder().build();
-  private final GcsItemInfo itemInfo =
+  private static final GcsReadOptions options = GcsReadOptions.builder().build();
+  private static final GcsItemInfo itemInfo =
       GcsItemInfo.builder().setItemId(itemId).setSize(1000).setContentGeneration(0L).build();
 
   @Test
@@ -46,7 +44,7 @@ class RandomReadStrategyTest {
 
   @Test
   void getReadChannel_firstCall_createsChannelWithLimit() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     FakeRandomReadStrategy strategy =
         new FakeRandomReadStrategy(storage, itemId, options, itemInfo);
 
@@ -60,7 +58,7 @@ class RandomReadStrategyTest {
 
   @Test
   void getReadChannel_reuseChannel_whenWithinLimit() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     GcsReadOptions readOptions = GcsReadOptions.builder().setInplaceSeekLimit(100).build();
     FakeRandomReadStrategy strategy =
         new FakeRandomReadStrategy(storage, itemId, readOptions, itemInfo);
@@ -75,7 +73,7 @@ class RandomReadStrategyTest {
 
   @Test
   void getReadChannel_reuseChannel_failsPerformPendingSeeks_recreatesChannel() throws IOException {
-    createBlobInStorage("a".repeat(100));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(100));
     GcsReadOptions readOptions = GcsReadOptions.builder().setInplaceSeekLimit(100).build();
     FakeRandomReadStrategy strategy =
         new FakeRandomReadStrategy(storage, itemId, readOptions, itemInfo);
@@ -93,7 +91,7 @@ class RandomReadStrategyTest {
 
   @Test
   void getReadChannel_channelOpen_notReusable_closesOldChannel() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     FakeRandomReadStrategy strategy =
         new FakeRandomReadStrategy(storage, itemId, options, itemInfo);
     strategy.getReadChannel(0, 20);
@@ -107,7 +105,7 @@ class RandomReadStrategyTest {
 
   @Test
   void getReadChannel_recreatesChannel_whenPastLimit() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     FakeRandomReadStrategy strategy =
         new FakeRandomReadStrategy(storage, itemId, options, itemInfo);
     strategy.getReadChannel(10, 20);
@@ -122,7 +120,7 @@ class RandomReadStrategyTest {
 
   @Test
   void getReadChannel_seekBeyondLimit_closesChannel() throws IOException {
-    createBlobInStorage("a".repeat(100));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(100));
     FakeRandomReadStrategy strategy =
         new FakeRandomReadStrategy(storage, itemId, options, itemInfo);
     strategy.getReadChannel(0, 10);
@@ -135,7 +133,7 @@ class RandomReadStrategyTest {
 
   @Test
   void getLimit_returnsCurrentLimit() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     FakeRandomReadStrategy strategy =
         new FakeRandomReadStrategy(storage, itemId, options, itemInfo);
     strategy.getReadChannel(10, 20);
@@ -147,7 +145,7 @@ class RandomReadStrategyTest {
 
   @Test
   void getReadChannel_backwardSeek_recreatesChannel() throws IOException {
-    createBlobInStorage("a".repeat(100));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(100));
     FakeRandomReadStrategy strategy =
         new FakeRandomReadStrategy(storage, itemId, options, itemInfo);
     strategy.getReadChannel(0, 10);
@@ -164,7 +162,7 @@ class RandomReadStrategyTest {
 
   @Test
   void getReadChannel_hitsLimit_opensNewChannel() throws IOException {
-    createBlobInStorage("a".repeat(100));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(100));
     FakeRandomReadStrategy strategy =
         new FakeRandomReadStrategy(storage, itemId, options, itemInfo);
     strategy.getReadChannel(0, 5);
@@ -180,7 +178,7 @@ class RandomReadStrategyTest {
   @Test
   void getReadChannel_seekPastLimit_readsSuccessfully() throws IOException {
     String objectData = "abcdefghijklmnopqrstuvwxyz";
-    createBlobInStorage(objectData);
+    StorageTestUtils.createBlobInStorage(storage, itemId, objectData);
     GcsReadOptions readOptions = GcsReadOptions.builder().setInplaceSeekLimit(0).build();
     RandomReadStrategy strategy = new RandomReadStrategy(storage, itemId, readOptions, itemInfo);
     strategy.getReadChannel(0, 5);
@@ -191,11 +189,5 @@ class RandomReadStrategyTest {
 
     assertThat(bytesRead).isEqualTo(5);
     assertThat(new String(buffer.array(), StandardCharsets.UTF_8)).isEqualTo("klmno");
-  }
-
-  private void createBlobInStorage(String content) {
-    BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L);
-    BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
-    storage.create(blobInfo, content.getBytes(StandardCharsets.UTF_8));
   }
 }

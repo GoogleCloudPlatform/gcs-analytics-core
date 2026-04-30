@@ -25,6 +25,7 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
@@ -84,9 +85,29 @@ class FakeGcsReadChannelTest {
 
   @Test
   void openSdkReadChannel_setsDefaultEofAtCall() throws Exception {
-    fakeGcsReadChannel.setDefaultEofAtCall(1);
+    FakeGcsReadChannel customChannel =
+        new FakeGcsReadChannel(
+            storage,
+            itemInfo,
+            readOptions,
+            Suppliers.ofInstance(Executors.newSingleThreadExecutor()),
+            new Telemetry(ImmutableList.of())) {
+          @Override
+          protected ReadStrategy createReadStrategy(
+              Storage storage,
+              GcsItemId itemId,
+              GcsReadOptions readOptions,
+              GcsItemInfo itemInfo,
+              long position)
+              throws IOException {
+            ReadStrategy strategy =
+                super.createReadStrategy(storage, itemId, readOptions, itemInfo, position);
+            ((TrackingReadStrategy) strategy).setEofAtCall(1);
+            return strategy;
+          }
+        };
 
-    ReadChannel channel = fakeGcsReadChannel.openSdkReadChannel(itemInfo.getItemId(), readOptions);
+    ReadChannel channel = customChannel.openSdkReadChannel(itemInfo.getItemId(), readOptions);
     ByteBuffer dst = ByteBuffer.allocate(10);
 
     int bytesRead = channel.read(dst);

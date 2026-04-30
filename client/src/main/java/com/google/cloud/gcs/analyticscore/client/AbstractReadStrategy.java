@@ -33,7 +33,7 @@ abstract class AbstractReadStrategy implements ReadStrategy {
 
   private static final int SKIP_BUFFER_SIZE = 128 * 1024; // 128 KiB
   protected static final ThreadLocal<ByteBuffer> SKIP_BUFFER_HOLDER =
-      ThreadLocal.withInitial(() -> ByteBuffer.allocate(SKIP_BUFFER_SIZE));
+      ThreadLocal.withInitial(() -> ByteBuffer.allocateDirect(SKIP_BUFFER_SIZE));
 
   protected ReadChannel channel;
   protected long position = 0;
@@ -64,16 +64,11 @@ abstract class AbstractReadStrategy implements ReadStrategy {
     if (itemInfo != null) {
       return position >= itemInfo.getSize();
     }
-    long limit = getLimit();
-    // For an unbounded channel, consider any EOF as valid.
-    if (limit == Long.MAX_VALUE) {
-      return true;
-    }
 
-    return position >= limit;
+    return getLimit() == Long.MAX_VALUE || position >= getLimit();
   }
 
-  protected ReadChannel openSdkReadChannel() throws IOException {
+  ReadChannel openSdkReadChannel() throws IOException {
     checkArgument(itemId.isGcsObject(), "Expected Gcs Object but got %s", itemId);
     String bucketName = itemId.getBucketName();
     String objectName = itemId.getObjectName().get();
@@ -96,7 +91,7 @@ abstract class AbstractReadStrategy implements ReadStrategy {
     return sdkReadChannel;
   }
 
-  protected boolean skipInPlace(ReadChannel channel, long seekDistance) throws IOException {
+  boolean skipInPlace(long seekDistance) throws IOException {
     ByteBuffer skipBuffer = SKIP_BUFFER_HOLDER.get();
     while (seekDistance > 0) {
       int bufferSize = (int) Math.min((long) skipBuffer.capacity(), seekDistance);
@@ -112,21 +107,17 @@ abstract class AbstractReadStrategy implements ReadStrategy {
     return true;
   }
 
-  protected boolean performPendingSeeks(long requestedPosition) throws IOException {
+  boolean performPendingSeeks(long requestedPosition) throws IOException {
     if (requestedPosition == position) {
       return true;
     }
-
     long seekDistance = requestedPosition - position;
-
-    boolean success;
+    boolean success = true;
     if (shouldSkipInPlace(seekDistance)) {
-      success = skipInPlace(channel, seekDistance);
+      success = skipInPlace(seekDistance);
     } else {
       channel.seek(requestedPosition);
-      success = true;
     }
-
     if (success) {
       position = requestedPosition;
     }
@@ -134,7 +125,7 @@ abstract class AbstractReadStrategy implements ReadStrategy {
     return success;
   }
 
-  protected boolean shouldSkipInPlace(long seekDistance) {
+  private boolean shouldSkipInPlace(long seekDistance) {
     return seekDistance > 0 && seekDistance <= options.getInplaceSeekLimit();
   }
 }

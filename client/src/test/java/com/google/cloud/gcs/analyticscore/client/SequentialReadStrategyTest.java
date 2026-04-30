@@ -18,13 +18,10 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.google.cloud.ReadChannel;
-import com.google.cloud.storage.BlobId;
-import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 
 class SequentialReadStrategyTest {
@@ -38,7 +35,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void constructor_opensSdkReadChannel() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
 
     SequentialReadStrategy strategy =
         new SequentialReadStrategy(storage, itemId, options, itemInfo);
@@ -48,7 +45,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void getReadChannel_returnsOpenChannel() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     SequentialReadStrategy strategy =
         new SequentialReadStrategy(storage, itemId, options, itemInfo);
 
@@ -60,7 +57,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void getReadChannel_reopensIfNull() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     SequentialReadStrategy strategy =
         new SequentialReadStrategy(storage, itemId, options, itemInfo);
     strategy.channel = null;
@@ -73,7 +70,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void getLimit_returnsMaxValue() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     SequentialReadStrategy strategy =
         new SequentialReadStrategy(storage, itemId, options, itemInfo);
 
@@ -84,7 +81,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void isEof_returnsTrueWhenPositionAtSize() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     SequentialReadStrategy strategy =
         new SequentialReadStrategy(storage, itemId, options, itemInfo);
 
@@ -95,7 +92,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void isEof_returnsFalseWhenPositionBeforeSize() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     SequentialReadStrategy strategy =
         new SequentialReadStrategy(storage, itemId, options, itemInfo);
 
@@ -106,7 +103,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void close_closesChannel() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     SequentialReadStrategy strategy =
         new SequentialReadStrategy(storage, itemId, options, itemInfo);
     ReadChannel channel = strategy.channel;
@@ -119,7 +116,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void getReadChannel_smallForwardSeek_usesSkipInPlace() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     FakeSequentialReadStrategy strategy =
         new FakeSequentialReadStrategy(storage, itemId, options, itemInfo);
 
@@ -134,7 +131,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void getReadChannel_largeForwardSeek_usesChannelSeek() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     FakeSequentialReadStrategy strategy =
         new FakeSequentialReadStrategy(storage, itemId, options, itemInfo);
 
@@ -146,7 +143,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void getReadChannel_multipleSmallForwardSeeks_usesSkipInPlace() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     FakeSequentialReadStrategy strategy =
         new FakeSequentialReadStrategy(storage, itemId, options, itemInfo);
 
@@ -160,7 +157,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void getReadChannel_skipInPlaceHitsEof_fallsBackToHardSeek() throws IOException {
-    createBlobInStorage("a".repeat(100));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(100));
     FakeSequentialReadStrategy strategy =
         new FakeSequentialReadStrategy(storage, itemId, options, itemInfo);
     TrackingReadChannel channel1 = strategy.getCreatedChannels().get(0);
@@ -177,7 +174,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void getReadChannel_skipInPlaceLargerThanBufferSize_loopsAndReads() throws IOException {
-    createBlobInStorage("a".repeat(500 * 1024));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(500 * 1024));
     GcsReadOptions customOptions = GcsReadOptions.builder().setInplaceSeekLimit(500 * 1024).build();
     FakeSequentialReadStrategy strategy =
         new FakeSequentialReadStrategy(storage, itemId, customOptions, itemInfo);
@@ -192,7 +189,7 @@ class SequentialReadStrategyTest {
 
   @Test
   void getReadChannel_backwardSeek_fallsBackToHardSeek() throws IOException {
-    createBlobInStorage("a".repeat(100));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(100));
     FakeSequentialReadStrategy strategy =
         new FakeSequentialReadStrategy(storage, itemId, options, itemInfo);
 
@@ -206,11 +203,11 @@ class SequentialReadStrategyTest {
 
   @Test
   void getReadChannel_skipInPlaceFailsWithoutClosing_closesOldChannel() throws IOException {
-    createBlobInStorage("a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
     SequentialReadStrategy strategy =
         new SequentialReadStrategy(storage, itemId, options, itemInfo) {
           @Override
-          protected boolean skipInPlace(ReadChannel channel, long seekDistance) throws IOException {
+          protected boolean skipInPlace(long seekDistance) throws IOException {
             return false;
           }
         };
@@ -221,11 +218,5 @@ class SequentialReadStrategyTest {
     assertThat(oldChannel.isOpen()).isFalse();
     assertThat(strategy.channel).isNotNull();
     assertThat(strategy.channel).isNotEqualTo(oldChannel);
-  }
-
-  private void createBlobInStorage(String content) {
-    BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L);
-    BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
-    storage.create(blobInfo, content.getBytes(StandardCharsets.UTF_8));
   }
 }

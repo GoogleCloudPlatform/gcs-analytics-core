@@ -31,7 +31,7 @@ class SequentialReadStrategy extends AbstractReadStrategy {
   @Override
   public ReadChannel getReadChannel(long requestedPosition, int bytesToRead) throws IOException {
     if (channel == null) {
-      openUnboundedReadChannel(0);
+      openUnboundedReadChannel(requestedPosition);
     }
     // Reopen the channel if in-place seek fails.
     if (!performPendingSeeks(requestedPosition)) {
@@ -41,15 +41,13 @@ class SequentialReadStrategy extends AbstractReadStrategy {
     return channel;
   }
 
-  private void openUnboundedReadChannel(long targetPosition) throws IOException {
+  private void openUnboundedReadChannel(long requestedPosition) throws IOException {
     if (channel != null && channel.isOpen()) {
       channel.close();
     }
     channel = openSdkReadChannel();
-    if (targetPosition > 0) {
-      channel.seek(targetPosition);
-    }
-    position = targetPosition;
+    channel.seek(requestedPosition);
+    position = requestedPosition;
   }
 
   @Override

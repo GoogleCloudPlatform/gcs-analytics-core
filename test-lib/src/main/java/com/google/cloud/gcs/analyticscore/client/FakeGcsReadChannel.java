@@ -25,7 +25,6 @@ import java.util.concurrent.ExecutorService;
 
 public class FakeGcsReadChannel extends GcsReadChannel {
   private TrackingReadStrategy trackingStrategy;
-  private int defaultEofAtCall = -1;
   private Storage storage;
 
   public FakeGcsReadChannel(
@@ -50,13 +49,6 @@ public class FakeGcsReadChannel extends GcsReadChannel {
     this.storage = storage;
   }
 
-  public void setDefaultEofAtCall(int eofAtCall) {
-    this.defaultEofAtCall = eofAtCall;
-    if (trackingStrategy != null) {
-      trackingStrategy.setEofAtCall(eofAtCall);
-    }
-  }
-
   @Override
   protected ReadStrategy createReadStrategy(
       Storage storage,
@@ -69,10 +61,6 @@ public class FakeGcsReadChannel extends GcsReadChannel {
         super.createReadStrategy(storage, itemId, readOptions, itemInfo, position);
 
     trackingStrategy = new TrackingReadStrategy(realStrategy);
-
-    if (defaultEofAtCall != -1) {
-      trackingStrategy.setEofAtCall(defaultEofAtCall);
-    }
     return trackingStrategy;
   }
 

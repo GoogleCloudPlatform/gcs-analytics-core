@@ -51,9 +51,7 @@ class RandomReadStrategy extends AbstractReadStrategy {
     channel = openSdkReadChannel();
     channel.setChunkSize(0);
     channel.limit(currentLimit);
-    if (requestedPosition > 0) {
-      channel.seek(requestedPosition);
-    }
+    channel.seek(requestedPosition);
     position = requestedPosition;
 
     return channel;

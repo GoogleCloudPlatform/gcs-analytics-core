@@ -145,7 +145,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   }
 
   private void checkChannelOpen() throws ClosedChannelException {
-    if (!isGcsReadChannelOpen) {
+    if (!isOpen()) {
       throw new ClosedChannelException();
     }
   }
@@ -166,18 +166,14 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public long position() throws IOException {
-    if (!isGcsReadChannelOpen) {
-      throw new ClosedChannelException();
-    }
+    checkChannelOpen();
 
     return gcsReadChannelPosition;
   }
 
   @Override
   public SeekableByteChannel position(long newPosition) throws IOException {
-    if (!isGcsReadChannelOpen) {
-      throw new ClosedChannelException();
-    }
+    checkChannelOpen();
     validatePosition(newPosition);
     gcsReadChannelPosition = newPosition;
 
@@ -244,12 +240,12 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     telemetry.measure(
         operation,
         recorder -> {
-          long offset = combinedObjectRange.getOffset();
-          int length = combinedObjectRange.getLength();
           ReadStrategy readStrategy =
               new RandomReadStrategy(storage, itemId, readOptions, itemInfo);
-          try (ReadChannel channel = readStrategy.getReadChannel(offset, length)) {
-            validatePosition(offset);
+          try (ReadChannel channel =
+              readStrategy.getReadChannel(
+                  combinedObjectRange.getOffset(), combinedObjectRange.getLength())) {
+            validatePosition(combinedObjectRange.getOffset());
             ByteBuffer dataBuffer = allocate.apply(combinedObjectRange.getLength());
             int numOfBytesRead = 0;
             while (dataBuffer.hasRemaining()) {

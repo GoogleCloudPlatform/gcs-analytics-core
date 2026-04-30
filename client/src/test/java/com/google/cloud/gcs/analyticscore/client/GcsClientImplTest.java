@@ -30,7 +30,6 @@ import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
-import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -78,8 +77,8 @@ class GcsClientImplTest {
     String objectData = "hello world";
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket-id").setObjectName("test-object-id").build();
-    createBlobInStorage(
-        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    StorageTestUtils.createBlobInStorage(
+        storage, BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
 
     GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(itemId);
 
@@ -121,8 +120,8 @@ class GcsClientImplTest {
             .setSize(objectData.length())
             .setContentGeneration(0L)
             .build();
-    createBlobInStorage(
-        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    StorageTestUtils.createBlobInStorage(
+        storage, BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     ByteBuffer buffer = ByteBuffer.allocate(objectData.length());
 
     SeekableByteChannel channel = gcsClient.openReadChannel(itemInfo, readOptions);
@@ -143,8 +142,8 @@ class GcsClientImplTest {
             .setBucketName("test-bucket-name")
             .setObjectName("test-object-name")
             .build();
-    createBlobInStorage(
-        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    StorageTestUtils.createBlobInStorage(
+        storage, BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     ByteBuffer buffer = ByteBuffer.allocate(objectData.length());
 
     SeekableByteChannel channel = gcsClient.openReadChannel(itemId, readOptions);
@@ -243,10 +242,5 @@ class GcsClientImplTest {
             executorServiceSupplier,
             telemetry);
     assertThat(client.storage.getOptions().getCredentials()).isEqualTo(NoCredentials.getInstance());
-  }
-
-  private void createBlobInStorage(BlobId blobId, String blobContent) {
-    BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
-    storage.create(blobInfo, blobContent.getBytes(StandardCharsets.UTF_8));
   }
 }
