@@ -18,12 +18,14 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.cloud.ReadChannel;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,17 +66,52 @@ class FakeGcsReadChannelTest {
   }
 
   @Test
-  void getTrackingReadChannel_returnsAutoCreatedWrapper() {
+  void getTrackingReadChannel_returnsAutoCreatedWrapper() throws Exception {
+    fakeGcsReadChannel.openSdkReadChannel(itemInfo.getItemId(), readOptions);
+
     assertThat(fakeGcsReadChannel.getTrackingReadChannel()).isNotNull();
   }
 
   @Test
   void openSdkReadChannel_createsTrackingReadChannelThatReadsFromStorage() throws Exception {
+    fakeGcsReadChannel.openSdkReadChannel(itemInfo.getItemId(), readOptions);
     TrackingReadChannel tracking = fakeGcsReadChannel.getTrackingReadChannel();
     ByteBuffer dst = ByteBuffer.allocate(100);
 
     int bytesRead = tracking.read(dst);
 
     assertThat(bytesRead).isEqualTo(100);
+  }
+
+  @Test
+  void openSdkReadChannel_setsDefaultEofAtCall() throws Exception {
+    FakeGcsReadChannel customChannel =
+        new FakeGcsReadChannel(
+            storage,
+            itemInfo,
+            readOptions,
+            Suppliers.ofInstance(Executors.newSingleThreadExecutor()),
+            new Telemetry(ImmutableList.of())) {
+          @Override
+          protected ReadStrategy createReadStrategy(
+              Storage storage,
+              GcsItemId itemId,
+              GcsReadOptions readOptions,
+              GcsItemInfo itemInfo,
+              long position)
+              throws IOException {
+            ReadStrategy strategy =
+                super.createReadStrategy(storage, itemId, readOptions, itemInfo, position);
+            ((TrackingReadStrategy) strategy).setEofAtCall(1);
+            return strategy;
+          }
+        };
+
+    ReadChannel channel = customChannel.openSdkReadChannel(itemInfo.getItemId(), readOptions);
+    ByteBuffer dst = ByteBuffer.allocate(10);
+
+    int bytesRead = channel.read(dst);
+
+    assertThat(bytesRead).isEqualTo(-1);
   }
 }

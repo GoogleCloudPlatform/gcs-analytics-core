@@ -15,7 +15,6 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.cloud.ReadChannel;
@@ -24,15 +23,14 @@ import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConsta
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
-import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SeekableByteChannel;
 import java.util.Collections;
 import java.util.List;
@@ -42,7 +40,6 @@ import java.util.function.IntFunction;
 class GcsReadChannel implements VectoredSeekableByteChannel {
   private Storage storage;
   private GcsReadOptions readOptions;
-  private ReadChannel sdkReadChannel;
   protected GcsItemInfo itemInfo;
   protected GcsItemId itemId;
   private long gcsReadChannelPosition = 0;
@@ -50,10 +47,8 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private static final ImmutableMap<String, String> COMMON_ATTRIBUTES =
       ImmutableMap.of(Attribute.CLASS_NAME.name(), GcsReadChannel.class.getName());
   private final Telemetry telemetry;
-  private long sdkReadChannelPosition = -1;
-  private static final int SKIP_BUFFER_SIZE = 128 * 1024; // 128 KiB
-  private static final ThreadLocal<ByteBuffer> SKIP_BUFFER_HOLDER =
-      ThreadLocal.withInitial(() -> ByteBuffer.allocate(SKIP_BUFFER_SIZE));
+  private final ReadStrategy strategy;
+  private boolean isGcsReadChannelOpen = true;
 
   GcsReadChannel(
       Storage storage,
@@ -99,23 +94,69 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     this.itemId = itemId;
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
-    this.sdkReadChannel = openSdkReadChannel(itemId, readOptions);
-    this.sdkReadChannelPosition = 0;
+    this.strategy =
+        createReadStrategy(storage, itemId, readOptions, itemInfo, gcsReadChannelPosition);
+  }
+
+  protected ReadStrategy createReadStrategy(
+      Storage storage,
+      GcsItemId itemId,
+      GcsReadOptions readOptions,
+      GcsItemInfo itemInfo,
+      long position)
+      throws IOException {
+    if (readOptions.getFileAccessPattern() == FileAccessPattern.RANDOM) {
+      return new RandomReadStrategy(storage, itemId, readOptions, itemInfo);
+    } else {
+      return new SequentialReadStrategy(storage, itemId, readOptions, itemInfo);
+    }
   }
 
   @Override
   public int read(ByteBuffer dst) throws IOException {
+    checkChannelOpen();
     if (dst.remaining() == 0) {
       return 0;
     }
-    performPendingSeeks();
-    int bytesRead = sdkReadChannel.read(dst);
-    if (bytesRead > 0) {
-      gcsReadChannelPosition += bytesRead;
-      sdkReadChannelPosition += bytesRead;
+    int totalBytesRead = 0;
+    while (dst.hasRemaining()) {
+      int bytesRead = readNextChunk(dst);
+      if (bytesRead < 0) {
+        return totalBytesRead == 0 ? -1 : totalBytesRead;
+      }
+      totalBytesRead += bytesRead;
     }
 
-    return bytesRead;
+    return totalBytesRead;
+  }
+
+  private int readNextChunk(ByteBuffer dst) throws IOException {
+    ReadChannel sdkChannel = strategy.getReadChannel(gcsReadChannelPosition, dst.remaining());
+    int bytesRead = sdkChannel.read(dst);
+    if (bytesRead >= 0) {
+      gcsReadChannelPosition += bytesRead;
+      strategy.position(gcsReadChannelPosition);
+      return bytesRead;
+    }
+    if (strategy.isEof(gcsReadChannelPosition)) {
+      return -1;
+    }
+    throw createUnexpectedEofException();
+  }
+
+  private void checkChannelOpen() throws ClosedChannelException {
+    if (!isOpen()) {
+      throw new ClosedChannelException();
+    }
+  }
+
+  private IOException createUnexpectedEofException() {
+    long itemSize = itemInfo != null ? itemInfo.getSize() : -1;
+    return new IOException(
+        String.format(
+            "Received end of stream signal before all requestedBytes were received; "
+                + "EndOf stream signal received at offset: %d for resource: %s of size: %d",
+            gcsReadChannelPosition, itemId, itemSize));
   }
 
   @Override
@@ -125,11 +166,14 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public long position() throws IOException {
+    checkChannelOpen();
+
     return gcsReadChannelPosition;
   }
 
   @Override
   public SeekableByteChannel position(long newPosition) throws IOException {
+    checkChannelOpen();
     validatePosition(newPosition);
     gcsReadChannelPosition = newPosition;
 
@@ -151,49 +195,14 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public boolean isOpen() {
-    return sdkReadChannel.isOpen();
+    return isGcsReadChannelOpen;
   }
 
   @Override
   public void close() throws IOException {
-    if (sdkReadChannel.isOpen()) {
-      sdkReadChannel.close();
-    }
-  }
-
-  private void performPendingSeeks() throws IOException {
-    if (gcsReadChannelPosition == sdkReadChannelPosition) {
-      return;
-    }
-    if (canSeekInPlace()) {
-      skipInPlace();
-      return;
-    }
-    sdkReadChannel.seek(gcsReadChannelPosition);
-    sdkReadChannelPosition = gcsReadChannelPosition;
-  }
-
-  private boolean canSeekInPlace() {
-    long seekDistance = gcsReadChannelPosition - sdkReadChannelPosition;
-    return seekDistance > 0 && seekDistance <= readOptions.getInplaceSeekLimit();
-  }
-
-  private void skipInPlace() throws IOException {
-    ByteBuffer skipBuffer = SKIP_BUFFER_HOLDER.get();
-    long seekDistance = gcsReadChannelPosition - sdkReadChannelPosition;
-    while (seekDistance > 0) {
-      int bufferSize = (int) Math.min((long) skipBuffer.capacity(), seekDistance);
-      skipBuffer.clear();
-      skipBuffer.limit(bufferSize);
-      int bytesRead = sdkReadChannel.read(skipBuffer);
-      if (bytesRead <= 0) {
-        // EOF, fallback to seek
-        sdkReadChannel.seek(gcsReadChannelPosition);
-        sdkReadChannelPosition = gcsReadChannelPosition;
-        return;
-      }
-      seekDistance -= bytesRead;
-      sdkReadChannelPosition += bytesRead;
+    if (isGcsReadChannelOpen) {
+      isGcsReadChannelOpen = false;
+      strategy.close();
     }
   }
 
@@ -231,10 +240,12 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     telemetry.measure(
         operation,
         recorder -> {
-          try (ReadChannel channel = openSdkReadChannel(itemId, readOptions)) {
+          ReadStrategy readStrategy =
+              new RandomReadStrategy(storage, itemId, readOptions, itemInfo);
+          try (ReadChannel channel =
+              readStrategy.getReadChannel(
+                  combinedObjectRange.getOffset(), combinedObjectRange.getLength())) {
             validatePosition(combinedObjectRange.getOffset());
-            channel.seek(combinedObjectRange.getOffset());
-            channel.limit(combinedObjectRange.getOffset() + combinedObjectRange.getLength());
             ByteBuffer dataBuffer = allocate.apply(combinedObjectRange.getLength());
             int numOfBytesRead = 0;
             while (dataBuffer.hasRemaining()) {
@@ -304,30 +315,6 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
                     e));
       }
     }
-  }
-
-  protected ReadChannel openSdkReadChannel(GcsItemId gcsItemId, GcsReadOptions readOptions)
-      throws IOException {
-    checkArgument(gcsItemId.isGcsObject(), "Expected Gcs Object but got %s", gcsItemId);
-    String bucketName = gcsItemId.getBucketName();
-    String objectName = gcsItemId.getObjectName().get();
-    BlobId blobId =
-        gcsItemId
-            .getContentGeneration()
-            .map(gen -> BlobId.of(bucketName, objectName, gen))
-            .orElse(BlobId.of(bucketName, objectName));
-    List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
-    readOptions
-        .getUserProjectId()
-        .ifPresent(id -> sourceOptions.add(Storage.BlobSourceOption.userProject(id)));
-    readOptions
-        .getDecryptionKey()
-        .ifPresent(key -> sourceOptions.add(Storage.BlobSourceOption.decryptionKey(key)));
-    ReadChannel sdkReadChannel =
-        storage.reader(blobId, sourceOptions.toArray(new Storage.BlobSourceOption[0]));
-    readOptions.getChunkSize().ifPresent(sdkReadChannel::setChunkSize);
-
-    return sdkReadChannel;
   }
 
   private void validatePosition(long position) throws IOException {

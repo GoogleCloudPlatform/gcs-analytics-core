@@ -24,8 +24,8 @@ import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 
 public class FakeGcsReadChannel extends GcsReadChannel {
-  private static int openReadChannelCount = 0;
-  private TrackingReadChannel trackingReadChannel;
+  private TrackingReadStrategy trackingStrategy;
+  private Storage storage;
 
   public FakeGcsReadChannel(
       Storage storage,
@@ -35,26 +35,54 @@ public class FakeGcsReadChannel extends GcsReadChannel {
       Telemetry telemetry)
       throws IOException {
     super(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+    this.storage = storage;
+  }
+
+  public FakeGcsReadChannel(
+      Storage storage,
+      GcsItemId itemId,
+      GcsReadOptions readOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry)
+      throws IOException {
+    super(storage, itemId, readOptions, executorServiceSupplier, telemetry);
+    this.storage = storage;
   }
 
   @Override
-  protected ReadChannel openSdkReadChannel(GcsItemId itemId, GcsReadOptions readOptions)
+  protected ReadStrategy createReadStrategy(
+      Storage storage,
+      GcsItemId itemId,
+      GcsReadOptions readOptions,
+      GcsItemInfo itemInfo,
+      long position)
       throws IOException {
-    openReadChannelCount++;
-    ReadChannel delegate = super.openSdkReadChannel(itemId, readOptions);
-    trackingReadChannel = new TrackingReadChannel(delegate);
-    return trackingReadChannel;
+    ReadStrategy realStrategy =
+        super.createReadStrategy(storage, itemId, readOptions, itemInfo, position);
+
+    trackingStrategy = new TrackingReadStrategy(realStrategy);
+    return trackingStrategy;
+  }
+
+  public TrackingReadStrategy getTrackingReadStrategy() {
+    return trackingStrategy;
   }
 
   public TrackingReadChannel getTrackingReadChannel() {
-    return trackingReadChannel;
+    return trackingStrategy != null ? trackingStrategy.getCurrentChannel() : null;
+  }
+
+  public ReadChannel openSdkReadChannel(GcsItemId itemId, GcsReadOptions readOptions)
+      throws IOException {
+    ReadStrategy strategy = createReadStrategy(storage, itemId, readOptions, itemInfo, 0);
+    return strategy.getReadChannel(0, 0);
   }
 
   public static int getOpenReadChannelCount() {
-    return openReadChannelCount;
+    return TrackingReadStrategy.getTotalGetReadChannelCalls();
   }
 
   public static void resetCounts() {
-    openReadChannelCount = 0;
+    TrackingReadStrategy.resetTotalGetReadChannelCalls();
   }
 }
