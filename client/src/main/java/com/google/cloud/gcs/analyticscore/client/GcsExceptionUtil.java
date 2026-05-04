@@ -25,6 +25,7 @@ public class GcsExceptionUtil {
   public enum ErrorType {
     NOT_FOUND,
     ALREADY_EXISTS,
+    PRECONDITION_FAILED,
     ACCESS_DENIED,
     UNKNOWN
   }
@@ -34,8 +35,10 @@ public class GcsExceptionUtil {
     switch (e.getCode()) {
       case HttpURLConnection.HTTP_NOT_FOUND: // 404
         return ErrorType.NOT_FOUND;
-      case HttpURLConnection.HTTP_PRECON_FAILED: // 412
+      case HttpURLConnection.HTTP_CONFLICT: // 409
         return ErrorType.ALREADY_EXISTS;
+      case HttpURLConnection.HTTP_PRECON_FAILED: // 412
+        return ErrorType.PRECONDITION_FAILED;
       case HttpURLConnection.HTTP_FORBIDDEN: // 403
       case HttpURLConnection.HTTP_UNAUTHORIZED: // 401
         return ErrorType.ACCESS_DENIED;

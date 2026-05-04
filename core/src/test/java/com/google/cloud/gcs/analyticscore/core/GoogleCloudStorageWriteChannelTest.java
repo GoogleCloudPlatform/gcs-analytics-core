@@ -199,7 +199,7 @@ class GoogleCloudStorageWriteChannelTest {
     when(mockInternalChannel.write(any(ByteBuffer.class))).thenThrow(e500);
 
     IOException thrown = assertThrows(IOException.class, () -> channel.write(buffer));
-    assertThat(thrown).hasMessageThat().contains("Error writing to GCS");
+    assertThat(thrown.getCause().getMessage()).contains("Internal Server Error");
   }
 
   @Test
@@ -210,7 +210,7 @@ class GoogleCloudStorageWriteChannelTest {
     doThrow(e500).when(mockInternalChannel).close();
 
     IOException thrown = assertThrows(IOException.class, channel::close);
-    assertThat(thrown).hasMessageThat().contains("Upload failed for");
+    assertThat(thrown.getCause()).hasMessageThat().contains("Internal Server Error");
   }
 
   @Test
@@ -221,7 +221,7 @@ class GoogleCloudStorageWriteChannelTest {
 
     IOException thrown = assertThrows(IOException.class, channel::close);
 
-    assertThat(thrown).hasMessageThat().contains("Upload failed for");
+    assertThat(thrown).hasMessageThat().contains("Generic Close Error");
   }
 
   @Test
@@ -234,7 +234,7 @@ class GoogleCloudStorageWriteChannelTest {
 
     IOException thrown = assertThrows(IOException.class, () -> channel.write(buffer));
 
-    assertThat(thrown).hasMessageThat().contains("Error writing to GCS");
+    assertThat(thrown).hasMessageThat().contains("Generic I/O Error");
   }
 
   @Test

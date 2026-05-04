@@ -29,8 +29,13 @@ public class GcsExceptionUtilTest {
     assertThat(GcsExceptionUtil.getErrorType(new StorageException(404, "Not Found")))
         .isEqualTo(GcsExceptionUtil.ErrorType.NOT_FOUND);
 
-    assertThat(GcsExceptionUtil.getErrorType(new StorageException(412, "Precondition Failed")))
+    // Assert that the explicit gRPC 409 Conflict correctly maps to ALREADY_EXISTS
+    assertThat(GcsExceptionUtil.getErrorType(new StorageException(409, "Conflict")))
         .isEqualTo(GcsExceptionUtil.ErrorType.ALREADY_EXISTS);
+
+    // Assert that 412 now maps correctly to PRECONDITION_FAILED
+    assertThat(GcsExceptionUtil.getErrorType(new StorageException(412, "Precondition Failed")))
+        .isEqualTo(GcsExceptionUtil.ErrorType.PRECONDITION_FAILED);
 
     assertThat(GcsExceptionUtil.getErrorType(new StorageException(403, "Forbidden")))
         .isEqualTo(GcsExceptionUtil.ErrorType.ACCESS_DENIED);
