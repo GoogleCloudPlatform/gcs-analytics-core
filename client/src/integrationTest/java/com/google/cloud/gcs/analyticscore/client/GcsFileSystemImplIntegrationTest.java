@@ -16,6 +16,9 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.cloud.NoCredentials;
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
+import java.nio.channels.WritableByteChannel;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -27,7 +30,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 // TODO: Setup buckets and test data as part of setup on place of relying on existing bucket.
-class GcsFileSystemImplIntegrationTest {
+ class GcsFileSystemImplIntegrationTest {
 
     @Test
     public void open_publicObject_canReadContent() throws IOException {
@@ -51,6 +54,39 @@ class GcsFileSystemImplIntegrationTest {
             assertThat(new String(buffer.array(), StandardCharsets.UTF_8)).isEqualTo("name,post_");
         }
     }
+
+    @Test
+    public void create_object_canWriteContent() throws IOException {
+        String fileName = "test-public-write.txt";
+        // Fetch the bucket from system properties directly
+        String bucketName = System.getProperty("gcs.integration.test.bucket");
+
+        BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(bucketName, fileName)).build();
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+            .setGcsClientOptions(GcsClientOptions.builder().build())
+            .build();
+        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
+        GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+
+        // 1. Write the content
+        try (WritableByteChannel channel = gcsFileSystem.create(blobInfo, writeOptions)) {
+            assertThat(channel.isOpen()).isTrue();
+
+            byte[] content = "Hello, GCS Analytics Core Write Path!".getBytes(StandardCharsets.UTF_8);
+            ByteBuffer buffer = ByteBuffer.wrap(content);
+            int bytesWritten = channel.write(buffer);
+
+            assertThat(bytesWritten).isEqualTo(content.length);
+        }
+
+        // Verify the file actually appeared by reading its metadata using the client itself
+        URI fileUri = URI.create("gs://" + bucketName + "/" + fileName);
+        GcsFileInfo writtenFileInfo = gcsFileSystem.getFileInfo(fileUri);
+
+        assertThat(writtenFileInfo).isNotNull();
+        assertThat(writtenFileInfo.getItemInfo().getSize()).isEqualTo((long) "Hello, GCS Analytics Core Write Path!".getBytes(StandardCharsets.UTF_8).length);
+    }
+
 
     @Test
     public void getFileInfo_noCredentialProvided_urlPointsToPublicObject_success() throws IOException {
