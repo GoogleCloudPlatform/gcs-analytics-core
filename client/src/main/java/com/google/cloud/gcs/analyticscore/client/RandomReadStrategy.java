@@ -47,7 +47,7 @@ class RandomReadStrategy extends AbstractReadStrategy {
     if (channel != null && channel.isOpen()) {
       channel.close();
     }
-    currentLimit = requestedPosition + bytesToRead;
+    currentLimit = requestedPosition + Math.max(bytesToRead, options.getRandomReadMinRequestSize());
     channel = openSdkReadChannel();
     channel.setChunkSize(0);
     channel.limit(currentLimit);

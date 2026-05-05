@@ -190,4 +190,19 @@ class RandomReadStrategyTest {
     assertThat(bytesRead).isEqualTo(5);
     assertThat(new String(buffer.array(), StandardCharsets.UTF_8)).isEqualTo("klmno");
   }
+
+  @Test
+  void getReadChannel_withMinRequestSize_createsChannelWithMinLimit() throws IOException {
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
+    GcsReadOptions readOptions = GcsReadOptions.builder().setRandomReadMinRequestSize(100).build();
+    FakeRandomReadStrategy strategy =
+        new FakeRandomReadStrategy(storage, itemId, readOptions, itemInfo);
+
+    strategy.getReadChannel(10, 20);
+
+    TrackingReadChannel trackingChannel = strategy.getCreatedChannels().get(0);
+    assertThat(trackingChannel.getLastLimit()).isEqualTo(110L);
+    assertThat(trackingChannel.getLastChunkSize()).isEqualTo(0);
+    assertThat(trackingChannel.getSeekCalls()).isEqualTo(1);
+  }
 }

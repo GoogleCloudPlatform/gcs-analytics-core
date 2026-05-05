@@ -38,6 +38,8 @@ public abstract class GcsReadOptions {
   private static final String FILE_ACCESS_PATTERN_KEY = "analytics-core.read.file-access-pattern";
   private static final String ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY =
       "analytics-core.adaptive-read.sequential-read-threshold";
+  private static final String RANDOM_READ_MIN_REQUEST_SIZE_KEY =
+      "analytics-core.random-read.min-request-size";
 
   private static final boolean DEFAULT_FOOTER_PREFETCH_ENABLED = true;
   private static final int DEFAULT_INPLACE_SEEK_LIMIT = 128 * 1024; // 128kb
@@ -46,6 +48,7 @@ public abstract class GcsReadOptions {
   private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = 0; // 0 bytes = disabled
   private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN = FileAccessPattern.SEQUENTIAL;
   private static final int DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD = 3;
+  private static final int DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE = 0;
 
   public abstract Optional<Integer> getChunkSize();
 
@@ -71,6 +74,8 @@ public abstract class GcsReadOptions {
 
   public abstract int getAdaptiveReadSequentialReadThreshold();
 
+  public abstract int getRandomReadMinRequestSize();
+
   public static Builder builder() {
     return new AutoValue_GcsReadOptions.Builder()
         .setGcsVectoredReadOptions(GcsVectoredReadOptions.builder().build())
@@ -80,7 +85,8 @@ public abstract class GcsReadOptions {
         .setSmallObjectCacheSize(DEFAULT_SMALL_FILE_CACHE_THRESHOLD)
         .setInplaceSeekLimit(DEFAULT_INPLACE_SEEK_LIMIT)
         .setFileAccessPattern(DEFAULT_FILE_ACCESS_PATTERN)
-        .setAdaptiveReadSequentialReadThreshold(DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD);
+        .setAdaptiveReadSequentialReadThreshold(DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD)
+        .setRandomReadMinRequestSize(DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE);
   }
 
   public static GcsReadOptions createFromOptions(
@@ -125,6 +131,10 @@ public abstract class GcsReadOptions {
       optionsBuilder.setAdaptiveReadSequentialReadThreshold(
           safeParseInteger(analyticsCoreOptions, prefix + ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY));
     }
+    if (analyticsCoreOptions.containsKey(prefix + RANDOM_READ_MIN_REQUEST_SIZE_KEY)) {
+      optionsBuilder.setRandomReadMinRequestSize(
+          safeParseInteger(analyticsCoreOptions, prefix + RANDOM_READ_MIN_REQUEST_SIZE_KEY));
+    }
 
     optionsBuilder.setGcsVectoredReadOptions(
         GcsVectoredReadOptions.createFromOptions(analyticsCoreOptions, prefix));
@@ -168,6 +178,8 @@ public abstract class GcsReadOptions {
     public abstract Builder setFileAccessPattern(FileAccessPattern fileAccessPattern);
 
     public abstract Builder setAdaptiveReadSequentialReadThreshold(int threshold);
+
+    public abstract Builder setRandomReadMinRequestSize(int minRequestSize);
 
     public abstract GcsReadOptions build();
   }
