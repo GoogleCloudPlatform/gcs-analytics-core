@@ -36,6 +36,8 @@ public abstract class GcsReadOptions {
   private static final String INPLACE_SEEK_LIMIT_KEY =
       "analytics-core.read.inplace-seek-limit-bytes";
   private static final String FILE_ACCESS_PATTERN_KEY = "analytics-core.read.file-access-pattern";
+  private static final String ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY =
+      "analytics-core.adaptive-read.sequential-read-threshold";
 
   private static final boolean DEFAULT_FOOTER_PREFETCH_ENABLED = true;
   private static final int DEFAULT_INPLACE_SEEK_LIMIT = 128 * 1024; // 128kb
@@ -43,6 +45,7 @@ public abstract class GcsReadOptions {
   private static final int DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE = 1024 * 1024; // 1mb
   private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = 0; // 0 bytes = disabled
   private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN = FileAccessPattern.SEQUENTIAL;
+  private static final int DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD = 3;
 
   public abstract Optional<Integer> getChunkSize();
 
@@ -66,6 +69,8 @@ public abstract class GcsReadOptions {
 
   public abstract FileAccessPattern getFileAccessPattern();
 
+  public abstract int getAdaptiveReadSequentialReadThreshold();
+
   public static Builder builder() {
     return new AutoValue_GcsReadOptions.Builder()
         .setGcsVectoredReadOptions(GcsVectoredReadOptions.builder().build())
@@ -74,7 +79,8 @@ public abstract class GcsReadOptions {
         .setFooterPrefetchSizeLargeFile(DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE)
         .setSmallObjectCacheSize(DEFAULT_SMALL_FILE_CACHE_THRESHOLD)
         .setInplaceSeekLimit(DEFAULT_INPLACE_SEEK_LIMIT)
-        .setFileAccessPattern(DEFAULT_FILE_ACCESS_PATTERN);
+        .setFileAccessPattern(DEFAULT_FILE_ACCESS_PATTERN)
+        .setAdaptiveReadSequentialReadThreshold(DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD);
   }
 
   public static GcsReadOptions createFromOptions(
@@ -114,6 +120,10 @@ public abstract class GcsReadOptions {
       optionsBuilder.setFileAccessPattern(
           FileAccessPattern.valueOf(
               analyticsCoreOptions.get(prefix + FILE_ACCESS_PATTERN_KEY).toUpperCase()));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY)) {
+      optionsBuilder.setAdaptiveReadSequentialReadThreshold(
+          safeParseInteger(analyticsCoreOptions, prefix + ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY));
     }
 
     optionsBuilder.setGcsVectoredReadOptions(
@@ -156,6 +166,8 @@ public abstract class GcsReadOptions {
     public abstract Builder setInplaceSeekLimit(int inplaceSeekLimit);
 
     public abstract Builder setFileAccessPattern(FileAccessPattern fileAccessPattern);
+
+    public abstract Builder setAdaptiveReadSequentialReadThreshold(int threshold);
 
     public abstract GcsReadOptions build();
   }

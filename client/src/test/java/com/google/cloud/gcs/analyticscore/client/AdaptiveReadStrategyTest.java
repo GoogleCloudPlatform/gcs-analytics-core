@@ -126,6 +126,173 @@ class AdaptiveReadStrategyTest {
     assertThat(trackingReadStrategy.getCloseCalls()).isEqualTo(1);
   }
 
+  @Test
+  void constructor_withAutoRandomPattern_startsInRandomMode() throws IOException {
+    createBlobInStorage("a".repeat(1000));
+    GcsReadOptions autoRandomOptions =
+        GcsReadOptions.builder().setFileAccessPattern(FileAccessPattern.AUTO_RANDOM).build();
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(storage, itemId, autoRandomOptions, itemInfo);
+    
+    strategy.getReadChannel(0, 10);
+
+    assertThat(strategy.getLimit()).isEqualTo(10);
+  }
+
+  @Test
+  void getReadChannel_withAutoRandomPattern_doesNotSwitchBeforeThreshold() throws IOException {
+    createBlobInStorage("a".repeat(1000));
+    GcsReadOptions autoRandomOptions =
+        GcsReadOptions.builder()
+            .setFileAccessPattern(FileAccessPattern.AUTO_RANDOM)
+            .setInplaceSeekLimit(100)
+            .setAdaptiveReadSequentialReadThreshold(2)
+            .build();
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(storage, itemId, autoRandomOptions, itemInfo);
+
+    strategy.getReadChannel(200, 10);
+    strategy.getReadChannel(220, 10);
+
+    assertThat(strategy.getLimit()).isEqualTo(230);
+  }
+
+  @Test
+  void getReadChannel_withAutoRandomPattern_switchesToSequentialModeAfterThreshold() throws IOException {
+    createBlobInStorage("a".repeat(1000));
+    GcsReadOptions autoRandomOptions =
+        GcsReadOptions.builder()
+            .setFileAccessPattern(FileAccessPattern.AUTO_RANDOM)
+            .setInplaceSeekLimit(100)
+            .setAdaptiveReadSequentialReadThreshold(2)
+            .build();
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(storage, itemId, autoRandomOptions, itemInfo);
+
+    strategy.getReadChannel(0, 10);
+    strategy.position(10);
+    strategy.getReadChannel(20, 10);
+    strategy.position(30);
+    strategy.getReadChannel(40, 10);
+
+    assertThat(strategy.getLimit()).isEqualTo(Long.MAX_VALUE);
+  }
+
+  @Test
+  void getReadChannel_withAutoRandomPattern_resetsCounterOnNonSequentialRead() throws IOException {
+    createBlobInStorage("a".repeat(1000));
+    GcsReadOptions autoRandomOptions =
+        GcsReadOptions.builder()
+            .setFileAccessPattern(FileAccessPattern.AUTO_RANDOM)
+            .setInplaceSeekLimit(100)
+            .setAdaptiveReadSequentialReadThreshold(2)
+            .build();
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(storage, itemId, autoRandomOptions, itemInfo);
+
+    strategy.getReadChannel(200, 10);
+    strategy.position(210);
+    strategy.getReadChannel(220, 10);
+    strategy.position(230);
+    strategy.getReadChannel(400, 10);
+    strategy.position(410);
+    strategy.getReadChannel(420, 10);
+
+    assertThat(strategy.getLimit()).isEqualTo(430);
+  }
+
+  @Test
+  void getReadChannel_withAutoRandomPattern_backwardSeekResetsCounter() throws IOException {
+    createBlobInStorage("a".repeat(1000));
+    GcsReadOptions autoRandomOptions =
+        GcsReadOptions.builder()
+            .setFileAccessPattern(FileAccessPattern.AUTO_RANDOM)
+            .setInplaceSeekLimit(100)
+            .setAdaptiveReadSequentialReadThreshold(3)
+            .build();
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(storage, itemId, autoRandomOptions, itemInfo);
+      
+    strategy.getReadChannel(0, 10);
+    strategy.position(10);
+    strategy.getReadChannel(20, 10);
+    strategy.position(30);
+    strategy.getReadChannel(10, 10);
+
+    assertThat(strategy.getLimit()).isEqualTo(20);
+    
+    strategy.close();
+  }
+
+  @Test
+  void getReadChannel_withAutoRandomPattern_largeForwardSeekResetsCounter() throws IOException {
+    createBlobInStorage("a".repeat(1000));
+    GcsReadOptions autoRandomOptions =
+        GcsReadOptions.builder()
+            .setFileAccessPattern(FileAccessPattern.AUTO_RANDOM)
+            .setInplaceSeekLimit(100)
+            .setAdaptiveReadSequentialReadThreshold(3)
+            .build();
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(storage, itemId, autoRandomOptions, itemInfo);
+      
+    strategy.getReadChannel(0, 10);
+    strategy.position(10);
+    strategy.getReadChannel(20, 10);
+    strategy.position(30);
+    strategy.getReadChannel(150, 10);
+
+    assertThat(strategy.getLimit()).isEqualTo(160);
+    
+    strategy.close();
+  }
+
+  @Test
+  void getReadChannel_withAutoRandomPattern_switchesAfterResetIfThresholdReachedAgain() throws IOException {
+    createBlobInStorage("a".repeat(1000));
+    GcsReadOptions autoRandomOptions =
+        GcsReadOptions.builder()
+            .setFileAccessPattern(FileAccessPattern.AUTO_RANDOM)
+            .setInplaceSeekLimit(100)
+            .setAdaptiveReadSequentialReadThreshold(2)
+            .build();
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(storage, itemId, autoRandomOptions, itemInfo);
+
+    strategy.getReadChannel(0, 10);
+    strategy.position(10);
+    strategy.getReadChannel(20, 10);
+    strategy.position(30);
+    strategy.getReadChannel(200, 10);
+    strategy.position(210);
+    strategy.getReadChannel(220, 10);
+    strategy.position(230);
+    strategy.getReadChannel(240, 10);
+
+    assertThat(strategy.getLimit()).isEqualTo(Long.MAX_VALUE);
+  }
+
+  @Test
+  void getReadChannel_withAutoRandomPattern_switchesToSequentialModeEvenWithLargeContiguousReads() throws IOException {
+    createBlobInStorage("a".repeat(1000));
+    GcsReadOptions autoRandomOptions =
+        GcsReadOptions.builder()
+            .setFileAccessPattern(FileAccessPattern.AUTO_RANDOM)
+            .setInplaceSeekLimit(100)
+            .setAdaptiveReadSequentialReadThreshold(2)
+            .build();
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(storage, itemId, autoRandomOptions, itemInfo);
+
+    strategy.getReadChannel(0, 200);
+    strategy.position(200);
+    strategy.getReadChannel(200, 200);
+    strategy.position(400);
+    strategy.getReadChannel(400, 200);
+
+    assertThat(strategy.getLimit()).isEqualTo(Long.MAX_VALUE);
+  }
+
   private void createBlobInStorage(String content) {
     StorageTestUtils.createBlobInStorage(storage, itemId, content);
   }
