@@ -127,8 +127,7 @@ class GcsClientImpl implements GcsClient {
   protected Storage createStorage(Optional<Credentials> credentials) {
     StorageOptions.Builder builder = StorageOptions.newBuilder();
     String userAgent = getUserAgent();
-    builder.setHeaderProvider(
-        FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
+    builder.setHeaderProvider(FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
@@ -143,7 +142,8 @@ class GcsClientImpl implements GcsClient {
 
   @VisibleForTesting
   String getUserAgent() {
-    return USER_AGENT_PREFIX + getVersion()
+    return USER_AGENT_PREFIX
+        + getVersion()
         + clientOptions.getUserAgent().map(agent -> " " + agent).orElse("");
   }
 

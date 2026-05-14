@@ -55,6 +55,8 @@ public abstract class GcsReadOptions {
 
   public abstract GcsVectoredReadOptions getGcsVectoredReadOptions();
 
+  public abstract Builder toBuilder();
+
   public static Builder builder() {
     return new AutoValue_GcsReadOptions.Builder()
         .setGcsVectoredReadOptions(GcsVectoredReadOptions.builder().build())

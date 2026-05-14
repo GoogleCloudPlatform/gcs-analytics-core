@@ -41,9 +41,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntFunction;
@@ -452,7 +454,7 @@ class GcsReadChannelTest {
     GcsVectoredReadOptions vectoredReadOptions =
         GcsVectoredReadOptions.builder().setMaxMergeGap(1).setMaxMergeSize(1).build();
     GcsReadOptions readOptions =
-        TEST_GCS_READ_OPTIONS.builder().setGcsVectoredReadOptions(vectoredReadOptions).build();
+        TEST_GCS_READ_OPTIONS.toBuilder().setGcsVectoredReadOptions(vectoredReadOptions).build();
     GcsReadChannel gcsReadChannel =
         new GcsReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
     List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
@@ -465,6 +467,7 @@ class GcsReadChannelTest {
     assertThat(getGcsObjectRangeData(ranges.get(0))).isEqualTo("hello");
     assertThat(getGcsObjectRangeData(ranges.get(1))).isEqualTo("this");
     assertThat(getGcsObjectRangeData(ranges.get(2))).isEqualTo("test string");
+    sourceOptions.add(Storage.BlobSourceOption.userProject(TEST_PROJECT_ID));
     Mockito.verify(storage, Mockito.times(4))
         .reader(blobId, sourceOptions.toArray(new Storage.BlobSourceOption[0]));
   }
@@ -477,8 +480,9 @@ class GcsReadChannelTest {
     GcsVectoredReadOptions vectoredReadOptions =
         GcsVectoredReadOptions.builder().setMaxMergeGap(10).build();
     List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
+    sourceOptions.add(Storage.BlobSourceOption.userProject(TEST_PROJECT_ID));
     GcsReadOptions readOptions =
-        TEST_GCS_READ_OPTIONS.builder().setGcsVectoredReadOptions(vectoredReadOptions).build();
+        TEST_GCS_READ_OPTIONS.toBuilder().setGcsVectoredReadOptions(vectoredReadOptions).build();
     GcsItemId itemId =
         GcsItemId.builder()
             .setBucketName("test-bucket")
@@ -494,6 +498,7 @@ class GcsReadChannelTest {
             .build();
     BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L);
     createBlobInStorage(blobId, objectData);
+    CountDownLatch latch = new CountDownLatch(2);
     OperationListener listener =
         new OperationListener() {
           @Override
@@ -503,7 +508,9 @@ class GcsReadChannelTest {
           public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {
             if (operation.getName().equals("VECTORED_READ")) {
               totalBytesReadFromMetrics.addAndGet(
-                  metrics.get(MetricKey.builder().setMetric(Metric.READ_BYTES).build()));
+                  metrics.getOrDefault(
+                      MetricKey.builder().setMetric(Metric.READ_BYTES).build(), 0L));
+              latch.countDown();
             }
           }
         };
@@ -521,6 +528,8 @@ class GcsReadChannelTest {
     assertThat(getGcsObjectRangeData(ranges.get(2))).isEqualTo("this");
     assertThat(getGcsObjectRangeData(ranges.get(3))).isEqualTo("string");
     assertThat(getGcsObjectRangeData(ranges.get(4))).isEqualTo("vectored");
+
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
     Mockito.verify(storage, Mockito.times(3))
         .reader(blobId, sourceOptions.toArray(new Storage.BlobSourceOption[0]));
     assertThat(totalBytesReadFromMetrics.get()).isEqualTo(35L);

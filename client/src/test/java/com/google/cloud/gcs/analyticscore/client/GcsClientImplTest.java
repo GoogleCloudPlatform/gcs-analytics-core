@@ -212,9 +212,11 @@ class GcsClientImplTest {
         .hasMessageThat()
         .isEqualTo("Expected GCS object to be provided. But got: " + directoryItemId);
   }
+
   @Test
   void getUserAgent_noOptionalUserAgent() {
-    GcsClientImpl client = new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    GcsClientImpl client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
     String userAgent = client.getUserAgent();
     assertThat(userAgent).isEqualTo("gcs-analytics-core/" + VersionHelper.VERSION);
   }
