@@ -60,6 +60,8 @@ public abstract class GcsReadOptions {
 
   public abstract GcsVectoredReadOptions getGcsVectoredReadOptions();
 
+  public abstract Builder toBuilder();
+
   public abstract int getInplaceSeekLimit();
 
   public abstract FileAccessPattern getFileAccessPattern();

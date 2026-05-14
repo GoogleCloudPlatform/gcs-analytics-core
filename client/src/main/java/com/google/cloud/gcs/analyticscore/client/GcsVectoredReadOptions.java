@@ -33,6 +33,8 @@ public abstract class GcsVectoredReadOptions {
   // The max allowed size of the combined chunk.
   abstract int getMaxMergeSize();
 
+  public abstract Builder toBuilder();
+
   static Builder builder() {
     return new AutoValue_GcsVectoredReadOptions.Builder()
         .setMaxMergeGap(4 * 1024) // 4 KB
