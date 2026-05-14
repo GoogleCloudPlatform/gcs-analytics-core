@@ -48,6 +48,7 @@ public abstract class GcsReadOptions {
   private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = 0; // 0 bytes = disabled
   private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN = FileAccessPattern.SEQUENTIAL;
   private static final int DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD = 3;
+  // TODO: Validate and confirm the optimal min size post e2e benchmarking.
   private static final int DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE = 0;
 
   public abstract Optional<Integer> getChunkSize();
@@ -129,7 +130,8 @@ public abstract class GcsReadOptions {
     }
     if (analyticsCoreOptions.containsKey(prefix + ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY)) {
       optionsBuilder.setAdaptiveReadSequentialReadThreshold(
-          safeParseInteger(analyticsCoreOptions, prefix + ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY));
+          safeParseInteger(
+              analyticsCoreOptions, prefix + ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + RANDOM_READ_MIN_REQUEST_SIZE_KEY)) {
       optionsBuilder.setRandomReadMinRequestSize(

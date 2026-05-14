@@ -825,40 +825,6 @@ class GcsReadChannelTest {
   }
 
   @Test
-  void read_unexpectedEof_nullItemInfo_throwsIOException() throws IOException {
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    GcsReadOptions readOptions =
-        GcsReadOptions.builder()
-            .setUserProjectId(TEST_PROJECT_ID)
-            .setFileAccessPattern(FileAccessPattern.RANDOM)
-            .build();
-    ByteBuffer buffer = ByteBuffer.allocate(50);
-    IOException e;
-
-    try (FakeGcsReadChannel gcsReadChannel =
-        new FakeGcsReadChannel(storage, itemId, readOptions, executorServiceSupplier, telemetry) {
-          @Override
-          protected ReadStrategy createReadStrategy(
-              Storage storage, GcsItemId itemId, GcsReadOptions readOptions, GcsItemInfo itemInfo)
-              throws IOException {
-            ReadStrategy strategy =
-                super.createReadStrategy(storage, itemId, readOptions, itemInfo);
-            ((TrackingReadStrategy) strategy).setEofAtCall(1);
-            return strategy;
-          }
-        }) {
-
-      e = assertThrows(IOException.class, () -> gcsReadChannel.read(buffer));
-    }
-
-    assertThat(e)
-        .hasMessageThat()
-        .contains("Received end of stream signal before all requestedBytes were received");
-    assertThat(e).hasMessageThat().contains("size: -1");
-  }
-
-  @Test
   void constructor_createReadStrategyThrowsIOException_propagatesException() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();

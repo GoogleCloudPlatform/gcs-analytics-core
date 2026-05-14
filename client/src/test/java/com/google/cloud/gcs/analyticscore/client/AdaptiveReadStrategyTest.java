@@ -133,7 +133,7 @@ class AdaptiveReadStrategyTest {
         GcsReadOptions.builder().setFileAccessPattern(FileAccessPattern.AUTO_RANDOM).build();
     AdaptiveReadStrategy strategy =
         new AdaptiveReadStrategy(storage, itemId, autoRandomOptions, itemInfo);
-    
+
     strategy.getReadChannel(0, 10);
 
     assertThat(strategy.getLimit()).isEqualTo(10);
@@ -158,7 +158,8 @@ class AdaptiveReadStrategyTest {
   }
 
   @Test
-  void getReadChannel_withAutoRandomPattern_switchesToSequentialModeAfterThreshold() throws IOException {
+  void getReadChannel_withAutoRandomPattern_switchesToSequentialModeAfterThreshold()
+      throws IOException {
     createBlobInStorage("a".repeat(1000));
     GcsReadOptions autoRandomOptions =
         GcsReadOptions.builder()
@@ -212,7 +213,7 @@ class AdaptiveReadStrategyTest {
             .build();
     AdaptiveReadStrategy strategy =
         new AdaptiveReadStrategy(storage, itemId, autoRandomOptions, itemInfo);
-      
+
     strategy.getReadChannel(0, 10);
     strategy.position(10);
     strategy.getReadChannel(20, 10);
@@ -220,7 +221,7 @@ class AdaptiveReadStrategyTest {
     strategy.getReadChannel(10, 10);
 
     assertThat(strategy.getLimit()).isEqualTo(20);
-    
+
     strategy.close();
   }
 
@@ -235,7 +236,7 @@ class AdaptiveReadStrategyTest {
             .build();
     AdaptiveReadStrategy strategy =
         new AdaptiveReadStrategy(storage, itemId, autoRandomOptions, itemInfo);
-      
+
     strategy.getReadChannel(0, 10);
     strategy.position(10);
     strategy.getReadChannel(20, 10);
@@ -243,12 +244,13 @@ class AdaptiveReadStrategyTest {
     strategy.getReadChannel(150, 10);
 
     assertThat(strategy.getLimit()).isEqualTo(160);
-    
+
     strategy.close();
   }
 
   @Test
-  void getReadChannel_withAutoRandomPattern_switchesAfterResetIfThresholdReachedAgain() throws IOException {
+  void getReadChannel_withAutoRandomPattern_switchesAfterResetIfThresholdReachedAgain()
+      throws IOException {
     createBlobInStorage("a".repeat(1000));
     GcsReadOptions autoRandomOptions =
         GcsReadOptions.builder()
@@ -273,7 +275,8 @@ class AdaptiveReadStrategyTest {
   }
 
   @Test
-  void getReadChannel_withAutoRandomPattern_switchesToSequentialModeEvenWithLargeContiguousReads() throws IOException {
+  void getReadChannel_withAutoRandomPattern_switchesToSequentialModeEvenWithLargeContiguousReads()
+      throws IOException {
     createBlobInStorage("a".repeat(1000));
     GcsReadOptions autoRandomOptions =
         GcsReadOptions.builder()

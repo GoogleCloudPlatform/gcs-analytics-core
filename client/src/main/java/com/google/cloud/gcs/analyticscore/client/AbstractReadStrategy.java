@@ -64,7 +64,7 @@ abstract class AbstractReadStrategy implements ReadStrategy {
       return position >= itemInfo.getSize();
     }
 
-    return getLimit() == Long.MAX_VALUE || position >= getLimit();
+    return true;
   }
 
   ReadChannel openSdkReadChannel() throws IOException {

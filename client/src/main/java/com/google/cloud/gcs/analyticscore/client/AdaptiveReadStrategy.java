@@ -29,8 +29,9 @@ class AdaptiveReadStrategy extends AbstractReadStrategy {
       Storage storage, GcsItemId itemId, GcsReadOptions options, GcsItemInfo itemInfo)
       throws IOException {
     super(storage, itemId, options, itemInfo);
-    this.isRandomMode = options.getFileAccessPattern() == FileAccessPattern.RANDOM
-        || options.getFileAccessPattern() == FileAccessPattern.AUTO_RANDOM;
+    this.isRandomMode =
+        options.getFileAccessPattern() == FileAccessPattern.RANDOM
+            || options.getFileAccessPattern() == FileAccessPattern.AUTO_RANDOM;
     this.currentStrategy =
         isRandomMode
             ? new RandomReadStrategy(storage, itemId, options, itemInfo)
