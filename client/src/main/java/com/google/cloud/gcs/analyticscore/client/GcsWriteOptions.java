@@ -16,6 +16,10 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import com.google.common.collect.ImmutableSet;
+import java.util.Collection;
+
+
 /**
  * Configuration options for writing objects to Google Cloud Storage.
  *
@@ -36,16 +40,31 @@ public class GcsWriteOptions {
     PARALLEL_COMPOSITE_UPLOAD
   }
 
+  /** Part file cleanup strategy for parallel composite upload. */
+  public enum PartFileCleanupType {
+    ALWAYS,
+    NEVER,
+    ON_SUCCESS
+  }
+
   private final boolean checksumValidationEnabled;
   private final boolean disableGzipContent;
   private final boolean overwriteExisting;
   private final int uploadChunkSize;
   private final UploadType uploadType;
-  private final int pcuBufferCount;
-  private final int pcuBufferCapacity;
+  // Metadata/Auth Configurations
   private final String kmsKeyName;
   private final String userProject;
   private final String encryptionKey;
+
+  // PCU Configurations (Active only if uploadType == PARALLEL_COMPOSITE_UPLOAD)
+  private final int pcuBufferCount;
+  private final int pcuBufferCapacity;
+  private final PartFileCleanupType pcuPartFileCleanupType;
+  private final String pcuPartFileNamePrefix;
+
+  // Disk Buffering Configurations (Active only if uploadType == WRITE_TO_DISK_THEN_UPLOAD or JOURNALING)
+  private final ImmutableSet<String> temporaryPaths;
 
   private GcsWriteOptions(Builder builder) {
     this.checksumValidationEnabled = builder.checksumValidationEnabled;
@@ -53,11 +72,14 @@ public class GcsWriteOptions {
     this.overwriteExisting = builder.overwriteExisting;
     this.uploadChunkSize = builder.uploadChunkSize;
     this.uploadType = builder.uploadType;
-    this.pcuBufferCount = builder.pcuBufferCount;
-    this.pcuBufferCapacity = builder.pcuBufferCapacity;
     this.kmsKeyName = builder.kmsKeyName;
     this.userProject = builder.userProject;
     this.encryptionKey = builder.encryptionKey;
+    this.pcuBufferCount = builder.pcuBufferCount;
+    this.pcuBufferCapacity = builder.pcuBufferCapacity;
+    this.pcuPartFileCleanupType = builder.pcuPartFileCleanupType;
+    this.pcuPartFileNamePrefix = builder.pcuPartFileNamePrefix;
+    this.temporaryPaths = builder.temporaryPaths;
   }
 
   public boolean isChecksumValidationEnabled() {
@@ -88,6 +110,18 @@ public class GcsWriteOptions {
     return pcuBufferCapacity;
   }
 
+  public PartFileCleanupType getPcuPartFileCleanupType() {
+    return pcuPartFileCleanupType;
+  }
+
+  public String getPcuPartFileNamePrefix() {
+    return pcuPartFileNamePrefix;
+  }
+
+  public ImmutableSet<String> getTemporaryPaths() {
+    return temporaryPaths;
+  }
+
   public String getKmsKeyName() {
     return kmsKeyName;
   }
@@ -112,6 +146,9 @@ public class GcsWriteOptions {
     private UploadType uploadType = UploadType.CHUNK_UPLOAD;
     private int pcuBufferCount = 1;
     private int pcuBufferCapacity = 32 * 1024 * 1024; // 32MB default
+    private PartFileCleanupType pcuPartFileCleanupType = PartFileCleanupType.ALWAYS;
+    private String pcuPartFileNamePrefix = "";
+    private ImmutableSet<String> temporaryPaths = ImmutableSet.of();
     private String kmsKeyName = null;
     private String userProject = null;
     private String encryptionKey = null;
@@ -148,6 +185,21 @@ public class GcsWriteOptions {
 
     public Builder setPcuBufferCapacity(int capacity) {
       this.pcuBufferCapacity = capacity;
+      return this;
+    }
+
+    public Builder setPcuPartFileCleanupType(PartFileCleanupType cleanupType) {
+      this.pcuPartFileCleanupType = cleanupType;
+      return this;
+    }
+
+    public Builder setPcuPartFileNamePrefix(String prefix) {
+      this.pcuPartFileNamePrefix = prefix;
+      return this;
+    }
+
+    public Builder setTemporaryPaths(Collection<String> paths) {
+      this.temporaryPaths = ImmutableSet.copyOf(paths);
       return this;
     }
 

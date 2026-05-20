@@ -14,11 +14,13 @@
  * limitations under the License.
  */
 
-package com.google.cloud.gcs.analyticscore.core;
+package com.google.cloud.gcs.analyticscore.client;
 
-import com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil;
+import static com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.getErrorType;
+
+import com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.ErrorType;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import java.nio.file.FileAlreadyExistsException;
-import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
 import com.google.cloud.gcs.analyticscore.client.GcsWriteOptions;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Attribute;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
@@ -37,37 +39,47 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** A unified WritableByteChannel for writing objects to Google Cloud Storage. */
-public class GoogleCloudStorageWriteChannel implements WritableByteChannel {
+public class GcsWriteChannel implements WritableByteChannel {
 
-  private static final Logger LOG = LoggerFactory.getLogger(GoogleCloudStorageWriteChannel.class);
+  private static final Logger LOG = LoggerFactory.getLogger(GcsWriteChannel.class);
 
-  private final GcsFileSystem gcsFileSystem;
   private final BlobInfo blobInfo;
   private final ImmutableMap<String, String> commonAttributes;
   private WritableByteChannel internalWriteChannel;
-
+  private final Telemetry telemetry;
   private final GcsWriteOptions writeOptions;
+  private final AutoCloseable resourcesToClose;
 
   private long bytesWritten = 0;
   private volatile boolean closed = false;
 
-  public GoogleCloudStorageWriteChannel(
-      GcsFileSystem gcsFileSystem, BlobInfo blobInfo, GcsWriteOptions writeOptions)
-      throws IOException {
+  GcsWriteChannel(
+      WritableByteChannel internalWriteChannel,
+      BlobInfo blobInfo,
+      GcsWriteOptions writeOptions,
+      Telemetry telemetry) {
+    this(internalWriteChannel, blobInfo, writeOptions, telemetry, null);
+  }
 
-    this.gcsFileSystem = gcsFileSystem;
+  GcsWriteChannel(
+      WritableByteChannel internalWriteChannel,
+      BlobInfo blobInfo,
+      GcsWriteOptions writeOptions,
+      Telemetry telemetry,
+      AutoCloseable resourcesToClose) {
+    this.internalWriteChannel = internalWriteChannel;
     this.blobInfo = blobInfo;
     this.writeOptions = writeOptions;
+    this.telemetry = telemetry;
+    this.resourcesToClose = resourcesToClose;
     this.commonAttributes =
         ImmutableMap.of(
-            Attribute.CLASS_NAME.name(), GoogleCloudStorageWriteChannel.class.getName());
+            Attribute.CLASS_NAME.name(), GcsWriteChannel.class.getName());
 
     LOG.debug(
-        "Initializing GoogleCloudStorageWriteChannel for object: gs://{}/{}",
+        "Initializing GcsWriteChannel for object: gs://{}/{}",
         blobInfo.getBucket(),
         blobInfo.getName());
-
-    this.internalWriteChannel = gcsFileSystem.create(blobInfo, writeOptions);
   }
 
   @Override
@@ -77,14 +89,12 @@ public class GoogleCloudStorageWriteChannel implements WritableByteChannel {
       throw new ClosedChannelException();
     }
 
-    return gcsFileSystem
-        .getTelemetry()
+    return this.telemetry
         .measure(
             Operation.WRITE.name(),
             Metric.WRITE_DURATION,
             commonAttributes,
             recorder -> {
-              int bytesToDraft = src.remaining();
               try {
                 int written = internalWriteChannel.write(src);
                 if (written > 0) {
@@ -98,15 +108,33 @@ public class GoogleCloudStorageWriteChannel implements WritableByteChannel {
                     src.capacity(),
                     bytesWritten);
                 return written;
-              } catch (StorageException e) {
-                LOG.error(
-                    "StorageException while writing to object: {} at position: {}",
-                    blobInfo.getBlobId(),
-                    bytesWritten,
-                    e);
+              } catch (Exception e) {
+                StorageException se = null;
+                if (e instanceof StorageException) {
+                  se = (StorageException) e;
+                } else if (e.getCause() instanceof StorageException) {
+                  se = (StorageException) e.getCause();
+                }
 
-                handleStorageException(e, "write");
-                return 0; // Unreachable, but required by the compiler
+                if (se != null) {
+                  LOG.error(
+                      "StorageException while writing to object: {} at position: {}",
+                      blobInfo.getBlobId(),
+                      bytesWritten,
+                      se);
+                  handleStorageException(se, "write");
+                  return 0; // Unreachable, but required by the compiler
+                }
+
+                if (e instanceof IOException) {
+                  throw (IOException) e;
+                }
+
+                if (e instanceof RuntimeException) {
+                  throw (RuntimeException) e;
+                }
+
+                throw new IOException("Unexpected exception during write", e);
               }
             });
   }
@@ -122,8 +150,7 @@ public class GoogleCloudStorageWriteChannel implements WritableByteChannel {
       return;
     }
 
-    gcsFileSystem
-        .getTelemetry()
+    this.telemetry
         .measure(
             Operation.CLOSE.name(),
             Metric.CLOSE_DURATION,
@@ -139,22 +166,47 @@ public class GoogleCloudStorageWriteChannel implements WritableByteChannel {
                   internalWriteChannel.close();
                 }
                 LOG.debug("Successfully closed and finalized object: {}", blobInfo.getBlobId());
-              } catch (StorageException e) {
-                LOG.error(
-                    "Failed to close and finalize upload for object: {}", blobInfo.getBlobId(), e);
+              } catch (Exception e) {
+                StorageException se = null;
+                if (e instanceof StorageException) {
+                  se = (StorageException) e;
+                } else if (e.getCause() instanceof StorageException) {
+                  se = (StorageException) e.getCause();
+                }
 
-                handleStorageException(e, "close");
+                if (se != null) {
+                  LOG.error(
+                      "Failed to close and finalize upload for object: {}", blobInfo.getBlobId(), se);
+                  handleStorageException(se, "close");
+                }
+
+                if (e instanceof IOException) {
+                  throw (IOException) e;
+                }
+
+                if (e instanceof RuntimeException) {
+                  throw (RuntimeException) e;
+                }
+
+                throw new IOException("Unexpected exception during close", e);
               } finally {
                 internalWriteChannel = null;
+                if (resourcesToClose != null) {
+                  try {
+                    resourcesToClose.close();
+                  } catch (Exception e) {
+                    LOG.warn("Failed to close resources associated with channel", e);
+                  }
+                }
               }
               return null;
             });
   }
 
   private void handleStorageException(StorageException e, String context) throws IOException {
-    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(e);
+    ErrorType errorType = getErrorType(e);
 
-    if (errorType == GcsExceptionUtil.ErrorType.NOT_FOUND) {
+    if (errorType == ErrorType.NOT_FOUND) {
       throw (FileNotFoundException)
           new FileNotFoundException(
               String.format(
@@ -162,7 +214,7 @@ public class GoogleCloudStorageWriteChannel implements WritableByteChannel {
                   blobInfo.getBucket(), blobInfo.getName()))
               .initCause(e);
 
-    } else if (errorType == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
+    } else if (errorType == ErrorType.ACCESS_DENIED) {
       throw (AccessDeniedException)
           new AccessDeniedException(
               String.format("gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()),
@@ -170,7 +222,7 @@ public class GoogleCloudStorageWriteChannel implements WritableByteChannel {
               String.format("Access denied to object during %s: %s", context, e.getMessage()))
               .initCause(e);
 
-    } else if (errorType == GcsExceptionUtil.ErrorType.ALREADY_EXISTS) {
+    } else if (errorType == ErrorType.ALREADY_EXISTS) {
       // 409 Conflict: The gRPC transport explicitly tells us the file already exists
       throw (FileAlreadyExistsException)
           new FileAlreadyExistsException(
@@ -179,7 +231,7 @@ public class GoogleCloudStorageWriteChannel implements WritableByteChannel {
                   blobInfo.getBucket(), blobInfo.getName()))
               .initCause(e);
 
-    } else if (errorType == GcsExceptionUtil.ErrorType.PRECONDITION_FAILED) {
+    } else if (errorType == ErrorType.PRECONDITION_FAILED) {
       // 412 Precondition Failed: We must use our local state to infer the failure reason
       if (writeOptions != null && !writeOptions.isOverwriteExisting()) {
         // In the JSON API, "does not exist" preconditions manifest as a 412.

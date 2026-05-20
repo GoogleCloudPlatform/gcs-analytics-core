@@ -32,7 +32,7 @@ public class GcsExceptionUtilTest {
     // Assert that the explicit gRPC 409 Conflict correctly maps to ALREADY_EXISTS
     assertThat(GcsExceptionUtil.getErrorType(new StorageException(409, "Conflict")))
         .isEqualTo(GcsExceptionUtil.ErrorType.ALREADY_EXISTS);
-
+    
     // Assert that 412 now maps correctly to PRECONDITION_FAILED
     assertThat(GcsExceptionUtil.getErrorType(new StorageException(412, "Precondition Failed")))
         .isEqualTo(GcsExceptionUtil.ErrorType.PRECONDITION_FAILED);

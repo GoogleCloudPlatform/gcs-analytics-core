@@ -17,6 +17,8 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.getErrorType;
+import com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.ErrorType;
 
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.auth.Credentials;
@@ -25,6 +27,11 @@ import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobWriteSession;
+import com.google.cloud.storage.BlobWriteSessionConfig;
+import com.google.cloud.storage.BlobWriteSessionConfigs;
+import com.google.cloud.storage.BufferToDiskThenUpload;
+import com.google.cloud.storage.JournalingBlobWriteSessionConfig;
+import com.google.cloud.storage.ParallelCompositeUploadBlobWriteSessionConfig;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.StorageException;
@@ -37,6 +44,8 @@ import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -114,30 +123,42 @@ class GcsClientImpl implements GcsClient {
   @Override
   public WritableByteChannel create(BlobInfo blobInfo, GcsWriteOptions writeOptions)
       throws IOException {
+    Storage customStorageToClose = null;
     try {
       BlobWriteOption[] options = generateWriteOptions(writeOptions, blobInfo);
-
-      // 'storage' here is the internal instance, which will be the
-      // StorageClientWrapper injected by Hadoop!
-      BlobWriteSession writeSession = this.storage.blobWriteSession(blobInfo, options);
-      return writeSession.open();
-
+      BlobWriteSessionConfig sessionConfig = generateSessionConfig(writeOptions);
+      Storage clientStorage = this.storage;
+      if (!sessionConfig.equals(BlobWriteSessionConfigs.getDefault())) {
+        customStorageToClose = this.storage.getOptions().toBuilder()
+            .setBlobWriteSessionConfig(sessionConfig)
+            .build()
+            .getService();
+        clientStorage = customStorageToClose;
+      }
+      BlobWriteSession writeSession = clientStorage.blobWriteSession(blobInfo, options);
+      return new GcsWriteChannel(writeSession.open(), blobInfo, writeOptions, this.telemetry, customStorageToClose);
     } catch (StorageException e) {
+      if (customStorageToClose != null) {
+        try {
+          customStorageToClose.close();
+        } catch (Exception ex) {
+          LOG.warn("Failed to close temporary storage client on initialization failure", ex);
+        }
+      }
       LOG.error(
           "Failed to initialize BlobWriteSession for object: gs://{}/{}",
           blobInfo.getBucket(),
           blobInfo.getName(),
           e);
-
-      GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(e);
-      if (errorType == GcsExceptionUtil.ErrorType.ALREADY_EXISTS) {
+      ErrorType errorType = getErrorType(e);
+      if (errorType == ErrorType.ALREADY_EXISTS) {
         throw (FileAlreadyExistsException)
             new FileAlreadyExistsException(
                     String.format(
                         "Object gs://%s/%s already exists.",
                         blobInfo.getBucket(), blobInfo.getName()))
                 .initCause(e);
-      } else if (errorType == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
+      } else if (errorType == ErrorType.ACCESS_DENIED) {
         throw (AccessDeniedException)
             new AccessDeniedException(
                     String.format("gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()),
@@ -147,6 +168,78 @@ class GcsClientImpl implements GcsClient {
                 .initCause(e);
       }
       throw new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId(), e);
+    } catch (Exception e) {
+      if (customStorageToClose != null) {
+        try {
+          customStorageToClose.close();
+        } catch (Exception ex) {
+          LOG.warn("Failed to close temporary storage client on initialization failure", ex);
+        }
+      }
+      if (e instanceof IOException) {
+        throw (IOException) e;
+      }
+      if (e instanceof RuntimeException)   {  
+        throw (RuntimeException) e;
+      }
+      throw new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId(), e);
+    }
+  }
+
+  private BlobWriteSessionConfig generateSessionConfig(GcsWriteOptions writeOptions) throws IOException {
+    if (writeOptions == null) {
+      return BlobWriteSessionConfigs.getDefault();
+    }
+
+    switch (writeOptions.getUploadType()) {
+      case PARALLEL_COMPOSITE_UPLOAD:
+        return BlobWriteSessionConfigs.parallelCompositeUpload()
+            .withBufferAllocationStrategy(
+                ParallelCompositeUploadBlobWriteSessionConfig.BufferAllocationStrategy.fixedPool(
+                    writeOptions.getPcuBufferCount(), writeOptions.getPcuBufferCapacity()))
+            .withPartCleanupStrategy(
+                getSdkCleanupStrategy(writeOptions.getPcuPartFileCleanupType()))
+            .withPartNamingStrategy(
+                ParallelCompositeUploadBlobWriteSessionConfig.PartNamingStrategy.prefix(
+                    writeOptions.getPcuPartFileNamePrefix()));
+            
+      case WRITE_TO_DISK_THEN_UPLOAD:
+        if (!writeOptions.getTemporaryPaths().isEmpty()) {
+            List<Path> paths = new ArrayList<>();
+            for (String pathStr : writeOptions.getTemporaryPaths()) {
+              paths.add(Paths.get(pathStr));
+            }
+            return BlobWriteSessionConfigs.bufferToDiskThenUpload(paths);
+        } else {
+            return BlobWriteSessionConfigs.bufferToTempDirThenUpload();
+        }
+
+      case JOURNALING:
+        if (writeOptions.getTemporaryPaths().isEmpty()) {
+          throw new IllegalArgumentException("Temporary paths must be configured for JOURNALING upload type");
+        }
+        List<Path> paths = new ArrayList<>();
+        for (String pathStr : writeOptions.getTemporaryPaths()) {
+          paths.add(Paths.get(pathStr));
+        }
+        return BlobWriteSessionConfigs.journaling(paths);
+
+      case CHUNK_UPLOAD:
+      default:
+        return BlobWriteSessionConfigs.getDefault();
+    }
+  }
+
+  private ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy getSdkCleanupStrategy(
+      GcsWriteOptions.PartFileCleanupType cleanupType) {
+    switch (cleanupType) {
+      case NEVER:
+        return ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy.never();
+      case ON_SUCCESS:
+        return ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy.onlyOnSuccess();
+      case ALWAYS:
+      default:
+        return ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy.always();
     }
   }
 
