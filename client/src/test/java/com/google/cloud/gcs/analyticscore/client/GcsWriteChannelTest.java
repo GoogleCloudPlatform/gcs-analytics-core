@@ -21,14 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.google.cloud.gcs.analyticscore.client.GcsWriteOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.MetricsRecorder;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationSupplier;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
@@ -296,7 +294,8 @@ class GcsWriteChannelTest {
     NullPointerException npe = new NullPointerException("Simulated NPE");
     when(mockInternalChannel.write(any(ByteBuffer.class))).thenThrow(npe);
 
-    NullPointerException thrown = assertThrows(NullPointerException.class, () -> channel.write(buffer));
+    NullPointerException thrown =
+        assertThrows(NullPointerException.class, () -> channel.write(buffer));
 
     assertThat(thrown).isSameInstanceAs(npe);
   }
@@ -317,7 +316,8 @@ class GcsWriteChannelTest {
   void testClose_ClosesTemporaryStorageResource() throws Exception {
     AutoCloseable mockResource = mock(AutoCloseable.class);
     GcsWriteChannel channel =
-        new GcsWriteChannel(mockInternalChannel, blobInfo, writeOptions, mockTelemetry, mockResource);
+        new GcsWriteChannel(
+            mockInternalChannel, blobInfo, writeOptions, mockTelemetry, mockResource);
 
     channel.close();
 
@@ -329,7 +329,8 @@ class GcsWriteChannelTest {
     AutoCloseable mockResource = mock(AutoCloseable.class);
     doThrow(new Exception("Failed to close resource")).when(mockResource).close();
     GcsWriteChannel channel =
-        new GcsWriteChannel(mockInternalChannel, blobInfo, writeOptions, mockTelemetry, mockResource);
+        new GcsWriteChannel(
+            mockInternalChannel, blobInfo, writeOptions, mockTelemetry, mockResource);
 
     // Should not throw exception
     channel.close();
@@ -365,7 +366,8 @@ class GcsWriteChannelTest {
 
   @Test
   void testExceptionTranslation_PreconditionFailed_GenerationMismatch() throws Exception {
-    BlobInfo blobInfoWithGen = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT, 123L)).build();
+    BlobInfo blobInfoWithGen =
+        BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT, 123L)).build();
     GcsWriteChannel channel =
         new GcsWriteChannel(mockInternalChannel, blobInfoWithGen, writeOptions, mockTelemetry);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});

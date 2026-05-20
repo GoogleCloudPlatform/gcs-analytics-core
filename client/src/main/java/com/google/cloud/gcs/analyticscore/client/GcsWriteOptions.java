@@ -19,7 +19,6 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.common.collect.ImmutableSet;
 import java.util.Collection;
 
-
 /**
  * Configuration options for writing objects to Google Cloud Storage.
  *
@@ -63,7 +62,8 @@ public class GcsWriteOptions {
   private final PartFileCleanupType pcuPartFileCleanupType;
   private final String pcuPartFileNamePrefix;
 
-  // Disk Buffering Configurations (Active only if uploadType == WRITE_TO_DISK_THEN_UPLOAD or JOURNALING)
+  // Disk Buffering Configurations (Active only if uploadType == WRITE_TO_DISK_THEN_UPLOAD or
+  // JOURNALING)
   private final ImmutableSet<String> temporaryPaths;
 
   private GcsWriteOptions(Builder builder) {

@@ -15,13 +15,13 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.getErrorType;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.getErrorType;
-import com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.ErrorType;
 
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.ErrorType;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
@@ -29,8 +29,6 @@ import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.BlobWriteSessionConfig;
 import com.google.cloud.storage.BlobWriteSessionConfigs;
-import com.google.cloud.storage.BufferToDiskThenUpload;
-import com.google.cloud.storage.JournalingBlobWriteSessionConfig;
 import com.google.cloud.storage.ParallelCompositeUploadBlobWriteSessionConfig;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobWriteOption;
@@ -129,14 +127,16 @@ class GcsClientImpl implements GcsClient {
       BlobWriteSessionConfig sessionConfig = generateSessionConfig(writeOptions);
       Storage clientStorage = this.storage;
       if (!sessionConfig.equals(BlobWriteSessionConfigs.getDefault())) {
-        customStorageToClose = this.storage.getOptions().toBuilder()
-            .setBlobWriteSessionConfig(sessionConfig)
-            .build()
-            .getService();
+        customStorageToClose =
+            this.storage.getOptions().toBuilder()
+                .setBlobWriteSessionConfig(sessionConfig)
+                .build()
+                .getService();
         clientStorage = customStorageToClose;
       }
       BlobWriteSession writeSession = clientStorage.blobWriteSession(blobInfo, options);
-      return new GcsWriteChannel(writeSession.open(), blobInfo, writeOptions, this.telemetry, customStorageToClose);
+      return new GcsWriteChannel(
+          writeSession.open(), blobInfo, writeOptions, this.telemetry, customStorageToClose);
     } catch (StorageException e) {
       if (customStorageToClose != null) {
         try {
@@ -179,14 +179,15 @@ class GcsClientImpl implements GcsClient {
       if (e instanceof IOException) {
         throw (IOException) e;
       }
-      if (e instanceof RuntimeException)   {  
+      if (e instanceof RuntimeException) {
         throw (RuntimeException) e;
       }
       throw new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId(), e);
     }
   }
 
-  private BlobWriteSessionConfig generateSessionConfig(GcsWriteOptions writeOptions) throws IOException {
+  private BlobWriteSessionConfig generateSessionConfig(GcsWriteOptions writeOptions)
+      throws IOException {
     if (writeOptions == null) {
       return BlobWriteSessionConfigs.getDefault();
     }
@@ -202,21 +203,22 @@ class GcsClientImpl implements GcsClient {
             .withPartNamingStrategy(
                 ParallelCompositeUploadBlobWriteSessionConfig.PartNamingStrategy.prefix(
                     writeOptions.getPcuPartFileNamePrefix()));
-            
+
       case WRITE_TO_DISK_THEN_UPLOAD:
         if (!writeOptions.getTemporaryPaths().isEmpty()) {
-            List<Path> paths = new ArrayList<>();
-            for (String pathStr : writeOptions.getTemporaryPaths()) {
-              paths.add(Paths.get(pathStr));
-            }
-            return BlobWriteSessionConfigs.bufferToDiskThenUpload(paths);
+          List<Path> paths = new ArrayList<>();
+          for (String pathStr : writeOptions.getTemporaryPaths()) {
+            paths.add(Paths.get(pathStr));
+          }
+          return BlobWriteSessionConfigs.bufferToDiskThenUpload(paths);
         } else {
-            return BlobWriteSessionConfigs.bufferToTempDirThenUpload();
+          return BlobWriteSessionConfigs.bufferToTempDirThenUpload();
         }
 
       case JOURNALING:
         if (writeOptions.getTemporaryPaths().isEmpty()) {
-          throw new IllegalArgumentException("Temporary paths must be configured for JOURNALING upload type");
+          throw new IllegalArgumentException(
+              "Temporary paths must be configured for JOURNALING upload type");
         }
         List<Path> paths = new ArrayList<>();
         for (String pathStr : writeOptions.getTemporaryPaths()) {

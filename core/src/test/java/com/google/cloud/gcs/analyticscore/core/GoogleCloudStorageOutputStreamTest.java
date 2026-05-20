@@ -17,17 +17,13 @@
 package com.google.cloud.gcs.analyticscore.core;
 
 import static com.google.common.truth.Truth.assertThat;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.cloud.gcs.analyticscore.client.FakeGcsFileSystemImpl;
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
@@ -54,7 +50,8 @@ class GoogleCloudStorageOutputStreamTest {
 
   private static final String TEST_BUCKET = "test-bucket";
   private static final String TEST_OBJECT = "test-object";
-  private final BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+  private final BlobInfo blobInfo =
+      BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
   private final GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
 
   @Mock private GcsFileSystem mockFileSystem;
@@ -220,7 +217,9 @@ class GoogleCloudStorageOutputStreamTest {
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get())).build();
+    BlobInfo blobInfo =
+        BlobInfo.newBuilder(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()))
+            .build();
 
     try (GoogleCloudStorageOutputStream stream =
         GoogleCloudStorageOutputStream.create(fakeGcsFileSystem, blobInfo, writeOptions)) {
@@ -237,8 +236,7 @@ class GoogleCloudStorageOutputStreamTest {
         GoogleCloudStorageInputStream.create(fakeGcsFileSystem, itemId)) {
       byte[] buffer = new byte[50];
       int read = inputStream.read(buffer, 0, buffer.length);
-      assertThat(new String(buffer, 0, read, UTF_8))
-          .isEqualTo("hello fake world");
+      assertThat(new String(buffer, 0, read, UTF_8)).isEqualTo("hello fake world");
     }
   }
 
@@ -248,7 +246,9 @@ class GoogleCloudStorageOutputStreamTest {
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get())).build();
+    BlobInfo blobInfo =
+        BlobInfo.newBuilder(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()))
+            .build();
     int valA = 65; // 'A'
     byte[] chunk1 = "hello".getBytes(UTF_8);
     int valB = 66; // 'B'

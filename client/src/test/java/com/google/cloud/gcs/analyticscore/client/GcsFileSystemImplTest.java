@@ -23,8 +23,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.google.cloud.NoCredentials;
-import com.google.cloud.storage.BlobId;
-import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
@@ -34,6 +32,8 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -563,8 +563,7 @@ class GcsFileSystemImplTest {
     BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
 
     NullPointerException e =
-        assertThrows(
-            NullPointerException.class, () -> gcsFileSystem.create(blobInfo, null));
+        assertThrows(NullPointerException.class, () -> gcsFileSystem.create(blobInfo, null));
 
     assertThat(e).hasMessageThat().contains("writeOptions should not be null");
   }

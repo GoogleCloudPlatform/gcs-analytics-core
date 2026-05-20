@@ -35,7 +35,8 @@ class GcsWriteOptionsTest {
     // PCU related fields
     assertThat(options.getPcuBufferCount()).isEqualTo(1);
     assertThat(options.getPcuBufferCapacity()).isEqualTo(32 * 1024 * 1024);
-    assertThat(options.getPcuPartFileCleanupType()).isEqualTo(GcsWriteOptions.PartFileCleanupType.ALWAYS);
+    assertThat(options.getPcuPartFileCleanupType())
+        .isEqualTo(GcsWriteOptions.PartFileCleanupType.ALWAYS);
     assertThat(options.getPcuPartFileNamePrefix()).isEmpty();
     // Other fields
     assertThat(options.getTemporaryPaths()).isEmpty();
@@ -67,11 +68,13 @@ class GcsWriteOptionsTest {
     assertThat(options.isDisableGzipContent()).isFalse();
     assertThat(options.isOverwriteExisting()).isFalse();
     assertThat(options.getUploadChunkSize()).isEqualTo(1024);
-    assertThat(options.getUploadType()).isEqualTo(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD);
+    assertThat(options.getUploadType())
+        .isEqualTo(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD);
     // PCU related fields
     assertThat(options.getPcuBufferCount()).isEqualTo(4);
     assertThat(options.getPcuBufferCapacity()).isEqualTo(64 * 1024 * 1024);
-    assertThat(options.getPcuPartFileCleanupType()).isEqualTo(GcsWriteOptions.PartFileCleanupType.ON_SUCCESS);
+    assertThat(options.getPcuPartFileCleanupType())
+        .isEqualTo(GcsWriteOptions.PartFileCleanupType.ON_SUCCESS);
     assertThat(options.getPcuPartFileNamePrefix()).isEqualTo("temp-prefix-");
     // Other fields
     assertThat(options.getTemporaryPaths()).containsExactly("/tmp/path1", "/tmp/path2").inOrder();

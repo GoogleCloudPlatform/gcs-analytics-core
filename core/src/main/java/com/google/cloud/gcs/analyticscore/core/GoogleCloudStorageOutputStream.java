@@ -31,7 +31,7 @@ import java.nio.channels.WritableByteChannel;
 /**
  * A unified OutputStream for writing objects to Google Cloud Storage.
  *
- * This class wraps a WritableByteChannel (specifically GcsWriteChannel) to provide standard
+ * <p>This class wraps a WritableByteChannel (specifically GcsWriteChannel) to provide standard
  * java.io.OutputStream semantics.
  */
 public class GoogleCloudStorageOutputStream extends OutputStream {
@@ -42,7 +42,8 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
   private final ByteBuffer singleByteBuffer = ByteBuffer.allocate(1);
 
   /**
-   * Creates a new GoogleCloudStorageOutputStream by initializing a write session via the client layer.
+   * Creates a new GoogleCloudStorageOutputStream by initializing a write session via the client
+   * layer.
    */
   public static GoogleCloudStorageOutputStream create(
       GcsFileSystem gcsFileSystem, BlobInfo blobInfo, GcsWriteOptions writeOptions)
@@ -88,8 +89,8 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
   }
 
   /**
-   * Returns the number of bytes written to this stream.
-   * Useful for systems like Apache Iceberg that require a PositionOutputStream.
+   * Returns the number of bytes written to this stream. Useful for systems like Apache Iceberg that
+   * require a PositionOutputStream.
    */
   public long getBytesWritten() {
     if (channel instanceof GcsWriteChannel) {
