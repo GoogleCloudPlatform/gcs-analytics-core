@@ -530,7 +530,7 @@ limitations under the License.
                             <goals>
                                 <goal>check</goal>
                             </goals>
-                            <phase>compile</phase>
+                            <phase>test</phase>
                         </execution>
                     </executions>
                 </plugin>
@@ -573,6 +573,12 @@ limitations under the License.
                 </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
         <extensions>
             <extension>
                 <groupId>com.google.cloud.artifactregistry</groupId>
