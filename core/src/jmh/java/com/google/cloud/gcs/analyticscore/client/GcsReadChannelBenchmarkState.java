@@ -24,6 +24,6 @@ import com.google.cloud.gcs.analyticscore.client.FileAccessPattern;
 @State(Scope.Benchmark)
 public class GcsReadChannelBenchmarkState {
 
-    @Param({"SEQUENTIAL", "RANDOM"})
+    @Param({"SEQUENTIAL", "RANDOM", "AUTO_SEQUENTIAL", "AUTO_RANDOM"})
     public FileAccessPattern accessPattern;
 }
