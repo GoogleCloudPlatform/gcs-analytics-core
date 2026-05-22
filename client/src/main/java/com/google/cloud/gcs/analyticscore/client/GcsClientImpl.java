@@ -29,6 +29,7 @@ import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.BlobWriteSessionConfig;
 import com.google.cloud.storage.BlobWriteSessionConfigs;
+import com.google.cloud.storage.HttpStorageOptions;
 import com.google.cloud.storage.ParallelCompositeUploadBlobWriteSessionConfig;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobWriteOption;
@@ -38,6 +39,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.AccessDeniedException;
@@ -173,6 +175,13 @@ class GcsClientImpl implements GcsClient {
                   blobInfo.getBucket(), blobInfo.getName()),
               e);
         }
+      } else if (errorType == ErrorType.NOT_FOUND) {
+        throw (FileNotFoundException)
+            new FileNotFoundException(
+                    String.format(
+                        "Bucket or object not found: gs://%s/%s",
+                        blobInfo.getBucket(), blobInfo.getName()))
+                .initCause(e);
       } else if (errorType == ErrorType.ACCESS_DENIED) {
         throw (AccessDeniedException)
             new AccessDeniedException(
@@ -231,6 +240,10 @@ class GcsClientImpl implements GcsClient {
         }
 
       case JOURNALING:
+        if (this.storage.getOptions() instanceof HttpStorageOptions) {
+          throw new UnsupportedOperationException(
+              "JOURNALING upload type is not supported because it requires the gRPC transport backend (HTTP transport is currently active).");
+        }
         if (writeOptions.getTemporaryPaths().isEmpty()) {
           throw new IllegalArgumentException(
               "Temporary paths must be configured for JOURNALING upload type");

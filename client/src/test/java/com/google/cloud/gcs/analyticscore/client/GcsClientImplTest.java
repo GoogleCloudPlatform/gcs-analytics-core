@@ -33,6 +33,7 @@ import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
@@ -362,6 +363,45 @@ class GcsClientImplTest {
   }
 
   @Test
+  void create_TranslatesNotFoundException_toFileNotFoundException() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo =
+        BlobInfo.newBuilder(BlobId.of("non-existent-bucket", "test-object")).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    StorageException e404 = new StorageException(404, "Not Found");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e404);
+
+    FileNotFoundException exception =
+        assertThrows(
+            FileNotFoundException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+
+    assertThat(exception).hasCauseThat().isSameInstanceAs(e404);
+  }
+
+  @Test
+  void create_JournalingUploadType_throwsUnsupportedOperationException() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    HttpStorageOptions mockHttpOptions = mock(HttpStorageOptions.class);
+    when(tempMockStorage.getOptions()).thenReturn(mockHttpOptions);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of("test-bucket", "test-object")).build();
+    GcsWriteOptions writeOptions =
+        GcsWriteOptions.builder()
+            .setUploadType(GcsWriteOptions.UploadType.JOURNALING)
+            .setTemporaryPaths(ImmutableList.of("/tmp/path"))
+            .build();
+
+    assertThrows(
+        UnsupportedOperationException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+  }
+
+  @Test
   void create_GenericStorageException() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
@@ -549,8 +589,12 @@ class GcsClientImplTest {
 
   @Test
   void create_JournalingWithoutTempPaths_throwsIllegalArgumentException() throws Exception {
-    GcsClientImpl client =
+    tempMockStorage = mock(Storage.class);
+    StorageOptions mockOptions = mock(StorageOptions.class);
+    when(tempMockStorage.getOptions()).thenReturn(mockOptions);
+    GcsClientImpl clientWithMock =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
     BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
     GcsWriteOptions writeOptions =
         GcsWriteOptions.builder()
@@ -559,7 +603,8 @@ class GcsClientImplTest {
             .build();
 
     IllegalArgumentException e =
-        assertThrows(IllegalArgumentException.class, () -> client.create(blobInfo, writeOptions));
+        assertThrows(
+            IllegalArgumentException.class, () -> clientWithMock.create(blobInfo, writeOptions));
 
     assertThat(e).hasMessageThat().contains("Temporary paths must be configured for JOURNALING");
   }
