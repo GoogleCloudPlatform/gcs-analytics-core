@@ -36,12 +36,15 @@ public class IntegrationTestHelper {
     public static final String TPCDS_CUSTOMER_MEDIUM_FILE = "tpcds_customer_medium.parquet";
     public static final String TPCDS_CUSTOMER_LARGE_FILE = "tpcds_customer_large.parquet";
 
-    public static final String BUCKET_NAME = System.getProperty("gcs.integration.test.bucket");
-    public static final String PROJECT_ID = System.getProperty("gcs.integration.test.project-id");
+    public static final String GCS_INTEGRATION_TEST_BUCKET_PROPERTY = "gcs.integration.test.bucket";
+    public static final String GCS_INTEGRATION_TEST_PROJECT_ID_PROPERTY = "gcs.integration.test.project-id";
+
+    public static final String BUCKET_NAME = System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY);
+    public static final String PROJECT_ID = System.getProperty(GCS_INTEGRATION_TEST_PROJECT_ID_PROPERTY);
     private static final String FOLDER_NAME  = getFolderName();
 
     private static final Logger logger = LoggerFactory.getLogger(IntegrationTestHelper.class);
-    private static final Storage storage = StorageOptions.newBuilder().setProjectId(PROJECT_ID).build().getService();
+    static final Storage storage = StorageOptions.newBuilder().setProjectId(PROJECT_ID).build().getService();
 
     /**
      * Constructs a GCS URI for a given file name in the test bucket and folder.
