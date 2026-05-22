@@ -332,7 +332,7 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
   }
 
   @Test
-  void writeWithJournaling_success() throws IOException {
+  void writeWithJournaling_throwsUnsupportedOperationException() throws IOException {
     String fileName = getRandomFileName(FILE_PREFIX_TXT, SUFFIX_TXT);
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
     BlobId blobId = BlobId.fromGsUtilUri(uri.toString());
@@ -346,12 +346,11 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
           .setTemporaryPaths(Collections.singletonList(tempDir.toAbsolutePath().toString()))
           .build();
 
-      try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(gcsFileSystem, blobInfo, writeOptions)) {
-        outputStream.write(TEST_CONTENT);
-      }
-
-      assertThat(IntegrationTestHelper.objectPresentInBucket(fileName)).isTrue();
-      assertThat(gcsFileSystem.getFileInfo(uri).getItemInfo().getSize()).isEqualTo((long) TEST_CONTENT.length);
+      assertThrows(UnsupportedOperationException.class, () -> {
+        try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(gcsFileSystem, blobInfo, writeOptions)) {
+          outputStream.write(TEST_CONTENT);
+        }
+      });
     } finally {
       Files.deleteIfExists(tempDir);
     }
