@@ -113,18 +113,15 @@ class GcsFileSystemImplIntegrationTest {
         BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
 
-            try (WritableByteChannel channel = gcsFileSystem.create(blobInfo, writeOptions)) {
-                assertThat(channel.isOpen()).isTrue();
+        try (WritableByteChannel channel = gcsFileSystem.create(blobInfo, writeOptions)) {
+            assertThat(channel.isOpen()).isTrue();
             ByteBuffer buffer = ByteBuffer.wrap(TEST_CONTENT);
-                int bytesWritten = channel.write(buffer);
+            int bytesWritten = channel.write(buffer);
             assertThat(bytesWritten).isEqualTo(TEST_CONTENT.length);
-            }
-
-            // Verify the file actually appeared by reading its metadata using the client itself
-            URI fileUri = URI.create("gs://" + bucketName + "/" + fileName);
-            GcsFileInfo writtenFileInfo = gcsFileSystem.getFileInfo(fileUri);
-
-            assertThat(writtenFileInfo).isNotNull();
+        }
+        URI fileUri = URI.create("gs://" + bucketName + "/" + fileName);
+        GcsFileInfo writtenFileInfo = gcsFileSystem.getFileInfo(fileUri);
+        assertThat(writtenFileInfo).isNotNull();
         assertThat(writtenFileInfo.getItemInfo().getSize()).isEqualTo((long) TEST_CONTENT.length);
     }
 
@@ -137,18 +134,14 @@ class GcsFileSystemImplIntegrationTest {
         BlobId blobId = BlobId.of(bucketName, fileName);
         blobsToDelete.add(blobId);
         BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
-
-        // 1. Write the first file version
         GcsWriteOptions defaultOptions = GcsWriteOptions.builder().build();
+
         try (WritableByteChannel channel = gcsFileSystem.create(blobInfo, defaultOptions)) {
             channel.write(ByteBuffer.wrap(TEST_CONTENT));
         }
-
-        // 2. Try writing to the same file with overwrite = false
         GcsWriteOptions noOverwriteOptions = GcsWriteOptions.builder()
             .setOverwriteExisting(false)
             .build();
-
         assertThrows(FileAlreadyExistsException.class, () -> {
             try (WritableByteChannel channel = gcsFileSystem.create(blobInfo, noOverwriteOptions)) {
                 channel.write(ByteBuffer.wrap(OVERWRITE_CONTENT));
@@ -165,7 +158,6 @@ class GcsFileSystemImplIntegrationTest {
         BlobId blobId = BlobId.of(bucketName, fileName);
         blobsToDelete.add(blobId);
         BlobInfo blobInfo = BlobInfo.newBuilder(blobId).build();
-
         GcsWriteOptions writeOptions = GcsWriteOptions.builder()
             .setUploadType(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
             .setPcuBufferCount(2)
@@ -179,11 +171,9 @@ class GcsFileSystemImplIntegrationTest {
             int bytesWritten = channel.write(buffer);
             assertThat(bytesWritten).isEqualTo(TEST_CONTENT.length);
         }
-
         // Verify the file actually appeared by reading its metadata using the client itself
         URI fileUri = URI.create("gs://" + bucketName + "/" + fileName);
         GcsFileInfo writtenFileInfo = gcsFileSystem.getFileInfo(fileUri);
-
         assertThat(writtenFileInfo).isNotNull();
         assertThat(writtenFileInfo.getItemInfo().getSize()).isEqualTo((long) TEST_CONTENT.length);
     }
