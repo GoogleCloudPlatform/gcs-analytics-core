@@ -320,6 +320,48 @@ class GcsClientImplTest {
   }
 
   @Test
+  void create_TranslatesPreconditionFailedException_toFileAlreadyExistsException()
+      throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of("test-bucket", "test-object")).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().setOverwriteExisting(false).build();
+    StorageException e412 = new StorageException(412, "Precondition Failed");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e412);
+
+    FileAlreadyExistsException exception =
+        assertThrows(
+            FileAlreadyExistsException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+
+    assertThat(exception).hasCauseThat().isSameInstanceAs(e412);
+  }
+
+  @Test
+  void create_TranslatesPreconditionFailedException_toGenerationMismatchIOException()
+      throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfoWithGen =
+        BlobInfo.newBuilder(BlobId.of("test-bucket", "test-object", 12345L)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    StorageException e412 = new StorageException(412, "Precondition Failed");
+    when(tempMockStorage.blobWriteSession(
+            eq(blobInfoWithGen), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e412);
+
+    IOException exception =
+        assertThrows(IOException.class, () -> clientWithMock.create(blobInfoWithGen, writeOptions));
+
+    assertThat(exception).hasMessageThat().contains("Generation mismatch for object");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(e412);
+  }
+
+  @Test
   void create_GenericStorageException() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =

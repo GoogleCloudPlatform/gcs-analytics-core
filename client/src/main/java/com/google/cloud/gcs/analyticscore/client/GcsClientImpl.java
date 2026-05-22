@@ -158,6 +158,21 @@ class GcsClientImpl implements GcsClient {
                         "Object gs://%s/%s already exists.",
                         blobInfo.getBucket(), blobInfo.getName()))
                 .initCause(e);
+      } else if (errorType == ErrorType.PRECONDITION_FAILED) {
+        if (writeOptions != null && !writeOptions.isOverwriteExisting()) {
+          throw (FileAlreadyExistsException)
+              new FileAlreadyExistsException(
+                      String.format(
+                          "Object gs://%s/%s already exists.",
+                          blobInfo.getBucket(), blobInfo.getName()))
+                  .initCause(e);
+        } else if (blobInfo.getBlobId().getGeneration() != null) {
+          throw new IOException(
+              String.format(
+                  "Generation mismatch for object gs://%s/%s. The file may have been modified concurrently.",
+                  blobInfo.getBucket(), blobInfo.getName()),
+              e);
+        }
       } else if (errorType == ErrorType.ACCESS_DENIED) {
         throw (AccessDeniedException)
             new AccessDeniedException(
