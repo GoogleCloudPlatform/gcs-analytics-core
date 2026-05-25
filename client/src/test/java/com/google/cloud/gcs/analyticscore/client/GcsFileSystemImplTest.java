@@ -32,11 +32,14 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.channels.WritableByteChannel;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -529,6 +532,40 @@ class GcsFileSystemImplTest {
 
     assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
     assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).doesNotContain(reporter);
+  }
+
+  @Test
+  void create_callsGcsClientCreate() throws IOException {
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockClient.create(eq(blobInfo), eq(writeOptions))).thenReturn(mockChannel);
+
+    WritableByteChannel resultChannel = gcsFileSystem.create(blobInfo, writeOptions);
+
+    verify(mockClient).create(blobInfo, writeOptions);
+    assertThat(resultChannel).isSameInstanceAs(mockChannel);
+  }
+
+  @Test
+  void create_withNullBlobInfo_throwsNullPointerException() {
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class, () -> gcsFileSystem.create((BlobInfo) null, writeOptions));
+
+    assertThat(e).hasMessageThat().contains("blobInfo should not be null");
+  }
+
+  @Test
+  void create_withNullWriteOptions_throwsNullPointerException() {
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> gcsFileSystem.create(blobInfo, null));
+
+    assertThat(e).hasMessageThat().contains("writeOptions should not be null");
   }
 
   @SuppressWarnings("unchecked")

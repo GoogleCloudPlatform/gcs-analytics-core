@@ -28,6 +28,7 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -35,6 +36,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.channels.WritableByteChannel;
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -163,6 +165,16 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     }
     gcsClient.close();
     telemetry.close();
+  }
+
+  @Override
+  public WritableByteChannel create(BlobInfo blobInfo, GcsWriteOptions writeOptions)
+      throws IOException {
+    checkNotNull(blobInfo, "blobInfo should not be null");
+    checkNotNull(writeOptions, "writeOptions should not be null");
+
+    // Delegate the actual SDK interaction and exception handling to the internal client
+    return gcsClient.create(blobInfo, writeOptions);
   }
 
   @VisibleForTesting

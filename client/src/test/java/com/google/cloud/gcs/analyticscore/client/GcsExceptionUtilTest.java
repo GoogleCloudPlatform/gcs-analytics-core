@@ -1,0 +1,58 @@
+/*
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.google.cloud.gcs.analyticscore.client;
+
+import static com.google.common.truth.Truth.assertThat;
+
+import com.google.cloud.storage.StorageException;
+import org.junit.jupiter.api.Test;
+
+public class GcsExceptionUtilTest {
+
+  @Test
+  public void testGetErrorType() {
+    // Test all branches of the HTTP code switch statement
+    assertThat(GcsExceptionUtil.getErrorType(new StorageException(404, "Not Found")))
+        .isEqualTo(GcsExceptionUtil.ErrorType.NOT_FOUND);
+
+    // Assert that the explicit gRPC 409 Conflict correctly maps to ALREADY_EXISTS
+    assertThat(GcsExceptionUtil.getErrorType(new StorageException(409, "Conflict")))
+        .isEqualTo(GcsExceptionUtil.ErrorType.ALREADY_EXISTS);
+
+    // Assert that 412 now maps correctly to PRECONDITION_FAILED
+    assertThat(GcsExceptionUtil.getErrorType(new StorageException(412, "Precondition Failed")))
+        .isEqualTo(GcsExceptionUtil.ErrorType.PRECONDITION_FAILED);
+
+    assertThat(GcsExceptionUtil.getErrorType(new StorageException(403, "Forbidden")))
+        .isEqualTo(GcsExceptionUtil.ErrorType.ACCESS_DENIED);
+
+    assertThat(GcsExceptionUtil.getErrorType(new StorageException(401, "Unauthorized")))
+        .isEqualTo(GcsExceptionUtil.ErrorType.ACCESS_DENIED);
+
+    assertThat(GcsExceptionUtil.getErrorType(new StorageException(500, "Internal Error")))
+        .isEqualTo(GcsExceptionUtil.ErrorType.UNKNOWN);
+  }
+
+  @Test
+  public void testConstructorIsPrivate() throws Exception {
+    java.lang.reflect.Constructor<GcsExceptionUtil> constructor =
+        GcsExceptionUtil.class.getDeclaredConstructor();
+    assertThat(java.lang.reflect.Modifier.isPrivate(constructor.getModifiers())).isTrue();
+    constructor.setAccessible(true);
+    constructor.newInstance();
+  }
+}
