@@ -46,4 +46,13 @@ public class GcsExceptionUtilTest {
     assertThat(GcsExceptionUtil.getErrorType(new StorageException(500, "Internal Error")))
         .isEqualTo(GcsExceptionUtil.ErrorType.UNKNOWN);
   }
+
+  @Test
+  public void testConstructorIsPrivate() throws Exception {
+    java.lang.reflect.Constructor<GcsExceptionUtil> constructor =
+        GcsExceptionUtil.class.getDeclaredConstructor();
+    assertThat(java.lang.reflect.Modifier.isPrivate(constructor.getModifiers())).isTrue();
+    constructor.setAccessible(true);
+    constructor.newInstance();
+  }
 }

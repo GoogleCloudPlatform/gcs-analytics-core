@@ -92,6 +92,7 @@ public class GcsWriteChannel implements WritableByteChannel {
         Metric.WRITE_DURATION,
         commonAttributes,
         recorder -> {
+          int bytesToDraft = src.remaining();
           try {
             int written = internalWriteChannel.write(src);
             if (written > 0) {
@@ -102,18 +103,20 @@ public class GcsWriteChannel implements WritableByteChannel {
             LOG.trace(
                 "{} bytes were written out of provided buffer of capacity {}. Total: {}",
                 written,
-                src.capacity(),
+                bytesToDraft,
                 bytesWritten);
             return written;
-          } catch (Exception e) {
-            StorageException se = null;
-            if (e instanceof StorageException) {
-              se = (StorageException) e;
-            } else if (e.getCause() instanceof StorageException) {
-              se = (StorageException) e.getCause();
-            }
-
-            if (se != null) {
+          } catch (StorageException e) {
+            LOG.error(
+                "StorageException while writing to object: {} at position: {}",
+                blobInfo.getBlobId(),
+                bytesWritten,
+                e);
+            handleStorageException(e, "write");
+            return 0; // Unreachable, but required by the compiler
+          } catch (IOException e) {
+            if (e.getCause() instanceof StorageException) {
+              StorageException se = (StorageException) e.getCause();
               LOG.error(
                   "StorageException while writing to object: {} at position: {}",
                   blobInfo.getBlobId(),
@@ -122,16 +125,7 @@ public class GcsWriteChannel implements WritableByteChannel {
               handleStorageException(se, "write");
               return 0; // Unreachable, but required by the compiler
             }
-
-            if (e instanceof IOException) {
-              throw (IOException) e;
-            }
-
-            if (e instanceof RuntimeException) {
-              throw (RuntimeException) e;
-            }
-
-            throw new IOException("Unexpected exception during write", e);
+            throw e;
           }
         });
   }
@@ -162,29 +156,18 @@ public class GcsWriteChannel implements WritableByteChannel {
               internalWriteChannel.close();
             }
             LOG.debug("Successfully closed and finalized object: {}", blobInfo.getBlobId());
-          } catch (Exception e) {
-            StorageException se = null;
-            if (e instanceof StorageException) {
-              se = (StorageException) e;
-            } else if (e.getCause() instanceof StorageException) {
-              se = (StorageException) e.getCause();
-            }
-
-            if (se != null) {
+          } catch (StorageException e) {
+            LOG.error(
+                "Failed to close and finalize upload for object: {}", blobInfo.getBlobId(), e);
+            handleStorageException(e, "close");
+          } catch (IOException e) {
+            if (e.getCause() instanceof StorageException) {
+              StorageException se = (StorageException) e.getCause();
               LOG.error(
                   "Failed to close and finalize upload for object: {}", blobInfo.getBlobId(), se);
               handleStorageException(se, "close");
             }
-
-            if (e instanceof IOException) {
-              throw (IOException) e;
-            }
-
-            if (e instanceof RuntimeException) {
-              throw (RuntimeException) e;
-            }
-
-            throw new IOException("Unexpected exception during close", e);
+            throw e;
           } finally {
             internalWriteChannel = null;
             if (resourcesToClose != null) {

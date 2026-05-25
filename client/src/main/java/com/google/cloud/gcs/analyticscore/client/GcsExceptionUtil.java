@@ -22,6 +22,8 @@ import java.net.HttpURLConnection;
 /** Centralized utility for classifying GCS transport exceptions. */
 public class GcsExceptionUtil {
 
+  private GcsExceptionUtil() {}
+
   public enum ErrorType {
     NOT_FOUND,
     ALREADY_EXISTS,
