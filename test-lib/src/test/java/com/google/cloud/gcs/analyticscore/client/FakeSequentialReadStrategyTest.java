@@ -44,7 +44,8 @@ class FakeSequentialReadStrategyTest {
 
   @Test
   void constructor_createsInitialChannel() throws IOException {
-    GcsItemId itemId = GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     GcsReadOptions options = GcsReadOptions.builder().build();
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(1000L).build();
     StorageTestUtils.createBlobInStorage(storage, itemId, "A".repeat(1000));
@@ -56,7 +57,8 @@ class FakeSequentialReadStrategyTest {
 
   @Test
   void getReadChannel_reusesChannelIfNoSeek() throws IOException {
-    GcsItemId itemId = GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     GcsReadOptions options = GcsReadOptions.builder().build();
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(1000L).build();
     StorageTestUtils.createBlobInStorage(storage, itemId, "A".repeat(1000));
@@ -69,7 +71,8 @@ class FakeSequentialReadStrategyTest {
 
   @Test
   void getReadChannel_createsNewChannelOnSkipFailure() throws IOException {
-    GcsItemId itemId = GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     GcsReadOptions options = GcsReadOptions.builder().setInplaceSeekLimit(100).build();
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(1000L).build();
     StorageTestUtils.createBlobInStorage(storage, itemId, "A".repeat(1000));

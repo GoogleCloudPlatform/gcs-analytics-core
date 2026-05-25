@@ -51,13 +51,9 @@ public class FakeGcsReadChannel extends GcsReadChannel {
 
   @Override
   protected ReadStrategy createReadStrategy(
-      Storage storage,
-      GcsItemId itemId,
-      GcsReadOptions readOptions,
-      GcsItemInfo itemInfo)
+      Storage storage, GcsItemId itemId, GcsReadOptions readOptions, GcsItemInfo itemInfo)
       throws IOException {
-    ReadStrategy realStrategy =
-        super.createReadStrategy(storage, itemId, readOptions, itemInfo);
+    ReadStrategy realStrategy = super.createReadStrategy(storage, itemId, readOptions, itemInfo);
 
     trackingStrategy = new TrackingReadStrategy(realStrategy);
     return trackingStrategy;

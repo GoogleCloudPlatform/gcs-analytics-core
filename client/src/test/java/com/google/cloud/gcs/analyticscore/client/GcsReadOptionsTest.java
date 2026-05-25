@@ -63,7 +63,7 @@ class GcsReadOptionsTest {
             .put("gcs.analytics-core.read.file-access-pattern", "auto_sequential")
             .build();
     readOptions = GcsReadOptions.createFromOptions(properties, prefix);
-    
+
     assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.AUTO_SEQUENTIAL);
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(1024);
     assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(2048);

@@ -94,10 +94,7 @@ class FakeGcsReadChannelTest {
             new Telemetry(ImmutableList.of())) {
           @Override
           protected ReadStrategy createReadStrategy(
-              Storage storage,
-              GcsItemId itemId,
-              GcsReadOptions readOptions,
-              GcsItemInfo itemInfo)
+              Storage storage, GcsItemId itemId, GcsReadOptions readOptions, GcsItemInfo itemInfo)
               throws IOException {
             ReadStrategy strategy =
                 super.createReadStrategy(storage, itemId, readOptions, itemInfo);
