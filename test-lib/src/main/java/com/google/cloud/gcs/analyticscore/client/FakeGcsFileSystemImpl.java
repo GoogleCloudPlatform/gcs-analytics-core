@@ -29,7 +29,11 @@ public class FakeGcsFileSystemImpl extends GcsFileSystemImpl {
   }
 
   private FakeGcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions, Telemetry telemetry) {
-    super(initializeGcsClient(fileSystemOptions, telemetry), fileSystemOptions, telemetry);
+    super(
+        initializeGcsClient(fileSystemOptions, telemetry),
+        fileSystemOptions,
+        telemetry,
+        new AnalyticsCacheManager(fileSystemOptions.getGcsCacheOptions()));
   }
 
   private static GcsClient initializeGcsClient(GcsFileSystemOptions options, Telemetry telemetry) {

@@ -387,6 +387,11 @@ class GcsFileSystemImplTest {
   }
 
   @Test
+  void getCacheManager_default_returnsNonNullInstance() {
+    assertThat(gcsFileSystem.getCacheManager()).isNotNull();
+  }
+
+  @Test
   void initializeTelemetry_registerListenersToTelemetry() {
     OperationListener mockListener = mock(OperationListener.class);
     CustomTelemetryOptions customTelemetryOptions =

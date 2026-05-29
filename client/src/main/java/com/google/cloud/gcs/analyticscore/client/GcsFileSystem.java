@@ -65,6 +65,9 @@ public interface GcsFileSystem extends AutoCloseable {
   /** Retrieve the telemetry instance used by this file system. */
   Telemetry getTelemetry();
 
+  /** Returns the cache manager used by this file system. */
+  AnalyticsCacheManager getCacheManager();
+
   /** Close the file system. */
   @Override
   void close();

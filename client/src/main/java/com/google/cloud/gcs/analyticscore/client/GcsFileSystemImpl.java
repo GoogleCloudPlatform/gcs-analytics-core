@@ -48,11 +48,13 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   private final Supplier<ExecutorService> executorServiceSupplier;
 
   private final Telemetry telemetry;
+  private final AnalyticsCacheManager cacheManager;
 
   public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
     this.telemetry = createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
+    this.cacheManager = new AnalyticsCacheManager(fileSystemOptions.getGcsCacheOptions());
     this.gcsClient =
         telemetry.measure(
             GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
@@ -67,6 +69,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
     this.telemetry = createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
+    this.cacheManager = new AnalyticsCacheManager(fileSystemOptions.getGcsCacheOptions());
     this.gcsClient =
         telemetry.measure(
             GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
@@ -85,16 +88,21 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this(
         gcsClient,
         fileSystemOptions,
-        createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions()));
+        createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions()),
+        new AnalyticsCacheManager(fileSystemOptions.getGcsCacheOptions()));
   }
 
   @VisibleForTesting
   GcsFileSystemImpl(
-      GcsClient gcsClient, GcsFileSystemOptions fileSystemOptions, Telemetry telemetry) {
+      GcsClient gcsClient,
+      GcsFileSystemOptions fileSystemOptions,
+      Telemetry telemetry,
+      AnalyticsCacheManager cacheManager) {
     this.gcsClient = gcsClient;
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
     this.telemetry = telemetry;
+    this.cacheManager = cacheManager;
   }
 
   @Override
@@ -147,6 +155,11 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   @Override
   public Telemetry getTelemetry() {
     return telemetry;
+  }
+
+  @Override
+  public AnalyticsCacheManager getCacheManager() {
+    return cacheManager;
   }
 
   @Override
