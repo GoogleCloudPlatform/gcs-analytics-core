@@ -19,9 +19,12 @@ package com.google.cloud.gcs.analyticscore.core.optimizer;
 import com.google.cloud.gcs.analyticscore.client.AnalyticsCacheManager;
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
+import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.List;
+import java.util.function.IntFunction;
 
 /** Defines the contract for format-specific optimizations (e.g., Parquet footer caching). */
 public interface FormatOptimizer {
@@ -47,6 +50,18 @@ public interface FormatOptimizer {
    * bytes read, or 0 if this optimizer cannot serve the read.
    */
   int read(long position, ByteBuffer dst, VectoredSeekableByteChannel delegate) throws IOException;
+
+  /**
+   * Intercepts vectored read operations.
+   *
+   * @param ranges The list of ranges requested.
+   * @param allocate Function to allocate ByteBuffers for satisfied ranges.
+   * @return The list of ranges that were NOT satisfied and still need to be read from source.
+   */
+  default List<GcsObjectRange> readVectored(
+      List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate) throws IOException {
+    return ranges;
+  }
 
   /** Invoked when the channel is closed. */
   default void onClose() throws IOException {}
