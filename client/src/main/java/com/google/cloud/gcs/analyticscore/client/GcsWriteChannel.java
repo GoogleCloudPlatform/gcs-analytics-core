@@ -17,14 +17,17 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.StorageException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.concurrent.ExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,6 +37,7 @@ public class GcsWriteChannel implements WritableByteChannel {
   private static final Logger LOG = LoggerFactory.getLogger(GcsWriteChannel.class);
 
   private final BlobInfo blobInfo;
+  private final BlobWriteSession blobWriteSession;
   private volatile WritableByteChannel sdkWriteChannel;
   private final GcsWriteOptions writeOptions;
 
@@ -41,7 +45,11 @@ public class GcsWriteChannel implements WritableByteChannel {
   private volatile boolean closed = false;
 
   GcsWriteChannel(
-      WritableByteChannel sdkWriteChannel, BlobInfo blobInfo, GcsWriteOptions writeOptions) {
+      BlobWriteSession blobWriteSession,
+      WritableByteChannel sdkWriteChannel,
+      BlobInfo blobInfo,
+      GcsWriteOptions writeOptions) {
+    this.blobWriteSession = blobWriteSession;
     this.sdkWriteChannel = sdkWriteChannel;
     this.blobInfo = blobInfo;
     this.writeOptions = writeOptions;
@@ -113,7 +121,25 @@ public class GcsWriteChannel implements WritableByteChannel {
       if (sdkWriteChannel != null) {
         sdkWriteChannel.close();
       }
+      if (blobWriteSession != null) {
+        blobWriteSession.getResult().get();
+      }
       LOG.debug("Successfully closed and finalized object: {}", blobInfo.getBlobId());
+    } catch (InterruptedException e) {
+      LOG.error(
+          "Interrupted waiting for upload finalization for object: {}", blobInfo.getBlobId(), e);
+      Thread.currentThread().interrupt();
+      throw new InterruptedIOException(
+          "Thread interrupted waiting for upload finalization: " + e.getMessage());
+    } catch (ExecutionException e) {
+      LOG.error("Failed to finalize upload session for object: {}", blobInfo.getBlobId(), e);
+      Throwable cause = e.getCause();
+      if (cause instanceof StorageException) {
+        throw handleStorageException((StorageException) cause, "close");
+      } else if (cause instanceof IOException) {
+        throw (IOException) cause;
+      }
+      throw new IOException("GCS failed to finalize the upload session", cause);
     } catch (StorageException e) {
       LOG.error("Failed to close and finalize upload for object: {}", blobInfo.getBlobId(), e);
       throw handleStorageException(e, "close");
