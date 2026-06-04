@@ -148,4 +148,13 @@ class GcsWriteOptionsTest {
     assertThat(options.getPcuPartFileCleanupType())
         .isEqualTo(GcsWriteOptions.PartFileCleanupType.ON_SUCCESS);
   }
+
+  @Test
+  void testCreateFromOptions_withOnlyWhitespacePaths_doesNotSetPaths() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.write.temporary-paths", "   ");
+
+    GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getTemporaryPaths()).isEmpty();
+  }
 }
