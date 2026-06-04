@@ -568,13 +568,15 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void create_withNullWriteOptions_throwsNullPointerException() {
+  void create_withNullWriteOptions_delegatesToGcsClientWithNullOptions() throws IOException {
     BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockClient.create(eq(blobInfo), eq(null))).thenReturn(mockChannel);
 
-    NullPointerException e =
-        assertThrows(NullPointerException.class, () -> gcsFileSystem.create(blobInfo, null));
+    WritableByteChannel resultChannel = gcsFileSystem.create(blobInfo, null);
 
-    assertThat(e).hasMessageThat().contains("writeOptions should not be null");
+    verify(mockClient).create(blobInfo, null);
+    assertThat(resultChannel).isSameInstanceAs(mockChannel);
   }
 
   @SuppressWarnings("unchecked")

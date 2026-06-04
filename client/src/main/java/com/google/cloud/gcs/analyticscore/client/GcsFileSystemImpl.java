@@ -185,7 +185,6 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   public WritableByteChannel create(BlobInfo blobInfo, GcsWriteOptions writeOptions)
       throws IOException {
     checkNotNull(blobInfo, "blobInfo should not be null");
-    checkNotNull(writeOptions, "writeOptions should not be null");
 
     // Delegate the actual SDK interaction and exception handling to the internal client
     return gcsClient.create(blobInfo, writeOptions);
