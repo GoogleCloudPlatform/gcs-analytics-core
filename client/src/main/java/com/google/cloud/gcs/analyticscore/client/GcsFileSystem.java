@@ -16,9 +16,11 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.storage.BlobInfo;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.channels.WritableByteChannel;
 
 public interface GcsFileSystem extends AutoCloseable {
 
@@ -68,4 +70,7 @@ public interface GcsFileSystem extends AutoCloseable {
   /** Close the file system. */
   @Override
   void close();
+
+  /** Creates a new object and returns a WritableByteChannel for writing to it. */
+  WritableByteChannel create(BlobInfo blobInfo, GcsWriteOptions options) throws IOException;
 }

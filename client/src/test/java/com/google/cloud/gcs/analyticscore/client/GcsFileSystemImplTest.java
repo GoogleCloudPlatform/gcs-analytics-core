@@ -32,11 +32,14 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.channels.WritableByteChannel;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -80,7 +83,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void constructor_withCredentials_createsClientWithProvidedCredentials() {
+  void constructor_withCredentials_createsClientWithProvidedCredentials() throws Exception {
     try (GcsFileSystemImpl gcsFileSystem =
         new GcsFileSystemImpl(NoCredentials.getInstance(), TEST_GCS_FILESYSTEM_OPTIONS)) {
       GcsClientImpl gcsClientImpl = (GcsClientImpl) gcsFileSystem.getGcsClient();
@@ -91,7 +94,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void constructor_withFileSystemOptions_createsClientWithDefaultCredentials() {
+  void constructor_withFileSystemOptions_createsClientWithDefaultCredentials() throws Exception {
     GcsClientOptions clientOptions =
         GcsClientOptions.builder().setProjectId("test-project-default").build();
     GcsFileSystemOptions fileSystemOptions =
@@ -107,7 +110,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void constructor_shouldInitializeAndPassMemorizedExecutorServiceToGcsClient() {
+  void constructor_shouldInitializeAndPassMemorizedExecutorServiceToGcsClient() throws Exception {
     final AtomicReference<Supplier<ExecutorService>> capturedSupplier = new AtomicReference<>();
     try (MockedConstruction<GcsClientImpl> mockGcsClientConstruction =
         Mockito.mockConstruction(
@@ -387,7 +390,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeTelemetry_registerListenersToTelemetry() {
+  void initializeTelemetry_registerListenersToTelemetry() throws Exception {
     OperationListener mockListener = mock(OperationListener.class);
     CustomTelemetryOptions customTelemetryOptions =
         CustomTelemetryOptions.builder()
@@ -407,7 +410,8 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeTelemetry_withLoggingTelemetryOptionsEnabled_registersLoggingTelemetryReporter() {
+  void initializeTelemetry_withLoggingTelemetryOptionsEnabled_registersLoggingTelemetryReporter()
+      throws Exception {
     LoggingTelemetryOptions loggingOptions =
         LoggingTelemetryOptions.builder().setEnabled(true).build();
     TelemetryOptions telemetryOptions =
@@ -430,7 +434,8 @@ class GcsFileSystemImplTest {
 
   @Test
   void
-      initializeTelemetry_withLoggingTelemetryOptionsDisabled_doesNotRegisterLoggingTelemetryReporter() {
+      initializeTelemetry_withLoggingTelemetryOptionsDisabled_doesNotRegisterLoggingTelemetryReporter()
+          throws Exception {
     LoggingTelemetryOptions loggingOptions =
         LoggingTelemetryOptions.builder().setEnabled(false).build();
     TelemetryOptions telemetryOptions =
@@ -447,7 +452,8 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeTelemetry_withOpenTelemetryOptionsEnabled_registersOpenTelemetryReporter() {
+  void initializeTelemetry_withOpenTelemetryOptionsEnabled_registersOpenTelemetryReporter()
+      throws Exception {
     OpenTelemetryOptions openTelemetryOptions =
         OpenTelemetryOptions.builder().setEnabled(true).build();
     TelemetryOptions telemetryOptions =
@@ -468,7 +474,8 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeTelemetry_withOpenTelemetryOptionsDisabled_doesNotRegisterOpenTelemetryReporter() {
+  void initializeTelemetry_withOpenTelemetryOptionsDisabled_doesNotRegisterOpenTelemetryReporter()
+      throws Exception {
     OpenTelemetryOptions openTelemetryOptions =
         OpenTelemetryOptions.builder().setEnabled(false).build();
     TelemetryOptions telemetryOptions =
@@ -485,7 +492,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void close_removesRegisteredOpenTelemetryReporters() {
+  void close_removesRegisteredOpenTelemetryReporters() throws Exception {
     OpenTelemetryOptions openTelemetryOptions =
         OpenTelemetryOptions.builder().setEnabled(true).build();
     TelemetryOptions telemetryOptions =
@@ -506,7 +513,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void close_removesRegisteredLoggingTelemetryReporters() {
+  void close_removesRegisteredLoggingTelemetryReporters() throws Exception {
     LoggingTelemetryOptions loggingOptions =
         LoggingTelemetryOptions.builder().setEnabled(true).build();
     TelemetryOptions telemetryOptions =
@@ -529,6 +536,40 @@ class GcsFileSystemImplTest {
 
     assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
     assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).doesNotContain(reporter);
+  }
+
+  @Test
+  void create_callsGcsClientCreate() throws IOException {
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockClient.create(eq(blobInfo), eq(writeOptions))).thenReturn(mockChannel);
+
+    WritableByteChannel resultChannel = gcsFileSystem.create(blobInfo, writeOptions);
+
+    verify(mockClient).create(blobInfo, writeOptions);
+    assertThat(resultChannel).isSameInstanceAs(mockChannel);
+  }
+
+  @Test
+  void create_withNullBlobInfo_throwsNullPointerException() {
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class, () -> gcsFileSystem.create((BlobInfo) null, writeOptions));
+
+    assertThat(e).hasMessageThat().contains("blobInfo should not be null");
+  }
+
+  @Test
+  void create_withNullWriteOptions_throwsNullPointerException() {
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> gcsFileSystem.create(blobInfo, null));
+
+    assertThat(e).hasMessageThat().contains("writeOptions should not be null");
   }
 
   @SuppressWarnings("unchecked")

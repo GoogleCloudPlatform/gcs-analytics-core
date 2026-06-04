@@ -15,22 +15,38 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.getErrorType;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.ErrorType;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.BlobWriteSession;
+import com.google.cloud.storage.BlobWriteSessionConfig;
+import com.google.cloud.storage.BlobWriteSessionConfigs;
+import com.google.cloud.storage.HttpStorageOptions;
+import com.google.cloud.storage.ParallelCompositeUploadBlobWriteSessionConfig;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -52,14 +68,16 @@ class GcsClientImpl implements GcsClient {
       Credentials credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry) {
+      Telemetry telemetry)
+      throws IOException {
     this(Optional.of(credentials), clientOptions, executorServiceSupplier, telemetry);
   }
 
   GcsClientImpl(
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry) {
+      Telemetry telemetry)
+      throws IOException {
     this(Optional.empty(), clientOptions, executorServiceSupplier, telemetry);
   }
 
@@ -67,7 +85,8 @@ class GcsClientImpl implements GcsClient {
       Optional<Credentials> credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry) {
+      Telemetry telemetry)
+      throws IOException {
     this.clientOptions = clientOptions;
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
@@ -105,6 +124,182 @@ class GcsClientImpl implements GcsClient {
   }
 
   @Override
+  public WritableByteChannel create(BlobInfo blobInfo, GcsWriteOptions writeOptions)
+      throws IOException {
+    try {
+      BlobWriteOption[] sdkWriteOptions = generateWriteOptions(writeOptions, blobInfo);
+      BlobWriteSession sdkWriteSession = this.storage.blobWriteSession(blobInfo, sdkWriteOptions);
+      return new GcsWriteChannel(sdkWriteSession.open(), blobInfo, writeOptions);
+    } catch (StorageException e) {
+      LOG.error(
+          "Failed to initialize BlobWriteSession for object: gs://{}/{}",
+          blobInfo.getBucket(),
+          blobInfo.getName(),
+          e);
+      ErrorType errorType = getErrorType(e);
+      if (errorType == ErrorType.ALREADY_EXISTS) {
+        throw (FileAlreadyExistsException)
+            new FileAlreadyExistsException(
+                    String.format(
+                        "Object gs://%s/%s already exists.",
+                        blobInfo.getBucket(), blobInfo.getName()))
+                .initCause(e);
+      } else if (errorType == ErrorType.PRECONDITION_FAILED) {
+        if (writeOptions != null && !writeOptions.isOverwriteExisting()) {
+          throw (FileAlreadyExistsException)
+              new FileAlreadyExistsException(
+                      String.format(
+                          "Object gs://%s/%s already exists.",
+                          blobInfo.getBucket(), blobInfo.getName()))
+                  .initCause(e);
+        } else if (blobInfo.getBlobId().getGeneration() != null) {
+          throw new IOException(
+              String.format(
+                  "Generation mismatch for object gs://%s/%s. The file may have been modified concurrently.",
+                  blobInfo.getBucket(), blobInfo.getName()),
+              e);
+        }
+      } else if (errorType == ErrorType.NOT_FOUND) {
+        throw (FileNotFoundException)
+            new FileNotFoundException(
+                    String.format(
+                        "Bucket or object not found: gs://%s/%s",
+                        blobInfo.getBucket(), blobInfo.getName()))
+                .initCause(e);
+      } else if (errorType == ErrorType.ACCESS_DENIED) {
+        throw (AccessDeniedException)
+            new AccessDeniedException(
+                    String.format("gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()),
+                    null,
+                    String.format(
+                        "Access denied to object during initialization: %s", e.getMessage()))
+                .initCause(e);
+      }
+      throw new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId(), e);
+    } catch (Exception e) {
+      throw propagateAsIOException(e, blobInfo);
+    }
+  }
+
+  private static IOException propagateAsIOException(Exception e, BlobInfo blobInfo) {
+    if (e instanceof IOException) {
+      return (IOException) e;
+    }
+    if (e instanceof RuntimeException) {
+      throw (RuntimeException) e;
+    }
+    return new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId(), e);
+  }
+
+  private BlobWriteSessionConfig generateSessionConfig(
+      GcsWriteOptions writeOptions, StorageOptions storageOptions) throws IOException {
+    if (writeOptions == null) {
+      return BlobWriteSessionConfigs.getDefault();
+    }
+
+    switch (writeOptions.getUploadType()) {
+      case PARALLEL_COMPOSITE_UPLOAD:
+        return getParallelCompositeUploadSessionConfig(writeOptions);
+
+      case WRITE_TO_DISK_THEN_UPLOAD:
+        return getWriteToDiskSessionConfig(writeOptions);
+
+      case JOURNALING:
+        return getJournalingSessionConfig(writeOptions, storageOptions);
+
+      case CHUNK_UPLOAD:
+      default:
+        return BlobWriteSessionConfigs.getDefault();
+    }
+  }
+
+  private BlobWriteSessionConfig getParallelCompositeUploadSessionConfig(
+      GcsWriteOptions writeOptions) {
+    return BlobWriteSessionConfigs.parallelCompositeUpload()
+        .withBufferAllocationStrategy(
+            ParallelCompositeUploadBlobWriteSessionConfig.BufferAllocationStrategy.fixedPool(
+                writeOptions.getPcuBufferCount(), writeOptions.getPcuBufferCapacity()))
+        .withPartCleanupStrategy(getSdkCleanupStrategy(writeOptions.getPcuPartFileCleanupType()))
+        .withPartNamingStrategy(
+            ParallelCompositeUploadBlobWriteSessionConfig.PartNamingStrategy.prefix(
+                writeOptions.getPcuPartFileNamePrefix()));
+  }
+
+  private BlobWriteSessionConfig getWriteToDiskSessionConfig(GcsWriteOptions writeOptions)
+      throws IOException {
+    if (!writeOptions.getTemporaryPaths().isEmpty()) {
+      List<Path> paths = new ArrayList<>();
+      for (String pathStr : writeOptions.getTemporaryPaths()) {
+        paths.add(Paths.get(pathStr));
+      }
+      return BlobWriteSessionConfigs.bufferToDiskThenUpload(paths);
+    } else {
+      return BlobWriteSessionConfigs.bufferToTempDirThenUpload();
+    }
+  }
+
+  private BlobWriteSessionConfig getJournalingSessionConfig(
+      GcsWriteOptions writeOptions, StorageOptions storageOptions) throws IOException {
+    if (storageOptions instanceof HttpStorageOptions) {
+      throw new UnsupportedOperationException(
+          "JOURNALING upload type is not supported because it requires the gRPC transport backend (HTTP transport is currently active).");
+    }
+    if (writeOptions.getTemporaryPaths().isEmpty()) {
+      throw new IllegalArgumentException(
+          "Temporary paths must be configured for JOURNALING upload type");
+    }
+    List<Path> paths = new ArrayList<>();
+    for (String pathStr : writeOptions.getTemporaryPaths()) {
+      paths.add(Paths.get(pathStr));
+    }
+    return BlobWriteSessionConfigs.journaling(paths);
+  }
+
+  private ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy getSdkCleanupStrategy(
+      GcsWriteOptions.PartFileCleanupType cleanupType) {
+    switch (cleanupType) {
+      case NEVER:
+        return ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy.never();
+      case ON_SUCCESS:
+        return ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy.onlyOnSuccess();
+      case ALWAYS:
+      default:
+        return ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy.always();
+    }
+  }
+
+  private BlobWriteOption[] generateWriteOptions(GcsWriteOptions writeOptions, BlobInfo blobInfo) {
+    List<BlobWriteOption> sdkWriteOptions = new ArrayList<>();
+
+    if (writeOptions != null) {
+      if (writeOptions.isDisableGzipContent()) {
+        sdkWriteOptions.add(BlobWriteOption.disableGzipContent());
+      }
+      if (writeOptions.isChecksumValidationEnabled()) {
+        sdkWriteOptions.add(BlobWriteOption.crc32cMatch());
+      }
+      if (writeOptions.getKmsKeyName().isPresent()) {
+        sdkWriteOptions.add(BlobWriteOption.kmsKeyName(writeOptions.getKmsKeyName().get()));
+      }
+      if (writeOptions.getEncryptionKey().isPresent()) {
+        sdkWriteOptions.add(BlobWriteOption.encryptionKey(writeOptions.getEncryptionKey().get()));
+      }
+      if (writeOptions.getUserProject().isPresent()) {
+        sdkWriteOptions.add(BlobWriteOption.userProject(writeOptions.getUserProject().get()));
+      }
+    }
+
+    // Determine overwrite semantics based on exact generation ID or 'doesNotExist' flag
+    if (blobInfo.getBlobId().getGeneration() != null) {
+      sdkWriteOptions.add(BlobWriteOption.generationMatch());
+    } else if (writeOptions != null && !writeOptions.isOverwriteExisting()) {
+      sdkWriteOptions.add(BlobWriteOption.doesNotExist());
+    }
+
+    return sdkWriteOptions.toArray(new BlobWriteOption[0]);
+  }
+
+  @Override
   public GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException {
     checkNotNull(itemId, "Item ID must not be null.");
     if (itemId.isGcsObject()) {
@@ -124,7 +319,7 @@ class GcsClientImpl implements GcsClient {
   }
 
   @VisibleForTesting
-  protected Storage createStorage(Optional<Credentials> credentials) {
+  protected Storage createStorage(Optional<Credentials> credentials) throws IOException {
     StorageOptions.Builder builder = StorageOptions.newBuilder();
     String userAgent = getUserAgent();
     builder.setHeaderProvider(FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
@@ -132,6 +327,9 @@ class GcsClientImpl implements GcsClient {
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
     credentials.ifPresent(builder::setCredentials);
+
+    builder.setBlobWriteSessionConfig(
+        generateSessionConfig(clientOptions.getGcsWriteOptions(), builder.build()));
 
     return builder.build().getService();
   }

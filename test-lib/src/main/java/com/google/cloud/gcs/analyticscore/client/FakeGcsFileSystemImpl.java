@@ -20,19 +20,22 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class FakeGcsFileSystemImpl extends GcsFileSystemImpl {
-  public FakeGcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
+  public FakeGcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) throws IOException {
     this(fileSystemOptions, new Telemetry(ImmutableList.of()));
   }
 
-  private FakeGcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions, Telemetry telemetry) {
+  private FakeGcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions, Telemetry telemetry)
+      throws IOException {
     super(initializeGcsClient(fileSystemOptions, telemetry), fileSystemOptions, telemetry);
   }
 
-  private static GcsClient initializeGcsClient(GcsFileSystemOptions options, Telemetry telemetry) {
+  private static GcsClient initializeGcsClient(GcsFileSystemOptions options, Telemetry telemetry)
+      throws IOException {
     Supplier<ExecutorService> executorServiceSupplier =
         Suppliers.ofInstance(Executors.newCachedThreadPool());
     return new FakeGcsClientImpl(options.getGcsClientOptions(), executorServiceSupplier, telemetry);

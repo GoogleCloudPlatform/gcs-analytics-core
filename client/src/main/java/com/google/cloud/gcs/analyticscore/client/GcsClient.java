@@ -15,8 +15,10 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import com.google.cloud.storage.BlobInfo;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
+import java.nio.channels.WritableByteChannel;
 
 @VisibleForTesting
 public interface GcsClient {
@@ -33,4 +35,7 @@ public interface GcsClient {
 
   /** Close the client. */
   void close();
+
+  /** Creates a new object and returns a WritableByteChannel for writing to it. */
+  WritableByteChannel create(BlobInfo blobInfo, GcsWriteOptions options) throws IOException;
 }
