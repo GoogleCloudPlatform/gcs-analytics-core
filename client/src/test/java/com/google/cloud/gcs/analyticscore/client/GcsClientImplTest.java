@@ -36,6 +36,8 @@ import com.google.common.collect.ImmutableList;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.channels.WritableByteChannel;
@@ -716,47 +718,6 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createStorage_withNullWriteOptions_setsDefaultSessionConfig() throws Exception {
-    GcsClientOptions optionsWithNullWriteOptions =
-        new GcsClientOptions() {
-          @Override
-          public Optional<String> getProjectId() {
-            return Optional.of(TEST_PROJECT);
-          }
-
-          @Override
-          public Optional<String> getClientLibToken() {
-            return Optional.empty();
-          }
-
-          @Override
-          public Optional<String> getServiceHost() {
-            return Optional.empty();
-          }
-
-          @Override
-          public Optional<String> getUserAgent() {
-            return Optional.empty();
-          }
-
-          @Override
-          public GcsReadOptions getGcsReadOptions() {
-            return GcsReadOptions.builder().build();
-          }
-
-          @Override
-          public GcsWriteOptions getGcsWriteOptions() {
-            return null;
-          }
-        };
-
-    GcsClientImpl client =
-        new GcsClientImpl(optionsWithNullWriteOptions, executorServiceSupplier, telemetry);
-
-    assertThat(getBlobWriteSessionConfig(client.storage.getOptions())).isNotNull();
-  }
-
-  @Test
   void create_TranslatesPreconditionFailedException_withNullWriteOptions() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
@@ -839,5 +800,62 @@ class GcsClientImplTest {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
+  }
+
+  @Test
+  void
+      getJournalingSessionConfig_withNonHttpStorageOptions_andTemporaryPaths_returnsJournalingConfig()
+          throws Exception {
+    GcsClientImpl client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+
+    StorageOptions mockStorageOptions = mock(StorageOptions.class);
+
+    GcsWriteOptions writeOptions =
+        GcsWriteOptions.builder()
+            .setUploadType(GcsWriteOptions.UploadType.JOURNALING)
+            .setTemporaryPaths(ImmutableList.of("/tmp/journal1", "/tmp/journal2"))
+            .build();
+
+    Method method =
+        GcsClientImpl.class.getDeclaredMethod(
+            "getJournalingSessionConfig", GcsWriteOptions.class, StorageOptions.class);
+    method.setAccessible(true);
+
+    Object result = method.invoke(client, writeOptions, mockStorageOptions);
+
+    assertThat(result).isNotNull();
+    assertThat(result.getClass().getSimpleName()).contains("Journaling");
+  }
+
+  @Test
+  void
+      getJournalingSessionConfig_withNonHttpStorageOptions_andEmptyTemporaryPaths_throwsIllegalArgumentException()
+          throws Exception {
+    GcsClientImpl client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+
+    StorageOptions mockStorageOptions = mock(StorageOptions.class);
+
+    GcsWriteOptions writeOptions =
+        GcsWriteOptions.builder()
+            .setUploadType(GcsWriteOptions.UploadType.JOURNALING)
+            .setTemporaryPaths(ImmutableList.of())
+            .build();
+
+    Method method =
+        GcsClientImpl.class.getDeclaredMethod(
+            "getJournalingSessionConfig", GcsWriteOptions.class, StorageOptions.class);
+    method.setAccessible(true);
+
+    InvocationTargetException exception =
+        assertThrows(
+            InvocationTargetException.class,
+            () -> method.invoke(client, writeOptions, mockStorageOptions));
+
+    assertThat(exception.getCause()).isInstanceOf(IllegalArgumentException.class);
+    assertThat(exception.getCause())
+        .hasMessageThat()
+        .contains("Temporary paths must be configured for JOURNALING upload type");
   }
 }

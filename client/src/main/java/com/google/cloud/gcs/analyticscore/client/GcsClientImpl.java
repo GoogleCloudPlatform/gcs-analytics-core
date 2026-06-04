@@ -193,10 +193,6 @@ class GcsClientImpl implements GcsClient {
 
   private BlobWriteSessionConfig generateSessionConfig(
       GcsWriteOptions writeOptions, StorageOptions storageOptions) throws IOException {
-    if (writeOptions == null) {
-      return BlobWriteSessionConfigs.getDefault();
-    }
-
     switch (writeOptions.getUploadType()) {
       case PARALLEL_COMPOSITE_UPLOAD:
         return getParallelCompositeUploadSessionConfig(writeOptions);
