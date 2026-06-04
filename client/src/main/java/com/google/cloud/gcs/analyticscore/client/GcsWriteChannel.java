@@ -19,14 +19,11 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.StorageException;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.WritableByteChannel;
-import java.nio.file.AccessDeniedException;
-import java.nio.file.FileAlreadyExistsException;
 import java.util.concurrent.ExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -107,7 +104,7 @@ public class GcsWriteChannel implements WritableByteChannel {
   }
 
   @Override
-  public void close() throws IOException {
+  public synchronized void close() throws IOException {
     if (closed) {
       return;
     }
@@ -156,58 +153,14 @@ public class GcsWriteChannel implements WritableByteChannel {
   }
 
   private IOException handleStorageException(StorageException e, String context) {
-    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(e);
-
-    if (errorType == GcsExceptionUtil.ErrorType.NOT_FOUND) {
-      return (FileNotFoundException)
-          new FileNotFoundException(
-                  String.format(
-                      "Location does not exist or generation not found: gs://%s/%s",
-                      blobInfo.getBucket(), blobInfo.getName()))
-              .initCause(e);
-
-    } else if (errorType == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
-      return (AccessDeniedException)
-          new AccessDeniedException(
-                  String.format("gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()),
-                  null,
-                  String.format("Access denied to object during %s: %s", context, e.getMessage()))
-              .initCause(e);
-
-    } else if (errorType == GcsExceptionUtil.ErrorType.ALREADY_EXISTS) {
-      // 409 Conflict: The gRPC transport explicitly tells us the file already exists
-      return (FileAlreadyExistsException)
-          new FileAlreadyExistsException(
-                  String.format(
-                      "Object gs://%s/%s already exists.",
-                      blobInfo.getBucket(), blobInfo.getName()))
-              .initCause(e);
-
-    } else if (errorType == GcsExceptionUtil.ErrorType.PRECONDITION_FAILED) {
-      // 412 Precondition Failed: We must use our local state to infer the failure reason
-      if (writeOptions != null && !writeOptions.isOverwriteExisting()) {
-        // In the JSON API, "does not exist" preconditions manifest as a 412.
-        return (FileAlreadyExistsException)
-            new FileAlreadyExistsException(
-                    String.format(
-                        "Object gs://%s/%s already exists.",
-                        blobInfo.getBucket(), blobInfo.getName()))
-                .initCause(e);
-      } else if (blobInfo.getBlobId().getGeneration() != null) {
-        return new IOException(
-            String.format(
-                "Generation mismatch for object gs://%s/%s. The file may have been modified concurrently.",
-                blobInfo.getBucket(), blobInfo.getName()),
-            e);
-      }
-    }
-
-    // Safe fallback for unmapped or generic transport errors
-    return new IOException(
-        String.format(
-            "Error during %s to GCS for %s at position %d",
-            context, blobInfo.getBlobId(), bytesWritten),
-        e);
+    return GcsExceptionUtil.translateException(
+        e,
+        context,
+        blobInfo.getBucket(),
+        blobInfo.getName(),
+        blobInfo.getBlobId().getGeneration(),
+        writeOptions == null || writeOptions.isOverwriteExisting(),
+        bytesWritten);
   }
 
   public long getBytesWritten() {

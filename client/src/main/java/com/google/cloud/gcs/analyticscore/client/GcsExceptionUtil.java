@@ -17,7 +17,11 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.cloud.storage.StorageException;
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.net.HttpURLConnection;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileAlreadyExistsException;
 
 /** Centralized utility for classifying GCS transport exceptions. */
 public class GcsExceptionUtil {
@@ -47,5 +51,64 @@ public class GcsExceptionUtil {
       default:
         return ErrorType.UNKNOWN;
     }
+  }
+
+  /** Translates a StorageException into a standard Java IOException subclass. */
+  public static IOException translateException(
+      StorageException e,
+      String context,
+      String bucket,
+      String name,
+      Long generation,
+      boolean overwriteExisting,
+      long position) {
+    ErrorType errorType = getErrorType(e);
+
+    switch (errorType) {
+      case NOT_FOUND:
+        return (FileNotFoundException)
+            new FileNotFoundException(
+                    String.format(
+                        "Location does not exist or generation not found: gs://%s/%s",
+                        bucket, name))
+                .initCause(e);
+
+      case ACCESS_DENIED:
+        return (AccessDeniedException)
+            new AccessDeniedException(
+                    String.format("gs://%s/%s", bucket, name),
+                    null,
+                    String.format("Access denied to object during %s: %s", context, e.getMessage()))
+                .initCause(e);
+
+      case ALREADY_EXISTS:
+        return (FileAlreadyExistsException)
+            new FileAlreadyExistsException(
+                    String.format("Object gs://%s/%s already exists.", bucket, name))
+                .initCause(e);
+
+      case PRECONDITION_FAILED:
+        if (!overwriteExisting) {
+          return (FileAlreadyExistsException)
+              new FileAlreadyExistsException(
+                      String.format("Object gs://%s/%s already exists.", bucket, name))
+                  .initCause(e);
+        } else if (generation != null) {
+          return new IOException(
+              String.format(
+                  "Generation mismatch for object gs://%s/%s. The file may have been modified concurrently.",
+                  bucket, name),
+              e);
+        }
+        break;
+      default:
+        break;
+    }
+
+    return new IOException(
+        String.format(
+            "Error during %s to GCS for gs://%s/%s at position %d",
+            context, bucket, name, position),
+        e);
   }
 }

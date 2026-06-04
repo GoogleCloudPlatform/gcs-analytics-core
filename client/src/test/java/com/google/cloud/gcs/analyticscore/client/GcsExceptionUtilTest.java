@@ -19,8 +19,12 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.google.cloud.storage.StorageException;
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileAlreadyExistsException;
 import org.junit.jupiter.api.Test;
 
 public class GcsExceptionUtilTest {
@@ -44,6 +48,76 @@ public class GcsExceptionUtilTest {
 
     assertThat(GcsExceptionUtil.getErrorType(new StorageException(500, "Internal Error")))
         .isEqualTo(GcsExceptionUtil.ErrorType.UNKNOWN);
+  }
+
+  @Test
+  public void testTranslateException() {
+    String context = "write";
+    String bucket = "test-bucket";
+    String name = "test-object";
+    long position = 100L;
+
+    // 404 -> FileNotFoundException
+    IOException e404 =
+        GcsExceptionUtil.translateException(
+            new StorageException(404, "Not Found"), context, bucket, name, null, true, position);
+    assertThat(e404).isInstanceOf(FileNotFoundException.class);
+    assertThat(e404.getMessage())
+        .contains("Location does not exist or generation not found: gs://test-bucket/test-object");
+
+    // 403 -> AccessDeniedException
+    IOException e403 =
+        GcsExceptionUtil.translateException(
+            new StorageException(403, "Forbidden"), context, bucket, name, null, true, position);
+    assertThat(e403).isInstanceOf(AccessDeniedException.class);
+    assertThat(e403.getMessage()).contains("Access denied to object during write");
+
+    // 409 -> FileAlreadyExistsException
+    IOException e409 =
+        GcsExceptionUtil.translateException(
+            new StorageException(409, "Conflict"), context, bucket, name, null, true, position);
+    assertThat(e409).isInstanceOf(FileAlreadyExistsException.class);
+    assertThat(e409.getMessage()).contains("Object gs://test-bucket/test-object already exists");
+
+    // 412 with overwriteExisting = false -> FileAlreadyExistsException
+    IOException e412NoOverwrite =
+        GcsExceptionUtil.translateException(
+            new StorageException(412, "Precondition Failed"),
+            context,
+            bucket,
+            name,
+            null,
+            false,
+            position);
+    assertThat(e412NoOverwrite).isInstanceOf(FileAlreadyExistsException.class);
+
+    // 412 with overwriteExisting = true and generation != null -> IOException (Generation mismatch)
+    IOException e412GenMismatch =
+        GcsExceptionUtil.translateException(
+            new StorageException(412, "Precondition Failed"),
+            context,
+            bucket,
+            name,
+            12345L,
+            true,
+            position);
+    assertThat(e412GenMismatch).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(e412GenMismatch.getMessage())
+        .contains("Generation mismatch for object gs://test-bucket/test-object");
+
+    // 500 -> generic IOException
+    IOException e500 =
+        GcsExceptionUtil.translateException(
+            new StorageException(500, "Internal Server Error"),
+            context,
+            bucket,
+            name,
+            null,
+            true,
+            position);
+    assertThat(e500).isInstanceOf(IOException.class);
+    assertThat(e500.getMessage())
+        .contains("Error during write to GCS for gs://test-bucket/test-object at position 100");
   }
 
   @Test
