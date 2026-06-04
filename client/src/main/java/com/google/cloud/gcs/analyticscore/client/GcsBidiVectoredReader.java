@@ -25,8 +25,10 @@ import com.google.cloud.storage.BlobReadSession;
 import com.google.cloud.storage.RangeSpec;
 import com.google.cloud.storage.ReadProjectionConfigs;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.ZeroCopySupport.DisposableByteString;
 import com.google.protobuf.ByteString;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -43,12 +45,18 @@ class GcsBidiVectoredReader implements AutoCloseable {
 
   private final Storage storage;
   private final ExecutorService executorService;
-  private volatile BlobReadSession blobReadSession;
   private final BlobId blobId;
+  private final long bidiClientTimeoutSeconds;
+  private volatile BlobReadSession blobReadSession;
 
-  GcsBidiVectoredReader(Storage storage, GcsItemId itemId, ExecutorService executorService) {
+  GcsBidiVectoredReader(
+      Storage storage,
+      GcsItemId itemId,
+      ExecutorService executorService,
+      long bidiClientTimeoutSeconds) {
     this.storage = checkNotNull(storage, "Storage instance cannot be null");
     this.executorService = checkNotNull(executorService, "Executor service cannot be null");
+    this.bidiClientTimeoutSeconds = bidiClientTimeoutSeconds;
     checkNotNull(itemId, "ItemId cannot be null");
 
     String bucketName = itemId.getBucketName();
@@ -66,12 +74,18 @@ class GcsBidiVectoredReader implements AutoCloseable {
         if (blobReadSession == null) {
           try {
             ApiFuture<BlobReadSession> sessionFuture = storage.blobReadSession(blobId);
-            blobReadSession = sessionFuture.get(10, TimeUnit.SECONDS);
+            blobReadSession = sessionFuture.get(bidiClientTimeoutSeconds, TimeUnit.SECONDS);
           } catch (InterruptedException e) {
             Thread.currentThread().interrupt(); // Restore interrupt status
             throw new IOException("Failed to get BlobReadSession due to thread interruption", e);
-          } catch (ExecutionException | TimeoutException e) {
+          } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof StorageException && ((StorageException) cause).getCode() == 404) {
+              throw new FileNotFoundException("Object not found: " + blobId);
+            }
             throw new IOException("Failed to get BlobReadSession", e);
+          } catch (TimeoutException e) {
+            throw new IOException("Failed to get BlobReadSession due to client timeout limit", e);
           }
         }
       }

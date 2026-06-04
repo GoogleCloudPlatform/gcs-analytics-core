@@ -206,8 +206,10 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   private synchronized GcsBidiVectoredReader getBidiVectoredReader() {
     if (bidiVectoredReader == null) {
+      // TODO: Pass client timeout configurations.
+      long bidiTimeout = 10;
       bidiVectoredReader =
-          new GcsBidiVectoredReader(storage, itemId, executorServiceSupplier.get());
+          new GcsBidiVectoredReader(storage, itemId, executorServiceSupplier.get(), bidiTimeout);
     }
     return bidiVectoredReader;
   }
