@@ -132,4 +132,20 @@ class GcsWriteOptionsTest {
 
     assertThat(options.getTemporaryPaths()).containsExactly("/tmp/path1", "/tmp/path2").inOrder();
   }
+
+  @Test
+  void testCreateFromOptions_withHyphenatedEnums() {
+    Map<String, String> rawOptions =
+        ImmutableMap.<String, String>builder()
+            .put("gcs.write.upload.type", "parallel-composite-upload")
+            .put("gcs.write.pcu.part-file-cleanup-type", "on-success")
+            .build();
+
+    GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getUploadType())
+        .isEqualTo(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD);
+    assertThat(options.getPcuPartFileCleanupType())
+        .isEqualTo(GcsWriteOptions.PartFileCleanupType.ON_SUCCESS);
+  }
 }

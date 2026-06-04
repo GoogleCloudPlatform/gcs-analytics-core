@@ -117,7 +117,8 @@ public abstract class GcsWriteOptions {
     }
     if (analyticsCoreOptions.containsKey(prefix + UPLOAD_TYPE_KEY)) {
       optionsBuilder.setUploadType(
-          UploadType.valueOf(analyticsCoreOptions.get(prefix + UPLOAD_TYPE_KEY).toUpperCase()));
+          UploadType.valueOf(
+              analyticsCoreOptions.get(prefix + UPLOAD_TYPE_KEY).replace('-', '_').toUpperCase()));
     }
     if (analyticsCoreOptions.containsKey(prefix + PCU_BUFFER_COUNT_KEY)) {
       optionsBuilder.setPcuBufferCount(
@@ -130,7 +131,10 @@ public abstract class GcsWriteOptions {
     if (analyticsCoreOptions.containsKey(prefix + PCU_PART_FILE_CLEANUP_TYPE_KEY)) {
       optionsBuilder.setPcuPartFileCleanupType(
           PartFileCleanupType.valueOf(
-              analyticsCoreOptions.get(prefix + PCU_PART_FILE_CLEANUP_TYPE_KEY).toUpperCase()));
+              analyticsCoreOptions
+                  .get(prefix + PCU_PART_FILE_CLEANUP_TYPE_KEY)
+                  .replace('-', '_')
+                  .toUpperCase()));
     }
     if (analyticsCoreOptions.containsKey(prefix + PCU_PART_FILE_NAME_PREFIX_KEY)) {
       optionsBuilder.setPcuPartFileNamePrefix(
