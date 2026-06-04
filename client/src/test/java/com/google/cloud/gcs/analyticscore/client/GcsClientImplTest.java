@@ -174,6 +174,8 @@ class GcsClientImplTest {
     int bytesRead = channel.read(buffer);
 
     assertThat(channel.size()).isEqualTo(objectData.length());
+    assertThat(channel.size())
+        .isEqualTo(objectData.length()); // Call twice to cover cached size branch
     assertThat(bytesRead).isEqualTo(objectData.length());
     assertThat(new String(buffer.array(), UTF_8)).isEqualTo(objectData);
   }
@@ -656,6 +658,177 @@ class GcsClientImplTest {
 
     assertThat(getBlobWriteSessionConfig(client.storage.getOptions()))
         .isInstanceOf(BufferToDiskThenUpload.class);
+  }
+
+  @Test
+  void createStorage_withParallelCompositeUpload_OnSuccessCleanup_setsPCUSessionConfig()
+      throws Exception {
+    GcsWriteOptions writeOptions =
+        GcsWriteOptions.builder()
+            .setUploadType(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
+            .setPcuPartFileCleanupType(GcsWriteOptions.PartFileCleanupType.ON_SUCCESS)
+            .build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setGcsWriteOptions(writeOptions)
+            .build();
+
+    GcsClientImpl client = new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry);
+
+    assertThat(getBlobWriteSessionConfig(client.storage.getOptions()))
+        .isInstanceOf(ParallelCompositeUploadBlobWriteSessionConfig.class);
+  }
+
+  @Test
+  void createStorage_withParallelCompositeUpload_AlwaysCleanup_setsPCUSessionConfig()
+      throws Exception {
+    GcsWriteOptions writeOptions =
+        GcsWriteOptions.builder()
+            .setUploadType(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
+            .setPcuPartFileCleanupType(GcsWriteOptions.PartFileCleanupType.ALWAYS)
+            .build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setGcsWriteOptions(writeOptions)
+            .build();
+
+    GcsClientImpl client = new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry);
+
+    assertThat(getBlobWriteSessionConfig(client.storage.getOptions()))
+        .isInstanceOf(ParallelCompositeUploadBlobWriteSessionConfig.class);
+  }
+
+  @Test
+  void createStorage_withChunkUpload_setsDefaultSessionConfig() throws Exception {
+    GcsWriteOptions writeOptions =
+        GcsWriteOptions.builder().setUploadType(GcsWriteOptions.UploadType.CHUNK_UPLOAD).build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setGcsWriteOptions(writeOptions)
+            .build();
+
+    GcsClientImpl client = new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry);
+
+    assertThat(getBlobWriteSessionConfig(client.storage.getOptions())).isNotNull();
+  }
+
+  @Test
+  void createStorage_withNullWriteOptions_setsDefaultSessionConfig() throws Exception {
+    GcsClientOptions optionsWithNullWriteOptions =
+        new GcsClientOptions() {
+          @Override
+          public Optional<String> getProjectId() {
+            return Optional.of(TEST_PROJECT);
+          }
+
+          @Override
+          public Optional<String> getClientLibToken() {
+            return Optional.empty();
+          }
+
+          @Override
+          public Optional<String> getServiceHost() {
+            return Optional.empty();
+          }
+
+          @Override
+          public Optional<String> getUserAgent() {
+            return Optional.empty();
+          }
+
+          @Override
+          public GcsReadOptions getGcsReadOptions() {
+            return GcsReadOptions.builder().build();
+          }
+
+          @Override
+          public GcsWriteOptions getGcsWriteOptions() {
+            return null;
+          }
+        };
+
+    GcsClientImpl client =
+        new GcsClientImpl(optionsWithNullWriteOptions, executorServiceSupplier, telemetry);
+
+    assertThat(getBlobWriteSessionConfig(client.storage.getOptions())).isNotNull();
+  }
+
+  @Test
+  void create_TranslatesPreconditionFailedException_withNullWriteOptions() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    StorageException e412 = new StorageException(412, "Precondition Failed");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e412);
+
+    IOException exception =
+        assertThrows(IOException.class, () -> clientWithMock.create(blobInfo, null));
+
+    assertThat(exception).hasCauseThat().isSameInstanceAs(e412);
+  }
+
+  @Test
+  void create_TranslatesPreconditionFailedException_withDefaultOverwrite() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().setOverwriteExisting(true).build();
+    StorageException e412 = new StorageException(412, "Precondition Failed");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e412);
+
+    IOException exception =
+        assertThrows(IOException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+
+    assertThat(exception).hasCauseThat().isSameInstanceAs(e412);
+  }
+
+  @Test
+  void create_TranslatesRuntimeException_directlyPropagated() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    RuntimeException runtimeException = new NullPointerException("mock null pointer exception");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(runtimeException);
+
+    RuntimeException exception =
+        assertThrows(RuntimeException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+
+    assertThat(exception).isSameInstanceAs(runtimeException);
+  }
+
+  @Test
+  void create_TranslatesGenericCheckedException_wrappedInIOException() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    Exception checkedException = new Exception("mock checked exception");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenAnswer(
+            invocation -> {
+              throw checkedException;
+            });
+
+    IOException exception =
+        assertThrows(IOException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+
+    assertThat(exception).hasMessageThat().contains("Failed to initialize BlobWriteSession");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(checkedException);
   }
 
   private BlobWriteSessionConfig getBlobWriteSessionConfig(StorageOptions options) {

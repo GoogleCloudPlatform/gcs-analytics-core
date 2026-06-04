@@ -193,4 +193,13 @@ class GcsWriteOptionsTest {
     assertThat(exception.getMessage()).contains("gcs.channel.write.pcu.buffer.capacity-bytes");
     assertThat(exception.getMessage()).contains("cannot be greater than Integer.MAX_VALUE");
   }
+
+  @Test
+  void createFromOptions_withOnlyWhitespacePaths_doesNotSetPaths() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.channel.write.temporary-paths", "   ");
+
+    GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getTemporaryPaths()).isEmpty();
+  }
 }
