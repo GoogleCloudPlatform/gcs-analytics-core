@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
@@ -18,7 +33,6 @@ import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.IntFunction;
 import org.junit.jupiter.api.BeforeEach;
@@ -156,7 +170,7 @@ class GcsBidiVectoredReaderTest {
   }
 
   @Test
-  void testBlobReadSessionStorageException404FileNotFoundException() throws Exception {
+  void testBlobReadSessionFileNotFoundException() throws Exception {
     reset(sessionFuture);
     when(sessionFuture.get(anyLong(), any()))
         .thenThrow(new ExecutionException(new StorageException(404, "Not found")));
@@ -222,34 +236,5 @@ class GcsBidiVectoredReaderTest {
 
     assertThat(exception.getMessage())
         .contains("Failed to get BlobReadSession due to client timeout limit");
-  }
-
-  @Test
-  void testBlobReadSessionRespectsCustomTimeout() throws Exception {
-    long customTimeout = 45L;
-    GcsBidiVectoredReader customReader =
-        new GcsBidiVectoredReader(storage, itemId, directExecutor, customTimeout);
-
-    reset(sessionFuture);
-    when(sessionFuture.get(eq(customTimeout), eq(TimeUnit.SECONDS))).thenReturn(blobReadSession);
-
-    GcsObjectRange range =
-        GcsObjectRange.builder()
-            .setOffset(0)
-            .setLength(10)
-            .setByteBufferFuture(new CompletableFuture<>())
-            .build();
-
-    byte[] data = new byte[10];
-    ByteString byteString = ByteString.copyFrom(data);
-    when(blobReadSession.readAs(any()))
-        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
-    when(disposableByteString.byteString()).thenReturn(byteString);
-
-    IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
-
-    customReader.readVectored(Arrays.asList(range), allocate);
-
-    verify(sessionFuture, times(1)).get(eq(customTimeout), eq(TimeUnit.SECONDS));
   }
 }

@@ -15,6 +15,7 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.core.ApiFuture;
@@ -60,6 +61,7 @@ class GcsBidiVectoredReader implements AutoCloseable {
     checkNotNull(itemId, "ItemId cannot be null");
 
     String bucketName = itemId.getBucketName();
+    checkArgument(itemId.getObjectName().isPresent(), "ObjectName cannot be empty");
     String objectName = itemId.getObjectName().get();
     this.blobId =
         itemId
