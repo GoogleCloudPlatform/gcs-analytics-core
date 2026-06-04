@@ -33,7 +33,8 @@ public abstract class GcsReadOptions {
   private static final String LARGE_FILE_FOOTER_PREFETCH_SIZE_KEY =
       "analytics-core.large-file.footer.prefetch.size-bytes";
   private static final String USER_PROJECT_KEY = "user-project";
-  private static final String BIDI_VECTORED_READ_ENABLED_KEY = "analytics-core.read.bidi.vectored.enabled";
+  private static final String BIDI_VECTORED_READ_ENABLED_KEY =
+      "analytics-core.read.bidi.vectored.enabled";
   private static final String INPLACE_SEEK_LIMIT_KEY =
       "analytics-core.read.inplace-seek-limit-bytes";
   private static final String FILE_ACCESS_PATTERN_KEY = "analytics-core.read.file-access-pattern";

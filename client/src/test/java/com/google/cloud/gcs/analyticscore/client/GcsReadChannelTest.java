@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.google.api.core.ApiFuture;
 import com.google.cloud.ReadChannel;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey;
@@ -25,6 +26,7 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobReadSession;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
@@ -944,5 +946,39 @@ class GcsReadChannelTest {
   private String getGcsObjectRangeData(GcsObjectRange range)
       throws ExecutionException, InterruptedException {
     return StandardCharsets.UTF_8.decode(range.getByteBufferFuture().get()).toString();
+  }
+
+  @Test
+  void close_closesBidiVectoredReaderAndBlobReadSession() throws Exception {
+    GcsItemInfo itemInfo = createItemInfoWith(100);
+    StorageTestUtils.createBlobInStorage(
+        storage,
+        BlobId.of(
+            itemInfo.getItemId().getBucketName(), itemInfo.getItemId().getObjectName().get(), 0L),
+        "a".repeat(100));
+
+    BlobReadSession mockSession = Mockito.mock(BlobReadSession.class);
+    ApiFuture<BlobReadSession> mockFuture = Mockito.mock(ApiFuture.class);
+
+    Mockito.doReturn(mockFuture).when(storage).blobReadSession(Mockito.any(BlobId.class));
+    Mockito.when(mockFuture.get(Mockito.anyLong(), Mockito.any())).thenReturn(mockSession);
+
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder()
+            .setUserProjectId(TEST_PROJECT_ID)
+            .setBidiVectoredReadEnabled(true)
+            .build();
+
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+
+    // Trigger bidiVectoredReader creation and blobReadSession resolution
+    gcsReadChannel.readVectored(ImmutableList.of(), ByteBuffer::allocate);
+
+    // Now close GcsReadChannel
+    gcsReadChannel.close();
+
+    // Verify that the underlying session was closed!
+    Mockito.verify(mockSession, Mockito.times(1)).close();
   }
 }

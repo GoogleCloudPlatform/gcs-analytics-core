@@ -192,15 +192,22 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public void close() throws IOException {
-    if (isGcsReadChannelOpen) {
-      isGcsReadChannelOpen = false;
-      strategy.close();
+    try {
+      if (isGcsReadChannelOpen) {
+        isGcsReadChannelOpen = false;
+        strategy.close();
+      }
+    } finally {
+      if (bidiVectoredReader != null) {
+        bidiVectoredReader.close();
+      }
     }
   }
 
   private synchronized GcsBidiVectoredReader getBidiVectoredReader() {
     if (bidiVectoredReader == null) {
-      bidiVectoredReader = new GcsBidiVectoredReader(storage, itemId, executorServiceSupplier.get());
+      bidiVectoredReader =
+          new GcsBidiVectoredReader(storage, itemId, executorServiceSupplier.get());
     }
     return bidiVectoredReader;
   }
