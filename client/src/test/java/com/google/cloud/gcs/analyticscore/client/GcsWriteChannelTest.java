@@ -18,19 +18,24 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.*;
 
+import com.google.api.core.ApiFuture;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -44,18 +49,28 @@ class GcsWriteChannelTest {
   private BlobInfo blobInfo;
   private GcsWriteOptions writeOptions;
   private FakeWritableByteChannel fakeChannel;
+  private BlobWriteSession mockSession;
+  private ApiFuture<BlobInfo> mockFuture;
 
   @BeforeEach
   void setUp() throws Exception {
-
     blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
     writeOptions = GcsWriteOptions.builder().setChecksumValidationEnabled(true).build();
     fakeChannel = new FakeWritableByteChannel();
+
+    mockSession = mock(BlobWriteSession.class);
+    mockFuture = mock(ApiFuture.class);
+    when(mockSession.getResult()).thenReturn(mockFuture);
+  }
+
+  private GcsWriteChannel createChannel(
+      WritableByteChannel sdkChannel, BlobInfo info, GcsWriteOptions options) {
+    return new GcsWriteChannel(mockSession, sdkChannel, info, options);
   }
 
   @Test
   void testWriteDelegationAndByteTracking() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     byte[] data = new byte[] {1, 2, 3, 4, 5};
     ByteBuffer buffer = ByteBuffer.wrap(data);
 
@@ -68,7 +83,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testWriteWhenClosedThrowsException() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     fakeChannel.close();
 
     assertThrows(
@@ -81,8 +96,9 @@ class GcsWriteChannelTest {
     BlobId blobId = BlobId.of(TEST_BUCKET, TEST_WRITE_OBJECT);
     BlobInfo bInfo = BlobInfo.newBuilder(blobId).build();
 
-    WritableByteChannel internalChannel = fakeStorage.blobWriteSession(bInfo).open();
-    GcsWriteChannel channel = new GcsWriteChannel(internalChannel, bInfo, writeOptions);
+    BlobWriteSession session = fakeStorage.blobWriteSession(bInfo);
+    WritableByteChannel internalChannel = session.open();
+    GcsWriteChannel channel = new GcsWriteChannel(session, internalChannel, bInfo, writeOptions);
     byte[] data = new byte[] {1, 2, 3, 4, 5};
     ByteBuffer buffer = ByteBuffer.wrap(data);
 
@@ -100,8 +116,9 @@ class GcsWriteChannelTest {
     BlobId blobId = BlobId.of(TEST_BUCKET, TEST_WRITE_CHUNKS_OBJECT);
     BlobInfo bInfo = BlobInfo.newBuilder(blobId).build();
 
-    WritableByteChannel internalChannel = fakeStorage.blobWriteSession(bInfo).open();
-    GcsWriteChannel channel = new GcsWriteChannel(internalChannel, bInfo, writeOptions);
+    BlobWriteSession session = fakeStorage.blobWriteSession(bInfo);
+    WritableByteChannel internalChannel = session.open();
+    GcsWriteChannel channel = new GcsWriteChannel(session, internalChannel, bInfo, writeOptions);
     byte[] data1 = new byte[] {1, 2, 3};
     byte[] data2 = new byte[] {4, 5};
 
@@ -116,7 +133,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testExceptionTranslation_AccessDeniedOnWrite() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     StorageException e403 = new StorageException(403, "Forbidden");
     fakeChannel.setExceptionToThrowOnWrite(e403);
@@ -126,7 +143,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testExceptionTranslation_NotFoundOnWrite() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     StorageException e404 = new StorageException(404, "Not Found");
     fakeChannel.setExceptionToThrowOnWrite(e404);
@@ -136,7 +153,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testExceptionTranslation_NotFoundOnClose() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     StorageException e404 = new StorageException(404, "Not Found");
     fakeChannel.setExceptionToThrowOnClose(e404);
 
@@ -145,7 +162,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testWrite_GenericStorageException() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     StorageException e500 = new StorageException(500, "Internal Server Error");
     fakeChannel.setExceptionToThrowOnWrite(e500);
@@ -157,7 +174,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testClose_GenericStorageException() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     StorageException e500 = new StorageException(500, "Internal Server Error");
     fakeChannel.setExceptionToThrowOnClose(e500);
 
@@ -168,7 +185,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testClose_IOException() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     fakeChannel.setExceptionToThrowOnClose(new IOException("Generic Close Error"));
 
     IOException thrown = assertThrows(IOException.class, channel::close);
@@ -178,7 +195,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testWrite_IOException() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     fakeChannel.setExceptionToThrowOnWrite(new IOException("Generic I/O Error"));
 
@@ -189,7 +206,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testClose_AlreadyClosed() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
 
     channel.close();
     channel.close();
@@ -199,7 +216,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testExceptionTranslation_AccessDeniedOnWrite_Wrapped() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     StorageException e403 = new StorageException(403, "Forbidden");
     IOException wrappedException = new IOException("Wrapper exception", e403);
@@ -210,7 +227,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testExceptionTranslation_NotFoundOnWrite_Wrapped() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     StorageException e404 = new StorageException(404, "Not Found");
     IOException wrappedException = new IOException("Wrapper exception", e404);
@@ -221,7 +238,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testExceptionTranslation_NotFoundOnClose_Wrapped() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     StorageException e404 = new StorageException(404, "Not Found");
     IOException wrappedException = new IOException("Wrapper exception", e404);
     fakeChannel.setExceptionToThrowOnClose(wrappedException);
@@ -231,7 +248,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testWrite_GenericIOException_RethrownDirectly() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     IOException genericException = new IOException("Connection reset by peer");
     fakeChannel.setExceptionToThrowOnWrite(genericException);
@@ -243,7 +260,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testWrite_RuntimeException_PropagatedUnchanged() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     NullPointerException npe = new NullPointerException("Simulated NPE");
     fakeChannel.setExceptionToThrowOnWrite(npe);
@@ -256,7 +273,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testClose_RuntimeException_PropagatedUnchanged() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     NullPointerException npe = new NullPointerException("Simulated NPE during close");
     fakeChannel.setExceptionToThrowOnClose(npe);
 
@@ -267,7 +284,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testExceptionTranslation_AlreadyExistsOnWrite() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     StorageException e409 = new StorageException(409, "Conflict");
     fakeChannel.setExceptionToThrowOnWrite(e409);
@@ -279,7 +296,7 @@ class GcsWriteChannelTest {
   void testExceptionTranslation_PreconditionFailed_OverwriteDisabled() throws Exception {
     GcsWriteOptions overwriteDisabledOptions =
         GcsWriteOptions.builder().setOverwriteExisting(false).build();
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, overwriteDisabledOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, overwriteDisabledOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     StorageException e412 = new StorageException(412, "Precondition Failed");
     fakeChannel.setExceptionToThrowOnWrite(e412);
@@ -291,7 +308,7 @@ class GcsWriteChannelTest {
   void testExceptionTranslation_PreconditionFailed_GenerationMismatch() throws Exception {
     BlobInfo blobInfoWithGen =
         BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT, 123L)).build();
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfoWithGen, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfoWithGen, writeOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     StorageException e412 = new StorageException(412, "Precondition Failed");
     fakeChannel.setExceptionToThrowOnWrite(e412);
@@ -303,7 +320,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testIsOpen_AfterClose_ReturnsFalse() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
 
     assertThat(channel.isOpen()).isTrue();
 
@@ -314,7 +331,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testExceptionTranslation_PreconditionFailed_Fallback() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     StorageException e412 = new StorageException(412, "Precondition Failed");
     fakeChannel.setExceptionToThrowOnWrite(e412);
@@ -326,7 +343,7 @@ class GcsWriteChannelTest {
 
   @Test
   void testExceptionTranslation_PreconditionFailed_NullOptions() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, null);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, null);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     StorageException e412 = new StorageException(412, "Precondition Failed");
     fakeChannel.setExceptionToThrowOnWrite(e412);
@@ -338,25 +355,106 @@ class GcsWriteChannelTest {
 
   @Test
   void testIsOpen_NullSdkChannel_ReturnsFalse() {
-    GcsWriteChannel channel = new GcsWriteChannel(null, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(null, blobInfo, writeOptions);
     assertThat(channel.isOpen()).isFalse();
   }
 
   @Test
   void testClose_NullSdkChannel_ReturnsSuccessfully() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(null, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(null, blobInfo, writeOptions);
     channel.close();
     assertThat(channel.isOpen()).isFalse();
   }
 
   @Test
   void testWrite_EmptyBuffer_ReturnsZeroAndDoesNotIncrementBytes() throws Exception {
-    GcsWriteChannel channel = new GcsWriteChannel(fakeChannel, blobInfo, writeOptions);
+    GcsWriteChannel channel = createChannel(fakeChannel, blobInfo, writeOptions);
     ByteBuffer emptyBuffer = ByteBuffer.allocate(0);
 
     int bytesWritten = channel.write(emptyBuffer);
 
     assertThat(bytesWritten).isEqualTo(0);
     assertThat(channel.getBytesWritten()).isEqualTo(0L);
+  }
+
+  @Test
+  void testClose_BlocksOnBlobWriteSessionResult() throws Exception {
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    ApiFuture<BlobInfo> mockFuture = mock(ApiFuture.class);
+    when(mockSession.getResult()).thenReturn(mockFuture);
+
+    GcsWriteChannel channel = new GcsWriteChannel(mockSession, fakeChannel, blobInfo, writeOptions);
+    channel.close();
+
+    verify(mockSession).getResult();
+    verify(mockFuture).get();
+  }
+
+  @Test
+  void testClose_PropagatesStorageExceptionFromFuture() throws Exception {
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    ApiFuture<BlobInfo> mockFuture = mock(ApiFuture.class);
+    when(mockSession.getResult()).thenReturn(mockFuture);
+    StorageException se = new StorageException(404, "Not Found");
+    when(mockFuture.get()).thenThrow(new ExecutionException(se));
+
+    GcsWriteChannel channel = new GcsWriteChannel(mockSession, fakeChannel, blobInfo, writeOptions);
+
+    FileNotFoundException exception =
+        assertThrows(FileNotFoundException.class, () -> channel.close());
+    assertThat(exception).hasCauseThat().isSameInstanceAs(se);
+  }
+
+  @Test
+  void testClose_PropagatesIOExceptionFromFuture() throws Exception {
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    ApiFuture<BlobInfo> mockFuture = mock(ApiFuture.class);
+    when(mockSession.getResult()).thenReturn(mockFuture);
+    IOException ioe = new IOException("custom connection error");
+    when(mockFuture.get()).thenThrow(new ExecutionException(ioe));
+
+    GcsWriteChannel channel = new GcsWriteChannel(mockSession, fakeChannel, blobInfo, writeOptions);
+
+    IOException exception = assertThrows(IOException.class, () -> channel.close());
+    assertThat(exception).isSameInstanceAs(ioe);
+  }
+
+  @Test
+  void testClose_PropagatesGenericExceptionFromFuture() throws Exception {
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    ApiFuture<BlobInfo> mockFuture = mock(ApiFuture.class);
+    when(mockSession.getResult()).thenReturn(mockFuture);
+    RuntimeException re = new RuntimeException("generic failure");
+    when(mockFuture.get()).thenThrow(new ExecutionException(re));
+
+    GcsWriteChannel channel = new GcsWriteChannel(mockSession, fakeChannel, blobInfo, writeOptions);
+
+    IOException exception = assertThrows(IOException.class, () -> channel.close());
+    assertThat(exception).hasCauseThat().isSameInstanceAs(re);
+    assertThat(exception).hasMessageThat().contains("GCS failed to finalize the upload session");
+  }
+
+  @Test
+  void testClose_HandlesInterruptedException() throws Exception {
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    ApiFuture<BlobInfo> mockFuture = mock(ApiFuture.class);
+    when(mockSession.getResult()).thenReturn(mockFuture);
+    InterruptedException ie = new InterruptedException("finalization interrupted");
+    when(mockFuture.get()).thenThrow(ie);
+
+    GcsWriteChannel channel = new GcsWriteChannel(mockSession, fakeChannel, blobInfo, writeOptions);
+
+    // Clear interrupt status first just in case
+    Thread.interrupted();
+
+    InterruptedIOException exception =
+        assertThrows(InterruptedIOException.class, () -> channel.close());
+    assertThat(exception)
+        .hasMessageThat()
+        .contains("Thread interrupted waiting for upload finalization");
+    assertThat(Thread.currentThread().isInterrupted()).isTrue();
+
+    // Clean up interrupt status
+    Thread.interrupted();
   }
 }
