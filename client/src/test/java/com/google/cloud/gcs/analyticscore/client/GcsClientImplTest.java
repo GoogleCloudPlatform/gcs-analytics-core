@@ -18,6 +18,12 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
@@ -27,19 +33,39 @@ import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
+import java.nio.channels.WritableByteChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileAlreadyExistsException;
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class GcsClientImplTest {
 
-  private static GcsClientOptions TEST_GCS_CLIENT_OPTIONS =
-      GcsClientOptions.builder().setProjectId("test-project").build();
+  private static final String TEST_PROJECT = "test-project";
+  private static final String TEST_BUCKET = "test-bucket";
+  private static final String TEST_OBJECT = "test-object";
+  private static final String TEST_BUCKET_NAME = "test-bucket-name";
+  private static final String TEST_BUCKET_ID = "test-bucket-id";
+  private static final String TEST_OBJECT_ID = "test-object-id";
+  private static final String TEST_WRITE_OBJECT = "test-write-object";
+  private static final String TEST_NULL_OPTIONS_OBJECT = "test-null-options";
+  private static final String TEST_NON_EXISTENT_OBJECT = "non-existent";
+  private static final String TEST_OBJECT_NAME = "test-object-name";
+  private static final String BLOB_WRITE_SESSION_CONFIG_FIELD = "blobWriteSessionConfig";
+
+  private static final GcsClientOptions TEST_GCS_CLIENT_OPTIONS =
+      GcsClientOptions.builder().setProjectId(TEST_PROJECT).build();
 
   private final Storage storage = LocalStorageHelper.getOptions().getService();
   private final Supplier<ExecutorService> executorServiceSupplier =
@@ -47,6 +73,7 @@ class GcsClientImplTest {
   private final Telemetry telemetry = new Telemetry(ImmutableList.of());
 
   private GcsClient gcsClient;
+  private Storage tempMockStorage;
 
   @BeforeEach
   void setUp() throws IOException {
@@ -61,7 +88,7 @@ class GcsClientImplTest {
 
   @Test
   void getGcsItemInfo_itemIdPointsToDirectory_throwsUnsupportedOperationException() {
-    GcsItemId directoryItemId = GcsItemId.builder().setBucketName("test-bucket-id").build();
+    GcsItemId directoryItemId = GcsItemId.builder().setBucketName(TEST_BUCKET_ID).build();
 
     UnsupportedOperationException e =
         assertThrows(
@@ -76,7 +103,7 @@ class GcsClientImplTest {
   void getGcsItemInfo_gcsObjectExists_returnsItemInfo() throws IOException {
     String objectData = "hello world";
     GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket-id").setObjectName("test-object-id").build();
+        GcsItemId.builder().setBucketName(TEST_BUCKET_ID).setObjectName(TEST_OBJECT_ID).build();
     StorageTestUtils.createBlobInStorage(
         storage, BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
 
@@ -84,8 +111,8 @@ class GcsClientImplTest {
 
     GcsItemId expectedItemId =
         GcsItemId.builder()
-            .setBucketName("test-bucket-id")
-            .setObjectName("test-object-id")
+            .setBucketName(TEST_BUCKET_ID)
+            .setObjectName(TEST_OBJECT_ID)
             .setContentGeneration(itemInfo.getContentGeneration().get())
             .build();
     assertThat(itemInfo.getItemId()).isEqualTo(expectedItemId);
@@ -96,7 +123,10 @@ class GcsClientImplTest {
   @Test
   void getGcsItemInfo_nonExistentBlob_throwsIOException() {
     GcsItemId nonExistentItemId =
-        GcsItemId.builder().setBucketName("test-bucket-name").setObjectName("non-existent").build();
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET_NAME)
+            .setObjectName(TEST_NON_EXISTENT_OBJECT)
+            .build();
 
     IOException e =
         assertThrows(IOException.class, () -> gcsClient.getGcsItemInfo(nonExistentItemId));
@@ -110,10 +140,7 @@ class GcsClientImplTest {
     String objectData = "hello world";
     GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
     GcsItemId itemId =
-        GcsItemId.builder()
-            .setBucketName("test-bucket-name")
-            .setObjectName("test-object-name")
-            .build();
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_NAME).build();
     GcsItemInfo itemInfo =
         GcsItemInfo.builder()
             .setItemId(itemId)
@@ -138,10 +165,7 @@ class GcsClientImplTest {
     String objectData = "hello world";
     GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
     GcsItemId itemId =
-        GcsItemId.builder()
-            .setBucketName("test-bucket-name")
-            .setObjectName("test-object-name")
-            .build();
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_NAME).build();
     StorageTestUtils.createBlobInStorage(
         storage, BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
     ByteBuffer buffer = ByteBuffer.allocate(objectData.length());
@@ -181,7 +205,7 @@ class GcsClientImplTest {
   @Test
   void openReadChannel_nullReadOptions_throwsNullPointerException() {
     GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket-name").setObjectName("test-object").build();
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT).build();
     GcsItemInfo itemInfo =
         GcsItemInfo.builder().setItemId(itemId).setSize(0L).setContentGeneration(0L).build();
 
@@ -192,7 +216,7 @@ class GcsClientImplTest {
 
   @Test
   void openReadChannel_itemInfoPointsToDirectory_throwsIllegalArgumentException() {
-    GcsItemId directoryItemId = GcsItemId.builder().setBucketName("test-bucket-name").build();
+    GcsItemId directoryItemId = GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build();
     GcsItemInfo directoryItemInfo =
         GcsItemInfo.builder()
             .setItemId(directoryItemId)
@@ -213,7 +237,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getUserAgent_noOptionalUserAgent() {
+  void getUserAgent_noOptionalUserAgent() throws Exception {
     GcsClientImpl client =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
     String userAgent = client.getUserAgent();
@@ -221,7 +245,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getUserAgent_withOptionalUserAgent() {
+  void getUserAgent_withOptionalUserAgent() throws Exception {
     GcsClientOptions options =
         GcsClientOptions.builder()
             .setProjectId("test-project")
@@ -242,5 +266,405 @@ class GcsClientImplTest {
             executorServiceSupplier,
             telemetry);
     assertThat(client.storage.getOptions().getCredentials()).isEqualTo(NoCredentials.getInstance());
+  }
+
+  @Test
+  void create_writeAndClose_successWithLocalStorage() throws Exception {
+    GcsClientImpl client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return GcsClientImplTest.this.storage;
+          }
+        };
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_WRITE_OBJECT)).build();
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    WritableByteChannel channel = client.create(blobInfo, options);
+
+    byte[] data = "hello write world".getBytes(StandardCharsets.UTF_8);
+    int bytesWritten = channel.write(ByteBuffer.wrap(data));
+    channel.close();
+
+    assertThat(bytesWritten).isEqualTo(data.length);
+    byte[] readData = storage.readAllBytes(blobInfo.getBlobId());
+    assertThat(new String(readData, StandardCharsets.UTF_8)).isEqualTo("hello write world");
+  }
+
+  @Test
+  void create_TranslatesAccessDeniedException() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    StorageException e403 = new StorageException(403, "Forbidden");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e403);
+
+    assertThrows(AccessDeniedException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+  }
+
+  @Test
+  void create_TranslatesAlreadyExistsException() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    StorageException e409 = new StorageException(409, "Conflict");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e409);
+
+    assertThrows(
+        FileAlreadyExistsException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+  }
+
+  @Test
+  void create_TranslatesPreconditionFailedException_toFileAlreadyExistsException()
+      throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().setOverwriteExisting(false).build();
+    StorageException e412 = new StorageException(412, "Precondition Failed");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e412);
+
+    FileAlreadyExistsException exception =
+        assertThrows(
+            FileAlreadyExistsException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+
+    assertThat(exception).hasCauseThat().isSameInstanceAs(e412);
+  }
+
+  @Test
+  void create_TranslatesPreconditionFailedException_toGenerationMismatchIOException()
+      throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfoWithGen =
+        BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT, 12345L)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    StorageException e412 = new StorageException(412, "Precondition Failed");
+    when(tempMockStorage.blobWriteSession(
+            eq(blobInfoWithGen), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e412);
+
+    IOException exception =
+        assertThrows(IOException.class, () -> clientWithMock.create(blobInfoWithGen, writeOptions));
+
+    assertThat(exception).hasMessageThat().contains("Generation mismatch for object");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(e412);
+  }
+
+  @Test
+  void create_TranslatesNotFoundException_toFileNotFoundException() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo =
+        BlobInfo.newBuilder(BlobId.of("non-existent-bucket", "test-object")).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    StorageException e404 = new StorageException(404, "Not Found");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e404);
+
+    FileNotFoundException exception =
+        assertThrows(
+            FileNotFoundException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+
+    assertThat(exception).hasCauseThat().isSameInstanceAs(e404);
+  }
+
+  @Test
+  void create_GenericStorageException() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    StorageException e500 = new StorageException(500, "Internal Server Error");
+    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
+        .thenThrow(e500);
+
+    IOException thrown =
+        assertThrows(IOException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+
+    assertThat(thrown).hasMessageThat().contains("Failed to initialize BlobWriteSession");
+  }
+
+  @Test
+  void create_GenerateWriteOptions_NullOptions() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    when(mockSession.open()).thenReturn(mockChannel);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = mockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+
+    WritableByteChannel returnedChannel = clientWithMock.create(blobInfo, null);
+
+    assertThat(returnedChannel).isInstanceOf(GcsWriteChannel.class);
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3});
+    when(mockChannel.isOpen()).thenReturn(true);
+    returnedChannel.write(buffer);
+    verify(mockChannel).write(buffer);
+  }
+
+  @Test
+  void create_GenerateWriteOptions_AllOptionsEnabled() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    when(mockSession.open()).thenReturn(mock(WritableByteChannel.class));
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = mockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsWriteOptions allOptions =
+        GcsWriteOptions.builder()
+            .setChecksumValidationEnabled(true)
+            .setDisableGzipContent(true)
+            .setOverwriteExisting(false)
+            .setKmsKeyName("kms-key")
+            .setEncryptionKey("MDEyMzQ1Njc4OUFCQ0RFRkdISUpLTE1OT1BRUlNUVVU=")
+            .setUserProject("user-project")
+            .build();
+
+    clientWithMock.create(blobInfo, allOptions);
+
+    ArgumentCaptor<Storage.BlobWriteOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobWriteOption[].class);
+    verify(mockStorage).blobWriteSession(eq(blobInfo), optionsCaptor.capture());
+    String capturedOptionsString = Arrays.toString(optionsCaptor.getValue());
+    assertThat(capturedOptionsString).contains("Crc32cMatchExtractor");
+    assertThat(capturedOptionsString).contains("IF_GENERATION_MATCH");
+    assertThat(capturedOptionsString).contains("KMS_KEY_NAME");
+    assertThat(capturedOptionsString).contains("CUSTOMER_SUPPLIED_KEY");
+  }
+
+  @Test
+  void create_GenerateWriteOptions_WithGenerationId() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    when(mockSession.open()).thenReturn(mock(WritableByteChannel.class));
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = mockStorage;
+    BlobInfo blobInfoWithGen =
+        BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT, 12345L)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+
+    clientWithMock.create(blobInfoWithGen, writeOptions);
+
+    ArgumentCaptor<Storage.BlobWriteOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobWriteOption[].class);
+    verify(mockStorage).blobWriteSession(eq(blobInfoWithGen), optionsCaptor.capture());
+    assertThat(Arrays.toString(optionsCaptor.getValue())).contains("GenerationMatchExtractor");
+  }
+
+  @Test
+  void createStorage_withParallelCompositeUpload_setsPCUSessionConfig() throws Exception {
+    GcsWriteOptions writeOptions =
+        GcsWriteOptions.builder()
+            .setUploadType(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
+            .setPcuBufferCount(5)
+            .setPcuBufferCapacity(128 * 1024 * 1024)
+            .setPcuPartFileCleanupType(GcsWriteOptions.PartFileCleanupType.NEVER)
+            .setPcuPartFileNamePrefix("custom-prefix-")
+            .build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setGcsWriteOptions(writeOptions)
+            .build();
+
+    GcsClientImpl client = new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry);
+
+    assertThat(getBlobWriteSessionConfig(client.storage.getOptions()))
+        .isInstanceOf(ParallelCompositeUploadBlobWriteSessionConfig.class);
+  }
+
+  @Test
+  void createStorage_withWriteToDiskThenUpload_setsBufferToDiskSessionConfig() throws Exception {
+    GcsWriteOptions writeOptions =
+        GcsWriteOptions.builder()
+            .setUploadType(GcsWriteOptions.UploadType.WRITE_TO_DISK_THEN_UPLOAD)
+            .setTemporaryPaths(ImmutableList.of("/tmp/path1"))
+            .build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setGcsWriteOptions(writeOptions)
+            .build();
+
+    GcsClientImpl client = new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry);
+
+    assertThat(getBlobWriteSessionConfig(client.storage.getOptions()))
+        .isInstanceOf(BufferToDiskThenUpload.class);
+  }
+
+  @Test
+  void createStorage_withJournaling_throwsUnsupportedOperationExceptionOnHttp() {
+    GcsWriteOptions writeOptions =
+        GcsWriteOptions.builder()
+            .setUploadType(GcsWriteOptions.UploadType.JOURNALING)
+            .setTemporaryPaths(ImmutableList.of("/tmp/path1"))
+            .build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setGcsWriteOptions(writeOptions)
+            .build();
+
+    UnsupportedOperationException e =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry));
+
+    assertThat(e).hasMessageThat().contains("JOURNALING upload type is not supported");
+  }
+
+  @Test
+  void getBlob_StorageException_ThrowsIOException() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    when(tempMockStorage.get(any(BlobId.class), any(Storage.BlobGetOption[].class)))
+        .thenThrow(new StorageException(500, "Internal Server Error"));
+
+    IOException e = assertThrows(IOException.class, () -> clientWithMock.getGcsItemInfo(itemId));
+
+    assertThat(e).hasMessageThat().contains("Unable to access blob");
+  }
+
+  @Test
+  void close_StorageException_HandledSilently() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    doThrow(new RuntimeException("close failed")).when(tempMockStorage).close();
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+
+    clientWithMock.close();
+
+    verify(tempMockStorage).close();
+  }
+
+  @Test
+  void close_Success() throws Exception {
+    tempMockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = tempMockStorage;
+
+    clientWithMock.close();
+
+    verify(tempMockStorage).close();
+  }
+
+  @Test
+  void create_WriteSessionOpenThrowsIOException_RethrownDirectly() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    IOException ioException = new IOException("Open failed");
+    when(mockSession.open()).thenThrow(ioException);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = mockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+
+    IOException thrown =
+        assertThrows(IOException.class, () -> clientWithMock.create(blobInfo, writeOptions));
+
+    assertThat(thrown).isSameInstanceAs(ioException);
+  }
+
+  @Test
+  void getBlob_NullBucketName_ThrowsNullPointerException() throws Exception {
+    GcsItemId itemId = mock(GcsItemId.class);
+    when(itemId.getBucketName()).thenReturn(null);
+    when(itemId.getObjectName()).thenReturn(Optional.of(TEST_OBJECT));
+    when(itemId.isGcsObject()).thenReturn(true);
+
+    GcsClientImpl client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+
+    assertThrows(NullPointerException.class, () -> client.getGcsItemInfo(itemId));
+  }
+
+  @Test
+  void getGcsItemInfo_bucketItemId_throwsUnsupportedOperationException() throws Exception {
+    GcsItemId bucketItemId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    GcsClientImpl client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+
+    UnsupportedOperationException thrown =
+        assertThrows(
+            UnsupportedOperationException.class, () -> client.getGcsItemInfo(bucketItemId));
+
+    assertThat(thrown).hasMessageThat().contains("Expected gcs object but got");
+  }
+
+  @Test
+  void create_withNullWriteOptions_success() throws Exception {
+    BlobInfo blobInfo =
+        BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_NULL_OPTIONS_OBJECT)).build();
+    try (WritableByteChannel channel = gcsClient.create(blobInfo, null)) {
+      channel.write(ByteBuffer.wrap("null options write".getBytes(UTF_8)));
+    }
+    byte[] data = storage.readAllBytes(blobInfo.getBlobId());
+    assertThat(new String(data, UTF_8)).isEqualTo("null options write");
+  }
+
+  @Test
+  void createStorage_withWriteToDiskNoTempPaths_setsBufferToTempDirSessionConfig()
+      throws Exception {
+    GcsWriteOptions writeOptions =
+        GcsWriteOptions.builder()
+            .setUploadType(GcsWriteOptions.UploadType.WRITE_TO_DISK_THEN_UPLOAD)
+            .setTemporaryPaths(ImmutableList.of()) // Empty paths
+            .build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setGcsWriteOptions(writeOptions)
+            .build();
+
+    GcsClientImpl client = new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry);
+
+    assertThat(getBlobWriteSessionConfig(client.storage.getOptions()))
+        .isInstanceOf(BufferToDiskThenUpload.class);
+  }
+
+  private BlobWriteSessionConfig getBlobWriteSessionConfig(StorageOptions options) {
+    try {
+      Field field = options.getClass().getDeclaredField(BLOB_WRITE_SESSION_CONFIG_FIELD);
+      field.setAccessible(true);
+      return (BlobWriteSessionConfig) field.get(options);
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 }
