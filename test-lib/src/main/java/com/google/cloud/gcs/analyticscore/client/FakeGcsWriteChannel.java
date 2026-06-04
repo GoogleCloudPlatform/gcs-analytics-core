@@ -17,6 +17,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.BlobWriteSession;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
@@ -26,8 +27,11 @@ public class FakeGcsWriteChannel extends GcsWriteChannel {
   private static int closeCallCount = 0;
 
   public FakeGcsWriteChannel(
-      WritableByteChannel sdkWriteChannel, BlobInfo blobInfo, GcsWriteOptions writeOptions) {
-    super(sdkWriteChannel, blobInfo, writeOptions);
+      BlobWriteSession blobWriteSession,
+      WritableByteChannel sdkWriteChannel,
+      BlobInfo blobInfo,
+      GcsWriteOptions writeOptions) {
+    super(blobWriteSession, sdkWriteChannel, blobInfo, writeOptions);
   }
 
   @Override

@@ -129,7 +129,7 @@ class GcsClientImpl implements GcsClient {
     try {
       BlobWriteOption[] sdkWriteOptions = generateWriteOptions(writeOptions, blobInfo);
       BlobWriteSession sdkWriteSession = this.storage.blobWriteSession(blobInfo, sdkWriteOptions);
-      return new GcsWriteChannel(sdkWriteSession.open(), blobInfo, writeOptions);
+      return new GcsWriteChannel(sdkWriteSession, sdkWriteSession.open(), blobInfo, writeOptions);
     } catch (StorageException e) {
       LOG.error(
           "Failed to initialize BlobWriteSession for object: gs://{}/{}",

@@ -20,9 +20,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import java.nio.ByteBuffer;
-import java.nio.channels.WritableByteChannel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -34,10 +34,11 @@ class FakeGcsWriteChannelTest {
   @BeforeEach
   void setUp() throws Exception {
     blobInfo = BlobInfo.newBuilder(BlobId.of("test-bucket", "test-object")).build();
-    WritableByteChannel internalChannel =
-        LocalStorageHelper.getOptions().getService().blobWriteSession(blobInfo).open();
+    BlobWriteSession session =
+        LocalStorageHelper.getOptions().getService().blobWriteSession(blobInfo);
     fakeGcsWriteChannel =
-        new FakeGcsWriteChannel(internalChannel, blobInfo, GcsWriteOptions.builder().build());
+        new FakeGcsWriteChannel(
+            session, session.open(), blobInfo, GcsWriteOptions.builder().build());
     FakeGcsWriteChannel.resetCounts();
   }
 
