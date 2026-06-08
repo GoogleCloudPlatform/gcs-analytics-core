@@ -41,15 +41,17 @@ public abstract class GcsReadOptions {
   private static final String RANDOM_READ_MIN_REQUEST_SIZE_KEY =
       "analytics-core.random-read.min-request-size";
 
+  private static final int KB = 1024;
+  private static final int MB = 1024 * KB;
+
   private static final boolean DEFAULT_FOOTER_PREFETCH_ENABLED = true;
-  private static final int DEFAULT_INPLACE_SEEK_LIMIT = 128 * 1024; // 128kb
-  private static final int DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE = 100 * 1024; // 100kb
-  private static final int DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE = 1024 * 1024; // 1mb
+  private static final int DEFAULT_INPLACE_SEEK_LIMIT = 128 * KB;
+  private static final int DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE = 100 * KB;
+  private static final int DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE = MB;
   private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = 0; // 0 bytes = disabled
   private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN = FileAccessPattern.SEQUENTIAL;
   private static final int DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD = 3;
-  // TODO: Validate and confirm the optimal min size post e2e benchmarking.
-  private static final int DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE = 0;
+  private static final int DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE = 128 * KB;
 
   public abstract Optional<Integer> getChunkSize();
 

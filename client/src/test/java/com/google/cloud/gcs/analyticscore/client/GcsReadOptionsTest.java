@@ -28,6 +28,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 class GcsReadOptionsTest {
 
+  private static final int KB = 1024;
+  private static final int MB = 1024 * KB;
+
   @Test
   void createFromOptions_withAllProperties_shouldCreateCorrectOptions() {
     Map<String, String> properties =
@@ -85,15 +88,15 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getDecryptionKey()).isEqualTo(Optional.empty());
     assertThat(readOptions.getUserProjectId()).isEqualTo(Optional.empty());
     assertThat(readOptions.isFooterPrefetchEnabled()).isEqualTo(true);
-    assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(100 * 1024);
-    assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(1024 * 1024);
+    assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(100 * KB);
+    assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(MB);
     assertThat(readOptions.getSmallObjectCacheSize()).isEqualTo(0);
-    assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(128 * 1024);
+    assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(128 * KB);
     assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.SEQUENTIAL);
     assertThat(readOptions.getAdaptiveReadSequentialReadThreshold()).isEqualTo(3);
-    assertThat(readOptions.getRandomReadMinRequestSize()).isEqualTo(0);
-    assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(4 * 1024);
-    assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(8 * 1024 * 1024);
+    assertThat(readOptions.getRandomReadMinRequestSize()).isEqualTo(128 * KB);
+    assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(4 * KB);
+    assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(8 * MB);
   }
 
   @ParameterizedTest

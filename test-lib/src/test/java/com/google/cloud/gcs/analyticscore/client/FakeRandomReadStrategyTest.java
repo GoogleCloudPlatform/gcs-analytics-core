@@ -27,6 +27,8 @@ import org.junit.jupiter.api.Test;
 
 class FakeRandomReadStrategyTest {
 
+  private static final int KB = 1024;
+
   private Storage storage;
   private FakeRandomReadStrategy strategy;
 
@@ -88,12 +90,12 @@ class FakeRandomReadStrategyTest {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     GcsReadOptions options = GcsReadOptions.builder().build();
-    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(1000L).build();
-    StorageTestUtils.createBlobInStorage(storage, itemId, "A".repeat(1000));
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(150000L).build();
+    StorageTestUtils.createBlobInStorage(storage, itemId, "A".repeat(150000));
     strategy = new FakeRandomReadStrategy(storage, itemId, options, itemInfo);
-    strategy.getReadChannel(0, 10);
+    strategy.getReadChannel(0, 128 * KB);
 
-    strategy.getReadChannel(5, 6);
+    strategy.getReadChannel(128 * KB, 6);
 
     assertEquals(2, strategy.getCreatedChannels().size());
   }

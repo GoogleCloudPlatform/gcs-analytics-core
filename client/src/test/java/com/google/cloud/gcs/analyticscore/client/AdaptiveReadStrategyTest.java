@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Test;
 
 class AdaptiveReadStrategyTest {
 
+  private static final int KB = 1024;
+
   private final Storage storage = LocalStorageHelper.getOptions().getService();
   private final GcsItemId itemId =
       GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
@@ -61,7 +63,7 @@ class AdaptiveReadStrategyTest {
 
     strategy.getReadChannel(200, 10);
 
-    assertThat(strategy.getLimit()).isEqualTo(210);
+    assertThat(strategy.getLimit()).isEqualTo(128 * KB + 200);
   }
 
   @Test
@@ -73,7 +75,7 @@ class AdaptiveReadStrategyTest {
 
     strategy.getReadChannel(40, 10);
 
-    assertThat(strategy.getLimit()).isEqualTo(50);
+    assertThat(strategy.getLimit()).isEqualTo(128 * KB + 40);
   }
 
   @Test
@@ -84,7 +86,7 @@ class AdaptiveReadStrategyTest {
 
     strategy.getReadChannel(210, 10);
 
-    assertThat(strategy.getLimit()).isEqualTo(220);
+    assertThat(strategy.getLimit()).isEqualTo(128 * KB + 200);
   }
 
   @Test
@@ -97,7 +99,7 @@ class AdaptiveReadStrategyTest {
         new AdaptiveReadStrategy(storage, itemId, randomOptions, itemInfo);
 
     strategy.getReadChannel(0, 10);
-    assertThat(strategy.getLimit()).isEqualTo(10);
+    assertThat(strategy.getLimit()).isEqualTo(128 * KB);
   }
 
   @Test
@@ -136,7 +138,7 @@ class AdaptiveReadStrategyTest {
 
     strategy.getReadChannel(0, 10);
 
-    assertThat(strategy.getLimit()).isEqualTo(10);
+    assertThat(strategy.getLimit()).isEqualTo(128 * KB);
   }
 
   @Test
@@ -154,7 +156,7 @@ class AdaptiveReadStrategyTest {
     strategy.getReadChannel(200, 10);
     strategy.getReadChannel(220, 10);
 
-    assertThat(strategy.getLimit()).isEqualTo(230);
+    assertThat(strategy.getLimit()).isEqualTo(128 * KB + 200);
   }
 
   @Test
@@ -199,7 +201,7 @@ class AdaptiveReadStrategyTest {
     strategy.position(410);
     strategy.getReadChannel(420, 10);
 
-    assertThat(strategy.getLimit()).isEqualTo(430);
+    assertThat(strategy.getLimit()).isEqualTo(128 * KB + 200);
   }
 
   @Test
@@ -220,7 +222,7 @@ class AdaptiveReadStrategyTest {
     strategy.position(30);
     strategy.getReadChannel(10, 10);
 
-    assertThat(strategy.getLimit()).isEqualTo(20);
+    assertThat(strategy.getLimit()).isEqualTo(128 * KB + 10);
 
     strategy.close();
   }
@@ -243,7 +245,7 @@ class AdaptiveReadStrategyTest {
     strategy.position(30);
     strategy.getReadChannel(150, 10);
 
-    assertThat(strategy.getLimit()).isEqualTo(160);
+    assertThat(strategy.getLimit()).isEqualTo(128 * KB);
 
     strategy.close();
   }
