@@ -85,7 +85,7 @@ limitations under the License.
         <!-- renovate: ignore-next-value -->
         <apache.hadoop.version>3.4.2</apache.hadoop.version>
         <slf4j.version>1.7.36</slf4j.version>
-        <opentelemetry.version>1.62.0</opentelemetry.version>
+        <opentelemetry.version>1.63.0</opentelemetry.version>
         <caffeine.version>3.2.4</caffeine.version>
     </properties>
 
