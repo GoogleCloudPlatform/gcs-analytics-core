@@ -26,3 +26,8 @@ updates:
       # Spotless plugin updates cause compatibility errors with Java 11
       - dependency-name: "com.diffplug.spotless:spotless-maven-plugin"
         update-types: ["version-update:semver-major"]
+      # JUnit 6+ requires Java 17; keep at JUnit 5 for Java 11 compatibility
+      - dependency-name: "org.junit.jupiter:*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "org.junit.platform:*"
+        update-types: ["version-update:semver-major"]
