@@ -36,45 +36,65 @@ class GcsExceptionUtilTest {
 
   @Test
   void getErrorType_404_returnsNotFound() {
-    assertThat(GcsExceptionUtil.getErrorType(new StorageException(404, "Not Found")))
-        .isEqualTo(GcsExceptionUtil.ErrorType.NOT_FOUND);
+    StorageException se = new StorageException(404, "Not Found");
+
+    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(se);
+
+    assertThat(errorType).isEqualTo(GcsExceptionUtil.ErrorType.NOT_FOUND);
   }
 
   @Test
   void getErrorType_409_returnsAlreadyExists() {
-    assertThat(GcsExceptionUtil.getErrorType(new StorageException(409, "Conflict")))
-        .isEqualTo(GcsExceptionUtil.ErrorType.ALREADY_EXISTS);
+    StorageException se = new StorageException(409, "Conflict");
+
+    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(se);
+
+    assertThat(errorType).isEqualTo(GcsExceptionUtil.ErrorType.ALREADY_EXISTS);
   }
 
   @Test
   void getErrorType_412_returnsPreconditionFailed() {
-    assertThat(GcsExceptionUtil.getErrorType(new StorageException(412, "Precondition Failed")))
-        .isEqualTo(GcsExceptionUtil.ErrorType.PRECONDITION_FAILED);
+    StorageException se = new StorageException(412, "Precondition Failed");
+
+    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(se);
+
+    assertThat(errorType).isEqualTo(GcsExceptionUtil.ErrorType.PRECONDITION_FAILED);
   }
 
   @Test
   void getErrorType_403_returnsAccessDenied() {
-    assertThat(GcsExceptionUtil.getErrorType(new StorageException(403, "Forbidden")))
-        .isEqualTo(GcsExceptionUtil.ErrorType.ACCESS_DENIED);
+    StorageException se = new StorageException(403, "Forbidden");
+
+    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(se);
+
+    assertThat(errorType).isEqualTo(GcsExceptionUtil.ErrorType.ACCESS_DENIED);
   }
 
   @Test
   void getErrorType_401_returnsAccessDenied() {
-    assertThat(GcsExceptionUtil.getErrorType(new StorageException(401, "Unauthorized")))
-        .isEqualTo(GcsExceptionUtil.ErrorType.ACCESS_DENIED);
+    StorageException se = new StorageException(401, "Unauthorized");
+
+    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(se);
+
+    assertThat(errorType).isEqualTo(GcsExceptionUtil.ErrorType.ACCESS_DENIED);
   }
 
   @Test
   void getErrorType_500_returnsUnknown() {
-    assertThat(GcsExceptionUtil.getErrorType(new StorageException(500, "Internal Error")))
-        .isEqualTo(GcsExceptionUtil.ErrorType.UNKNOWN);
+    StorageException se = new StorageException(500, "Internal Error");
+
+    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(se);
+
+    assertThat(errorType).isEqualTo(GcsExceptionUtil.ErrorType.UNKNOWN);
   }
 
   @Test
   void translateException_when404_throwsFileNotFound() {
+    StorageException se = new StorageException(404, "Not Found");
+
     IOException exception =
-        GcsExceptionUtil.translateException(
-            new StorageException(404, "Not Found"), CONTEXT, BUCKET, NAME, null, true, POSITION);
+        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, null, true, POSITION);
+
     assertThat(exception).isInstanceOf(FileNotFoundException.class);
     assertThat(exception.getMessage())
         .contains("Location does not exist or generation not found: gs://test-bucket/test-object");
@@ -82,18 +102,22 @@ class GcsExceptionUtilTest {
 
   @Test
   void translateException_when403_throwsAccessDenied() {
+    StorageException se = new StorageException(403, "Forbidden");
+
     IOException exception =
-        GcsExceptionUtil.translateException(
-            new StorageException(403, "Forbidden"), CONTEXT, BUCKET, NAME, null, true, POSITION);
+        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, null, true, POSITION);
+
     assertThat(exception).isInstanceOf(AccessDeniedException.class);
     assertThat(exception.getMessage()).contains("Access denied to object during write");
   }
 
   @Test
   void translateException_when409_throwsFileAlreadyExists() {
+    StorageException se = new StorageException(409, "Conflict");
+
     IOException exception =
-        GcsExceptionUtil.translateException(
-            new StorageException(409, "Conflict"), CONTEXT, BUCKET, NAME, null, true, POSITION);
+        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, null, true, POSITION);
+
     assertThat(exception).isInstanceOf(FileAlreadyExistsException.class);
     assertThat(exception.getMessage())
         .contains("Object gs://test-bucket/test-object already exists");
@@ -101,30 +125,22 @@ class GcsExceptionUtilTest {
 
   @Test
   void translateException_when412WithoutOverwrite_throwsFileAlreadyExists() {
+    StorageException se = new StorageException(412, "Precondition Failed");
+
     IOException exception =
-        GcsExceptionUtil.translateException(
-            new StorageException(412, "Precondition Failed"),
-            CONTEXT,
-            BUCKET,
-            NAME,
-            null,
-            false,
-            POSITION);
+        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, null, false, POSITION);
+
     assertThat(exception).isInstanceOf(FileAlreadyExistsException.class);
   }
 
   @Test
   void
       translateException_when412WithOverwriteAndGeneration_throwsIOExceptionWithGenerationMismatch() {
+    StorageException se = new StorageException(412, "Precondition Failed");
+
     IOException exception =
-        GcsExceptionUtil.translateException(
-            new StorageException(412, "Precondition Failed"),
-            CONTEXT,
-            BUCKET,
-            NAME,
-            12345L,
-            true,
-            POSITION);
+        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, 12345L, true, POSITION);
+
     assertThat(exception).isNotInstanceOf(FileAlreadyExistsException.class);
     assertThat(exception.getMessage())
         .contains("Generation mismatch for object gs://test-bucket/test-object");
@@ -132,16 +148,85 @@ class GcsExceptionUtilTest {
 
   @Test
   void translateException_when500_throwsGenericIOException() {
+    StorageException se = new StorageException(500, "Internal Server Error");
+
+    IOException exception =
+        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, null, true, POSITION);
+
+    assertThat(exception).isInstanceOf(IOException.class);
+    assertThat(exception.getMessage())
+        .contains("Error during write to GCS for gs://test-bucket/test-object at position 100");
+  }
+
+  @Test
+  void getStorageException_withStorageException_returnsItself() {
+    StorageException se = new StorageException(404, "Not Found");
+
+    StorageException result = GcsExceptionUtil.getStorageException(se);
+
+    assertThat(result).isSameInstanceAs(se);
+  }
+
+  @Test
+  void getStorageException_withWrappedStorageExceptionInIOException_returnsCause() {
+    StorageException se = new StorageException(404, "Not Found");
+    IOException ioe = new IOException("Wrapped", se);
+
+    StorageException result = GcsExceptionUtil.getStorageException(ioe);
+
+    assertThat(result).isSameInstanceAs(se);
+  }
+
+  @Test
+  void getStorageException_withOtherException_returnsNull() {
+    IOException ioe = new IOException("Generic I/O error");
+
+    StorageException result = GcsExceptionUtil.getStorageException(ioe);
+
+    assertThat(result).isNull();
+  }
+
+  @Test
+  void translateException_withUpcastedStorageException_translatesStorageException() {
+    Exception se = new StorageException(404, "Not Found");
+
+    IOException exception =
+        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, null, true, POSITION);
+
+    assertThat(exception).isInstanceOf(FileNotFoundException.class);
+  }
+
+  @Test
+  void translateException_withWrappedStorageExceptionInIOException_translatesStorageException() {
+    StorageException se = new StorageException(404, "Not Found");
+    Exception ioe = new IOException("Wrapped exception", se);
+
+    IOException exception =
+        GcsExceptionUtil.translateException(ioe, CONTEXT, BUCKET, NAME, null, true, POSITION);
+
+    assertThat(exception).isInstanceOf(FileNotFoundException.class);
+  }
+
+  @Test
+  void translateException_withGenericIOException_returnsSameIOException() {
+    Exception genericIoe = new IOException("Generic Connection Error");
+
     IOException exception =
         GcsExceptionUtil.translateException(
-            new StorageException(500, "Internal Server Error"),
-            CONTEXT,
-            BUCKET,
-            NAME,
-            null,
-            true,
-            POSITION);
-    assertThat(exception).isInstanceOf(IOException.class);
+            genericIoe, CONTEXT, BUCKET, NAME, null, true, POSITION);
+
+    assertThat(exception).isSameInstanceAs(genericIoe);
+  }
+
+  @Test
+  void translateException_withGenericException_returnsWrappedIOException() {
+    Exception genericException = new RuntimeException("Something went wrong");
+
+    IOException exception =
+        GcsExceptionUtil.translateException(
+            genericException, CONTEXT, BUCKET, NAME, null, true, POSITION);
+
+    assertThat(exception).hasCauseThat().isSameInstanceAs(genericException);
     assertThat(exception.getMessage())
         .contains("Error during write to GCS for gs://test-bucket/test-object at position 100");
   }
@@ -149,7 +234,9 @@ class GcsExceptionUtilTest {
   @Test
   void constructor_isPrivate() throws Exception {
     Constructor<GcsExceptionUtil> constructor = GcsExceptionUtil.class.getDeclaredConstructor();
+
     assertThat(Modifier.isPrivate(constructor.getModifiers())).isTrue();
+
     constructor.setAccessible(true);
     constructor.newInstance();
   }
