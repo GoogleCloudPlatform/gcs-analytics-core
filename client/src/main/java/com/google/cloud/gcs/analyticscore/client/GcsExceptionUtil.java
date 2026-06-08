@@ -24,11 +24,11 @@ import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 
 /** Centralized utility for classifying GCS transport exceptions. */
-public class GcsExceptionUtil {
+class GcsExceptionUtil {
 
   private GcsExceptionUtil() {}
 
-  public enum ErrorType {
+  enum ErrorType {
     NOT_FOUND,
     ALREADY_EXISTS,
     PRECONDITION_FAILED,
@@ -37,7 +37,7 @@ public class GcsExceptionUtil {
   }
 
   /** Determines the logical error type from a StorageException. */
-  public static ErrorType getErrorType(StorageException e) {
+  static ErrorType getErrorType(StorageException e) {
     switch (e.getCode()) {
       case HttpURLConnection.HTTP_NOT_FOUND: // 404
         return ErrorType.NOT_FOUND;
@@ -54,7 +54,7 @@ public class GcsExceptionUtil {
   }
 
   /** Translates a StorageException into a standard Java IOException subclass. */
-  public static IOException translateException(
+  static IOException translateException(
       StorageException e,
       String context,
       String bucket,
@@ -105,6 +105,40 @@ public class GcsExceptionUtil {
         break;
     }
 
+    return new IOException(
+        String.format(
+            "Error during %s to GCS for gs://%s/%s at position %d",
+            context, bucket, name, position),
+        e);
+  }
+
+  /** Extracts a StorageException from a Throwable if present directly or as a cause. */
+  static StorageException getStorageException(Throwable t) {
+    if (t instanceof StorageException) {
+      return (StorageException) t;
+    }
+    if (t instanceof IOException && t.getCause() instanceof StorageException) {
+      return (StorageException) t.getCause();
+    }
+    return null;
+  }
+
+  /** Translates a generic Exception, handling unwrapped StorageExceptions. */
+  static IOException translateException(
+      Exception e,
+      String context,
+      String bucket,
+      String name,
+      Long generation,
+      boolean overwriteExisting,
+      long position) {
+    StorageException se = getStorageException(e);
+    if (se != null) {
+      return translateException(se, context, bucket, name, generation, overwriteExisting, position);
+    }
+    if (e instanceof IOException) {
+      return (IOException) e;
+    }
     return new IOException(
         String.format(
             "Error during %s to GCS for gs://%s/%s at position %d",

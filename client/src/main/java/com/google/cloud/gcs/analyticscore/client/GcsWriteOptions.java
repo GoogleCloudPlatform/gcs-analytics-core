@@ -18,9 +18,11 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableSet;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Configuration options for writing objects to Google Cloud Storage.
@@ -99,66 +101,47 @@ public abstract class GcsWriteOptions {
   public static GcsWriteOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
     Builder optionsBuilder = builder();
-    if (analyticsCoreOptions.containsKey(prefix + CHECKSUM_VALIDATION_KEY)) {
-      optionsBuilder.setChecksumValidationEnabled(
-          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + CHECKSUM_VALIDATION_KEY)));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + DISABLE_GZIP_CONTENT_KEY)) {
-      optionsBuilder.setDisableGzipContent(
-          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + DISABLE_GZIP_CONTENT_KEY)));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + OVERWRITE_EXISTING_KEY)) {
-      optionsBuilder.setOverwriteExisting(
-          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + OVERWRITE_EXISTING_KEY)));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + UPLOAD_CHUNK_SIZE_KEY)) {
-      optionsBuilder.setUploadChunkSize(
-          Integer.parseInt(analyticsCoreOptions.get(prefix + UPLOAD_CHUNK_SIZE_KEY)));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + UPLOAD_TYPE_KEY)) {
-      optionsBuilder.setUploadType(
-          UploadType.valueOf(
-              analyticsCoreOptions.get(prefix + UPLOAD_TYPE_KEY).replace('-', '_').toUpperCase()));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + PCU_BUFFER_COUNT_KEY)) {
-      optionsBuilder.setPcuBufferCount(
-          Integer.parseInt(analyticsCoreOptions.get(prefix + PCU_BUFFER_COUNT_KEY)));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + PCU_BUFFER_CAPACITY_KEY)) {
-      optionsBuilder.setPcuBufferCapacity(
-          Integer.parseInt(analyticsCoreOptions.get(prefix + PCU_BUFFER_CAPACITY_KEY)));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + PCU_PART_FILE_CLEANUP_TYPE_KEY)) {
-      optionsBuilder.setPcuPartFileCleanupType(
-          PartFileCleanupType.valueOf(
-              analyticsCoreOptions
-                  .get(prefix + PCU_PART_FILE_CLEANUP_TYPE_KEY)
-                  .replace('-', '_')
-                  .toUpperCase()));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + PCU_PART_FILE_NAME_PREFIX_KEY)) {
-      optionsBuilder.setPcuPartFileNamePrefix(
-          analyticsCoreOptions.get(prefix + PCU_PART_FILE_NAME_PREFIX_KEY));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + TEMPORARY_PATHS_KEY)) {
-      String pathsStr = analyticsCoreOptions.get(prefix + TEMPORARY_PATHS_KEY);
-      if (!pathsStr.trim().isEmpty()) {
-        optionsBuilder.setTemporaryPaths(
-            java.util.Arrays.stream(pathsStr.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(java.util.stream.Collectors.toList()));
-      }
-    }
-    if (analyticsCoreOptions.containsKey(prefix + KMS_KEY_NAME_KEY)) {
-      optionsBuilder.setKmsKeyName(analyticsCoreOptions.get(prefix + KMS_KEY_NAME_KEY));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + USER_PROJECT_KEY)) {
-      optionsBuilder.setUserProject(analyticsCoreOptions.get(prefix + USER_PROJECT_KEY));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + ENCRYPTION_KEY_KEY)) {
-      optionsBuilder.setEncryptionKey(analyticsCoreOptions.get(prefix + ENCRYPTION_KEY_KEY));
-    }
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + CHECKSUM_VALIDATION_KEY))
+        .map(Boolean::parseBoolean)
+        .ifPresent(optionsBuilder::setChecksumValidationEnabled);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + DISABLE_GZIP_CONTENT_KEY))
+        .map(Boolean::parseBoolean)
+        .ifPresent(optionsBuilder::setDisableGzipContent);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + OVERWRITE_EXISTING_KEY))
+        .map(Boolean::parseBoolean)
+        .ifPresent(optionsBuilder::setOverwriteExisting);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + UPLOAD_CHUNK_SIZE_KEY))
+        .map(Integer::parseInt)
+        .ifPresent(optionsBuilder::setUploadChunkSize);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + UPLOAD_TYPE_KEY))
+        .map(s -> UploadType.valueOf(s.replace('-', '_').toUpperCase()))
+        .ifPresent(optionsBuilder::setUploadType);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_BUFFER_COUNT_KEY))
+        .map(Integer::parseInt)
+        .ifPresent(optionsBuilder::setPcuBufferCount);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_BUFFER_CAPACITY_KEY))
+        .map(Integer::parseInt)
+        .ifPresent(optionsBuilder::setPcuBufferCapacity);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_PART_FILE_CLEANUP_TYPE_KEY))
+        .map(s -> PartFileCleanupType.valueOf(s.replace('-', '_').toUpperCase()))
+        .ifPresent(optionsBuilder::setPcuPartFileCleanupType);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_PART_FILE_NAME_PREFIX_KEY))
+        .ifPresent(optionsBuilder::setPcuPartFileNamePrefix);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + TEMPORARY_PATHS_KEY))
+        .filter(pathsStr -> !pathsStr.trim().isEmpty())
+        .map(
+            pathsStr ->
+                Arrays.stream(pathsStr.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toList()))
+        .ifPresent(optionsBuilder::setTemporaryPaths);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + KMS_KEY_NAME_KEY))
+        .ifPresent(optionsBuilder::setKmsKeyName);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + USER_PROJECT_KEY))
+        .ifPresent(optionsBuilder::setUserProject);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + ENCRYPTION_KEY_KEY))
+        .ifPresent(optionsBuilder::setEncryptionKey);
     return optionsBuilder.build();
   }
 
