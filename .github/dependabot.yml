@@ -4,14 +4,25 @@ updates:
     directory: /
     schedule:
       interval: daily
+    groups:
+      github-actions-dependencies:
+        patterns:
+          - "*"
 
   - package-ecosystem: maven
     directory: /
     schedule:
       interval: daily
+    groups:
+      maven-dependencies:
+        patterns:
+          - "*"
     ignore:
       - dependency-name: "com.google.errorprone:error_prone_core"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       # Hadoop 3.5+ requires Java 17; keep at 3.4.x for Java 11 compatibility
       - dependency-name: "org.apache.hadoop:*"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # Spotless plugin updates cause compatibility errors with Java 11
+      - dependency-name: "com.diffplug.spotless:spotless-maven-plugin"
+        update-types: ["version-update:semver-major"]
