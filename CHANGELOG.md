@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.3.0...v1.3.1) (2026-06-09)
+
+
+### Bug Fixes
+
+* Update min-range-request size for random read to 128KiB. ([#298](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/298)) ([5178b6d](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/5178b6d5cfcee6e19b967873916aee812d6a00ee))
+
 ## [1.3.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.2.3...v1.3.0) (2026-06-04)
 
 
