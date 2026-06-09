@@ -83,9 +83,9 @@ limitations under the License.
         <apache.avro.version>1.12.1</apache.avro.version>
         <!-- Hadoop 3.5+ requires Java 17; keep at 3.4.x for Java 11 compatibility -->
         <!-- renovate: ignore-next-value -->
-        <apache.hadoop.version>3.4.2</apache.hadoop.version>
-        <slf4j.version>1.7.36</slf4j.version>
-        <opentelemetry.version>1.62.0</opentelemetry.version>
+        <apache.hadoop.version>3.4.3</apache.hadoop.version>
+        <slf4j.version>2.0.18</slf4j.version>
+        <opentelemetry.version>1.63.0</opentelemetry.version>
         <caffeine.version>3.2.4</caffeine.version>
     </properties>
 
