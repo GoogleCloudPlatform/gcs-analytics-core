@@ -288,4 +288,21 @@ class GcsClientImplTest {
         assertThrows(IOException.class, () -> gcsClient.getBucketCapabilities("error-bucket"));
     assertThat(e).hasMessageThat().contains("Unable to access bucket :error-bucket");
   }
+
+  @Test
+  void unsupportedMethods_throwUnsupportedOperationException() {
+    GcsItemId dummyId = GcsItemId.builder().setBucketName("bucket").setObjectName("path").build();
+    assertThrows(UnsupportedOperationException.class, () -> gcsClient.listObjects(dummyId));
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> gcsClient.deleteObjects(java.util.Collections.singletonList(dummyId)));
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> gcsClient.updateObjectMetadata(dummyId, java.util.Collections.emptyMap()));
+    assertThrows(UnsupportedOperationException.class, () -> gcsClient.getFolderMetadata(dummyId));
+    assertThrows(UnsupportedOperationException.class, () -> gcsClient.createFolder(dummyId));
+    assertThrows(UnsupportedOperationException.class, () -> gcsClient.deleteFolder(dummyId));
+    assertThrows(
+        UnsupportedOperationException.class, () -> gcsClient.renameFolder(dummyId, dummyId));
+  }
 }
