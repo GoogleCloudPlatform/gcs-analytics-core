@@ -20,9 +20,11 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.common.BucketCapabilities;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BucketInfo;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
@@ -112,6 +114,59 @@ class GcsClientImpl implements GcsClient {
     }
     throw new UnsupportedOperationException(
         String.format("Expected gcs object but got %s", itemId));
+  }
+
+  @Override
+  public List<GcsItemInfo> listObjects(GcsItemId id) throws IOException {
+    throw new UnsupportedOperationException("Not implemented yet");
+  }
+
+  @Override
+  public void deleteObjects(List<GcsItemId> ids) throws IOException {
+    throw new UnsupportedOperationException("Not implemented yet");
+  }
+
+  @Override
+  public void updateObjectMetadata(GcsItemId id, java.util.Map<String, byte[]> metadata)
+      throws IOException {
+    throw new UnsupportedOperationException("Not implemented yet");
+  }
+
+  @Override
+  public GcsItemInfo getFolderMetadata(GcsItemId id) throws IOException {
+    throw new UnsupportedOperationException("Not implemented yet");
+  }
+
+  @Override
+  public void createFolder(GcsItemId id) throws IOException {
+    throw new UnsupportedOperationException("Not implemented yet");
+  }
+
+  @Override
+  public void deleteFolder(GcsItemId id) throws IOException {
+    throw new UnsupportedOperationException("Not implemented yet");
+  }
+
+  @Override
+  public void renameFolder(GcsItemId src, GcsItemId dst) throws IOException {
+    throw new UnsupportedOperationException("Not implemented yet");
+  }
+
+  @Override
+  public BucketCapabilities getBucketCapabilities(String bucketName) throws IOException {
+    try {
+      BucketInfo bucket =
+          storage.get(
+              bucketName,
+              Storage.BucketGetOption.fields(Storage.BucketField.HIERARCHICAL_NAMESPACE));
+      boolean hnsEnabled =
+          bucket != null
+              && bucket.getHierarchicalNamespace() != null
+              && Boolean.TRUE.equals(bucket.getHierarchicalNamespace().getEnabled());
+      return new BucketCapabilities(hnsEnabled);
+    } catch (StorageException storageException) {
+      throw new IOException("Unable to access bucket :" + bucketName, storageException);
+    }
   }
 
   @Override

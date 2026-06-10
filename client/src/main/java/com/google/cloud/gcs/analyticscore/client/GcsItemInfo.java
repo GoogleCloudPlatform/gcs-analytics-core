@@ -16,6 +16,8 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import java.util.Collections;
+import java.util.Map;
 import java.util.Optional;
 
 /** Represents metadata of a GCS Item. */
@@ -30,9 +32,19 @@ public abstract class GcsItemInfo {
   /** Generation ID of the object when the metadata is read. */
   public abstract Optional<Long> getContentGeneration();
 
+  public abstract boolean isInferredDirectory();
+
+  public abstract boolean isNativeHnsFolder();
+
+  public abstract Map<String, byte[]> getExtendedAttributes();
+
   public static Builder builder() {
     // By default, set size to -1, indicating a non-existent item.
-    return new AutoValue_GcsItemInfo.Builder().setSize(-1L);
+    return new AutoValue_GcsItemInfo.Builder()
+        .setSize(-1L)
+        .setInferredDirectory(false)
+        .setNativeHnsFolder(false)
+        .setExtendedAttributes(Collections.emptyMap());
   }
 
   /** Builder for {@link GcsItemInfo}. */
@@ -44,6 +56,12 @@ public abstract class GcsItemInfo {
     public abstract Builder setSize(long size);
 
     public abstract Builder setContentGeneration(long contentGeneration);
+
+    public abstract Builder setInferredDirectory(boolean isInferredDirectory);
+
+    public abstract Builder setNativeHnsFolder(boolean isNativeHnsFolder);
+
+    public abstract Builder setExtendedAttributes(Map<String, byte[]> extendedAttributes);
 
     public abstract GcsItemInfo build();
   }
