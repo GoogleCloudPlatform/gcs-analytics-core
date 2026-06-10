@@ -25,6 +25,11 @@ public abstract class GcsFileSystemOptions {
 
   private static final String READ_THREAD_COUNT_KEY = "analytics-core.read.thread.count";
   private static final String CLIENT_TYPE_KEY = "client.type";
+  private static final String HNS_API_ENABLED_KEY = "analytics-core.hns.api.enable";
+  private static final String BUCKET_CAPABILITY_CACHE_TIMEOUT_MINUTES_KEY =
+      "analytics-core.bucket.capability.cache.timeout.minutes";
+  private static final String BUCKET_CAPABILITY_CACHE_MAX_SIZE_KEY =
+      "analytics-core.bucket.capability.cache.max.size";
 
   /** Cloud Storage client to use. */
   public enum ClientType {
@@ -43,12 +48,21 @@ public abstract class GcsFileSystemOptions {
 
   public abstract TelemetryOptions getAnalyticsCoreTelemetryOptions();
 
+  public abstract boolean isHnsApiEnabled();
+
+  public abstract long getBucketCapabilityCacheTimeoutMinutes();
+
+  public abstract long getBucketCapabilityCacheMaxSize();
+
   public abstract Builder toBuilder();
 
   public static Builder builder() {
     return new AutoValue_GcsFileSystemOptions.Builder()
         .setReadThreadCount(16)
         .setClientType(ClientType.HTTP_CLIENT)
+        .setHnsApiEnabled(false)
+        .setBucketCapabilityCacheTimeoutMinutes(5L)
+        .setBucketCapabilityCacheMaxSize(1000L)
         .setGcsClientOptions(GcsClientOptions.builder().build())
         .setGcsCacheOptions(GcsCacheOptions.builder().build())
         .setAnalyticsCoreTelemetryOptions(TelemetryOptions.builder().build());
@@ -64,6 +78,19 @@ public abstract class GcsFileSystemOptions {
     if (analyticsCoreOptions.containsKey(prefix + CLIENT_TYPE_KEY)) {
       optionsBuilder.setClientType(
           ClientType.valueOf(analyticsCoreOptions.get(prefix + CLIENT_TYPE_KEY)));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + HNS_API_ENABLED_KEY)) {
+      optionsBuilder.setHnsApiEnabled(
+          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + HNS_API_ENABLED_KEY)));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + BUCKET_CAPABILITY_CACHE_TIMEOUT_MINUTES_KEY)) {
+      optionsBuilder.setBucketCapabilityCacheTimeoutMinutes(
+          Long.parseLong(
+              analyticsCoreOptions.get(prefix + BUCKET_CAPABILITY_CACHE_TIMEOUT_MINUTES_KEY)));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + BUCKET_CAPABILITY_CACHE_MAX_SIZE_KEY)) {
+      optionsBuilder.setBucketCapabilityCacheMaxSize(
+          Long.parseLong(analyticsCoreOptions.get(prefix + BUCKET_CAPABILITY_CACHE_MAX_SIZE_KEY)));
     }
     optionsBuilder.setGcsClientOptions(
         GcsClientOptions.createFromOptions(analyticsCoreOptions, prefix));
@@ -83,6 +110,12 @@ public abstract class GcsFileSystemOptions {
     public abstract Builder setClientType(ClientType clientType);
 
     public abstract Builder setReadThreadCount(int readThreadCount);
+
+    public abstract Builder setHnsApiEnabled(boolean isHnsApiEnabled);
+
+    public abstract Builder setBucketCapabilityCacheTimeoutMinutes(long timeout);
+
+    public abstract Builder setBucketCapabilityCacheMaxSize(long maxSize);
 
     public abstract Builder setGcsClientOptions(GcsClientOptions gcsClientOptions);
 

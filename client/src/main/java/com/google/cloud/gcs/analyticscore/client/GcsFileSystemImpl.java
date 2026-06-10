@@ -19,6 +19,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.client.cache.BucketCapabilitiesCache;
+import com.google.cloud.gcs.analyticscore.client.namespace.FlatNamespaceStrategyImpl;
+import com.google.cloud.gcs.analyticscore.client.namespace.HierarchicalNamespaceStrategyImpl;
+import com.google.cloud.gcs.analyticscore.client.namespace.NamespaceStrategy;
+import com.google.cloud.gcs.analyticscore.common.BucketCapabilities;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
@@ -49,6 +54,10 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
   private final Telemetry telemetry;
   private final AnalyticsCacheManager cacheManager;
+
+  private final FlatNamespaceStrategyImpl flatStrategy = new FlatNamespaceStrategyImpl();
+  private final HierarchicalNamespaceStrategyImpl hnsStrategy =
+      new HierarchicalNamespaceStrategyImpl();
 
   public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
@@ -103,6 +112,15 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
     this.telemetry = telemetry;
     this.cacheManager = cacheManager;
+
+  public NamespaceStrategy resolveStrategy(String bucketName) throws IOException {
+    BucketCapabilities capabilities =
+        cacheManager.getBucketCapabilities(bucketName, gcsClient::getBucketCapabilities);
+
+    if (capabilities.isHnsEnabled() && fileSystemOptions.isHnsApiEnabled()) {
+      return hnsStrategy;
+    }
+    return flatStrategy;
   }
 
   @Override
@@ -140,6 +158,69 @@ public class GcsFileSystemImpl implements GcsFileSystem {
                 BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()).toGsUtilUri()))
         .setAttributes(Collections.emptyMap())
         .build();
+  }
+
+  @Override
+  public GcsItemInfo getFileInfo(
+      GcsItemId itemId, com.google.cloud.gcs.analyticscore.common.PathType pathType)
+      throws IOException {
+    return resolveStrategy(itemId.getBucketName()).getFileInfo(itemId, pathType);
+  }
+
+  @Override
+  public java.util.List<GcsFileInfo> listStatus(URI path) throws IOException {
+    GcsItemId itemId = UriUtil.getItemIdFromString(path.toString());
+    return listStatus(itemId);
+  }
+
+  @Override
+  public java.util.List<GcsFileInfo> listStatus(GcsItemId itemId) throws IOException {
+    java.util.List<GcsItemInfo> itemInfos =
+        resolveStrategy(itemId.getBucketName()).listStatus(itemId);
+    return itemInfos.stream()
+        .map(
+            info ->
+                GcsFileInfo.builder()
+                    .setItemInfo(info)
+                    .setUri(
+                        URI.create(
+                            BlobId.of(
+                                    info.getItemId().getBucketName(),
+                                    info.getItemId().getObjectName().get())
+                                .toGsUtilUri()))
+                    .setAttributes(Collections.emptyMap())
+                    .build())
+        .collect(java.util.stream.Collectors.toList());
+  }
+
+  @Override
+  public void mkdirs(GcsItemId id) throws IOException {
+    resolveStrategy(id.getBucketName()).mkdirs(id);
+  }
+
+  @Override
+  public void delete(GcsItemId id, boolean recursive) throws IOException {
+    resolveStrategy(id.getBucketName()).delete(id, recursive);
+  }
+
+  @Override
+  public void rename(GcsItemId src, GcsItemId dst) throws IOException {
+    resolveStrategy(src.getBucketName()).rename(src, dst);
+  }
+
+  @Override
+  public byte[] getXAttr(GcsItemId id, String name) throws IOException {
+    throw new UnsupportedOperationException("Not implemented yet");
+  }
+
+  @Override
+  public void setXAttr(GcsItemId id, String name, byte[] value) throws IOException {
+    throw new UnsupportedOperationException("Not implemented yet");
+  }
+
+  @Override
+  public java.util.Map<String, byte[]> getXAttrs(GcsItemId id) throws IOException {
+    throw new UnsupportedOperationException("Not implemented yet");
   }
 
   @Override
