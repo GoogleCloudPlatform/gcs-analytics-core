@@ -159,13 +159,15 @@ class GcsClientImpl implements GcsClient {
           storage.get(
               bucketName,
               Storage.BucketGetOption.fields(Storage.BucketField.HIERARCHICAL_NAMESPACE));
+      if (bucket == null) {
+        throw new IOException("Bucket not found: " + bucketName);
+      }
       boolean hnsEnabled =
-          bucket != null
-              && bucket.getHierarchicalNamespace() != null
+          bucket.getHierarchicalNamespace() != null
               && Boolean.TRUE.equals(bucket.getHierarchicalNamespace().getEnabled());
       return new BucketCapabilities(hnsEnabled);
     } catch (StorageException storageException) {
-      throw new IOException("Unable to access bucket :" + bucketName, storageException);
+      throw new IOException("Unable to access bucket: " + bucketName, storageException);
     }
   }
 

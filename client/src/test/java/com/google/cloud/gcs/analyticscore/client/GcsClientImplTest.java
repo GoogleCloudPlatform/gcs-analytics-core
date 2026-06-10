@@ -297,16 +297,17 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getBucketCapabilities_bucketNotFound_returnsFalse() throws IOException {
+  void getBucketCapabilities_bucketNotFound_throwsIOException() {
     org.mockito.Mockito.doReturn(null)
         .when(storage)
         .get(
             org.mockito.ArgumentMatchers.eq("non-existent-bucket"),
             org.mockito.ArgumentMatchers.any(Storage.BucketGetOption.class));
 
-    com.google.cloud.gcs.analyticscore.common.BucketCapabilities capabilities =
-        gcsClient.getBucketCapabilities("non-existent-bucket");
-    assertThat(capabilities.isHnsEnabled()).isFalse();
+    IOException e =
+        assertThrows(
+            IOException.class, () -> gcsClient.getBucketCapabilities("non-existent-bucket"));
+    assertThat(e).hasMessageThat().contains("Bucket not found: non-existent-bucket");
   }
 
   @Test
@@ -319,7 +320,7 @@ class GcsClientImplTest {
 
     IOException e =
         assertThrows(IOException.class, () -> gcsClient.getBucketCapabilities("error-bucket"));
-    assertThat(e).hasMessageThat().contains("Unable to access bucket :error-bucket");
+    assertThat(e).hasMessageThat().contains("Unable to access bucket: error-bucket");
   }
 
   @Test
