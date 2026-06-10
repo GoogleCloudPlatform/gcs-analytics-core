@@ -264,6 +264,39 @@ class GcsClientImplTest {
   }
 
   @Test
+  void getBucketCapabilities_hnsDisabled_returnsFalse() throws IOException {
+    BucketInfo.HierarchicalNamespace hns =
+        org.mockito.Mockito.mock(BucketInfo.HierarchicalNamespace.class);
+    org.mockito.Mockito.when(hns.getEnabled()).thenReturn(false);
+    Bucket mockBucket = org.mockito.Mockito.mock(Bucket.class);
+    org.mockito.Mockito.when(mockBucket.getHierarchicalNamespace()).thenReturn(hns);
+    org.mockito.Mockito.doReturn(mockBucket)
+        .when(storage)
+        .get(
+            org.mockito.ArgumentMatchers.eq("flat-bucket"),
+            org.mockito.ArgumentMatchers.any(Storage.BucketGetOption.class));
+
+    com.google.cloud.gcs.analyticscore.common.BucketCapabilities capabilities =
+        gcsClient.getBucketCapabilities("flat-bucket");
+    assertThat(capabilities.isHnsEnabled()).isFalse();
+  }
+
+  @Test
+  void getBucketCapabilities_hnsNull_returnsFalse() throws IOException {
+    Bucket mockBucket = org.mockito.Mockito.mock(Bucket.class);
+    org.mockito.Mockito.when(mockBucket.getHierarchicalNamespace()).thenReturn(null);
+    org.mockito.Mockito.doReturn(mockBucket)
+        .when(storage)
+        .get(
+            org.mockito.ArgumentMatchers.eq("flat-bucket-null-hns"),
+            org.mockito.ArgumentMatchers.any(Storage.BucketGetOption.class));
+
+    com.google.cloud.gcs.analyticscore.common.BucketCapabilities capabilities =
+        gcsClient.getBucketCapabilities("flat-bucket-null-hns");
+    assertThat(capabilities.isHnsEnabled()).isFalse();
+  }
+
+  @Test
   void getBucketCapabilities_bucketNotFound_returnsFalse() throws IOException {
     org.mockito.Mockito.doReturn(null)
         .when(storage)
