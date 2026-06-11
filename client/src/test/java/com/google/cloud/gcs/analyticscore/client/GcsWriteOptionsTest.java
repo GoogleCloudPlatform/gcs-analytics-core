@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
 class GcsWriteOptionsTest {
 
   @Test
-  void testDefaultValues() {
+  void builder_withDefaultValues_returnsExpectedDefaults() {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
 
     assertThat(options.isChecksumValidationEnabled()).isFalse();
@@ -34,13 +34,11 @@ class GcsWriteOptionsTest {
     assertThat(options.isOverwriteExisting()).isTrue();
     assertThat(options.getUploadChunkSize()).isEqualTo(24 * 1024 * 1024);
     assertThat(options.getUploadType()).isEqualTo(GcsWriteOptions.UploadType.CHUNK_UPLOAD);
-
     assertThat(options.getPcuBufferCount()).isEqualTo(1);
     assertThat(options.getPcuBufferCapacity()).isEqualTo(32 * 1024 * 1024);
     assertThat(options.getPcuPartFileCleanupType())
         .isEqualTo(GcsWriteOptions.PartFileCleanupType.ALWAYS);
     assertThat(options.getPcuPartFileNamePrefix()).isEmpty();
-
     assertThat(options.getTemporaryPaths()).isEmpty();
     assertThat(options.getKmsKeyName().isPresent()).isFalse();
     assertThat(options.getUserProject().isPresent()).isFalse();
@@ -48,7 +46,7 @@ class GcsWriteOptionsTest {
   }
 
   @Test
-  void testCustomValues() {
+  void builder_withCustomValues_setsAllProperties() {
     GcsWriteOptions options =
         GcsWriteOptions.builder()
             .setChecksumValidationEnabled(true)
@@ -72,13 +70,11 @@ class GcsWriteOptionsTest {
     assertThat(options.getUploadChunkSize()).isEqualTo(1024);
     assertThat(options.getUploadType())
         .isEqualTo(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD);
-
     assertThat(options.getPcuBufferCount()).isEqualTo(4);
     assertThat(options.getPcuBufferCapacity()).isEqualTo(64 * 1024 * 1024);
     assertThat(options.getPcuPartFileCleanupType())
         .isEqualTo(GcsWriteOptions.PartFileCleanupType.ON_SUCCESS);
     assertThat(options.getPcuPartFileNamePrefix()).isEqualTo("temp-prefix-");
-
     assertThat(options.getTemporaryPaths()).containsExactly("/tmp/path1", "/tmp/path2").inOrder();
     assertThat(options.getKmsKeyName()).hasValue("kms-key");
     assertThat(options.getUserProject()).hasValue("project-123");
@@ -86,7 +82,7 @@ class GcsWriteOptionsTest {
   }
 
   @Test
-  void testCreateFromOptions() {
+  void createFromOptions_withValidProperties_parsesCorrectly() {
     Map<String, String> rawOptions =
         ImmutableMap.<String, String>builder()
             .put("gcs.write.checksum-validation.enabled", "true")
@@ -124,7 +120,7 @@ class GcsWriteOptionsTest {
   }
 
   @Test
-  void testCreateFromOptions_withWhitespaceAndEmptyPaths() {
+  void createFromOptions_withWhitespaceAndEmptyPaths_filtersThemOut() {
     Map<String, String> rawOptions =
         ImmutableMap.of("gcs.write.temporary-paths", "  , /tmp/path1 , , /tmp/path2 ");
 
@@ -134,7 +130,7 @@ class GcsWriteOptionsTest {
   }
 
   @Test
-  void testCreateFromOptions_withHyphenatedEnums() {
+  void createFromOptions_withHyphenatedEnums_normalizesAndParsesCorrectly() {
     Map<String, String> rawOptions =
         ImmutableMap.<String, String>builder()
             .put("gcs.write.upload.type", "parallel-composite-upload")
