@@ -16,6 +16,7 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.StorageException;
@@ -104,33 +105,28 @@ public class GcsWriteChannel implements WritableByteChannel {
       Thread.currentThread().interrupt();
       throw new InterruptedIOException(
           "Thread interrupted waiting for upload finalization: " + e.getMessage());
-    } catch (ExecutionException | StorageException | IOException e) {
-      Throwable target = (e instanceof ExecutionException) ? e.getCause() : e;
-      if (e instanceof ExecutionException
-          && !(target instanceof StorageException)
-          && !(target instanceof IOException)) {
-        throw new IOException("GCS failed to finalize the upload session", target);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof StorageException || cause instanceof IOException) {
+        throw handleException((Exception) cause, "close");
       }
-
-      Exception ex =
-          (target instanceof Exception)
-              ? (Exception) target
-              : new IOException("GCS failed to finalize the upload session", target);
-      throw handleException(ex, "close");
+      throw new IOException("GCS failed to finalize the upload session", cause);
+    } catch (StorageException | IOException e) {
+      throw handleException(e, "close");
     } finally {
       sdkWriteChannel = null;
     }
   }
 
   private IOException handleException(Exception e, String context) {
-    return GcsExceptionUtil.translateException(
-        e,
-        context,
-        blobInfo.getBucket(),
-        blobInfo.getName(),
-        blobInfo.getBlobId().getGeneration(),
-        writeOptions == null || writeOptions.isOverwriteExisting(),
-        bytesWritten);
+    BlobId blobId = blobInfo.getBlobId();
+    boolean overwrite =
+        Optional.ofNullable(writeOptions).map(GcsWriteOptions::isOverwriteExisting).orElse(true);
+    if (overwrite) {
+      return GcsExceptionUtil.translateExceptionWithOverwrite(e, context, blobId, bytesWritten);
+    } else {
+      return GcsExceptionUtil.translateException(e, context, blobId, bytesWritten);
+    }
   }
 
   public long getBytesWritten() {

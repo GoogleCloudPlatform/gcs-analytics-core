@@ -35,19 +35,21 @@ import java.util.stream.Collectors;
 @AutoValue
 public abstract class GcsWriteOptions {
 
-  private static final String CHECKSUM_VALIDATION_KEY = "write.checksum-validation.enabled";
-  private static final String DISABLE_GZIP_CONTENT_KEY = "write.disable-gzip-content";
-  private static final String OVERWRITE_EXISTING_KEY = "write.overwrite-existing";
-  private static final String UPLOAD_CHUNK_SIZE_KEY = "write.upload.chunk-size-bytes";
-  private static final String UPLOAD_TYPE_KEY = "write.upload.type";
-  private static final String PCU_BUFFER_COUNT_KEY = "write.pcu.buffer.count";
-  private static final String PCU_BUFFER_CAPACITY_KEY = "write.pcu.buffer.capacity-bytes";
-  private static final String PCU_PART_FILE_CLEANUP_TYPE_KEY = "write.pcu.part-file-cleanup-type";
-  private static final String PCU_PART_FILE_NAME_PREFIX_KEY = "write.pcu.part-file-name-prefix";
-  private static final String TEMPORARY_PATHS_KEY = "write.temporary-paths";
-  private static final String KMS_KEY_NAME_KEY = "write.kms-key-name";
-  private static final String USER_PROJECT_KEY = "write.user-project";
-  private static final String ENCRYPTION_KEY_KEY = "write.encryption-key";
+  private static final String CHECKSUM_VALIDATION_KEY = "channel.write.checksum-validation.enabled";
+  private static final String DISABLE_GZIP_CONTENT_KEY = "channel.write.disable-gzip-content";
+  private static final String OVERWRITE_EXISTING_KEY = "channel.write.overwrite-existing";
+  private static final String UPLOAD_CHUNK_SIZE_KEY = "channel.write.chunk-size-bytes";
+  private static final String UPLOAD_TYPE_KEY = "channel.write.upload-type";
+  private static final String PCU_BUFFER_COUNT_KEY = "channel.write.pcu.buffer.count";
+  private static final String PCU_BUFFER_CAPACITY_KEY = "channel.write.pcu.buffer.capacity-bytes";
+  private static final String PCU_PART_FILE_CLEANUP_TYPE_KEY =
+      "channel.write.pcu.part-file.cleanup-type";
+  private static final String PCU_PART_FILE_NAME_PREFIX_KEY =
+      "channel.write.pcu.part-file.name-prefix";
+  private static final String TEMPORARY_PATHS_KEY = "channel.write.temporary-paths";
+  private static final String KMS_KEY_NAME_KEY = "kms-key-name";
+  private static final String USER_PROJECT_KEY = "user-project";
+  private static final String ENCRYPTION_KEY_KEY = "encryption-key";
 
   /**
    * Upload strategies matching the configurations offered by the google-cloud-storage Java client.

@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.StorageException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -25,6 +26,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class GcsExceptionUtilTest {
@@ -93,11 +95,13 @@ class GcsExceptionUtilTest {
     StorageException se = new StorageException(404, "Not Found");
 
     IOException exception =
-        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, null, true, POSITION);
+        GcsExceptionUtil.translateException(se, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
 
     assertThat(exception).isInstanceOf(FileNotFoundException.class);
     assertThat(exception.getMessage())
-        .contains("Location does not exist or generation not found: gs://test-bucket/test-object");
+        .contains(
+            String.format(
+                "Location does not exist or generation not found: gs://%s/%s", BUCKET, NAME));
   }
 
   @Test
@@ -105,10 +109,11 @@ class GcsExceptionUtilTest {
     StorageException se = new StorageException(403, "Forbidden");
 
     IOException exception =
-        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, null, true, POSITION);
+        GcsExceptionUtil.translateException(se, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
 
     assertThat(exception).isInstanceOf(AccessDeniedException.class);
-    assertThat(exception.getMessage()).contains("Access denied to object during write");
+    assertThat(exception.getMessage())
+        .contains(String.format("Access denied to object during %s", CONTEXT));
   }
 
   @Test
@@ -116,11 +121,11 @@ class GcsExceptionUtilTest {
     StorageException se = new StorageException(409, "Conflict");
 
     IOException exception =
-        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, null, true, POSITION);
+        GcsExceptionUtil.translateException(se, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
 
     assertThat(exception).isInstanceOf(FileAlreadyExistsException.class);
     assertThat(exception.getMessage())
-        .contains("Object gs://test-bucket/test-object already exists");
+        .contains(String.format("Object gs://%s/%s already exists", BUCKET, NAME));
   }
 
   @Test
@@ -128,7 +133,7 @@ class GcsExceptionUtilTest {
     StorageException se = new StorageException(412, "Precondition Failed");
 
     IOException exception =
-        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, null, false, POSITION);
+        GcsExceptionUtil.translateException(se, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
 
     assertThat(exception).isInstanceOf(FileAlreadyExistsException.class);
   }
@@ -139,11 +144,15 @@ class GcsExceptionUtilTest {
     StorageException se = new StorageException(412, "Precondition Failed");
 
     IOException exception =
-        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, 12345L, true, POSITION);
+        GcsExceptionUtil.translateExceptionWithOverwrite(
+            se, CONTEXT, BlobId.of(BUCKET, NAME, 12345L), POSITION);
 
     assertThat(exception).isNotInstanceOf(FileAlreadyExistsException.class);
     assertThat(exception.getMessage())
-        .contains("Generation mismatch for object gs://test-bucket/test-object");
+        .isEqualTo(
+            String.format(
+                "Generation mismatch for object gs://%s/%s. Concurrent modification detected.",
+                BUCKET, NAME));
   }
 
   @Test
@@ -151,20 +160,23 @@ class GcsExceptionUtilTest {
     StorageException se = new StorageException(500, "Internal Server Error");
 
     IOException exception =
-        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, null, true, POSITION);
+        GcsExceptionUtil.translateException(se, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
 
     assertThat(exception).isInstanceOf(IOException.class);
     assertThat(exception.getMessage())
-        .contains("Error during write to GCS for gs://test-bucket/test-object at position 100");
+        .contains(
+            String.format(
+                "Error during %s to GCS for gs://%s/%s at position %d",
+                CONTEXT, BUCKET, NAME, POSITION));
   }
 
   @Test
   void getStorageException_withStorageException_returnsItself() {
     StorageException se = new StorageException(404, "Not Found");
 
-    StorageException result = GcsExceptionUtil.getStorageException(se);
+    Optional<StorageException> result = GcsExceptionUtil.getStorageException(se);
 
-    assertThat(result).isSameInstanceAs(se);
+    assertThat(result).hasValue(se);
   }
 
   @Test
@@ -172,18 +184,18 @@ class GcsExceptionUtilTest {
     StorageException se = new StorageException(404, "Not Found");
     IOException ioe = new IOException("Wrapped", se);
 
-    StorageException result = GcsExceptionUtil.getStorageException(ioe);
+    Optional<StorageException> result = GcsExceptionUtil.getStorageException(ioe);
 
-    assertThat(result).isSameInstanceAs(se);
+    assertThat(result).hasValue(se);
   }
 
   @Test
   void getStorageException_withOtherException_returnsNull() {
     IOException ioe = new IOException("Generic I/O error");
 
-    StorageException result = GcsExceptionUtil.getStorageException(ioe);
+    Optional<StorageException> result = GcsExceptionUtil.getStorageException(ioe);
 
-    assertThat(result).isNull();
+    assertThat(result).isEmpty();
   }
 
   @Test
@@ -191,7 +203,7 @@ class GcsExceptionUtilTest {
     Exception se = new StorageException(404, "Not Found");
 
     IOException exception =
-        GcsExceptionUtil.translateException(se, CONTEXT, BUCKET, NAME, null, true, POSITION);
+        GcsExceptionUtil.translateException(se, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
 
     assertThat(exception).isInstanceOf(FileNotFoundException.class);
   }
@@ -202,7 +214,7 @@ class GcsExceptionUtilTest {
     Exception ioe = new IOException("Wrapped exception", se);
 
     IOException exception =
-        GcsExceptionUtil.translateException(ioe, CONTEXT, BUCKET, NAME, null, true, POSITION);
+        GcsExceptionUtil.translateException(ioe, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
 
     assertThat(exception).isInstanceOf(FileNotFoundException.class);
   }
@@ -212,8 +224,7 @@ class GcsExceptionUtilTest {
     Exception genericIoe = new IOException("Generic Connection Error");
 
     IOException exception =
-        GcsExceptionUtil.translateException(
-            genericIoe, CONTEXT, BUCKET, NAME, null, true, POSITION);
+        GcsExceptionUtil.translateException(genericIoe, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
 
     assertThat(exception).isSameInstanceAs(genericIoe);
   }
@@ -224,11 +235,41 @@ class GcsExceptionUtilTest {
 
     IOException exception =
         GcsExceptionUtil.translateException(
-            genericException, CONTEXT, BUCKET, NAME, null, true, POSITION);
+            genericException, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
 
     assertThat(exception).hasCauseThat().isSameInstanceAs(genericException);
     assertThat(exception.getMessage())
-        .contains("Error during write to GCS for gs://test-bucket/test-object at position 100");
+        .contains(
+            String.format(
+                "Error during %s to GCS for gs://%s/%s at position %d",
+                CONTEXT, BUCKET, NAME, POSITION));
+  }
+
+  @Test
+  void translateExceptionWithOverwrite_withGenericIOException_returnsSameIOException() {
+    Exception genericIoe = new IOException("Generic Connection Error");
+
+    IOException exception =
+        GcsExceptionUtil.translateExceptionWithOverwrite(
+            genericIoe, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
+
+    assertThat(exception).isSameInstanceAs(genericIoe);
+  }
+
+  @Test
+  void translateExceptionWithOverwrite_withGenericException_returnsWrappedIOException() {
+    Exception genericException = new RuntimeException("Something went wrong");
+
+    IOException exception =
+        GcsExceptionUtil.translateExceptionWithOverwrite(
+            genericException, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
+
+    assertThat(exception).hasCauseThat().isSameInstanceAs(genericException);
+    assertThat(exception.getMessage())
+        .contains(
+            String.format(
+                "Error during %s to GCS for gs://%s/%s at position %d",
+                CONTEXT, BUCKET, NAME, POSITION));
   }
 
   @Test

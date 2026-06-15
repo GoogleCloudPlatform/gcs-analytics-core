@@ -85,19 +85,19 @@ class GcsWriteOptionsTest {
   void createFromOptions_withValidProperties_parsesCorrectly() {
     Map<String, String> rawOptions =
         ImmutableMap.<String, String>builder()
-            .put("gcs.write.checksum-validation.enabled", "true")
-            .put("gcs.write.disable-gzip-content", "false")
-            .put("gcs.write.overwrite-existing", "false")
-            .put("gcs.write.upload.chunk-size-bytes", "1024")
-            .put("gcs.write.upload.type", "parallel_composite_upload")
-            .put("gcs.write.pcu.buffer.count", "4")
-            .put("gcs.write.pcu.buffer.capacity-bytes", "67108864")
-            .put("gcs.write.pcu.part-file-cleanup-type", "on_success")
-            .put("gcs.write.pcu.part-file-name-prefix", "temp-prefix-")
-            .put("gcs.write.temporary-paths", "/tmp/path1, /tmp/path2")
-            .put("gcs.write.kms-key-name", "kms-key")
-            .put("gcs.write.user-project", "project-123")
-            .put("gcs.write.encryption-key", "enc-key")
+            .put("gcs.channel.write.checksum-validation.enabled", "true")
+            .put("gcs.channel.write.disable-gzip-content", "false")
+            .put("gcs.channel.write.overwrite-existing", "false")
+            .put("gcs.channel.write.chunk-size-bytes", "1024")
+            .put("gcs.channel.write.upload-type", "parallel_composite_upload")
+            .put("gcs.channel.write.pcu.buffer.count", "4")
+            .put("gcs.channel.write.pcu.buffer.capacity-bytes", "67108864")
+            .put("gcs.channel.write.pcu.part-file.cleanup-type", "on_success")
+            .put("gcs.channel.write.pcu.part-file.name-prefix", "temp-prefix-")
+            .put("gcs.channel.write.temporary-paths", "/tmp/path1, /tmp/path2")
+            .put("gcs.kms-key-name", "kms-key")
+            .put("gcs.user-project", "project-123")
+            .put("gcs.encryption-key", "enc-key")
             .build();
 
     GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");
@@ -122,7 +122,7 @@ class GcsWriteOptionsTest {
   @Test
   void createFromOptions_withWhitespaceAndEmptyPaths_filtersThemOut() {
     Map<String, String> rawOptions =
-        ImmutableMap.of("gcs.write.temporary-paths", "  , /tmp/path1 , , /tmp/path2 ");
+        ImmutableMap.of("gcs.channel.write.temporary-paths", "  , /tmp/path1 , , /tmp/path2 ");
 
     GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");
 
@@ -133,8 +133,8 @@ class GcsWriteOptionsTest {
   void createFromOptions_withHyphenatedEnums_normalizesAndParsesCorrectly() {
     Map<String, String> rawOptions =
         ImmutableMap.<String, String>builder()
-            .put("gcs.write.upload.type", "parallel-composite-upload")
-            .put("gcs.write.pcu.part-file-cleanup-type", "on-success")
+            .put("gcs.channel.write.upload-type", "parallel-composite-upload")
+            .put("gcs.channel.write.pcu.part-file.cleanup-type", "on-success")
             .build();
 
     GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");

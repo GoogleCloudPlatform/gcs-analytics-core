@@ -37,17 +37,22 @@ public class FakeWritableByteChannel implements WritableByteChannel {
     this.exceptionToThrowOnClose = exception;
   }
 
+  private void maybeThrow(Throwable t) throws IOException {
+    if (t == null) {
+      return;
+    }
+    if (t instanceof IOException) {
+      throw (IOException) t;
+    }
+    if (t instanceof RuntimeException) {
+      throw (RuntimeException) t;
+    }
+    throw new RuntimeException(t);
+  }
+
   @Override
   public int write(ByteBuffer src) throws IOException {
-    if (exceptionToThrowOnWrite != null) {
-      if (exceptionToThrowOnWrite instanceof IOException) {
-        throw (IOException) exceptionToThrowOnWrite;
-      }
-      if (exceptionToThrowOnWrite instanceof RuntimeException) {
-        throw (RuntimeException) exceptionToThrowOnWrite;
-      }
-      throw new RuntimeException(exceptionToThrowOnWrite);
-    }
+    maybeThrow(exceptionToThrowOnWrite);
     if (!open) {
       throw new ClosedChannelException();
     }
@@ -65,15 +70,7 @@ public class FakeWritableByteChannel implements WritableByteChannel {
 
   @Override
   public void close() throws IOException {
-    if (exceptionToThrowOnClose != null) {
-      if (exceptionToThrowOnClose instanceof IOException) {
-        throw (IOException) exceptionToThrowOnClose;
-      }
-      if (exceptionToThrowOnClose instanceof RuntimeException) {
-        throw (RuntimeException) exceptionToThrowOnClose;
-      }
-      throw new RuntimeException(exceptionToThrowOnClose);
-    }
+    maybeThrow(exceptionToThrowOnClose);
     open = false;
     closeCount++;
   }

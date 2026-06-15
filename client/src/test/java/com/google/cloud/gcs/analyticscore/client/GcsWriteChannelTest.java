@@ -57,7 +57,6 @@ class GcsWriteChannelTest {
     blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
     writeOptions = GcsWriteOptions.builder().setChecksumValidationEnabled(true).build();
     fakeChannel = new FakeWritableByteChannel();
-
     mockSession = mock(BlobWriteSession.class);
     mockFuture = mock(ApiFuture.class);
     when(mockSession.getResult()).thenReturn(mockFuture);
