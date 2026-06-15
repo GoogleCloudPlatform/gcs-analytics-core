@@ -113,16 +113,16 @@ public abstract class GcsWriteOptions {
         .map(Boolean::parseBoolean)
         .ifPresent(optionsBuilder::setOverwriteExisting);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + UPLOAD_CHUNK_SIZE_KEY))
-        .map(Integer::parseInt)
+        .map(val -> safeParseInteger(prefix + UPLOAD_CHUNK_SIZE_KEY, val))
         .ifPresent(optionsBuilder::setUploadChunkSize);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + UPLOAD_TYPE_KEY))
         .map(s -> UploadType.valueOf(s.replace('-', '_').toUpperCase()))
         .ifPresent(optionsBuilder::setUploadType);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_BUFFER_COUNT_KEY))
-        .map(Integer::parseInt)
+        .map(val -> safeParseInteger(prefix + PCU_BUFFER_COUNT_KEY, val))
         .ifPresent(optionsBuilder::setPcuBufferCount);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_BUFFER_CAPACITY_KEY))
-        .map(Integer::parseInt)
+        .map(val -> safeParseInteger(prefix + PCU_BUFFER_CAPACITY_KEY, val))
         .ifPresent(optionsBuilder::setPcuBufferCapacity);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_PART_FILE_CLEANUP_TYPE_KEY))
         .map(s -> PartFileCleanupType.valueOf(s.replace('-', '_').toUpperCase()))
@@ -145,6 +145,17 @@ public abstract class GcsWriteOptions {
     Optional.ofNullable(analyticsCoreOptions.get(prefix + ENCRYPTION_KEY_KEY))
         .ifPresent(optionsBuilder::setEncryptionKey);
     return optionsBuilder.build();
+  }
+
+  private static int safeParseInteger(String key, String valueStr) {
+    long value = Long.parseLong(valueStr);
+    if (value > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException(
+          String.format(
+              "%s=%d cannot be greater than Integer.MAX_VALUE (%d)",
+              key, value, Integer.MAX_VALUE));
+    }
+    return (int) value;
   }
 
   public static Builder builder() {

@@ -16,6 +16,7 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.ErrorType;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.google.cloud.storage.BlobId;
@@ -40,54 +41,54 @@ class GcsExceptionUtilTest {
   void getErrorType_404_returnsNotFound() {
     StorageException se = new StorageException(404, "Not Found");
 
-    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(se);
+    ErrorType errorType = GcsExceptionUtil.getErrorType(se);
 
-    assertThat(errorType).isEqualTo(GcsExceptionUtil.ErrorType.NOT_FOUND);
+    assertThat(errorType).isEqualTo(ErrorType.NOT_FOUND);
   }
 
   @Test
   void getErrorType_409_returnsAlreadyExists() {
     StorageException se = new StorageException(409, "Conflict");
 
-    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(se);
+    ErrorType errorType = GcsExceptionUtil.getErrorType(se);
 
-    assertThat(errorType).isEqualTo(GcsExceptionUtil.ErrorType.ALREADY_EXISTS);
+    assertThat(errorType).isEqualTo(ErrorType.ALREADY_EXISTS);
   }
 
   @Test
   void getErrorType_412_returnsPreconditionFailed() {
     StorageException se = new StorageException(412, "Precondition Failed");
 
-    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(se);
+    ErrorType errorType = GcsExceptionUtil.getErrorType(se);
 
-    assertThat(errorType).isEqualTo(GcsExceptionUtil.ErrorType.PRECONDITION_FAILED);
+    assertThat(errorType).isEqualTo(ErrorType.PRECONDITION_FAILED);
   }
 
   @Test
   void getErrorType_403_returnsAccessDenied() {
     StorageException se = new StorageException(403, "Forbidden");
 
-    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(se);
+    ErrorType errorType = GcsExceptionUtil.getErrorType(se);
 
-    assertThat(errorType).isEqualTo(GcsExceptionUtil.ErrorType.ACCESS_DENIED);
+    assertThat(errorType).isEqualTo(ErrorType.ACCESS_DENIED);
   }
 
   @Test
   void getErrorType_401_returnsAccessDenied() {
     StorageException se = new StorageException(401, "Unauthorized");
 
-    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(se);
+    ErrorType errorType = GcsExceptionUtil.getErrorType(se);
 
-    assertThat(errorType).isEqualTo(GcsExceptionUtil.ErrorType.ACCESS_DENIED);
+    assertThat(errorType).isEqualTo(ErrorType.ACCESS_DENIED);
   }
 
   @Test
   void getErrorType_500_returnsUnknown() {
     StorageException se = new StorageException(500, "Internal Error");
 
-    GcsExceptionUtil.ErrorType errorType = GcsExceptionUtil.getErrorType(se);
+    ErrorType errorType = GcsExceptionUtil.getErrorType(se);
 
-    assertThat(errorType).isEqualTo(GcsExceptionUtil.ErrorType.UNKNOWN);
+    assertThat(errorType).isEqualTo(ErrorType.UNKNOWN);
   }
 
   @Test

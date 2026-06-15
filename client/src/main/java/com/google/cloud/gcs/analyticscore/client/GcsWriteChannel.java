@@ -100,8 +100,6 @@ public class GcsWriteChannel implements WritableByteChannel {
       }
       LOG.debug("Successfully closed and finalized object: {}", blobInfo.getBlobId());
     } catch (InterruptedException e) {
-      LOG.error(
-          "Interrupted waiting for upload finalization for object: {}", blobInfo.getBlobId(), e);
       Thread.currentThread().interrupt();
       throw new InterruptedIOException(
           "Thread interrupted waiting for upload finalization: " + e.getMessage());

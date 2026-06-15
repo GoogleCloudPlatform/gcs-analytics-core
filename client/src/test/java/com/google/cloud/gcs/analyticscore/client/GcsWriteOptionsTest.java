@@ -17,6 +17,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -143,5 +144,51 @@ class GcsWriteOptionsTest {
         .isEqualTo(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD);
     assertThat(options.getPcuPartFileCleanupType())
         .isEqualTo(GcsWriteOptions.PartFileCleanupType.ON_SUCCESS);
+  }
+
+  @Test
+  void createFromOptions_withOverflowingUploadChunkSize_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.channel.write.chunk-size-bytes", String.valueOf((long) Integer.MAX_VALUE + 1L));
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsWriteOptions.createFromOptions(rawOptions, "gcs."));
+
+    assertThat(exception.getMessage()).contains("gcs.channel.write.chunk-size-bytes");
+    assertThat(exception.getMessage()).contains("cannot be greater than Integer.MAX_VALUE");
+  }
+
+  @Test
+  void createFromOptions_withOverflowingPcuBufferCount_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.channel.write.pcu.buffer.count", String.valueOf((long) Integer.MAX_VALUE + 1L));
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsWriteOptions.createFromOptions(rawOptions, "gcs."));
+
+    assertThat(exception.getMessage()).contains("gcs.channel.write.pcu.buffer.count");
+    assertThat(exception.getMessage()).contains("cannot be greater than Integer.MAX_VALUE");
+  }
+
+  @Test
+  void createFromOptions_withOverflowingPcuBufferCapacity_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.channel.write.pcu.buffer.capacity-bytes",
+            String.valueOf((long) Integer.MAX_VALUE + 1L));
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsWriteOptions.createFromOptions(rawOptions, "gcs."));
+
+    assertThat(exception.getMessage()).contains("gcs.channel.write.pcu.buffer.capacity-bytes");
+    assertThat(exception.getMessage()).contains("cannot be greater than Integer.MAX_VALUE");
   }
 }
