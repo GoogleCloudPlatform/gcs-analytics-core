@@ -258,8 +258,7 @@ class GcsClientImplTest {
             org.mockito.ArgumentMatchers.eq("hns-bucket"),
             org.mockito.ArgumentMatchers.any(Storage.BucketGetOption.class));
 
-    com.google.cloud.gcs.analyticscore.common.BucketCapabilities capabilities =
-        gcsClient.getBucketCapabilities("hns-bucket");
+    BucketCapabilities capabilities = gcsClient.getBucketCapabilities("hns-bucket");
     assertThat(capabilities.isHnsEnabled()).isTrue();
   }
 
@@ -276,8 +275,7 @@ class GcsClientImplTest {
             org.mockito.ArgumentMatchers.eq("flat-bucket"),
             org.mockito.ArgumentMatchers.any(Storage.BucketGetOption.class));
 
-    com.google.cloud.gcs.analyticscore.common.BucketCapabilities capabilities =
-        gcsClient.getBucketCapabilities("flat-bucket");
+    BucketCapabilities capabilities = gcsClient.getBucketCapabilities("flat-bucket");
     assertThat(capabilities.isHnsEnabled()).isFalse();
   }
 
@@ -291,8 +289,7 @@ class GcsClientImplTest {
             org.mockito.ArgumentMatchers.eq("flat-bucket-null-hns"),
             org.mockito.ArgumentMatchers.any(Storage.BucketGetOption.class));
 
-    com.google.cloud.gcs.analyticscore.common.BucketCapabilities capabilities =
-        gcsClient.getBucketCapabilities("flat-bucket-null-hns");
+    BucketCapabilities capabilities = gcsClient.getBucketCapabilities("flat-bucket-null-hns");
     assertThat(capabilities.isHnsEnabled()).isFalse();
   }
 

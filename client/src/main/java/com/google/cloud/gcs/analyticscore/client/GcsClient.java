@@ -15,7 +15,6 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
-import com.google.cloud.gcs.analyticscore.common.BucketCapabilities;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 
