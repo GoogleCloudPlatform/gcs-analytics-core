@@ -26,6 +26,8 @@ All configuration properties can be prefixed with a common string, e.g., `gcs.`.
 | `analytics-core.read.file-access-pattern`        | File access pattern. Supported values: `RANDOM`, `SEQUENTIAL`, `AUTO_SEQUENTIAL`, `AUTO_RANDOM`.               | `SEQUENTIAL`   |
 | `analytics-core.adaptive-read.sequential-read-threshold` | Threshold for number of sequential reads to switch to sequential mode.                                     | `3`            |
 | `analytics-core.random-read.min-request-size`              | Minimum request size for random reads. If the requested read size is smaller, it reads up to this size. | `131072 (128 KB)` |
+| `analytics-core.bucket-capabilities.cache.max-size`            | Maximum number of entries to hold in the bucket capabilities cache.                                     | `1000`          |
+| `analytics-core.bucket-capabilities.cache.max-entry-age-minutes`| Maximum age (in minutes) of an entry in the bucket capabilities cache.                                  | `5`             |
 | `analytics-core.telemetry.logging.enabled`                 | Controls whether logging telemetry reporter is enabled.                                                     | `false`        |
 | `analytics-core.telemetry.logging.level`                   | Specifies the log level for logging telemetry events. Supported: `TRACE`, `DEBUG`, `INFO`, `WARNING`, `ERROR`. | `DEBUG`        |
 | `analytics-core.telemetry.opentelemetry.enabled`           | Controls whether OpenTelemetry integration is enabled.                                                      | `false`        |
