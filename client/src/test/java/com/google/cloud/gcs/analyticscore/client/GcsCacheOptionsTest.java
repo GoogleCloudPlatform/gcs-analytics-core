@@ -19,6 +19,8 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class GcsCacheOptionsTest {
@@ -29,10 +31,12 @@ class GcsCacheOptionsTest {
 
     assertThat(options.isFooterCacheEnabled()).isTrue();
     assertThat(options.getFooterCacheMaxEntries()).isEqualTo(100);
+    assertThat(options.getBucketCapabilitiesCacheMaxSize()).isEqualTo(1000);
+    assertThat(options.getBucketCapabilitiesCacheMaxEntryAgeMinutes()).isEqualTo(5L);
   }
 
   @Test
-  void build_disabledCacheNonPositiveEntries_succeeds() {
+  void build_disabledFooterCacheNonPositiveEntries_succeeds() {
     GcsCacheOptions options =
         GcsCacheOptions.builder().setFooterCacheEnabled(false).setFooterCacheMaxEntries(0).build();
 
@@ -41,7 +45,7 @@ class GcsCacheOptionsTest {
   }
 
   @Test
-  void build_enabledCacheZeroEntries_throwsException() {
+  void build_enabledFooterCacheZeroEntries_throwsException() {
     GcsCacheOptions.Builder builder =
         GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxEntries(0);
 
@@ -49,10 +53,42 @@ class GcsCacheOptionsTest {
   }
 
   @Test
-  void build_enabledCacheNegativeEntries_throwsException() {
+  void build_enabledFooterCacheNegativeEntries_throwsException() {
     GcsCacheOptions.Builder builder =
         GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxEntries(-1);
 
     assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  @Test
+  void build_invalidBucketCapabilitiesMaxSize_throwsException() {
+    GcsCacheOptions.Builder builder =
+        GcsCacheOptions.builder().setBucketCapabilitiesCacheMaxSize(0);
+
+    assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  @Test
+  void build_invalidBucketCapabilitiesMaxEntryAgeMinutes_throwsException() {
+    GcsCacheOptions.Builder builder =
+        GcsCacheOptions.builder().setBucketCapabilitiesCacheMaxEntryAgeMinutes(-1);
+
+    assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  @Test
+  void createFromOptions_withAllOptions_succeeds() {
+    Map<String, String> map = new HashMap<>();
+    map.put("gcs.analytics-core.footer.cache.enabled", "false");
+    map.put("gcs.analytics-core.footer.cache.max-entries", "50");
+    map.put("gcs.analytics-core.bucket-capabilities.cache.max-size", "2000");
+    map.put("gcs.analytics-core.bucket-capabilities.cache.max-entry-age-minutes", "10");
+
+    GcsCacheOptions options = GcsCacheOptions.createFromOptions(map, "gcs.");
+
+    assertThat(options.isFooterCacheEnabled()).isFalse();
+    assertThat(options.getFooterCacheMaxEntries()).isEqualTo(50);
+    assertThat(options.getBucketCapabilitiesCacheMaxSize()).isEqualTo(2000);
+    assertThat(options.getBucketCapabilitiesCacheMaxEntryAgeMinutes()).isEqualTo(10L);
   }
 }
