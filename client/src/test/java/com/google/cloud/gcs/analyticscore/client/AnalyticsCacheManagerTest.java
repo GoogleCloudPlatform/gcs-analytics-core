@@ -19,6 +19,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.google.cloud.gcs.analyticscore.common.BucketCapabilities;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -147,5 +148,59 @@ class AnalyticsCacheManagerTest {
           return FOOTER.duplicate();
         });
     assertThat(callCount.get()).isEqualTo(2);
+  }
+
+  @Test
+  void getBucketCapabilities_notPresent_computesAndCachesValue() throws IOException {
+    AtomicInteger callCount = new AtomicInteger(0);
+    BucketCapabilities capabilities = new BucketCapabilities(true);
+
+    BucketCapabilities result1 =
+        manager.getBucketCapabilities(
+            "b",
+            bucketName -> {
+              callCount.incrementAndGet();
+              return capabilities;
+            });
+
+    BucketCapabilities result2 =
+        manager.getBucketCapabilities(
+            "b",
+            bucketName -> {
+              callCount.incrementAndGet();
+              return new BucketCapabilities(false);
+            });
+
+    assertThat(result1).isEqualTo(capabilities);
+    assertThat(result2).isEqualTo(capabilities);
+    assertThat(callCount.get()).isEqualTo(1);
+  }
+
+  @Test
+  void getBucketCapabilities_loaderThrowsIOException_rethrowsIOException() {
+    assertThrows(
+        IOException.class,
+        () ->
+            manager.getBucketCapabilities(
+                "b",
+                bucketName -> {
+                  throw new IOException("test-io-exception");
+                }));
+  }
+
+  @Test
+  void invalidateBucketCapabilities_present_removesEntry() throws IOException {
+    manager.getBucketCapabilities("b", bucketName -> new BucketCapabilities(true));
+
+    manager.invalidateBucketCapabilities("b");
+
+    AtomicInteger callCount = new AtomicInteger(0);
+    manager.getBucketCapabilities(
+        "b",
+        bucketName -> {
+          callCount.incrementAndGet();
+          return new BucketCapabilities(true);
+        });
+    assertThat(callCount.get()).isEqualTo(1);
   }
 }

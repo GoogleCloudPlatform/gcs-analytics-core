@@ -18,11 +18,13 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.cloud.gcs.analyticscore.common.BucketCapabilities;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCache;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCacheCaffeineImpl;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCacheNoOpImpl;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Manages the caching layer for GCS objects. This class is thread-safe and acts as a registry for
@@ -31,6 +33,7 @@ import java.nio.ByteBuffer;
 public class AnalyticsCacheManager {
 
   private final AnalyticsCache<GcsItemId, ByteBuffer> footerCache;
+  private final AnalyticsCache<String, BucketCapabilities> bucketCapabilitiesCache;
 
   /**
    * Creates a new {@link AnalyticsCacheManager} with the specified options.
@@ -43,6 +46,12 @@ public class AnalyticsCacheManager {
         options.isFooterCacheEnabled()
             ? AnalyticsCacheCaffeineImpl.create(options.getFooterCacheMaxEntries())
             : AnalyticsCacheNoOpImpl.getInstance();
+
+    this.bucketCapabilitiesCache =
+        AnalyticsCacheCaffeineImpl.createWithTtl(
+            options.getBucketCapabilitiesCacheMaxSize(),
+            options.getBucketCapabilitiesCacheMaxEntryAgeMinutes(),
+            TimeUnit.MINUTES);
   }
 
   /**
@@ -70,9 +79,31 @@ public class AnalyticsCacheManager {
     footerCache.invalidate(itemId);
   }
 
+  /**
+   * Returns the cached capabilities for the given {@code bucketName}, obtaining it from the {@code
+   * prober} if necessary. This method is atomic.
+   *
+   * @throws IOException if the prober throws an {@link IOException}.
+   */
+  public BucketCapabilities getBucketCapabilities(String bucketName, BucketProber prober)
+      throws IOException {
+    checkNotNull(bucketName, "bucketName cannot be null");
+    checkNotNull(prober, "prober cannot be null");
+
+    return bucketCapabilitiesCache.get(
+        bucketName, cachedBucketName -> checkNotNull(prober.probe(cachedBucketName)));
+  }
+
+  /** Invalidates the cached capabilities for the given {@code bucketName}. */
+  public void invalidateBucketCapabilities(String bucketName) {
+    checkNotNull(bucketName, "bucketName cannot be null");
+    bucketCapabilitiesCache.invalidate(bucketName);
+  }
+
   /** Invalidates all cached entries. */
   public void invalidateAll() {
     footerCache.invalidateAll();
+    bucketCapabilitiesCache.invalidateAll();
   }
 
   /** A loader for GCS object footers. */
@@ -80,5 +111,12 @@ public class AnalyticsCacheManager {
   public interface FooterLoader {
     /** Loads the footer for the given {@code itemId}. */
     ByteBuffer load(GcsItemId itemId) throws IOException;
+  }
+
+  /** A prober for GCS bucket capabilities. */
+  @FunctionalInterface
+  public interface BucketProber {
+    /** Probes the capabilities for the given {@code bucketName}. */
+    BucketCapabilities probe(String bucketName) throws IOException;
   }
 }
