@@ -117,42 +117,6 @@ class GcsClientImpl implements GcsClient {
   }
 
   @Override
-  public List<GcsItemInfo> listObjects(GcsItemId id) throws IOException {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  @Override
-  public void deleteObjects(List<GcsItemId> ids) throws IOException {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  @Override
-  public void updateObjectMetadata(GcsItemId id, java.util.Map<String, byte[]> metadata)
-      throws IOException {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  @Override
-  public GcsItemInfo getFolderMetadata(GcsItemId id) throws IOException {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  @Override
-  public void createFolder(GcsItemId id) throws IOException {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  @Override
-  public void deleteFolder(GcsItemId id) throws IOException {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  @Override
-  public void renameFolder(GcsItemId src, GcsItemId dst) throws IOException {
-    throw new UnsupportedOperationException("Not implemented yet");
-  }
-
-  @Override
   public BucketCapabilities getBucketCapabilities(String bucketName) throws IOException {
     try {
       BucketInfo bucket =
