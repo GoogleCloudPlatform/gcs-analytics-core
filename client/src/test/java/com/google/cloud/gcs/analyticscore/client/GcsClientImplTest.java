@@ -18,11 +18,22 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
-import com.google.cloud.storage.*;
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.Bucket;
+import com.google.cloud.storage.BucketInfo;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -41,8 +52,7 @@ class GcsClientImplTest {
   private static GcsClientOptions TEST_GCS_CLIENT_OPTIONS =
       GcsClientOptions.builder().setProjectId("test-project").build();
 
-  private final Storage storage =
-      org.mockito.Mockito.spy(LocalStorageHelper.getOptions().getService());
+  private final Storage storage = spy(LocalStorageHelper.getOptions().getService());
   private final Supplier<ExecutorService> executorServiceSupplier =
       Suppliers.memoize(() -> Executors.newFixedThreadPool(30));
   private final Telemetry telemetry = new Telemetry(ImmutableList.of());
@@ -247,60 +257,40 @@ class GcsClientImplTest {
 
   @Test
   void getBucketCapabilities_hnsEnabled_returnsTrue() throws IOException {
-    BucketInfo.HierarchicalNamespace hns =
-        org.mockito.Mockito.mock(BucketInfo.HierarchicalNamespace.class);
-    org.mockito.Mockito.when(hns.getEnabled()).thenReturn(true);
-    Bucket mockBucket = org.mockito.Mockito.mock(Bucket.class);
-    org.mockito.Mockito.when(mockBucket.getHierarchicalNamespace()).thenReturn(hns);
-    org.mockito.Mockito.doReturn(mockBucket)
-        .when(storage)
-        .get(
-            org.mockito.ArgumentMatchers.eq("hns-bucket"),
-            org.mockito.ArgumentMatchers.any(Storage.BucketGetOption.class));
-
+    BucketInfo.HierarchicalNamespace hns = mock(BucketInfo.HierarchicalNamespace.class);
+    when(hns.getEnabled()).thenReturn(true);
+    Bucket mockBucket = mock(Bucket.class);
+    when(mockBucket.getHierarchicalNamespace()).thenReturn(hns);
+    doReturn(mockBucket).when(storage).get(eq("hns-bucket"), any(Storage.BucketGetOption.class));
     BucketCapabilities capabilities = gcsClient.getBucketCapabilities("hns-bucket");
     assertThat(capabilities.isHnsEnabled()).isTrue();
   }
 
   @Test
   void getBucketCapabilities_hnsDisabled_returnsFalse() throws IOException {
-    BucketInfo.HierarchicalNamespace hns =
-        org.mockito.Mockito.mock(BucketInfo.HierarchicalNamespace.class);
-    org.mockito.Mockito.when(hns.getEnabled()).thenReturn(false);
-    Bucket mockBucket = org.mockito.Mockito.mock(Bucket.class);
-    org.mockito.Mockito.when(mockBucket.getHierarchicalNamespace()).thenReturn(hns);
-    org.mockito.Mockito.doReturn(mockBucket)
-        .when(storage)
-        .get(
-            org.mockito.ArgumentMatchers.eq("flat-bucket"),
-            org.mockito.ArgumentMatchers.any(Storage.BucketGetOption.class));
-
+    BucketInfo.HierarchicalNamespace hns = mock(BucketInfo.HierarchicalNamespace.class);
+    when(hns.getEnabled()).thenReturn(false);
+    Bucket mockBucket = mock(Bucket.class);
+    when(mockBucket.getHierarchicalNamespace()).thenReturn(hns);
+    doReturn(mockBucket).when(storage).get(eq("flat-bucket"), any(Storage.BucketGetOption.class));
     BucketCapabilities capabilities = gcsClient.getBucketCapabilities("flat-bucket");
     assertThat(capabilities.isHnsEnabled()).isFalse();
   }
 
   @Test
   void getBucketCapabilities_hnsNull_returnsFalse() throws IOException {
-    Bucket mockBucket = org.mockito.Mockito.mock(Bucket.class);
-    org.mockito.Mockito.when(mockBucket.getHierarchicalNamespace()).thenReturn(null);
-    org.mockito.Mockito.doReturn(mockBucket)
+    Bucket mockBucket = mock(Bucket.class);
+    when(mockBucket.getHierarchicalNamespace()).thenReturn(null);
+    doReturn(mockBucket)
         .when(storage)
-        .get(
-            org.mockito.ArgumentMatchers.eq("flat-bucket-null-hns"),
-            org.mockito.ArgumentMatchers.any(Storage.BucketGetOption.class));
-
+        .get(eq("flat-bucket-null-hns"), any(Storage.BucketGetOption.class));
     BucketCapabilities capabilities = gcsClient.getBucketCapabilities("flat-bucket-null-hns");
     assertThat(capabilities.isHnsEnabled()).isFalse();
   }
 
   @Test
   void getBucketCapabilities_bucketNotFound_throwsIOException() {
-    org.mockito.Mockito.doReturn(null)
-        .when(storage)
-        .get(
-            org.mockito.ArgumentMatchers.eq("non-existent-bucket"),
-            org.mockito.ArgumentMatchers.any(Storage.BucketGetOption.class));
-
+    doReturn(null).when(storage).get(eq("non-existent-bucket"), any(Storage.BucketGetOption.class));
     IOException e =
         assertThrows(
             IOException.class, () -> gcsClient.getBucketCapabilities("non-existent-bucket"));
@@ -309,12 +299,9 @@ class GcsClientImplTest {
 
   @Test
   void getBucketCapabilities_storageException_throwsIOException() {
-    org.mockito.Mockito.doThrow(new StorageException(500, "Internal Error"))
+    doThrow(new StorageException(500, "Internal Error"))
         .when(storage)
-        .get(
-            org.mockito.ArgumentMatchers.eq("error-bucket"),
-            org.mockito.ArgumentMatchers.any(Storage.BucketGetOption.class));
-
+        .get(eq("error-bucket"), any(Storage.BucketGetOption.class));
     IOException e =
         assertThrows(IOException.class, () -> gcsClient.getBucketCapabilities("error-bucket"));
     assertThat(e).hasMessageThat().contains("Unable to access bucket: error-bucket");
