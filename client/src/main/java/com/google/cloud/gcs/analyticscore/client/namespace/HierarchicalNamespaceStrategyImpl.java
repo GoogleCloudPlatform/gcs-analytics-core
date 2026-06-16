@@ -18,7 +18,7 @@ package com.google.cloud.gcs.analyticscore.client.namespace;
 
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
-import com.google.cloud.gcs.analyticscore.common.PathType;
+import com.google.cloud.gcs.analyticscore.client.PathType;
 import java.io.IOException;
 
 public class HierarchicalNamespaceStrategyImpl implements NamespaceStrategy {

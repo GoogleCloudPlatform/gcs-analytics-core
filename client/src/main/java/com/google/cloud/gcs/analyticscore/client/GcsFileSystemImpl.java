@@ -19,11 +19,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auth.Credentials;
-import com.google.cloud.gcs.analyticscore.client.cache.BucketCapabilitiesCache;
 import com.google.cloud.gcs.analyticscore.client.namespace.FlatNamespaceStrategyImpl;
 import com.google.cloud.gcs.analyticscore.client.namespace.HierarchicalNamespaceStrategyImpl;
 import com.google.cloud.gcs.analyticscore.client.namespace.NamespaceStrategy;
-import com.google.cloud.gcs.analyticscore.common.BucketCapabilities;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
@@ -112,6 +110,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
     this.telemetry = telemetry;
     this.cacheManager = cacheManager;
+  }
 
   public NamespaceStrategy resolveStrategy(String bucketName) throws IOException {
     BucketCapabilities capabilities =
@@ -161,9 +160,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   @Override
-  public GcsItemInfo getFileInfo(
-      GcsItemId itemId, com.google.cloud.gcs.analyticscore.common.PathType pathType)
-      throws IOException {
+  public GcsItemInfo getFileInfo(GcsItemId itemId, PathType pathType) throws IOException {
     return resolveStrategy(itemId.getBucketName()).getFileInfo(itemId, pathType);
   }
 
