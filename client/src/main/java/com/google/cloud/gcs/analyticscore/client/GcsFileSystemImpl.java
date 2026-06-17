@@ -19,6 +19,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.client.namespace.FlatNamespaceStrategyImpl;
+import com.google.cloud.gcs.analyticscore.client.namespace.HierarchicalNamespaceStrategyImpl;
+import com.google.cloud.gcs.analyticscore.client.namespace.NamespaceStrategy;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
@@ -174,6 +177,18 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   @Override
   public AnalyticsCacheManager getCacheManager() {
     return cacheManager;
+  }
+
+  @VisibleForTesting
+  @Override
+  public FlatNamespaceStrategyImpl getFlatStrategy() {
+    return flatStrategy;
+  }
+
+  @VisibleForTesting
+  @Override
+  public HierarchicalNamespaceStrategyImpl getHnsStrategy() {
+    return hnsStrategy;
   }
 
   @Override
