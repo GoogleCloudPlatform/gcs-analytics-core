@@ -112,7 +112,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.cacheManager = cacheManager;
   }
 
-  public NamespaceStrategy resolveStrategy(String bucketName) throws IOException {
+  NamespaceStrategy resolveStrategy(String bucketName) throws IOException {
     BucketCapabilities capabilities =
         cacheManager.getBucketCapabilities(bucketName, gcsClient::getBucketCapabilities);
 
@@ -180,14 +180,12 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   @VisibleForTesting
-  @Override
-  public FlatNamespaceStrategyImpl getFlatStrategy() {
+  FlatNamespaceStrategyImpl getFlatStrategy() {
     return flatStrategy;
   }
 
   @VisibleForTesting
-  @Override
-  public HierarchicalNamespaceStrategyImpl getHnsStrategy() {
+  HierarchicalNamespaceStrategyImpl getHnsStrategy() {
     return hnsStrategy;
   }
 

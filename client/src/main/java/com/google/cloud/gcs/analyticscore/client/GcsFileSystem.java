@@ -15,10 +15,7 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
-import com.google.cloud.gcs.analyticscore.client.namespace.FlatNamespaceStrategyImpl;
-import com.google.cloud.gcs.analyticscore.client.namespace.HierarchicalNamespaceStrategyImpl;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
-import com.google.common.annotations.VisibleForTesting;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
@@ -70,14 +67,6 @@ public interface GcsFileSystem extends AutoCloseable {
 
   /** Returns the cache manager used by this file system. */
   AnalyticsCacheManager getCacheManager();
-
-  /** Returns the flat namespace strategy used by this file system. */
-  @VisibleForTesting
-  FlatNamespaceStrategyImpl getFlatStrategy();
-
-  /** Returns the hierarchical namespace strategy used by this file system. */
-  @VisibleForTesting
-  HierarchicalNamespaceStrategyImpl getHnsStrategy();
 
   /** Close the file system. */
   @Override
