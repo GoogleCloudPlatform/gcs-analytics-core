@@ -33,9 +33,7 @@ public abstract class GcsItemInfo {
   /** Generation ID of the object when the metadata is read. */
   public abstract Optional<Long> getContentGeneration();
 
-  /**
-   * Indicates whether this is a simulated directory.
-   */
+  /** Indicates whether this is a simulated directory. */
   public abstract boolean isInferredDirectory();
 
   /**
