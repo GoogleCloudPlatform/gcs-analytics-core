@@ -24,6 +24,7 @@ import java.util.Optional;
 @AutoValue
 public abstract class GcsItemInfo {
 
+  /** Returns the identifier of the GCS item. */
   public abstract GcsItemId getItemId();
 
   /** Size of an object in bytes. Returns -1 for items that do not exist. */
@@ -32,10 +33,18 @@ public abstract class GcsItemInfo {
   /** Generation ID of the object when the metadata is read. */
   public abstract Optional<Long> getContentGeneration();
 
+  /**
+   * Indicates whether this is a simulated directory.
+   */
   public abstract boolean isInferredDirectory();
 
+  /**
+   * Indicates whether the item is a natively created folder in a Hierarchical Namespace (HNS)
+   * enabled bucket.
+   */
   public abstract boolean isNativeHnsFolder();
 
+  /** Returns the custom extended attributes (metadata) associated with the item. */
   public abstract Map<String, byte[]> getExtendedAttributes();
 
   public static Builder builder() {

@@ -40,11 +40,10 @@ public class AnalyticsCacheCaffeineImpl<K, V> implements AnalyticsCache<K, V> {
     this.cache = Caffeine.newBuilder().maximumSize(maxEntries).build();
   }
 
-  private AnalyticsCacheCaffeineImpl(long maxEntries, long ttl, TimeUnit unit) {
-    checkArgument(maxEntries > 0, "maxEntries must be positive");
+  private AnalyticsCacheCaffeineImpl(long ttl, TimeUnit unit) {
     checkArgument(ttl >= 0, "ttl must be non-negative");
     checkNotNull(unit, "unit cannot be null");
-    this.cache = Caffeine.newBuilder().maximumSize(maxEntries).expireAfterWrite(ttl, unit).build();
+    this.cache = Caffeine.newBuilder().expireAfterWrite(ttl, unit).build();
   }
 
   /**
@@ -55,12 +54,11 @@ public class AnalyticsCacheCaffeineImpl<K, V> implements AnalyticsCache<K, V> {
   }
 
   /**
-   * Creates a new {@link AnalyticsCacheCaffeineImpl} with the specified maximum number of entries
-   * and time-to-live.
+   * Creates a new {@link AnalyticsCacheCaffeineImpl} with the specified time-to-live and no maximum
+   * number of entries.
    */
-  public static <K, V> AnalyticsCacheCaffeineImpl<K, V> createWithTtl(
-      long maxEntries, long ttl, TimeUnit unit) {
-    return new AnalyticsCacheCaffeineImpl<>(maxEntries, ttl, unit);
+  public static <K, V> AnalyticsCacheCaffeineImpl<K, V> createWithTtlOnly(long ttl, TimeUnit unit) {
+    return new AnalyticsCacheCaffeineImpl<>(ttl, unit);
   }
 
   /** {@inheritDoc} */

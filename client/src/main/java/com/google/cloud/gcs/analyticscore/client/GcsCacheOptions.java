@@ -29,25 +29,19 @@ public abstract class GcsCacheOptions {
   private static final String FOOTER_CACHE_MAX_ENTRIES_KEY =
       "analytics-core.footer.cache.max-entries";
 
-  private static final String BUCKET_CAPABILITIES_CACHE_MAX_SIZE_KEY =
-      "analytics-core.bucket-capabilities.cache.max-size";
   private static final String BUCKET_CAPABILITIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY =
       "analytics-core.bucket-capabilities.cache.max-entry-age-minutes";
 
   private static final boolean DEFAULT_FOOTER_CACHE_ENABLED = true;
   private static final int DEFAULT_FOOTER_CACHE_MAX_ENTRIES = 100;
 
-  private static final int DEFAULT_BUCKET_CAPABILITIES_CACHE_MAX_SIZE = 1000;
-  private static final long DEFAULT_BUCKET_CAPABILITIES_CACHE_MAX_ENTRY_AGE_MINUTES = 5;
+  private static final long DEFAULT_BUCKET_CAPABILITIES_CACHE_MAX_ENTRY_AGE_MINUTES = 10;
 
   /** Returns whether the Parquet footer cache is enabled. */
   public abstract boolean isFooterCacheEnabled();
 
   /** Returns the maximum number of entries to hold in the Parquet footer cache. */
   public abstract int getFooterCacheMaxEntries();
-
-  /** Returns the maximum number of entries to hold in the bucket capabilities cache. */
-  public abstract int getBucketCapabilitiesCacheMaxSize();
 
   /** Returns the maximum age (in minutes) of an entry in the bucket capabilities cache. */
   public abstract long getBucketCapabilitiesCacheMaxEntryAgeMinutes();
@@ -62,7 +56,6 @@ public abstract class GcsCacheOptions {
     return new AutoValue_GcsCacheOptions.Builder()
         .setFooterCacheEnabled(DEFAULT_FOOTER_CACHE_ENABLED)
         .setFooterCacheMaxEntries(DEFAULT_FOOTER_CACHE_MAX_ENTRIES)
-        .setBucketCapabilitiesCacheMaxSize(DEFAULT_BUCKET_CAPABILITIES_CACHE_MAX_SIZE)
         .setBucketCapabilitiesCacheMaxEntryAgeMinutes(
             DEFAULT_BUCKET_CAPABILITIES_CACHE_MAX_ENTRY_AGE_MINUTES);
   }
@@ -78,11 +71,6 @@ public abstract class GcsCacheOptions {
     if (analyticsCoreOptions.containsKey(prefix + FOOTER_CACHE_MAX_ENTRIES_KEY)) {
       optionsBuilder.setFooterCacheMaxEntries(
           Integer.parseInt(analyticsCoreOptions.get(prefix + FOOTER_CACHE_MAX_ENTRIES_KEY)));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + BUCKET_CAPABILITIES_CACHE_MAX_SIZE_KEY)) {
-      optionsBuilder.setBucketCapabilitiesCacheMaxSize(
-          Integer.parseInt(
-              analyticsCoreOptions.get(prefix + BUCKET_CAPABILITIES_CACHE_MAX_SIZE_KEY)));
     }
     if (analyticsCoreOptions.containsKey(
         prefix + BUCKET_CAPABILITIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY)) {
@@ -103,9 +91,6 @@ public abstract class GcsCacheOptions {
     /** Sets the maximum number of entries to hold in the Parquet footer cache. */
     public abstract Builder setFooterCacheMaxEntries(int footerCacheMaxEntries);
 
-    /** Sets the maximum number of entries to hold in the bucket capabilities cache. */
-    public abstract Builder setBucketCapabilitiesCacheMaxSize(int bucketCapabilitiesCacheMaxSize);
-
     /** Sets the maximum age (in minutes) of an entry in the bucket capabilities cache. */
     public abstract Builder setBucketCapabilitiesCacheMaxEntryAgeMinutes(
         long bucketCapabilitiesCacheMaxEntryAgeMinutes);
@@ -125,9 +110,6 @@ public abstract class GcsCacheOptions {
             options.getFooterCacheMaxEntries() > 0,
             "footerCacheMaxEntries must be positive when footerCacheEnabled is true");
       }
-      checkArgument(
-          options.getBucketCapabilitiesCacheMaxSize() > 0,
-          "bucketCapabilitiesCacheMaxSize must be positive");
       checkArgument(
           options.getBucketCapabilitiesCacheMaxEntryAgeMinutes() >= 0,
           "bucketCapabilitiesCacheMaxEntryAgeMinutes must be non-negative");
