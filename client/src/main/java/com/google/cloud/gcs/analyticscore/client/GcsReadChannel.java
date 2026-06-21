@@ -32,9 +32,11 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SeekableByteChannel;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Consumer;
 import java.util.function.IntFunction;
 
 class GcsReadChannel implements VectoredSeekableByteChannel {
@@ -200,12 +202,20 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   @Override
   public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException {
+    readVectored(ranges, allocate, buffer -> {});
+  }
+
+  @Override
+  public void readVectored(
+      List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate, Consumer<ByteBuffer> release)
+      throws IOException {
     Operation operation =
         Operation.builder()
             .setName(GcsAnalyticsCoreTelemetryConstants.Operation.VECTORED_READ.name())
             .setDurationMetric(Metric.READ_DURATION)
             .setAttributes(COMMON_ATTRIBUTES)
             .build();
+    checkNotNull(release, "Buffer release function must not be null");
     ExecutorService executorService = executorServiceSupplier.get();
     checkNotNull(executorService, "Thread pool must not be null");
     GcsVectoredReadOptions vectoredReadOptions = readOptions.getGcsVectoredReadOptions();
@@ -219,7 +229,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       var unused =
           executorService.submit(
               () -> {
-                readCombinedRange(combinedRange, allocate, operation);
+                readCombinedRange(combinedRange, allocate, release, operation);
               });
     }
   }
@@ -227,17 +237,19 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   void readCombinedRange(
       GcsObjectCombinedRange combinedObjectRange,
       IntFunction<ByteBuffer> allocate,
+      Consumer<ByteBuffer> release,
       Operation operation) {
     telemetry.measure(
         operation,
         recorder -> {
           ReadStrategy readStrategy =
               new RandomReadStrategy(storage, itemId, readOptions, itemInfo);
+          ByteBuffer dataBuffer = null;
           try (ReadChannel channel =
               readStrategy.getReadChannel(
                   combinedObjectRange.getOffset(), combinedObjectRange.getLength())) {
             validatePosition(combinedObjectRange.getOffset());
-            ByteBuffer dataBuffer = allocate.apply(combinedObjectRange.getLength());
+            dataBuffer = allocate.apply(combinedObjectRange.getLength());
             int numOfBytesRead = 0;
             while (dataBuffer.hasRemaining()) {
               int bytesRead = channel.read(dataBuffer);
@@ -260,18 +272,30 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             }
             // making it ready for reading
             dataBuffer.flip();
+            List<ByteBuffer> childBuffers = new ArrayList<>();
             for (GcsObjectRange underlyingRange : combinedObjectRange.getUnderlyingRanges()) {
-              populateGcsObjectRangeFromCombinedObjectRange(
-                  combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer);
+              childBuffers.add(
+                  getGcsObjectRangeDataFromCombinedObjectRange(
+                      combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer));
+            }
+            for (int i = 0; i < combinedObjectRange.getUnderlyingRanges().size(); i++) {
+              combinedObjectRange
+                  .getUnderlyingRanges()
+                  .get(i)
+                  .getByteBufferFuture()
+                  .complete(childBuffers.get(i));
             }
           } catch (Exception e) {
+            if (dataBuffer != null) {
+              releaseBufferOnFailure(dataBuffer, release, e);
+            }
             completeWithException(combinedObjectRange, e);
           }
           return null;
         });
   }
 
-  private void populateGcsObjectRangeFromCombinedObjectRange(
+  private ByteBuffer getGcsObjectRangeDataFromCombinedObjectRange(
       GcsObjectCombinedRange combinedObjectRange,
       GcsObjectRange objectRange,
       long numOfBytesRead,
@@ -280,9 +304,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     long maxPosition = combinedObjectRange.getOffset() + numOfBytesRead;
     long objectRangeEndPosition = objectRange.getOffset() + objectRange.getLength();
     if (objectRangeEndPosition <= maxPosition) {
-      ByteBuffer childBuffer =
-          VectoredIoUtil.fetchUnderlyingRangeData(dataBuffer, combinedObjectRange, objectRange);
-      objectRange.getByteBufferFuture().complete(childBuffer);
+      return VectoredIoUtil.fetchUnderlyingRangeData(dataBuffer, combinedObjectRange, objectRange);
     } else {
       throw new EOFException(
           String.format(
@@ -290,6 +312,15 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
                   + "combinedObjectRange: %s, "
                   + "expected length: %s, readBytes: %s, path: %s",
               combinedObjectRange, combinedObjectRange.getLength(), numOfBytesRead, itemId));
+    }
+  }
+
+  private void releaseBufferOnFailure(
+      ByteBuffer buffer, Consumer<ByteBuffer> release, Throwable failure) {
+    try {
+      release.accept(buffer);
+    } catch (RuntimeException releaseException) {
+      failure.addSuppressed(releaseException);
     }
   }
 

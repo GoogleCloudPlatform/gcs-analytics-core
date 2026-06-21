@@ -29,6 +29,7 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.IntFunction;
 import javax.annotation.Nonnull;
 import org.slf4j.Logger;
@@ -265,24 +266,49 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   @Override
   public void readVectored(List<GcsObjectRange> fileRanges, IntFunction<ByteBuffer> alloc)
       throws IOException {
+    readVectored(fileRanges, alloc, buffer -> {});
+  }
+
+  @Override
+  public void readVectored(
+      List<GcsObjectRange> fileRanges, IntFunction<ByteBuffer> alloc, Consumer<ByteBuffer> release)
+      throws IOException {
+    checkNotNull(release, "Buffer release function must not be null");
     if (prefetchBuffer != null && prefetchSize == fileSize) {
       // Entire object is cached, serve from prefetchBuffer
       for (GcsObjectRange range : fileRanges) {
         ByteBuffer dest = alloc.apply(range.getLength());
-        int bytesRead = serveFromCacheWithoutSeek(range.getOffset(), dest);
-        if (bytesRead < range.getLength()) {
+        try {
+          int bytesRead = serveFromCacheWithoutSeek(range.getOffset(), dest);
+          if (bytesRead < range.getLength()) {
+            EOFException eofException =
+                new EOFException(
+                    String.format("Error while populating range: %s, unexpected EOF", range));
+            releaseBufferOnFailure(dest, release, eofException);
+            range.getByteBufferFuture().completeExceptionally(eofException);
+          } else {
+            dest.flip();
+            range.getByteBufferFuture().complete(dest);
+          }
+        } catch (IOException | RuntimeException e) {
+          releaseBufferOnFailure(dest, release, e);
           range
               .getByteBufferFuture()
               .completeExceptionally(
-                  new EOFException(
-                      String.format("Error while populating range: %s, unexpected EOF", range)));
-        } else {
-          dest.flip();
-          range.getByteBufferFuture().complete(dest);
+                  new IOException(String.format("Error while populating range: %s", range), e));
         }
       }
     } else {
-      channel.readVectored(fileRanges, alloc);
+      channel.readVectored(fileRanges, alloc, release);
+    }
+  }
+
+  private static void releaseBufferOnFailure(
+      ByteBuffer buffer, Consumer<ByteBuffer> release, Throwable failure) {
+    try {
+      release.accept(buffer);
+    } catch (RuntimeException releaseException) {
+      failure.addSuppressed(releaseException);
     }
   }
 

@@ -20,6 +20,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.IntFunction;
 
 /**
@@ -91,4 +93,25 @@ public abstract class SeekableInputStream extends InputStream {
    */
   public abstract void readVectored(
       List<GcsObjectRange> fileRanges, final IntFunction<ByteBuffer> alloc) throws IOException;
+
+  /**
+   * Performs a vectored read, fetching multiple ranges in parallel. Buffers for the data are
+   * supplied by the provided allocation function.
+   *
+   * <p>If a read fails after a buffer has been allocated, the implementation may invoke {@code
+   * release} with the allocated buffer before completing the relevant range futures exceptionally.
+   *
+   * @param fileRanges a list of {@link GcsObjectRange} ranges to be read in parallel.
+   * @param alloc a function that allocates a {@link ByteBuffer} of a given size.
+   * @param release a function that releases allocated buffers on failure.
+   * @throws IOException if any I/O error occurs during the reads.
+   */
+  public void readVectored(
+      List<GcsObjectRange> fileRanges,
+      final IntFunction<ByteBuffer> alloc,
+      final Consumer<ByteBuffer> release)
+      throws IOException {
+    Objects.requireNonNull(release, "Buffer release function must not be null");
+    readVectored(fileRanges, alloc);
+  }
 }

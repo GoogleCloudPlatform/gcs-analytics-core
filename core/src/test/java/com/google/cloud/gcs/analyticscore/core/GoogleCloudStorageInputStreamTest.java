@@ -31,6 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -715,9 +717,21 @@ class GoogleCloudStorageInputStreamTest {
   void readVectored_delegatesToReadChannelAndDoesNotChangeState() throws IOException {
     googleCloudStorageInputStream = defaultGcsInputStream();
     long positionBeforeVectoredRead = googleCloudStorageInputStream.getPos();
-    googleCloudStorageInputStream.readVectored(any(), any());
+    googleCloudStorageInputStream.readVectored(List.of(), ByteBuffer::allocate);
 
-    verify(mockChannel).readVectored(any(), any());
+    verify(mockChannel).readVectored(any(), any(), any());
+    assertThat(mockChannel.position()).isEqualTo(positionBeforeVectoredRead);
+  }
+
+  @Test
+  void readVectored_withRelease_delegatesToReadChannelAndDoesNotChangeState() throws IOException {
+    googleCloudStorageInputStream = defaultGcsInputStream();
+    long positionBeforeVectoredRead = googleCloudStorageInputStream.getPos();
+    Consumer<ByteBuffer> release = buffer -> {};
+
+    googleCloudStorageInputStream.readVectored(List.of(), ByteBuffer::allocate, release);
+
+    verify(mockChannel).readVectored(any(), any(), same(release));
     assertThat(mockChannel.position()).isEqualTo(positionBeforeVectoredRead);
   }
 
@@ -1149,6 +1163,37 @@ class GoogleCloudStorageInputStreamTest {
     ExecutionException exception =
         assertThrows(ExecutionException.class, () -> range1.getByteBufferFuture().get());
     assertThat(exception).hasCauseThat().isInstanceOf(EOFException.class);
+  }
+
+  @Test
+  void readVectored_smallObjectCached_partialRead_releasesAllocatedBuffer()
+      throws IOException, InterruptedException {
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.createFromOptions(
+            Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    TestDataGenerator.createGcsData(itemId, 1024);
+    FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(
+            fakeGcsFileSystem, URI.create("gs://test-bucket/test-object"));
+    GcsObjectRange range = createGcsObjectRange(/* offset= */ 1000, /* length= */ 100);
+    AtomicReference<ByteBuffer> allocatedBuffer = new AtomicReference<>();
+    AtomicReference<ByteBuffer> releasedBuffer = new AtomicReference<>();
+    googleCloudStorageInputStream.read();
+
+    googleCloudStorageInputStream.readVectored(
+        List.of(range),
+        size -> {
+          ByteBuffer buffer = ByteBuffer.allocate(size);
+          allocatedBuffer.set(buffer);
+          return buffer;
+        },
+        releasedBuffer::set);
+
+    assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(releasedBuffer.get()).isSameInstanceAs(allocatedBuffer.get());
   }
 
   @Test
