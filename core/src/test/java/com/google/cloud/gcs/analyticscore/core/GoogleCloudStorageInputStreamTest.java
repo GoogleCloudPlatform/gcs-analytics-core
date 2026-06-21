@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
@@ -1194,6 +1195,43 @@ class GoogleCloudStorageInputStreamTest {
 
     assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
     assertThat(releasedBuffer.get()).isSameInstanceAs(allocatedBuffer.get());
+  }
+
+  @Test
+  void readVectored_smallObjectCached_allocationError_completesFuturesExceptionally()
+      throws IOException {
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.createFromOptions(
+            Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    TestDataGenerator.createGcsData(itemId, 1024);
+    FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(
+            fakeGcsFileSystem, URI.create("gs://test-bucket/test-object"));
+    GcsObjectRange range1 = createGcsObjectRange(/* offset= */ 200, /* length= */ 100);
+    GcsObjectRange range2 = createGcsObjectRange(/* offset= */ 600, /* length= */ 100);
+    AtomicInteger allocationCount = new AtomicInteger();
+    AtomicInteger releaseCount = new AtomicInteger();
+    googleCloudStorageInputStream.read();
+
+    googleCloudStorageInputStream.readVectored(
+        List.of(range1, range2),
+        size -> {
+          allocationCount.incrementAndGet();
+          throw new RuntimeException("Allocation failed");
+        },
+        buffer -> releaseCount.incrementAndGet());
+
+    ExecutionException range1Exception =
+        assertThrows(ExecutionException.class, () -> range1.getByteBufferFuture().get());
+    ExecutionException range2Exception =
+        assertThrows(ExecutionException.class, () -> range2.getByteBufferFuture().get());
+    assertThat(range1Exception).hasCauseThat().isInstanceOf(IOException.class);
+    assertThat(range2Exception).hasCauseThat().isInstanceOf(IOException.class);
+    assertThat(allocationCount.get()).isEqualTo(2);
+    assertThat(releaseCount.get()).isEqualTo(0);
   }
 
   @Test

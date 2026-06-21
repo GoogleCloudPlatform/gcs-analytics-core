@@ -277,8 +277,9 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
     if (prefetchBuffer != null && prefetchSize == fileSize) {
       // Entire object is cached, serve from prefetchBuffer
       for (GcsObjectRange range : fileRanges) {
-        ByteBuffer dest = alloc.apply(range.getLength());
+        ByteBuffer dest = null;
         try {
+          dest = alloc.apply(range.getLength());
           int bytesRead = serveFromCacheWithoutSeek(range.getOffset(), dest);
           if (bytesRead < range.getLength()) {
             EOFException eofException =
@@ -291,7 +292,9 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             range.getByteBufferFuture().complete(dest);
           }
         } catch (IOException | RuntimeException e) {
-          releaseBufferOnFailure(dest, release, e);
+          if (dest != null) {
+            releaseBufferOnFailure(dest, release, e);
+          }
           range
               .getByteBufferFuture()
               .completeExceptionally(
