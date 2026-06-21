@@ -42,6 +42,15 @@ import org.mockito.stubbing.Answer;
 
 class GoogleCloudStorageInputStreamTest {
 
+  private static final int KB = 1024;
+  private static final int SMALL_OBJECT_CACHE_THRESHOLD_BYTES = KB;
+  private static final int OBJECT_SIZE_LARGER_THAN_CACHE_THRESHOLD_BYTES =
+      SMALL_OBJECT_CACHE_THRESHOLD_BYTES + KB;
+  private static final int FULL_OBJECT_CACHE_SIZE_BYTES = 200 * KB;
+  private static final int FOOTER_PREFETCH_SIZE_BYTES = 100 * KB;
+  private static final int FULL_OBJECT_SIZE_BYTES = 202_400;
+  private static final long TWO_GIB_BYTES = 2L * KB * KB * KB;
+
   private final long fileSize = 1000L;
   private final int prefetchSize = 10;
   private final URI testUri = URI.create("gs://test-bucket/test-object");
@@ -592,7 +601,7 @@ class GoogleCloudStorageInputStreamTest {
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(Map.of(), "");
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    byte[] data = TestDataGenerator.createGcsData(itemId, 1024);
+    byte[] data = TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(fakeGcsFileSystem, itemId);
     long initialStreamPosition = googleCloudStorageInputStream.getPos();
@@ -656,7 +665,7 @@ class GoogleCloudStorageInputStreamTest {
     byte[] buffer = new byte[20]; // larger buffer
     byte[] readData = new byte[length];
     int offset = 5;
-    long fileSize = 1024L;
+    long fileSize = SMALL_OBJECT_CACHE_THRESHOLD_BYTES;
     long expectedPosition = fileSize - length;
     when(mockGcsItemInfo.getSize()).thenReturn(fileSize);
     when(mockChannel.read(any(ByteBuffer.class)))
@@ -685,7 +694,7 @@ class GoogleCloudStorageInputStreamTest {
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(Map.of(), "");
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    byte[] data = TestDataGenerator.createGcsData(itemId, 1024);
+    byte[] data = TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(fakeGcsFileSystem, itemId);
     long initialStreamPosition = googleCloudStorageInputStream.getPos();
@@ -705,7 +714,7 @@ class GoogleCloudStorageInputStreamTest {
     byte[] buffer = new byte[20];
 
     when(mockGcsFileInfo.getItemInfo()).thenReturn(mockGcsItemInfo);
-    when(mockGcsItemInfo.getSize()).thenReturn(1024L);
+    when(mockGcsItemInfo.getSize()).thenReturn((long) SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
 
     googleCloudStorageInputStream = defaultGcsInputStream();
 
@@ -739,13 +748,14 @@ class GoogleCloudStorageInputStreamTest {
   void readVectored_fullObjectCached_servesFromCache() throws IOException {
     GcsReadOptions readOptions =
         GcsReadOptions.builder()
-            .setSmallObjectCacheSize(204800) // 200KB
-            .setFooterPrefetchSizeSmallFile(102400)
+            .setSmallObjectCacheSize(FULL_OBJECT_CACHE_SIZE_BYTES)
+            .setFooterPrefetchSizeSmallFile(FOOTER_PREFETCH_SIZE_BYTES)
             .build();
-    when(mockGcsItemInfo.getSize()).thenReturn(202400L);
+    when(mockGcsItemInfo.getSize()).thenReturn((long) FULL_OBJECT_SIZE_BYTES);
     when(mockClientOptions.getGcsReadOptions()).thenReturn(readOptions);
     when(mockFileSystem.open(eq(mockGcsFileInfo), eq(readOptions))).thenReturn(mockChannel);
-    byte[] fileContent = TestDataGenerator.generateSeededRandomBytes(204800, /* seed= */ 1);
+    byte[] fileContent =
+        TestDataGenerator.generateSeededRandomBytes(FULL_OBJECT_CACHE_SIZE_BYTES, /* seed= */ 1);
     mockChannelReadToWriteBytes(mockChannel, fileContent);
   }
 
@@ -866,7 +876,7 @@ class GoogleCloudStorageInputStreamTest {
 
   @Test
   void read_forLargeFile_usesLargeFilePrefetchSize() throws IOException {
-    long largeFileSize = 2L * 1024 * 1024 * 1024;
+    long largeFileSize = TWO_GIB_BYTES;
     int largeFilePrefetchSize = 20;
     when(mockGcsItemInfo.getSize()).thenReturn(largeFileSize);
 
@@ -1115,12 +1125,10 @@ class GoogleCloudStorageInputStreamTest {
   @Test
   void readVectored_smallObjectCached_readsFromCache()
       throws IOException, ExecutionException, InterruptedException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.createFromOptions(
-            Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
+    GcsFileSystemOptions options = smallObjectCacheOptions();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    byte data[] = TestDataGenerator.createGcsData(itemId, 1024);
+    byte data[] = TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream =
         GoogleCloudStorageInputStream.create(
@@ -1145,12 +1153,10 @@ class GoogleCloudStorageInputStreamTest {
   @Test
   void readVectored_smallObjectCached_partialRead_throws()
       throws IOException, ExecutionException, InterruptedException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.createFromOptions(
-            Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
+    GcsFileSystemOptions options = smallObjectCacheOptions();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    TestDataGenerator.createGcsData(itemId, 1024);
+    TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream =
         GoogleCloudStorageInputStream.create(
@@ -1169,12 +1175,10 @@ class GoogleCloudStorageInputStreamTest {
   @Test
   void readVectored_smallObjectCached_partialRead_releasesAllocatedBuffer()
       throws IOException, InterruptedException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.createFromOptions(
-            Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
+    GcsFileSystemOptions options = smallObjectCacheOptions();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    TestDataGenerator.createGcsData(itemId, 1024);
+    TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream =
         GoogleCloudStorageInputStream.create(
@@ -1200,12 +1204,10 @@ class GoogleCloudStorageInputStreamTest {
   @Test
   void readVectored_smallObjectCached_allocationError_completesFuturesExceptionally()
       throws IOException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.createFromOptions(
-            Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
+    GcsFileSystemOptions options = smallObjectCacheOptions();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    TestDataGenerator.createGcsData(itemId, 1024);
+    TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream =
         GoogleCloudStorageInputStream.create(
@@ -1237,12 +1239,11 @@ class GoogleCloudStorageInputStreamTest {
   @Test
   void readVectored_cacheNotAvailable_readsFromChannels()
       throws IOException, ExecutionException, InterruptedException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.createFromOptions(
-            Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
+    GcsFileSystemOptions options = smallObjectCacheOptions();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    byte data[] = TestDataGenerator.createGcsData(itemId, 2024);
+    byte data[] =
+        TestDataGenerator.createGcsData(itemId, OBJECT_SIZE_LARGER_THAN_CACHE_THRESHOLD_BYTES);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream =
         GoogleCloudStorageInputStream.create(
@@ -1265,12 +1266,10 @@ class GoogleCloudStorageInputStreamTest {
 
   @Test
   void read_fromHead_smallObjectCachingEnabled_objectSmall_caches() throws IOException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.createFromOptions(
-            Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
+    GcsFileSystemOptions options = smallObjectCacheOptions();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    byte data[] = TestDataGenerator.createGcsData(itemId, 1024);
+    byte data[] = TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream =
         GoogleCloudStorageInputStream.create(
@@ -1287,12 +1286,10 @@ class GoogleCloudStorageInputStreamTest {
   @Test
   void read_fromHead_smallObjectCachingEnabled_readBufferSizeMoreThanFileSize_caches()
       throws IOException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.createFromOptions(
-            Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
+    GcsFileSystemOptions options = smallObjectCacheOptions();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    byte data[] = TestDataGenerator.createGcsData(itemId, 1024);
+    byte data[] = TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream =
         GoogleCloudStorageInputStream.create(
@@ -1309,12 +1306,10 @@ class GoogleCloudStorageInputStreamTest {
 
   @Test
   void read_smallObjectCachingEnabled_currPosEndOfFile_returnEOF() throws IOException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.createFromOptions(
-            Map.of("analytics-core.small-file.cache.threshold-bytes", "1024"), "");
+    GcsFileSystemOptions options = smallObjectCacheOptions();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    byte data[] = TestDataGenerator.createGcsData(itemId, 1024);
+    byte data[] = TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream =
         GoogleCloudStorageInputStream.create(
@@ -1333,14 +1328,14 @@ class GoogleCloudStorageInputStreamTest {
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(Map.of(), "");
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    byte data[] = TestDataGenerator.createGcsData(itemId, 1024);
+    byte data[] = TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
     googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(fakeGcsFileSystem, itemId);
     ByteBuffer readBuffer = ByteBuffer.allocate(8000);
 
     int bytesRead = googleCloudStorageInputStream.read(readBuffer);
 
-    assertThat(bytesRead).isEqualTo(1024);
+    assertThat(bytesRead).isEqualTo(SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
     readBuffer.limit(bytesRead).position(0);
     assertTargetByteBufferPresentAtOffset(data, readBuffer, 0, bytesRead);
   }
@@ -1375,5 +1370,13 @@ class GoogleCloudStorageInputStreamTest {
         .setLength(length)
         .setByteBufferFuture(new CompletableFuture<>())
         .build();
+  }
+
+  private static GcsFileSystemOptions smallObjectCacheOptions() {
+    return GcsFileSystemOptions.createFromOptions(
+        Map.of(
+            "analytics-core.small-file.cache.threshold-bytes",
+            String.valueOf(SMALL_OBJECT_CACHE_THRESHOLD_BYTES)),
+        "");
   }
 }
