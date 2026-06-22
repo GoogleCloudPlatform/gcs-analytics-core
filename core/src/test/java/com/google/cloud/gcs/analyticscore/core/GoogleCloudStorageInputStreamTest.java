@@ -375,6 +375,7 @@ class GoogleCloudStorageInputStreamTest {
   @Test
   void close_closesUnderlyingChannel() throws IOException {
     VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
+    when(mockChannel.isOpen()).thenReturn(true);
     GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
     when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
     when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));

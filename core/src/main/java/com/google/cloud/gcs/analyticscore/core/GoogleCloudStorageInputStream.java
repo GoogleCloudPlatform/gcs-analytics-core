@@ -266,7 +266,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
                       : gcsFileSystem.open(gcsItemId, readOptions);
 
               return SmartReadChannel.builder()
-                  .setSource(rawChannel)
+                  .setDelegate(rawChannel)
                   .setItemId(gcsItemId)
                   .setFileInfo(gcsFileInfo)
                   .setCacheManager(gcsFileSystem.getCacheManager())
