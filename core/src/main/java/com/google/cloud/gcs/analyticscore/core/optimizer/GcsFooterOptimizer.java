@@ -82,28 +82,7 @@ public class GcsFooterOptimizer implements FormatOptimizer {
       return -1;
     }
 
-    ByteBuffer footer =
-        cacheManager.getFooter(
-            gcsItemId,
-            itemId -> {
-              telemetry.recordMetric(Metric.FOOTER_CACHE_MISS, 1L, Collections.emptyMap());
-              long startPosition = fileSize - prefetchSize;
-              int bufferSize = (int) (fileSize - startPosition);
-              ByteBuffer cacheBuffer = ByteBuffer.allocate(bufferSize);
-              long originalPosition = source.position();
-              try {
-                source.position(startPosition);
-                while (cacheBuffer.hasRemaining()) {
-                  if (source.read(cacheBuffer) == -1) {
-                    throw new IOException("Unexpected EOF encountered while reading footer.");
-                  }
-                }
-                cacheBuffer.flip();
-                return cacheBuffer;
-              } finally {
-                source.position(originalPosition);
-              }
-            });
+    ByteBuffer footer = cacheManager.getFooter(gcsItemId, itemId -> loadFooter(source));
 
     telemetry.recordMetric(Metric.FOOTER_CACHE_HIT, 1L, Collections.emptyMap());
 
@@ -121,13 +100,32 @@ public class GcsFooterOptimizer implements FormatOptimizer {
     return bytesToRead;
   }
 
-  private static long calculatePrefetchSize(long fileSize, GcsReadOptions readOptions) {
-    if (!readOptions.isFooterPrefetchEnabled()
-        && readOptions.getSmallObjectCacheSize() < fileSize) {
-      return 0;
+  private ByteBuffer loadFooter(VectoredSeekableByteChannel source) throws IOException {
+    telemetry.recordMetric(Metric.FOOTER_CACHE_MISS, 1L, Collections.emptyMap());
+    long startPosition = fileSize - prefetchSize;
+    int bufferSize = (int) (fileSize - startPosition);
+    ByteBuffer cacheBuffer = ByteBuffer.allocate(bufferSize);
+    long originalPosition = source.position();
+    try {
+      source.position(startPosition);
+      while (cacheBuffer.hasRemaining()) {
+        if (source.read(cacheBuffer) == -1) {
+          throw new IOException("Unexpected EOF encountered while reading footer.");
+        }
+      }
+      cacheBuffer.flip();
+      return cacheBuffer;
+    } finally {
+      source.position(originalPosition);
     }
+  }
+
+  private static long calculatePrefetchSize(long fileSize, GcsReadOptions readOptions) {
     if (readOptions.getSmallObjectCacheSize() >= fileSize) {
       return fileSize;
+    }
+    if (!readOptions.isFooterPrefetchEnabled()) {
+      return 0;
     }
     return fileSize > LARGE_FILE_SIZE_THRESHOLD
         ? Math.min(readOptions.getFooterPrefetchSizeLargeFile(), fileSize)

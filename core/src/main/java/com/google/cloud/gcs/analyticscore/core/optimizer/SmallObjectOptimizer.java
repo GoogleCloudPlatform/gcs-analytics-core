@@ -89,17 +89,7 @@ public class SmallObjectOptimizer implements FormatOptimizer {
       telemetry.recordMetric(Metric.SMALL_OBJECT_CACHE_HIT, 1L, Collections.emptyMap());
     }
 
-    ByteBuffer view = prefetchBuffer.duplicate();
-    view.position((int) position);
-
-    if (view.remaining() == 0) {
-      return -1;
-    }
-
-    int bytesToRead = Math.min(dst.remaining(), view.remaining());
-    view.limit(view.position() + bytesToRead);
-    dst.put(view);
-    return bytesToRead;
+    return serveFromCache(position, dst);
   }
 
   @Override
