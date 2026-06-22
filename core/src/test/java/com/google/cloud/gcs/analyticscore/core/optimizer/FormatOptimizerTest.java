@@ -61,6 +61,7 @@ class FormatOptimizerTest {
           }
         };
 
+    // Assert
     assertThat(optimizer.isApplicable(FILE_INFO)).isTrue();
   }
 
@@ -86,9 +87,9 @@ class FormatOptimizerTest {
             return 0;
           }
         };
-
     optimizer.onOpen(FILE_INFO, mockCacheManager);
 
+    // Assert
     assertThat(capturedId[0]).isEqualTo(ITEM_ID);
   }
 
@@ -110,7 +111,6 @@ class FormatOptimizerTest {
             return 0;
           }
         };
-
     // Should not throw
     optimizer.onClose();
   }
