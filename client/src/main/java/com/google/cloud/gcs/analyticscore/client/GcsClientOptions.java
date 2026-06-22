@@ -38,6 +38,8 @@ public abstract class GcsClientOptions {
 
   public abstract GcsReadOptions getGcsReadOptions();
 
+  public abstract Builder toBuilder();
+
   public static Builder builder() {
     return new AutoValue_GcsClientOptions.Builder()
         .setGcsReadOptions(GcsReadOptions.builder().build());
