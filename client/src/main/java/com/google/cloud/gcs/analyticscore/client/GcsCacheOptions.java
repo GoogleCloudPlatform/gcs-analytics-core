@@ -29,13 +29,13 @@ public abstract class GcsCacheOptions {
   private static final String FOOTER_CACHE_MAX_ENTRIES_KEY =
       "analytics-core.footer.cache.max-entries";
 
-  private static final String BUCKET_CAPABILITIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY =
-      "analytics-core.bucket-capabilities.cache.max-entry-age-minutes";
+  private static final String BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY =
+      "analytics-core.bucket-properties.cache.max-entry-age-minutes";
 
   private static final boolean DEFAULT_FOOTER_CACHE_ENABLED = true;
   private static final int DEFAULT_FOOTER_CACHE_MAX_ENTRIES = 100;
 
-  private static final long DEFAULT_BUCKET_CAPABILITIES_CACHE_MAX_ENTRY_AGE_MINUTES = 10;
+  private static final long DEFAULT_BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES = 10;
 
   /** Returns whether the Parquet footer cache is enabled. */
   public abstract boolean isFooterCacheEnabled();
@@ -43,8 +43,8 @@ public abstract class GcsCacheOptions {
   /** Returns the maximum number of entries to hold in the Parquet footer cache. */
   public abstract int getFooterCacheMaxEntries();
 
-  /** Returns the maximum age (in minutes) of an entry in the bucket capabilities cache. */
-  public abstract long getBucketCapabilitiesCacheMaxEntryAgeMinutes();
+  /** Returns the maximum age (in minutes) of an entry in the bucket properties cache. */
+  public abstract long getBucketPropertiesCacheMaxEntryAgeMinutes();
 
   /**
    * Returns a builder for {@link GcsCacheOptions} with the same property values as this instance.
@@ -56,8 +56,8 @@ public abstract class GcsCacheOptions {
     return new AutoValue_GcsCacheOptions.Builder()
         .setFooterCacheEnabled(DEFAULT_FOOTER_CACHE_ENABLED)
         .setFooterCacheMaxEntries(DEFAULT_FOOTER_CACHE_MAX_ENTRIES)
-        .setBucketCapabilitiesCacheMaxEntryAgeMinutes(
-            DEFAULT_BUCKET_CAPABILITIES_CACHE_MAX_ENTRY_AGE_MINUTES);
+        .setBucketPropertiesCacheMaxEntryAgeMinutes(
+            DEFAULT_BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES);
   }
 
   /** Creates a {@link GcsCacheOptions} instance from a map of configuration options. */
@@ -73,11 +73,11 @@ public abstract class GcsCacheOptions {
           Integer.parseInt(analyticsCoreOptions.get(prefix + FOOTER_CACHE_MAX_ENTRIES_KEY)));
     }
     if (analyticsCoreOptions.containsKey(
-        prefix + BUCKET_CAPABILITIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY)) {
-      optionsBuilder.setBucketCapabilitiesCacheMaxEntryAgeMinutes(
+        prefix + BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY)) {
+      optionsBuilder.setBucketPropertiesCacheMaxEntryAgeMinutes(
           Long.parseLong(
               analyticsCoreOptions.get(
-                  prefix + BUCKET_CAPABILITIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY)));
+                  prefix + BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY)));
     }
     return optionsBuilder.build();
   }
@@ -91,9 +91,9 @@ public abstract class GcsCacheOptions {
     /** Sets the maximum number of entries to hold in the Parquet footer cache. */
     public abstract Builder setFooterCacheMaxEntries(int footerCacheMaxEntries);
 
-    /** Sets the maximum age (in minutes) of an entry in the bucket capabilities cache. */
-    public abstract Builder setBucketCapabilitiesCacheMaxEntryAgeMinutes(
-        long bucketCapabilitiesCacheMaxEntryAgeMinutes);
+    /** Sets the maximum age (in minutes) of an entry in the bucket properties cache. */
+    public abstract Builder setBucketPropertiesCacheMaxEntryAgeMinutes(
+        long bucketPropertiesCacheMaxEntryAgeMinutes);
 
     abstract GcsCacheOptions autoBuild();
 
@@ -111,8 +111,8 @@ public abstract class GcsCacheOptions {
             "footerCacheMaxEntries must be positive when footerCacheEnabled is true");
       }
       checkArgument(
-          options.getBucketCapabilitiesCacheMaxEntryAgeMinutes() >= 0,
-          "bucketCapabilitiesCacheMaxEntryAgeMinutes must be non-negative");
+          options.getBucketPropertiesCacheMaxEntryAgeMinutes() >= 0,
+          "bucketPropertiesCacheMaxEntryAgeMinutes must be non-negative");
       return options;
     }
   }

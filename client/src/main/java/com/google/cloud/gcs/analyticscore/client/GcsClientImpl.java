@@ -116,7 +116,7 @@ class GcsClientImpl implements GcsClient {
   }
 
   @Override
-  public BucketCapabilities getBucketCapabilities(String bucketName) throws IOException {
+  public BucketProperties getBucketProperties(String bucketName) throws IOException {
     try {
       BucketInfo bucket =
           storage.get(
@@ -128,7 +128,7 @@ class GcsClientImpl implements GcsClient {
       boolean hnsEnabled =
           bucket.getHierarchicalNamespace() != null
               && Boolean.TRUE.equals(bucket.getHierarchicalNamespace().getEnabled());
-      return new BucketCapabilities(hnsEnabled);
+      return BucketProperties.create(hnsEnabled);
     } catch (StorageException storageException) {
       throw new IOException("Unable to access bucket: " + bucketName, storageException);
     }

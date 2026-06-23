@@ -34,7 +34,7 @@ public interface GcsClient {
   /**
    * Retrieves the properties of the specified bucket (e.g., whether it is an HNS bucket or not).
    */
-  BucketCapabilities getBucketCapabilities(String bucketName) throws IOException;
+  BucketProperties getBucketProperties(String bucketName) throws IOException;
 
   /** Close the client. */
   void close();

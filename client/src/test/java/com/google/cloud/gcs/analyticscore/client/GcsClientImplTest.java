@@ -256,54 +256,53 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getBucketCapabilities_hnsEnabled_returnsTrue() throws IOException {
+  void getBucketProperties_hnsEnabled_returnsTrue() throws IOException {
     BucketInfo.HierarchicalNamespace hns = mock(BucketInfo.HierarchicalNamespace.class);
     when(hns.getEnabled()).thenReturn(true);
     Bucket mockBucket = mock(Bucket.class);
     when(mockBucket.getHierarchicalNamespace()).thenReturn(hns);
     doReturn(mockBucket).when(storage).get(eq("hns-bucket"), any(Storage.BucketGetOption.class));
-    BucketCapabilities capabilities = gcsClient.getBucketCapabilities("hns-bucket");
-    assertThat(capabilities.isHnsEnabled()).isTrue();
+    BucketProperties bucketProperties = gcsClient.getBucketProperties("hns-bucket");
+    assertThat(bucketProperties.isHnsEnabled()).isTrue();
   }
 
   @Test
-  void getBucketCapabilities_hnsDisabled_returnsFalse() throws IOException {
+  void getBucketProperties_hnsDisabled_returnsFalse() throws IOException {
     BucketInfo.HierarchicalNamespace hns = mock(BucketInfo.HierarchicalNamespace.class);
     when(hns.getEnabled()).thenReturn(false);
     Bucket mockBucket = mock(Bucket.class);
     when(mockBucket.getHierarchicalNamespace()).thenReturn(hns);
     doReturn(mockBucket).when(storage).get(eq("flat-bucket"), any(Storage.BucketGetOption.class));
-    BucketCapabilities capabilities = gcsClient.getBucketCapabilities("flat-bucket");
-    assertThat(capabilities.isHnsEnabled()).isFalse();
+    BucketProperties bucketProperties = gcsClient.getBucketProperties("flat-bucket");
+    assertThat(bucketProperties.isHnsEnabled()).isFalse();
   }
 
   @Test
-  void getBucketCapabilities_hnsNull_returnsFalse() throws IOException {
+  void getBucketProperties_hnsNull_returnsFalse() throws IOException {
     Bucket mockBucket = mock(Bucket.class);
     when(mockBucket.getHierarchicalNamespace()).thenReturn(null);
     doReturn(mockBucket)
         .when(storage)
         .get(eq("flat-bucket-null-hns"), any(Storage.BucketGetOption.class));
-    BucketCapabilities capabilities = gcsClient.getBucketCapabilities("flat-bucket-null-hns");
-    assertThat(capabilities.isHnsEnabled()).isFalse();
+    BucketProperties bucketProperties = gcsClient.getBucketProperties("flat-bucket-null-hns");
+    assertThat(bucketProperties.isHnsEnabled()).isFalse();
   }
 
   @Test
-  void getBucketCapabilities_bucketNotFound_throwsIOException() {
+  void getBucketProperties_bucketNotFound_throwsIOException() {
     doReturn(null).when(storage).get(eq("non-existent-bucket"), any(Storage.BucketGetOption.class));
     IOException e =
-        assertThrows(
-            IOException.class, () -> gcsClient.getBucketCapabilities("non-existent-bucket"));
+        assertThrows(IOException.class, () -> gcsClient.getBucketProperties("non-existent-bucket"));
     assertThat(e).hasMessageThat().contains("Bucket not found: non-existent-bucket");
   }
 
   @Test
-  void getBucketCapabilities_storageException_throwsIOException() {
+  void getBucketProperties_storageException_throwsIOException() {
     doThrow(new StorageException(500, "Internal Error"))
         .when(storage)
         .get(eq("error-bucket"), any(Storage.BucketGetOption.class));
     IOException e =
-        assertThrows(IOException.class, () -> gcsClient.getBucketCapabilities("error-bucket"));
+        assertThrows(IOException.class, () -> gcsClient.getBucketProperties("error-bucket"));
     assertThat(e).hasMessageThat().contains("Unable to access bucket: error-bucket");
   }
 }

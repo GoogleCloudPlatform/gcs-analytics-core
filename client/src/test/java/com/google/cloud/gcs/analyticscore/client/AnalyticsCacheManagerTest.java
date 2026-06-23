@@ -150,37 +150,37 @@ class AnalyticsCacheManagerTest {
   }
 
   @Test
-  void getBucketCapabilities_notPresent_computesAndCachesValue() throws IOException {
+  void getBucketProperties_notPresent_computesAndCachesValue() throws IOException {
     AtomicInteger callCount = new AtomicInteger(0);
-    BucketCapabilities capabilities = new BucketCapabilities(true);
+    BucketProperties bucketProperties = BucketProperties.create(true);
 
-    BucketCapabilities result1 =
-        manager.getBucketCapabilities(
+    BucketProperties result1 =
+        manager.getBucketProperties(
             "b",
             bucketName -> {
               callCount.incrementAndGet();
-              return capabilities;
+              return bucketProperties;
             });
 
-    BucketCapabilities result2 =
-        manager.getBucketCapabilities(
+    BucketProperties result2 =
+        manager.getBucketProperties(
             "b",
             bucketName -> {
               callCount.incrementAndGet();
-              return new BucketCapabilities(false);
+              return BucketProperties.create(false);
             });
 
-    assertThat(result1).isEqualTo(capabilities);
-    assertThat(result2).isEqualTo(capabilities);
+    assertThat(result1).isEqualTo(bucketProperties);
+    assertThat(result2).isEqualTo(bucketProperties);
     assertThat(callCount.get()).isEqualTo(1);
   }
 
   @Test
-  void getBucketCapabilities_loaderThrowsIOException_rethrowsIOException() {
+  void getBucketProperties_loaderThrowsIOException_rethrowsIOException() {
     assertThrows(
         IOException.class,
         () ->
-            manager.getBucketCapabilities(
+            manager.getBucketProperties(
                 "b",
                 bucketName -> {
                   throw new IOException("test-io-exception");
@@ -188,17 +188,17 @@ class AnalyticsCacheManagerTest {
   }
 
   @Test
-  void invalidateBucketCapabilities_present_removesEntry() throws IOException {
-    manager.getBucketCapabilities("b", bucketName -> new BucketCapabilities(true));
+  void invalidateBucketProperties_present_removesEntry() throws IOException {
+    manager.getBucketProperties("b", bucketName -> BucketProperties.create(true));
 
-    manager.invalidateBucketCapabilities("b");
+    manager.invalidateBucketProperties("b");
 
     AtomicInteger callCount = new AtomicInteger(0);
-    manager.getBucketCapabilities(
+    manager.getBucketProperties(
         "b",
         bucketName -> {
           callCount.incrementAndGet();
-          return new BucketCapabilities(true);
+          return BucketProperties.create(true);
         });
     assertThat(callCount.get()).isEqualTo(1);
   }

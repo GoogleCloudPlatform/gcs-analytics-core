@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit;
 public class AnalyticsCacheManager {
 
   private final AnalyticsCache<GcsItemId, ByteBuffer> footerCache;
-  private final AnalyticsCache<String, BucketCapabilities> bucketCapabilitiesCache;
+  private final AnalyticsCache<String, BucketProperties> bucketPropertiesCache;
 
   /**
    * Creates a new {@link AnalyticsCacheManager} with the specified options.
@@ -46,9 +46,9 @@ public class AnalyticsCacheManager {
             ? AnalyticsCacheCaffeineImpl.create(options.getFooterCacheMaxEntries())
             : AnalyticsCacheNoOpImpl.getInstance();
 
-    this.bucketCapabilitiesCache =
+    this.bucketPropertiesCache =
         AnalyticsCacheCaffeineImpl.createWithTtlOnly(
-            options.getBucketCapabilitiesCacheMaxEntryAgeMinutes(), TimeUnit.MINUTES);
+            options.getBucketPropertiesCacheMaxEntryAgeMinutes(), TimeUnit.MINUTES);
   }
 
   /**
@@ -77,30 +77,29 @@ public class AnalyticsCacheManager {
   }
 
   /**
-   * Returns the cached capabilities for the given {@code bucketName}, obtaining it from the {@code
-   * bucketCapabilitiesLoader} if necessary. This method is atomic.
+   * Returns the cached properties for the given {@code bucketName}, obtaining it from the {@code
+   * bucketPropertiesLoader} if necessary. This method is atomic.
    *
    * @throws IOException if the loader throws an {@link IOException}.
    */
-  public BucketCapabilities getBucketCapabilities(
-      String bucketName, BucketCapabilitiesLoader bucketCapabilitiesLoader) throws IOException {
+  public BucketProperties getBucketProperties(
+      String bucketName, BucketPropertiesLoader bucketPropertiesLoader) throws IOException {
     checkNotNull(bucketName, "bucketName cannot be null");
-    checkNotNull(bucketCapabilitiesLoader, "bucketCapabilitiesLoader cannot be null");
+    checkNotNull(bucketPropertiesLoader, "bucketPropertiesLoader cannot be null");
 
-    return bucketCapabilitiesCache.get(
-        bucketName, bucketCapabilitiesLoader::load);
+    return bucketPropertiesCache.get(bucketName, bucketPropertiesLoader::load);
   }
 
-  /** Invalidates the cached capabilities for the given {@code bucketName}. */
-  public void invalidateBucketCapabilities(String bucketName) {
+  /** Invalidates the cached properties for the given {@code bucketName}. */
+  public void invalidateBucketProperties(String bucketName) {
     checkNotNull(bucketName, "bucketName cannot be null");
-    bucketCapabilitiesCache.invalidate(bucketName);
+    bucketPropertiesCache.invalidate(bucketName);
   }
 
   /** Invalidates all cached entries. */
   public void invalidateAll() {
     footerCache.invalidateAll();
-    bucketCapabilitiesCache.invalidateAll();
+    bucketPropertiesCache.invalidateAll();
   }
 
   /** A loader for GCS object footers. */
@@ -110,10 +109,10 @@ public class AnalyticsCacheManager {
     ByteBuffer load(GcsItemId itemId) throws IOException;
   }
 
-  /** A loader for GCS bucket capabilities. */
+  /** A loader for GCS bucket properties. */
   @FunctionalInterface
-  public interface BucketCapabilitiesLoader {
-    /** Loads the capabilities for the given {@code bucketName}. */
-    BucketCapabilities load(String bucketName) throws IOException;
+  public interface BucketPropertiesLoader {
+    /** Loads the properties for the given {@code bucketName}. */
+    BucketProperties load(String bucketName) throws IOException;
   }
 }

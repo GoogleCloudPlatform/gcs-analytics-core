@@ -16,18 +16,17 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import com.google.auto.value.AutoValue;
+
 /**
- * Describes GCS bucket metadata capabilities, such as whether Hierarchical Namespace (HNS) is
- * enabled. These capabilities influence query routing and optimization strategies.
+ * Describes GCS bucket metadata properties, such as whether Hierarchical Namespace (HNS) is
+ * enabled. These properties influence query routing and optimization strategies.
  */
-public class BucketCapabilities {
-  private final boolean hnsEnabled;
+@AutoValue
+public abstract class BucketProperties {
+  public abstract boolean isHnsEnabled();
 
-  public BucketCapabilities(boolean hnsEnabled) {
-    this.hnsEnabled = hnsEnabled;
-  }
-
-  public boolean isHnsEnabled() {
-    return hnsEnabled;
+  public static BucketProperties create(boolean hnsEnabled) {
+    return new AutoValue_BucketProperties(hnsEnabled);
   }
 }

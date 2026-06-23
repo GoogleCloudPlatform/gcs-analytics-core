@@ -31,7 +31,7 @@ class GcsCacheOptionsTest {
 
     assertThat(options.isFooterCacheEnabled()).isTrue();
     assertThat(options.getFooterCacheMaxEntries()).isEqualTo(100);
-    assertThat(options.getBucketCapabilitiesCacheMaxEntryAgeMinutes()).isEqualTo(10L);
+    assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes()).isEqualTo(10L);
   }
 
   @Test
@@ -60,9 +60,9 @@ class GcsCacheOptionsTest {
   }
 
   @Test
-  void build_invalidBucketCapabilitiesMaxEntryAgeMinutes_throwsException() {
+  void build_invalidBucketPropertiesMaxEntryAgeMinutes_throwsException() {
     GcsCacheOptions.Builder builder =
-        GcsCacheOptions.builder().setBucketCapabilitiesCacheMaxEntryAgeMinutes(-1);
+        GcsCacheOptions.builder().setBucketPropertiesCacheMaxEntryAgeMinutes(-1);
 
     assertThrows(IllegalArgumentException.class, builder::build);
   }
@@ -72,12 +72,12 @@ class GcsCacheOptionsTest {
     Map<String, String> map = new HashMap<>();
     map.put("gcs.analytics-core.footer.cache.enabled", "false");
     map.put("gcs.analytics-core.footer.cache.max-entries", "50");
-    map.put("gcs.analytics-core.bucket-capabilities.cache.max-entry-age-minutes", "20");
+    map.put("gcs.analytics-core.bucket-properties.cache.max-entry-age-minutes", "20");
 
     GcsCacheOptions options = GcsCacheOptions.createFromOptions(map, "gcs.");
 
     assertThat(options.isFooterCacheEnabled()).isFalse();
     assertThat(options.getFooterCacheMaxEntries()).isEqualTo(50);
-    assertThat(options.getBucketCapabilitiesCacheMaxEntryAgeMinutes()).isEqualTo(20L);
+    assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes()).isEqualTo(20L);
   }
 }
