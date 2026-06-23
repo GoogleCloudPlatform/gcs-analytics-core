@@ -78,17 +78,17 @@ public class AnalyticsCacheManager {
 
   /**
    * Returns the cached capabilities for the given {@code bucketName}, obtaining it from the {@code
-   * prober} if necessary. This method is atomic.
+   * bucketCapabilitiesLoader} if necessary. This method is atomic.
    *
-   * @throws IOException if the prober throws an {@link IOException}.
+   * @throws IOException if the loader throws an {@link IOException}.
    */
-  public BucketCapabilities getBucketCapabilities(String bucketName, BucketProber prober)
-      throws IOException {
+  public BucketCapabilities getBucketCapabilities(
+      String bucketName, BucketCapabilitiesLoader bucketCapabilitiesLoader) throws IOException {
     checkNotNull(bucketName, "bucketName cannot be null");
-    checkNotNull(prober, "prober cannot be null");
+    checkNotNull(bucketCapabilitiesLoader, "bucketCapabilitiesLoader cannot be null");
 
     return bucketCapabilitiesCache.get(
-        bucketName, cachedBucketName -> checkNotNull(prober.probe(cachedBucketName)));
+        bucketName, bucketCapabilitiesLoader::load);
   }
 
   /** Invalidates the cached capabilities for the given {@code bucketName}. */
@@ -110,10 +110,10 @@ public class AnalyticsCacheManager {
     ByteBuffer load(GcsItemId itemId) throws IOException;
   }
 
-  /** A prober for GCS bucket capabilities. */
+  /** A loader for GCS bucket capabilities. */
   @FunctionalInterface
-  public interface BucketProber {
-    /** Probes the capabilities for the given {@code bucketName}. */
-    BucketCapabilities probe(String bucketName) throws IOException;
+  public interface BucketCapabilitiesLoader {
+    /** Loads the capabilities for the given {@code bucketName}. */
+    BucketCapabilities load(String bucketName) throws IOException;
   }
 }

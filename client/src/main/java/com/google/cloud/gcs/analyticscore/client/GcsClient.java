@@ -32,8 +32,7 @@ public interface GcsClient {
   GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException;
 
   /**
-   * Probes and returns the capabilities supported by the specified bucket (e.g., whether
-   * Hierarchical Namespace is enabled).
+   * Retrieves the properties of the specified bucket (e.g., whether it is an HNS bucket or not).
    */
   BucketCapabilities getBucketCapabilities(String bucketName) throws IOException;
 
