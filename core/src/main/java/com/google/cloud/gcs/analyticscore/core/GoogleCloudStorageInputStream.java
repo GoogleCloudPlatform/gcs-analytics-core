@@ -291,6 +291,11 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             dest.flip();
             range.getByteBufferFuture().complete(dest);
           }
+        } catch (EOFException e) {
+          if (dest != null) {
+            releaseBufferOnFailure(dest, release, e);
+          }
+          range.getByteBufferFuture().completeExceptionally(e);
         } catch (IOException | RuntimeException e) {
           if (dest != null) {
             releaseBufferOnFailure(dest, release, e);

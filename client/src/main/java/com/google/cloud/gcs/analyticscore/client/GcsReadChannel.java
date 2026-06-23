@@ -272,10 +272,10 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             }
             // making it ready for reading
             dataBuffer.flip();
-            List<ByteBuffer> childBuffers = new ArrayList<>();
+            List<ByteBuffer> underlyingBuffers = new ArrayList<>();
             for (GcsObjectRange underlyingRange : combinedObjectRange.getUnderlyingRanges()) {
-              childBuffers.add(
-                  getGcsObjectRangeDataFromCombinedObjectRange(
+              underlyingBuffers.add(
+                  getUnderlyingRangeDataFromCombinedObjectRange(
                       combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer));
             }
             for (int i = 0; i < combinedObjectRange.getUnderlyingRanges().size(); i++) {
@@ -283,7 +283,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
                   .getUnderlyingRanges()
                   .get(i)
                   .getByteBufferFuture()
-                  .complete(childBuffers.get(i));
+                  .complete(underlyingBuffers.get(i));
             }
           } catch (Exception e) {
             if (dataBuffer != null) {
@@ -295,7 +295,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
         });
   }
 
-  private ByteBuffer getGcsObjectRangeDataFromCombinedObjectRange(
+  private ByteBuffer getUnderlyingRangeDataFromCombinedObjectRange(
       GcsObjectCombinedRange combinedObjectRange,
       GcsObjectRange objectRange,
       long numOfBytesRead,
