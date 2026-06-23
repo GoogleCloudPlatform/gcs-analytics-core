@@ -53,10 +53,7 @@ public class AnalyticsCacheCaffeineImpl<K, V> implements AnalyticsCache<K, V> {
     return new AnalyticsCacheCaffeineImpl<>(maxEntries);
   }
 
-  /**
-   * Creates a new {@link AnalyticsCacheCaffeineImpl} with the specified time-to-live and no maximum
-   * number of entries.
-   */
+  /** Creates a new {@link AnalyticsCacheCaffeineImpl} with the specified time-to-live. */
   public static <K, V> AnalyticsCacheCaffeineImpl<K, V> createWithTtlOnly(long ttl, TimeUnit unit) {
     return new AnalyticsCacheCaffeineImpl<>(ttl, unit);
   }

@@ -16,8 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
-import java.util.Collections;
-import java.util.Map;
+import com.google.common.collect.ImmutableMap;
 import java.util.Optional;
 
 /** Represents metadata of a GCS Item. */
@@ -43,7 +42,7 @@ public abstract class GcsItemInfo {
   public abstract boolean isNativeHnsFolder();
 
   /** Returns the custom extended attributes (metadata) associated with the item. */
-  public abstract Map<String, byte[]> getExtendedAttributes();
+  public abstract ImmutableMap<String, byte[]> getExtendedAttributes();
 
   public static Builder builder() {
     // By default, set size to -1, indicating a non-existent item.
@@ -51,7 +50,7 @@ public abstract class GcsItemInfo {
         .setSize(-1L)
         .setInferredDirectory(false)
         .setNativeHnsFolder(false)
-        .setExtendedAttributes(Collections.emptyMap());
+        .setExtendedAttributes(ImmutableMap.of());
   }
 
   /** Builder for {@link GcsItemInfo}. */
@@ -68,7 +67,7 @@ public abstract class GcsItemInfo {
 
     public abstract Builder setNativeHnsFolder(boolean isNativeHnsFolder);
 
-    public abstract Builder setExtendedAttributes(Map<String, byte[]> extendedAttributes);
+    public abstract Builder setExtendedAttributes(ImmutableMap<String, byte[]> extendedAttributes);
 
     public abstract GcsItemInfo build();
   }

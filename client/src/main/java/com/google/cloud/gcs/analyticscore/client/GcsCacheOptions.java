@@ -35,7 +35,7 @@ public abstract class GcsCacheOptions {
   private static final boolean DEFAULT_FOOTER_CACHE_ENABLED = true;
   private static final int DEFAULT_FOOTER_CACHE_MAX_ENTRIES = 100;
 
-  private static final long DEFAULT_BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES = 10;
+  private static final int DEFAULT_BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES = 10;
 
   /** Returns whether the Parquet footer cache is enabled. */
   public abstract boolean isFooterCacheEnabled();
@@ -44,7 +44,7 @@ public abstract class GcsCacheOptions {
   public abstract int getFooterCacheMaxEntries();
 
   /** Returns the maximum age (in minutes) of an entry in the bucket properties cache. */
-  public abstract long getBucketPropertiesCacheMaxEntryAgeMinutes();
+  public abstract int getBucketPropertiesCacheMaxEntryAgeMinutes();
 
   /**
    * Returns a builder for {@link GcsCacheOptions} with the same property values as this instance.
@@ -75,7 +75,7 @@ public abstract class GcsCacheOptions {
     if (analyticsCoreOptions.containsKey(
         prefix + BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY)) {
       optionsBuilder.setBucketPropertiesCacheMaxEntryAgeMinutes(
-          Long.parseLong(
+          Integer.parseInt(
               analyticsCoreOptions.get(
                   prefix + BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY)));
     }
@@ -93,7 +93,7 @@ public abstract class GcsCacheOptions {
 
     /** Sets the maximum age (in minutes) of an entry in the bucket properties cache. */
     public abstract Builder setBucketPropertiesCacheMaxEntryAgeMinutes(
-        long bucketPropertiesCacheMaxEntryAgeMinutes);
+        int bucketPropertiesCacheMaxEntryAgeMinutes);
 
     abstract GcsCacheOptions autoBuild();
 

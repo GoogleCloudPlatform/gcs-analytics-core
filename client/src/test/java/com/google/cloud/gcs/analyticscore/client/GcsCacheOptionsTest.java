@@ -31,7 +31,7 @@ class GcsCacheOptionsTest {
 
     assertThat(options.isFooterCacheEnabled()).isTrue();
     assertThat(options.getFooterCacheMaxEntries()).isEqualTo(100);
-    assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes()).isEqualTo(10L);
+    assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes()).isEqualTo(10);
   }
 
   @Test
@@ -78,6 +78,6 @@ class GcsCacheOptionsTest {
 
     assertThat(options.isFooterCacheEnabled()).isFalse();
     assertThat(options.getFooterCacheMaxEntries()).isEqualTo(50);
-    assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes()).isEqualTo(20L);
+    assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes()).isEqualTo(20);
   }
 }

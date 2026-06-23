@@ -118,16 +118,17 @@ class GcsClientImpl implements GcsClient {
   @Override
   public BucketProperties getBucketProperties(String bucketName) throws IOException {
     try {
-      BucketInfo bucket =
+      BucketInfo bucketInfo =
           storage.get(
               bucketName,
               Storage.BucketGetOption.fields(Storage.BucketField.HIERARCHICAL_NAMESPACE));
-      if (bucket == null) {
+      if (bucketInfo == null) {
         throw new IOException("Bucket not found: " + bucketName);
       }
       boolean hnsEnabled =
-          bucket.getHierarchicalNamespace() != null
-              && Boolean.TRUE.equals(bucket.getHierarchicalNamespace().getEnabled());
+          Optional.ofNullable(bucketInfo.getHierarchicalNamespace())
+              .map(BucketInfo.HierarchicalNamespace::getEnabled)
+              .orElse(false);
       return BucketProperties.create(hnsEnabled);
     } catch (StorageException storageException) {
       throw new IOException("Unable to access bucket: " + bucketName, storageException);
