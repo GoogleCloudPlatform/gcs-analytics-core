@@ -36,7 +36,10 @@ public abstract class OpenTelemetryOptions {
     PRE_CONFIGURED,
 
     /** Creates a periodic metric reader logging to standard output. */
-    LOGGING
+    LOGGING,
+
+    /** Exports metrics to Google Cloud Monitoring via GoogleCloudMetricExporter. */
+    CLOUD_MONITORING
   }
 
   public abstract boolean isEnabled();
@@ -47,11 +50,14 @@ public abstract class OpenTelemetryOptions {
 
   public abstract int getExportIntervalSeconds();
 
+  public abstract Optional<String> getProjectId();
+
   private static final String OPENTELEMETRY_ENABLED_KEY = "telemetry.opentelemetry.enabled";
   private static final String OPENTELEMETRY_PROVIDER_TYPE_KEY =
       "telemetry.opentelemetry.provider-type";
   private static final String OPENTELEMETRY_EXPORT_INTERVAL_SECONDS_KEY =
       "telemetry.opentelemetry.export-interval-seconds";
+  private static final String PROJECT_ID_KEY = "project-id";
 
   public static Builder builder() {
     return new AutoValue_OpenTelemetryOptions.Builder()
@@ -66,6 +72,7 @@ public abstract class OpenTelemetryOptions {
     String provider = analyticsCoreOptions.get(prefix + OPENTELEMETRY_PROVIDER_TYPE_KEY);
     String exportIntervalSeconds =
         analyticsCoreOptions.get(prefix + OPENTELEMETRY_EXPORT_INTERVAL_SECONDS_KEY);
+    String projectId = analyticsCoreOptions.get(prefix + PROJECT_ID_KEY);
 
     if (enabled == null && provider == null && exportIntervalSeconds == null) {
       return Optional.empty();
@@ -89,6 +96,9 @@ public abstract class OpenTelemetryOptions {
         LOG.warn("Invalid export interval provided: '{}'. Using default.", exportIntervalSeconds);
       }
     }
+    if (projectId != null && !projectId.isEmpty()) {
+      builder.setProjectId(projectId);
+    }
     return Optional.of(builder.build());
   }
 
@@ -102,6 +112,8 @@ public abstract class OpenTelemetryOptions {
     public abstract Builder setPreconfiguredOpenTelemetryInstance(OpenTelemetry openTelemetry);
 
     public abstract Builder setExportIntervalSeconds(int exportIntervalSeconds);
+
+    public abstract Builder setProjectId(String projectId);
 
     public abstract OpenTelemetryOptions build();
   }

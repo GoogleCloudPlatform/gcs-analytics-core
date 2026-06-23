@@ -26,3 +26,13 @@ All configuration properties can be prefixed with a common string, e.g., `gcs.`.
 | `analytics-core.read.file-access-pattern`        | File access pattern. Supported values: `RANDOM`, `SEQUENTIAL`, `AUTO_SEQUENTIAL`, `AUTO_RANDOM`.               | `SEQUENTIAL`   |
 | `analytics-core.adaptive-read.sequential-read-threshold` | Threshold for number of sequential reads to switch to sequential mode.                                     | `3`            |
 | `analytics-core.random-read.min-request-size`              | Minimum request size for random reads. If the requested read size is smaller, it reads up to this size. | `131072 (128 KB)` |
+| `analytics-core.telemetry.logging.enabled`                 | Controls whether logging telemetry reporter is enabled.                                                     | `false`        |
+| `analytics-core.telemetry.logging.level`                   | Specifies the log level for logging telemetry events. Supported: `TRACE`, `DEBUG`, `INFO`, `WARNING`, `ERROR`. | `DEBUG`        |
+| `analytics-core.telemetry.opentelemetry.enabled`           | Controls whether OpenTelemetry integration is enabled.                                                      | `false`        |
+| `analytics-core.telemetry.opentelemetry.provider-type`     | Specifies the OpenTelemetry provider type. Supported: `GLOBAL`, `LOGGING`, `CLOUD_MONITORING`.                 | `GLOBAL`       |
+| `analytics-core.telemetry.opentelemetry.export-interval-seconds` | The export interval in seconds for OpenTelemetry periodic metric readers.                             | `60`           |
+| `analytics-core.project-id`                                | Google Cloud project ID for exporting OpenTelemetry metrics (specifically for `CLOUD_MONITORING`).            | -              |
+
+## Notes
+
+* **Cloud Monitoring Flush Timeout**: When using `CLOUD_MONITORING` as the OpenTelemetry provider type, closing the last active GCS client instance triggers a telemetry flush. This operation is synchronous and can block the closing thread for up to 10 seconds to ensure all remaining metrics are successfully exported to Google Cloud Monitoring before the application shuts down.

@@ -105,4 +105,21 @@ class OpenTelemetryOptionsTest {
         .isEqualTo(OpenTelemetryOptions.ProviderType.GLOBAL);
     assertThat(telemetryOptions.get().getExportIntervalSeconds()).isEqualTo(60);
   }
+
+  @Test
+  void createFromOptions_withCloudMonitoringAndProjectId_createsSuccessfully() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.opentelemetry.enabled", "true");
+    options.put("prefix.telemetry.opentelemetry.provider-type", "CLOUD_MONITORING");
+    options.put("prefix.project-id", "test-gcp-project");
+
+    Optional<OpenTelemetryOptions> telemetryOptions =
+        OpenTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isPresent();
+    assertThat(telemetryOptions.get().isEnabled()).isTrue();
+    assertThat(telemetryOptions.get().getProviderType())
+        .isEqualTo(OpenTelemetryOptions.ProviderType.CLOUD_MONITORING);
+    assertThat(telemetryOptions.get().getProjectId()).hasValue("test-gcp-project");
+  }
 }
