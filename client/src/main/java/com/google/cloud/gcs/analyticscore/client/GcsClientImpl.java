@@ -117,6 +117,7 @@ class GcsClientImpl implements GcsClient {
 
   @Override
   public BucketProperties getBucketProperties(String bucketName) throws IOException {
+    checkNotNull(bucketName, "bucketName cannot be null");
     try {
       BucketInfo bucketInfo =
           storage.get(

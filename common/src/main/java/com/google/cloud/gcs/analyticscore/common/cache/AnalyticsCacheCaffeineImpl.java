@@ -41,7 +41,7 @@ public class AnalyticsCacheCaffeineImpl<K, V> implements AnalyticsCache<K, V> {
   }
 
   private AnalyticsCacheCaffeineImpl(long ttl, TimeUnit unit) {
-    checkArgument(ttl >= 0, "ttl must be non-negative");
+    checkArgument(ttl > 0, "ttl must be positive");
     checkNotNull(unit, "unit cannot be null");
     this.cache = Caffeine.newBuilder().expireAfterWrite(ttl, unit).build();
   }

@@ -259,6 +259,13 @@ class GcsClientImplTest {
   }
 
   @Test
+  void getBucketProperties_nullBucketName_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> gcsClient.getBucketProperties(null));
+    assertThat(e).hasMessageThat().isEqualTo("bucketName cannot be null");
+  }
+
+  @Test
   void getBucketProperties_hnsEnabled_returnsTrue() throws IOException {
     Storage mockStorage = mock(Storage.class);
     GcsClient localGcsClient = createClientWithMockStorage(mockStorage);

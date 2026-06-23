@@ -25,6 +25,12 @@ import org.junit.jupiter.api.Test;
 
 class GcsCacheOptionsTest {
 
+  private static final String FOOTER_CACHE_ENABLED_KEY = "gcs.analytics-core.footer.cache.enabled";
+  private static final String FOOTER_CACHE_MAX_ENTRIES_KEY =
+      "gcs.analytics-core.footer.cache.max-entries";
+  private static final String BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY =
+      "gcs.analytics-core.bucket-properties.cache.max-entry-age-minutes";
+
   @Test
   void build_defaultValues_succeeds() {
     GcsCacheOptions options = GcsCacheOptions.builder().build();
@@ -77,16 +83,23 @@ class GcsCacheOptionsTest {
 
   @Test
   void createFromOptions_withAllOptions_succeeds() {
+    boolean footerCacheEnabled = false;
+    int footerCacheMaxEntries = 50;
+    int bucketPropertiesCacheMaxEntryAgeMinutes = 20;
+
     Map<String, String> map = new HashMap<>();
-    map.put("gcs." + GcsCacheOptions.FOOTER_CACHE_ENABLED_KEY, "false");
-    map.put("gcs." + GcsCacheOptions.FOOTER_CACHE_MAX_ENTRIES_KEY, "50");
-    map.put("gcs." + GcsCacheOptions.BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY, "20");
+    map.put(FOOTER_CACHE_ENABLED_KEY, String.valueOf(footerCacheEnabled));
+    map.put(FOOTER_CACHE_MAX_ENTRIES_KEY, String.valueOf(footerCacheMaxEntries));
+    map.put(
+        BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY,
+        String.valueOf(bucketPropertiesCacheMaxEntryAgeMinutes));
 
     GcsCacheOptions options = GcsCacheOptions.createFromOptions(map, "gcs.");
 
-    assertThat(options.isFooterCacheEnabled()).isFalse();
-    assertThat(options.getFooterCacheMaxEntries()).isEqualTo(50);
-    assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes()).isEqualTo(20);
+    assertThat(options.isFooterCacheEnabled()).isEqualTo(footerCacheEnabled);
+    assertThat(options.getFooterCacheMaxEntries()).isEqualTo(footerCacheMaxEntries);
+    assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes())
+        .isEqualTo(bucketPropertiesCacheMaxEntryAgeMinutes);
   }
 
   @Test
@@ -103,7 +116,7 @@ class GcsCacheOptionsTest {
   @Test
   void createFromOptions_malformedInteger_throwsNumberFormatException() {
     Map<String, String> map = new HashMap<>();
-    map.put("gcs." + GcsCacheOptions.FOOTER_CACHE_MAX_ENTRIES_KEY, "not-a-number");
+    map.put(FOOTER_CACHE_MAX_ENTRIES_KEY, "not-a-number");
 
     assertThrows(NumberFormatException.class, () -> GcsCacheOptions.createFromOptions(map, "gcs."));
   }

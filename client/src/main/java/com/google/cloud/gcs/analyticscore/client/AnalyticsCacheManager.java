@@ -47,8 +47,10 @@ public class AnalyticsCacheManager {
             : AnalyticsCacheNoOpImpl.getInstance();
 
     this.bucketPropertiesCache =
-        AnalyticsCacheCaffeineImpl.createWithTtlOnly(
-            options.getBucketPropertiesCacheMaxEntryAgeMinutes(), TimeUnit.MINUTES);
+        options.getBucketPropertiesCacheMaxEntryAgeMinutes() > 0
+            ? AnalyticsCacheCaffeineImpl.createWithTtlOnly(
+                options.getBucketPropertiesCacheMaxEntryAgeMinutes(), TimeUnit.MINUTES)
+            : AnalyticsCacheNoOpImpl.getInstance();
   }
 
   /**

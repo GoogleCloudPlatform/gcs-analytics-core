@@ -209,4 +209,31 @@ class AnalyticsCacheManagerTest {
         });
     assertThat(callCount.get()).isEqualTo(1);
   }
+
+  @Test
+  void getBucketProperties_cacheDisabled_anyKey_callsLoaderEveryTime() throws IOException {
+    manager =
+        new AnalyticsCacheManager(
+            GcsCacheOptions.builder().setBucketPropertiesCacheMaxEntryAgeMinutes(0).build());
+    AtomicInteger callCount = new AtomicInteger(0);
+    AnalyticsCacheManager.BucketPropertiesLoader loader =
+        bucketName -> {
+          callCount.incrementAndGet();
+          return BucketProperties.create(true);
+        };
+
+    manager.getBucketProperties(BUCKET_NAME, loader);
+    manager.getBucketProperties(BUCKET_NAME, loader);
+
+    assertThat(callCount.get()).isEqualTo(2);
+  }
+
+  @Test
+  void invalidateBucketProperties_cacheDisabled_anyKey_succeeds() {
+    manager =
+        new AnalyticsCacheManager(
+            GcsCacheOptions.builder().setBucketPropertiesCacheMaxEntryAgeMinutes(0).build());
+
+    manager.invalidateBucketProperties(BUCKET_NAME);
+  }
 }
