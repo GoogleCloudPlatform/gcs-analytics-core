@@ -49,7 +49,8 @@ public abstract class GcsReadOptions {
   private static final int DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE = 100 * KB;
   private static final int DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE = MB;
   private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = 0; // 0 bytes = disabled
-  private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN = FileAccessPattern.SEQUENTIAL;
+  private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN =
+      FileAccessPattern.AUTO_SEQUENTIAL;
   private static final int DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD = 3;
   private static final int DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE = 128 * KB;
 

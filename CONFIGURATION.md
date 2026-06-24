@@ -23,7 +23,7 @@ All configuration properties can be prefixed with a common string, e.g., `gcs.`.
 | `analytics-core.read.vectored.range.merge-gap.max-bytes`   | Maximum gap (in bytes) between ranges to merge in vectored reads.                                           | 4096 (4 KB)   |
 | `analytics-core.read.vectored.range.merged-size.max-bytes` | Maximum size (in bytes) of a merged range in vectored reads.                                                | 8388608 (8 MB)  |
 | `analytics-core.read.inplace-seek-limit-bytes`   | In-place seek limit (in bytes).                                                                             | 131072 (128 KB) |
-| `analytics-core.read.file-access-pattern`        | File access pattern. Supported values: `RANDOM`, `SEQUENTIAL`, `AUTO_SEQUENTIAL`, `AUTO_RANDOM`.               | `SEQUENTIAL`   |
+| `analytics-core.read.file-access-pattern`        | File access pattern. Supported values: `RANDOM`, `SEQUENTIAL`, `AUTO_SEQUENTIAL`, `AUTO_RANDOM`.               | `AUTO_SEQUENTIAL` |
 | `analytics-core.adaptive-read.sequential-read-threshold` | Threshold for number of sequential reads to switch to sequential mode.                                     | `3`            |
 | `analytics-core.random-read.min-request-size`              | Minimum request size for random reads. If the requested read size is smaller, it reads up to this size. | `131072 (128 KB)` |
 | `analytics-core.telemetry.logging.enabled`                 | Controls whether logging telemetry reporter is enabled.                                                     | `false`        |
