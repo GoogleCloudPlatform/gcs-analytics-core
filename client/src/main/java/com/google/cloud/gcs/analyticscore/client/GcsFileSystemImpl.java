@@ -19,6 +19,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.client.namespace.FlatNamespaceStrategyImpl;
+import com.google.cloud.gcs.analyticscore.client.namespace.HierarchicalNamespaceStrategyImpl;
+import com.google.cloud.gcs.analyticscore.client.namespace.NamespaceStrategy;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
@@ -49,6 +52,10 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
   private final Telemetry telemetry;
   private final AnalyticsCacheManager cacheManager;
+
+  private final FlatNamespaceStrategyImpl flatStrategy = new FlatNamespaceStrategyImpl();
+  private final HierarchicalNamespaceStrategyImpl hnsStrategy =
+      new HierarchicalNamespaceStrategyImpl();
 
   public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
@@ -103,6 +110,16 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
     this.telemetry = telemetry;
     this.cacheManager = cacheManager;
+  }
+
+  NamespaceStrategy resolveStrategy(String bucketName) throws IOException {
+    BucketCapabilities capabilities =
+        cacheManager.getBucketCapabilities(bucketName, gcsClient::getBucketCapabilities);
+
+    if (capabilities.isHnsEnabled() && fileSystemOptions.isHnsApiEnabled()) {
+      return hnsStrategy;
+    }
+    return flatStrategy;
   }
 
   @Override
@@ -160,6 +177,16 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   @Override
   public AnalyticsCacheManager getCacheManager() {
     return cacheManager;
+  }
+
+  @VisibleForTesting
+  FlatNamespaceStrategyImpl getFlatStrategy() {
+    return flatStrategy;
+  }
+
+  @VisibleForTesting
+  HierarchicalNamespaceStrategyImpl getHnsStrategy() {
+    return hnsStrategy;
   }
 
   @Override

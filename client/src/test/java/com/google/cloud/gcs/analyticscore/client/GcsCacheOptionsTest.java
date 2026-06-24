@@ -19,9 +19,17 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class GcsCacheOptionsTest {
+
+  private static final String FOOTER_CACHE_ENABLED_KEY = "gcs.analytics-core.footer.cache.enabled";
+  private static final String FOOTER_CACHE_MAX_ENTRIES_KEY =
+      "gcs.analytics-core.footer.cache.max-entries";
+  private static final String BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY =
+      "gcs.analytics-core.bucket-properties.cache.max-entry-age-minutes";
 
   @Test
   void build_defaultValues_succeeds() {
@@ -29,10 +37,11 @@ class GcsCacheOptionsTest {
 
     assertThat(options.isFooterCacheEnabled()).isTrue();
     assertThat(options.getFooterCacheMaxEntries()).isEqualTo(100);
+    assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes()).isEqualTo(10);
   }
 
   @Test
-  void build_disabledCacheNonPositiveEntries_succeeds() {
+  void build_disabledFooterCacheNonPositiveEntries_succeeds() {
     GcsCacheOptions options =
         GcsCacheOptions.builder().setFooterCacheEnabled(false).setFooterCacheMaxEntries(0).build();
 
@@ -41,7 +50,7 @@ class GcsCacheOptionsTest {
   }
 
   @Test
-  void build_enabledCacheZeroEntries_throwsException() {
+  void build_enabledFooterCacheZeroEntries_throwsException() {
     GcsCacheOptions.Builder builder =
         GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxEntries(0);
 
@@ -49,10 +58,65 @@ class GcsCacheOptionsTest {
   }
 
   @Test
-  void build_enabledCacheNegativeEntries_throwsException() {
+  void build_enabledFooterCacheNegativeEntries_throwsException() {
     GcsCacheOptions.Builder builder =
         GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxEntries(-1);
 
     assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  @Test
+  void build_invalidBucketPropertiesMaxEntryAgeMinutes_throwsException() {
+    GcsCacheOptions.Builder builder =
+        GcsCacheOptions.builder().setBucketPropertiesCacheMaxEntryAgeMinutes(-1);
+
+    assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  @Test
+  void build_BucketPropertiesMaxEntryAgeMinutesZero_succeeds() {
+    GcsCacheOptions options =
+        GcsCacheOptions.builder().setBucketPropertiesCacheMaxEntryAgeMinutes(0).build();
+
+    assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes()).isEqualTo(0);
+  }
+
+  @Test
+  void createFromOptions_withAllOptions_succeeds() {
+    boolean footerCacheEnabled = false;
+    int footerCacheMaxEntries = 50;
+    int bucketPropertiesCacheMaxEntryAgeMinutes = 20;
+    Map<String, String> map = new HashMap<>();
+    map.put(FOOTER_CACHE_ENABLED_KEY, String.valueOf(footerCacheEnabled));
+    map.put(FOOTER_CACHE_MAX_ENTRIES_KEY, String.valueOf(footerCacheMaxEntries));
+    map.put(
+        BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY,
+        String.valueOf(bucketPropertiesCacheMaxEntryAgeMinutes));
+
+    GcsCacheOptions options = GcsCacheOptions.createFromOptions(map, "gcs.");
+
+    assertThat(options.isFooterCacheEnabled()).isEqualTo(footerCacheEnabled);
+    assertThat(options.getFooterCacheMaxEntries()).isEqualTo(footerCacheMaxEntries);
+    assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes())
+        .isEqualTo(bucketPropertiesCacheMaxEntryAgeMinutes);
+  }
+
+  @Test
+  void createFromOptions_withEmptyOptions_returnsDefaults() {
+    Map<String, String> map = new HashMap<>();
+
+    GcsCacheOptions options = GcsCacheOptions.createFromOptions(map, "gcs.");
+
+    assertThat(options.isFooterCacheEnabled()).isTrue();
+    assertThat(options.getFooterCacheMaxEntries()).isEqualTo(100);
+    assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes()).isEqualTo(10);
+  }
+
+  @Test
+  void createFromOptions_malformedInteger_throwsNumberFormatException() {
+    Map<String, String> map = new HashMap<>();
+    map.put(FOOTER_CACHE_MAX_ENTRIES_KEY, "not-a-number");
+
+    assertThrows(NumberFormatException.class, () -> GcsCacheOptions.createFromOptions(map, "gcs."));
   }
 }

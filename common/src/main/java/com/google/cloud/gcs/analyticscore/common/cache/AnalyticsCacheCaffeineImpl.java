@@ -22,6 +22,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 /**
  * An {@link AnalyticsCache} implementation backed by a Caffeine {@link Cache}. This implementation
@@ -39,11 +40,22 @@ public class AnalyticsCacheCaffeineImpl<K, V> implements AnalyticsCache<K, V> {
     this.cache = Caffeine.newBuilder().maximumSize(maxEntries).build();
   }
 
+  private AnalyticsCacheCaffeineImpl(long ttl, TimeUnit unit) {
+    checkArgument(ttl > 0, "ttl must be positive");
+    checkNotNull(unit, "unit cannot be null");
+    this.cache = Caffeine.newBuilder().expireAfterWrite(ttl, unit).build();
+  }
+
   /**
    * Creates a new {@link AnalyticsCacheCaffeineImpl} with the specified maximum number of entries.
    */
   public static <K, V> AnalyticsCacheCaffeineImpl<K, V> create(long maxEntries) {
     return new AnalyticsCacheCaffeineImpl<>(maxEntries);
+  }
+
+  /** Creates a new {@link AnalyticsCacheCaffeineImpl} with the specified time-to-live. */
+  public static <K, V> AnalyticsCacheCaffeineImpl<K, V> createWithTtlOnly(long ttl, TimeUnit unit) {
+    return new AnalyticsCacheCaffeineImpl<>(ttl, unit);
   }
 
   /** {@inheritDoc} */

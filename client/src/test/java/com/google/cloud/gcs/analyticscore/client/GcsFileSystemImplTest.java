@@ -23,6 +23,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.google.cloud.NoCredentials;
+import com.google.cloud.gcs.analyticscore.client.namespace.FlatNamespaceStrategyImpl;
+import com.google.cloud.gcs.analyticscore.client.namespace.HierarchicalNamespaceStrategyImpl;
+import com.google.cloud.gcs.analyticscore.client.namespace.NamespaceStrategy;
 import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
@@ -87,6 +90,10 @@ class GcsFileSystemImplTest {
 
       assertThat(gcsClientImpl.storage.getOptions().getCredentials())
           .isEqualTo(NoCredentials.getInstance());
+      assertThat(gcsFileSystem.getTelemetry()).isNotNull();
+      assertThat(gcsFileSystem.getCacheManager()).isNotNull();
+      assertThat(gcsFileSystem.getFlatStrategy()).isNotNull();
+      assertThat(gcsFileSystem.getHnsStrategy()).isNotNull();
     }
   }
 
@@ -103,12 +110,17 @@ class GcsFileSystemImplTest {
       assertThat(gcsFileSystem.getFileSystemOptions()).isSameInstanceAs(fileSystemOptions);
       assertThat(gcsClient).isNotNull();
       assertThat(gcsClient.storage.getOptions().getProjectId()).isEqualTo("test-project-default");
+      assertThat(gcsFileSystem.getTelemetry()).isNotNull();
+      assertThat(gcsFileSystem.getCacheManager()).isNotNull();
+      assertThat(gcsFileSystem.getFlatStrategy()).isNotNull();
+      assertThat(gcsFileSystem.getHnsStrategy()).isNotNull();
     }
   }
 
   @Test
-  void constructor_shouldInitializeAndPassMemorizedExecutorServiceToGcsClient() {
+  void constructor_shouldInitializeAndPassMemorizedExecutorServiceAndTelemetryToGcsClient() {
     final AtomicReference<Supplier<ExecutorService>> capturedSupplier = new AtomicReference<>();
+    final AtomicReference<Telemetry> capturedTelemetry = new AtomicReference<>();
     try (MockedConstruction<GcsClientImpl> mockGcsClientConstruction =
         Mockito.mockConstruction(
             GcsClientImpl.class,
@@ -117,6 +129,9 @@ class GcsFileSystemImplTest {
               Supplier<ExecutorService> supplier =
                   (Supplier<ExecutorService>) context.arguments().get(1);
               capturedSupplier.set(supplier);
+
+              Telemetry telemetry = (Telemetry) context.arguments().get(2);
+              capturedTelemetry.set(telemetry);
             })) {
 
       try (GcsFileSystemImpl fs = new GcsFileSystemImpl(TEST_GCS_FILESYSTEM_OPTIONS)) {
@@ -127,6 +142,12 @@ class GcsFileSystemImplTest {
         assertThat(capturedSupplier.get()).isNotNull();
         assertThat(capturedSupplier.get().get()).isNotNull();
         assertThat(executorService1).isEqualTo(executorService2);
+
+        assertThat(capturedTelemetry.get()).isNotNull();
+        assertThat(capturedTelemetry.get()).isSameInstanceAs(fs.getTelemetry());
+
+        assertThat(fs.getFlatStrategy()).isNotNull();
+        assertThat(fs.getHnsStrategy()).isNotNull();
       }
     }
   }
@@ -534,6 +555,54 @@ class GcsFileSystemImplTest {
 
     assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
     assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).doesNotContain(reporter);
+  }
+
+  @Test
+  void resolveStrategy_hnsEnabledInCapabilitiesAndApiEnabled_returnsHnsStrategy()
+      throws IOException {
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setHnsApiEnabled(true)
+            .build();
+    try (GcsFileSystemImpl fs = new GcsFileSystemImpl(mockClient, options)) {
+      when(mockClient.getBucketCapabilities(TEST_BUCKET))
+          .thenReturn(BucketCapabilities.create(true));
+      NamespaceStrategy strategy = fs.resolveStrategy(TEST_BUCKET);
+      assertThat(strategy).isInstanceOf(HierarchicalNamespaceStrategyImpl.class);
+    }
+  }
+
+  @Test
+  void resolveStrategy_hnsEnabledInCapabilitiesButApiDisabled_returnsFlatStrategy()
+      throws IOException {
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setHnsApiEnabled(false)
+            .build();
+    try (GcsFileSystemImpl fs = new GcsFileSystemImpl(mockClient, options)) {
+      when(mockClient.getBucketCapabilities(TEST_BUCKET))
+          .thenReturn(BucketCapabilities.create(true));
+      NamespaceStrategy strategy = fs.resolveStrategy(TEST_BUCKET);
+      assertThat(strategy).isInstanceOf(FlatNamespaceStrategyImpl.class);
+    }
+  }
+
+  @Test
+  void resolveStrategy_hnsDisabledInCapabilitiesAndApiEnabled_returnsFlatStrategy()
+      throws IOException {
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setHnsApiEnabled(true)
+            .build();
+    try (GcsFileSystemImpl fs = new GcsFileSystemImpl(mockClient, options)) {
+      when(mockClient.getBucketCapabilities(TEST_BUCKET))
+          .thenReturn(BucketCapabilities.create(false));
+      NamespaceStrategy strategy = fs.resolveStrategy(TEST_BUCKET);
+      assertThat(strategy).isInstanceOf(FlatNamespaceStrategyImpl.class);
+    }
   }
 
   @SuppressWarnings("unchecked")
