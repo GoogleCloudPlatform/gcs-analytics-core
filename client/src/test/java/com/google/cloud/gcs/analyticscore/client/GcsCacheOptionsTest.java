@@ -86,7 +86,6 @@ class GcsCacheOptionsTest {
     boolean footerCacheEnabled = false;
     int footerCacheMaxEntries = 50;
     int bucketPropertiesCacheMaxEntryAgeMinutes = 20;
-
     Map<String, String> map = new HashMap<>();
     map.put(FOOTER_CACHE_ENABLED_KEY, String.valueOf(footerCacheEnabled));
     map.put(FOOTER_CACHE_MAX_ENTRIES_KEY, String.valueOf(footerCacheMaxEntries));

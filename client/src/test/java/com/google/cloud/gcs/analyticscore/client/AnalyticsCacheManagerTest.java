@@ -200,13 +200,13 @@ class AnalyticsCacheManagerTest {
     manager.getBucketProperties(BUCKET_NAME, bucketName -> BucketProperties.create(true));
 
     manager.invalidateBucketProperties(BUCKET_NAME);
-
     manager.getBucketProperties(
         BUCKET_NAME,
         bucketName -> {
           callCount.incrementAndGet();
           return BucketProperties.create(true);
         });
+
     assertThat(callCount.get()).isEqualTo(1);
   }
 
