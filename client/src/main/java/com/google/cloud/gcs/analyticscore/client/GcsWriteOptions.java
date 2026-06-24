@@ -35,6 +35,8 @@ import java.util.stream.Collectors;
 @AutoValue
 public abstract class GcsWriteOptions {
 
+  private static final int MB = 1024 * 1024;
+
   private static final String CHECKSUM_VALIDATION_KEY = "channel.write.checksum-validation.enabled";
   private static final String DISABLE_GZIP_CONTENT_KEY = "channel.write.disable-gzip-content";
   private static final String OVERWRITE_EXISTING_KEY = "channel.write.overwrite-existing";
@@ -163,10 +165,10 @@ public abstract class GcsWriteOptions {
         .setChecksumValidationEnabled(false)
         .setDisableGzipContent(true)
         .setOverwriteExisting(true)
-        .setUploadChunkSize(24 * 1024 * 1024) // 24MB default
+        .setUploadChunkSize(24 * MB)
         .setUploadType(UploadType.CHUNK_UPLOAD)
         .setPcuBufferCount(1)
-        .setPcuBufferCapacity(32 * 1024 * 1024) // 32MB default
+        .setPcuBufferCapacity(32 * MB)
         .setPcuPartFileCleanupType(PartFileCleanupType.ALWAYS)
         .setPcuPartFileNamePrefix("")
         .setTemporaryPaths(ImmutableSet.of());

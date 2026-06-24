@@ -122,9 +122,8 @@ public class GcsWriteChannel implements WritableByteChannel {
         Optional.ofNullable(writeOptions).map(GcsWriteOptions::isOverwriteExisting).orElse(true);
     if (overwrite) {
       return GcsExceptionUtil.translateExceptionWithOverwrite(e, context, blobId, bytesWritten);
-    } else {
-      return GcsExceptionUtil.translateException(e, context, blobId, bytesWritten);
     }
+    return GcsExceptionUtil.translateException(e, context, blobId, bytesWritten);
   }
 
   public long getBytesWritten() {
