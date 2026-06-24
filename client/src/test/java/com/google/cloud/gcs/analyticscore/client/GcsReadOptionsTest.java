@@ -92,7 +92,7 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(MB);
     assertThat(readOptions.getSmallObjectCacheSize()).isEqualTo(0);
     assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(128 * KB);
-    assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.SEQUENTIAL);
+    assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.AUTO_SEQUENTIAL);
     assertThat(readOptions.getAdaptiveReadSequentialReadThreshold()).isEqualTo(3);
     assertThat(readOptions.getRandomReadMinRequestSize()).isEqualTo(128 * KB);
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(4 * KB);
