@@ -27,6 +27,7 @@ import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
@@ -242,5 +243,45 @@ class GcsClientImplTest {
             executorServiceSupplier,
             telemetry);
     assertThat(client.storage.getOptions().getCredentials()).isEqualTo(NoCredentials.getInstance());
+  }
+
+  @Test
+  void openReadChannel_fastFailEnabled_blobNotFound_throwsFileNotFoundException() {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket-id").setObjectName("non-existent").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setFastFailEnabled(true).build();
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class, () -> gcsClient.openReadChannel(itemId, readOptions));
+
+    assertThat(e).hasMessageThat().contains("Object not found:" + itemId);
+  }
+
+  @Test
+  void openReadChannel_fastFailEnabled_blobFound_succeedsAndLoadsMetadata() throws IOException {
+    String objectData = "hello world";
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket-id").setObjectName("test-object-id").build();
+    StorageTestUtils.createBlobInStorage(
+        storage, BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    GcsReadOptions readOptions = GcsReadOptions.builder().setFastFailEnabled(true).build();
+
+    SeekableByteChannel channel = gcsClient.openReadChannel(itemId, readOptions);
+
+    assertThat(channel.size()).isEqualTo(objectData.length());
+  }
+
+  @Test
+  void openReadChannel_fastFailDisabled_doesNotQueryGcs() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket-id").setObjectName("non-existent").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setFastFailEnabled(false).build();
+
+    // Since fast fail is disabled, opening the channel should succeed immediately even if the
+    // blob does not exist in storage.
+    SeekableByteChannel channel = gcsClient.openReadChannel(itemId, readOptions);
+
+    assertThat(channel).isNotNull();
   }
 }

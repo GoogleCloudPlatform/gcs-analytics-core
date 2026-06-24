@@ -40,6 +40,7 @@ public abstract class GcsReadOptions {
       "analytics-core.adaptive-read.sequential-read-threshold";
   private static final String RANDOM_READ_MIN_REQUEST_SIZE_KEY =
       "analytics-core.random-read.min-request-size";
+  private static final String FAST_FAIL_ENABLED_KEY = "analytics-core.fast.fail.enabled";
 
   private static final int KB = 1024;
   private static final int MB = 1024 * KB;
@@ -53,6 +54,7 @@ public abstract class GcsReadOptions {
       FileAccessPattern.AUTO_SEQUENTIAL;
   private static final int DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD = 3;
   private static final int DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE = 128 * KB;
+  private static final boolean DEFAULT_FAST_FAIL_ENABLED = false;
 
   public abstract Optional<Integer> getChunkSize();
 
@@ -80,6 +82,8 @@ public abstract class GcsReadOptions {
 
   public abstract int getRandomReadMinRequestSize();
 
+  public abstract boolean isFastFailEnabled();
+
   public static Builder builder() {
     return new AutoValue_GcsReadOptions.Builder()
         .setGcsVectoredReadOptions(GcsVectoredReadOptions.builder().build())
@@ -90,7 +94,8 @@ public abstract class GcsReadOptions {
         .setInplaceSeekLimit(DEFAULT_INPLACE_SEEK_LIMIT)
         .setFileAccessPattern(DEFAULT_FILE_ACCESS_PATTERN)
         .setAdaptiveReadSequentialReadThreshold(DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD)
-        .setRandomReadMinRequestSize(DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE);
+        .setRandomReadMinRequestSize(DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE)
+        .setFastFailEnabled(DEFAULT_FAST_FAIL_ENABLED);
   }
 
   public static GcsReadOptions createFromOptions(
@@ -140,6 +145,10 @@ public abstract class GcsReadOptions {
       optionsBuilder.setRandomReadMinRequestSize(
           safeParseInteger(analyticsCoreOptions, prefix + RANDOM_READ_MIN_REQUEST_SIZE_KEY));
     }
+    if (analyticsCoreOptions.containsKey(prefix + FAST_FAIL_ENABLED_KEY)) {
+      optionsBuilder.setFastFailEnabled(
+          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + FAST_FAIL_ENABLED_KEY)));
+    }
 
     optionsBuilder.setGcsVectoredReadOptions(
         GcsVectoredReadOptions.createFromOptions(analyticsCoreOptions, prefix));
@@ -185,6 +194,8 @@ public abstract class GcsReadOptions {
     public abstract Builder setAdaptiveReadSequentialReadThreshold(int threshold);
 
     public abstract Builder setRandomReadMinRequestSize(int minRequestSize);
+
+    public abstract Builder setFastFailEnabled(boolean fastFailEnabled);
 
     public abstract GcsReadOptions build();
   }

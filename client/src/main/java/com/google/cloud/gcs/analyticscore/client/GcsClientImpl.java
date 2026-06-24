@@ -30,6 +30,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
@@ -92,6 +93,10 @@ class GcsClientImpl implements GcsClient {
       GcsItemId gcsItemId, GcsReadOptions readOptions) throws IOException {
     checkNotNull(gcsItemId, "gcsItemId should not be null");
     checkNotNull(readOptions, "readOptions should not be null");
+    if (readOptions.isFastFailEnabled()) {
+      GcsItemInfo itemInfo = getGcsItemInfo(gcsItemId);
+      return openReadChannel(itemInfo, readOptions);
+    }
     return new GcsReadChannel(storage, gcsItemId, readOptions, executorServiceSupplier, telemetry) {
       @Override
       public long size() throws IOException {
@@ -151,7 +156,7 @@ class GcsClientImpl implements GcsClient {
     checkArgument(itemId.isGcsObject(), String.format("Expected gcs object got %s", itemId));
     Blob blob = getBlob(itemId.getBucketName(), itemId.getObjectName().get());
     if (blob == null) {
-      throw new IOException("Object not found:" + itemId);
+      throw new FileNotFoundException("Object not found:" + itemId);
     }
     GcsItemId itemIdWithGeneration =
         GcsItemId.builder()

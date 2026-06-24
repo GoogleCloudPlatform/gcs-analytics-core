@@ -65,13 +65,16 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.RANDOM);
     assertThat(readOptions.getAdaptiveReadSequentialReadThreshold()).isEqualTo(5);
     assertThat(readOptions.getRandomReadMinRequestSize()).isEqualTo(65536);
+    assertThat(readOptions.isFastFailEnabled()).isEqualTo(false);
     properties =
         ImmutableMap.<String, String>builder()
             .put("gcs.analytics-core.read.file-access-pattern", "auto_sequential")
+            .put("gcs.analytics-core.fast.fail.enabled", "true")
             .build();
     readOptions = GcsReadOptions.createFromOptions(properties, prefix);
 
     assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.AUTO_SEQUENTIAL);
+    assertThat(readOptions.isFastFailEnabled()).isEqualTo(true);
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(1024);
     assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(2048);
   }
@@ -95,6 +98,7 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.AUTO_SEQUENTIAL);
     assertThat(readOptions.getAdaptiveReadSequentialReadThreshold()).isEqualTo(3);
     assertThat(readOptions.getRandomReadMinRequestSize()).isEqualTo(128 * KB);
+    assertThat(readOptions.isFastFailEnabled()).isEqualTo(false);
     assertThat(vectoredReadOptions.getMaxMergeGap()).isEqualTo(4 * KB);
     assertThat(vectoredReadOptions.getMaxMergeSize()).isEqualTo(8 * MB);
   }
