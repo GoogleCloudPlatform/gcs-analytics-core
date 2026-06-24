@@ -202,7 +202,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   @Override
   public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException {
-    readVectored(ranges, allocate, buffer -> {});
+    readVectored(ranges, allocate, release -> {});
   }
 
   @Override

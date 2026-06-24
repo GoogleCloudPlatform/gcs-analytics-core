@@ -266,7 +266,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   @Override
   public void readVectored(List<GcsObjectRange> fileRanges, IntFunction<ByteBuffer> alloc)
       throws IOException {
-    readVectored(fileRanges, alloc, buffer -> {});
+    readVectored(fileRanges, alloc, release -> {});
   }
 
   @Override
@@ -282,28 +282,20 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
           dest = alloc.apply(range.getLength());
           int bytesRead = serveFromCacheWithoutSeek(range.getOffset(), dest);
           if (bytesRead < range.getLength()) {
-            EOFException eofException =
-                new EOFException(
-                    String.format("Error while populating range: %s, unexpected EOF", range));
-            releaseBufferOnFailure(dest, release, eofException);
-            range.getByteBufferFuture().completeExceptionally(eofException);
-          } else {
-            dest.flip();
-            range.getByteBufferFuture().complete(dest);
+            throw new EOFException(
+                String.format("Error while populating range: %s, unexpected EOF", range));
           }
-        } catch (EOFException e) {
-          if (dest != null) {
-            releaseBufferOnFailure(dest, release, e);
-          }
-          range.getByteBufferFuture().completeExceptionally(e);
+          dest.flip();
+          range.getByteBufferFuture().complete(dest);
         } catch (IOException | RuntimeException e) {
           if (dest != null) {
             releaseBufferOnFailure(dest, release, e);
           }
-          range
-              .getByteBufferFuture()
-              .completeExceptionally(
-                  new IOException(String.format("Error while populating range: %s", range), e));
+          Throwable completionException =
+              e instanceof EOFException
+                  ? e
+                  : new IOException(String.format("Error while populating range: %s", range), e);
+          range.getByteBufferFuture().completeExceptionally(completionException);
         }
       }
     } else {
