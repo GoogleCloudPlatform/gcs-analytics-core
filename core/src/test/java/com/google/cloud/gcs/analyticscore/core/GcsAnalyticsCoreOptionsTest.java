@@ -47,10 +47,10 @@ class GcsAnalyticsCoreOptionsTest {
             "some-other-key",
             "some-other-value");
     GcsAnalyticsCoreOptions coreOptions = new GcsAnalyticsCoreOptions(appendPrefix, options);
+
     GcsFileSystemOptions fileSystemOptions = coreOptions.getGcsFileSystemOptions();
     GcsClientOptions clientOptions = fileSystemOptions.getGcsClientOptions();
 
-    // Assert
     assertThat(fileSystemOptions.getReadThreadCount()).isEqualTo(32);
     assertThat(fileSystemOptions.getClientType())
         .isEqualTo(GcsFileSystemOptions.ClientType.GRPC_CLIENT);
@@ -74,10 +74,10 @@ class GcsAnalyticsCoreOptionsTest {
             "service.host", "test-host-no-prefix",
             "user-agent", "test-agent-no-prefix");
     GcsAnalyticsCoreOptions coreOptions = new GcsAnalyticsCoreOptions(appendPrefix, options);
+
     GcsFileSystemOptions fileSystemOptions = coreOptions.getGcsFileSystemOptions();
     GcsClientOptions clientOptions = fileSystemOptions.getGcsClientOptions();
 
-    // Assert
     assertThat(fileSystemOptions.getReadThreadCount()).isEqualTo(24);
     assertThat(fileSystemOptions.getClientType())
         .isEqualTo(GcsFileSystemOptions.ClientType.HTTP_CLIENT);
@@ -97,10 +97,10 @@ class GcsAnalyticsCoreOptionsTest {
             "wrong.prefix.project-id", "test-project");
     GcsFileSystemOptions defaultOptions = GcsFileSystemOptions.builder().build();
     GcsAnalyticsCoreOptions coreOptions = new GcsAnalyticsCoreOptions(appendPrefix, options);
+
     GcsFileSystemOptions fileSystemOptions = coreOptions.getGcsFileSystemOptions();
     GcsClientOptions clientOptions = fileSystemOptions.getGcsClientOptions();
 
-    // Assert
     assertThat(fileSystemOptions.getReadThreadCount())
         .isEqualTo(defaultOptions.getReadThreadCount());
     assertThat(fileSystemOptions.getClientType()).isEqualTo(defaultOptions.getClientType());
