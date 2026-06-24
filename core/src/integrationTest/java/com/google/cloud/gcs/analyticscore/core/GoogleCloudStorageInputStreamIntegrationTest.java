@@ -43,6 +43,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.AfterAll;
@@ -222,7 +223,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
 
       googleCloudStorageInputStream.read(buffer);
     }
-    
+
     MetricKey bytesReadKey =
         capturedReadMetrics.get().keySet().stream()
             .filter(k -> k.getMetric().getName().equals(GcsAnalyticsCoreTelemetryConstants.Metric.READ_BYTES.getName()))
@@ -230,5 +231,68 @@ class GoogleCloudStorageInputStreamIntegrationTest {
             .get();
     assertThat(capturedReadMetrics.get().get(bytesReadKey)).isEqualTo(5L);
 
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE})
+  void footerCaching_multipleMetadataReads_sharesCache(String fileName) throws IOException {
+    AtomicLong hits = new AtomicLong(0);
+    AtomicLong misses = new AtomicLong(0);
+    OperationListener listener =
+        new OperationListener() {
+          @Override
+          public void onOperationStart(Operation operation) {}
+
+          @Override
+          public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {
+            metrics.forEach(
+                (k, v) -> {
+                  if (k.getMetric()
+                      .getName()
+                      .equals(
+                          GcsAnalyticsCoreTelemetryConstants.Metric.FOOTER_CACHE_HIT.getName())) {
+                    hits.addAndGet(v);
+                  } else if (k.getMetric()
+                      .getName()
+                      .equals(
+                          GcsAnalyticsCoreTelemetryConstants.Metric.FOOTER_CACHE_MISS.getName())) {
+                    misses.addAndGet(v);
+                  }
+                });
+          }
+        };
+
+    GcsFileSystemOptions gcsFileSystemOptions =
+        GcsFileSystemOptions.createFromOptions(
+            Map.of(
+                "gcs.analytics-core.footer.prefetch.enabled",
+                "true",
+                "gcs.analytics-core.small-file.footer.prefetch.size-bytes",
+                "102400"),
+            "gcs.");
+    gcsFileSystemOptions =
+        gcsFileSystemOptions.toBuilder()
+            .setAnalyticsCoreTelemetryOptions(
+                TelemetryOptions.builder()
+                    .setCustomTelemetryOptions(
+                        CustomTelemetryOptions.builder()
+                            .setOperationListeners(List.of(listener))
+                            .build())
+                    .build())
+            .build();
+
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+
+    try (GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions)) {
+      // First read: should be a miss
+      ParquetHelper.readParquetMetadataWithFileSystem(uri, gcsFileSystem);
+      long firstReadMisses = misses.get();
+      assertThat(firstReadMisses).isAtLeast(1L);
+
+      // Second read: should be a hit
+      ParquetHelper.readParquetMetadataWithFileSystem(uri, gcsFileSystem);
+      assertThat(misses.get()).isEqualTo(firstReadMisses);
+      assertThat(hits.get()).isAtLeast(1L);
+    }
   }
 }

@@ -33,15 +33,20 @@ import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
+import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobInfo;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -304,5 +309,66 @@ class GcsFooterOptimizerTest {
     int bytesRead = optimizer.read(0, dst, realSource);
 
     assertThat(bytesRead).isEqualTo(10);
+  }
+
+  @Test
+  void readVectored_footerHit_completesFutures()
+      throws IOException, ExecutionException, InterruptedException {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    ByteBuffer cachedFooter = ByteBuffer.wrap(new byte[100]);
+    for (int i = 0; i < 100; i++) cachedFooter.put(i, (byte) i);
+    when(mockCacheManager.getFooterIfPresent(eq(ITEM_ID))).thenReturn(cachedFooter);
+
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(950)
+            .setLength(10)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+
+    List<GcsObjectRange> remaining = optimizer.readVectored(List.of(range), ByteBuffer::allocate);
+
+    assertThat(remaining).isEmpty();
+    ByteBuffer result = range.getByteBufferFuture().get();
+    assertThat(result.remaining()).isEqualTo(10);
+    assertThat(result.get(0)).isEqualTo((byte) 50); // 950 is at index 50 in 100-byte footer
+  }
+
+  @Test
+  void readVectored_footerMiss_returnsOriginalRanges() throws IOException {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    when(mockCacheManager.getFooterIfPresent(eq(ITEM_ID))).thenReturn(null);
+
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(950)
+            .setLength(10)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+    List<GcsObjectRange> ranges = List.of(range);
+
+    List<GcsObjectRange> remaining = optimizer.readVectored(ranges, ByteBuffer::allocate);
+
+    assertThat(remaining).containsExactly(range);
+  }
+
+  @Test
+  void readVectored_pastEOF_completesWithEOFException() throws IOException {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    ByteBuffer cachedFooter = ByteBuffer.wrap(new byte[100]);
+    when(mockCacheManager.getFooterIfPresent(eq(ITEM_ID))).thenReturn(cachedFooter);
+
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(1010)
+            .setLength(10)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+
+    List<GcsObjectRange> remaining = optimizer.readVectored(List.of(range), ByteBuffer::allocate);
+
+    assertThat(remaining).isEmpty();
+    var exception = assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(exception.getCause()).isInstanceOf(EOFException.class);
   }
 }

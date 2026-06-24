@@ -17,6 +17,7 @@ package com.google.cloud.gcs.analyticscore.core;
 
 import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.*;
 
+import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.conf.Configuration;
@@ -73,6 +74,15 @@ public class ParquetHelper {
         logger.info("Reading parquet file metadata: {}", fileUri);
         InputFile inputFile = new TestInputStreamInputFile(fileUri, false, gcsFileSystemOptions);
         // Configuration can be customized if needed
+        Configuration conf = new Configuration();
+        try (ParquetFileReader reader = ParquetFileReader.open(inputFile)) {
+            return reader.getFooter();
+        }
+    }
+
+    public static ParquetMetadata readParquetMetadataWithFileSystem(URI fileUri, GcsFileSystem gcsFileSystem) throws IOException {
+        logger.info("Reading parquet file metadata with shared filesystem: {}", fileUri);
+        InputFile inputFile = new TestInputStreamInputFile(fileUri, false, gcsFileSystem);
         Configuration conf = new Configuration();
         try (ParquetFileReader reader = ParquetFileReader.open(inputFile)) {
             return reader.getFooter();

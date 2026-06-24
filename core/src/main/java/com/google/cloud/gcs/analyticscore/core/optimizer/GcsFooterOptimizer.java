@@ -25,11 +25,15 @@ import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.common.collect.ImmutableList;
+import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.IntFunction;
 
 /** A {@link FormatOptimizer} that caches and serves GCS object footers (e.g., for Parquet). */
 public class GcsFooterOptimizer implements FormatOptimizer {
@@ -114,6 +118,70 @@ public class GcsFooterOptimizer implements FormatOptimizer {
     footerView.limit(footerView.position() + bytesToRead);
     dst.put(footerView);
     return bytesToRead;
+  }
+
+  @Override
+  public List<GcsObjectRange> readVectored(
+      List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate) throws IOException {
+    if (prefetchSize <= 0 || fileSize == -1) {
+      return ranges;
+    }
+
+    ImmutableList.Builder<GcsObjectRange> remaining = ImmutableList.builder();
+    ByteBuffer footer = null;
+
+    for (GcsObjectRange range : ranges) {
+      long offset = range.getOffset();
+
+      if (offset >= fileSize) {
+        range
+            .getByteBufferFuture()
+            .completeExceptionally(
+                new EOFException(
+                    String.format(
+                        "Offset %d is beyond file size %d for range: %s",
+                        offset, fileSize, range)));
+        continue;
+      }
+
+      if (offset >= (fileSize - prefetchSize)) {
+        if (footer == null) {
+          footer = cacheManager.getFooterIfPresent(gcsItemId);
+          if (footer == null) {
+            remaining.add(range);
+            continue;
+          }
+        }
+
+        telemetry.recordMetric(Metric.FOOTER_CACHE_HIT, 1L, Collections.emptyMap());
+        ByteBuffer dest = allocate.apply(range.getLength());
+
+        ByteBuffer footerView = footer.duplicate();
+        int readStartPosition = (int) (offset - (fileSize - prefetchSize));
+        footerView.position(readStartPosition);
+        int bytesRead = -1;
+        if (footerView.remaining() > 0) {
+          bytesRead = Math.min(dest.remaining(), footerView.remaining());
+          footerView.limit(footerView.position() + bytesRead);
+          dest.put(footerView);
+        }
+
+        if (bytesRead < range.getLength()) {
+          range
+              .getByteBufferFuture()
+              .completeExceptionally(
+                  new EOFException(
+                      String.format("Error while populating range: %s, unexpected EOF", range)));
+        } else {
+          dest.flip();
+          range.getByteBufferFuture().complete(dest);
+        }
+      } else {
+        remaining.add(range);
+      }
+    }
+
+    return remaining.build();
   }
 
   private ByteBuffer loadFooter(VectoredSeekableByteChannel source) throws IOException {

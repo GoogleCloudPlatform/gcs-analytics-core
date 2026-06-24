@@ -64,6 +64,16 @@ public class AnalyticsCacheManager {
         .asReadOnlyBuffer();
   }
 
+  /**
+   * Returns the cached footer for the given {@code itemId} if it is present in the cache, otherwise
+   * returns {@code null}.
+   */
+  @javax.annotation.Nullable
+  public ByteBuffer getFooterIfPresent(GcsItemId itemId) {
+    checkNotNull(itemId, "itemId cannot be null");
+    return footerCache.get(itemId).map(ByteBuffer::asReadOnlyBuffer).orElse(null);
+  }
+
   /** Invalidates the cached footer for the given {@code itemId}. */
   public void invalidateFooter(GcsItemId itemId) {
     checkNotNull(itemId, "itemId cannot be null");
