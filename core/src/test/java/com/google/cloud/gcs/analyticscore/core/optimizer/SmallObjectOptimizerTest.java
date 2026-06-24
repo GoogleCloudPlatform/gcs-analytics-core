@@ -18,19 +18,21 @@ package com.google.cloud.gcs.analyticscore.core.optimizer;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
+import com.google.cloud.gcs.analyticscore.client.FakeGcsClientImpl;
+import com.google.cloud.gcs.analyticscore.client.FakeGcsFileSystemImpl;
+import com.google.cloud.gcs.analyticscore.client.GcsCacheOptions;
+import com.google.cloud.gcs.analyticscore.client.GcsClientOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
+import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.storage.BlobInfo;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.net.URI;
@@ -55,16 +57,34 @@ class SmallObjectOptimizerTest {
           .build();
 
   private GcsReadOptions readOptions;
-  private Telemetry mockTelemetry;
-  private VectoredSeekableByteChannel mockSource;
+  private Telemetry telemetry;
+  private VectoredSeekableByteChannel realSource;
   private SmallObjectOptimizer optimizer;
 
   @BeforeEach
-  void setUp() {
+  void initializeOptimizerAndFakeStorage() throws IOException {
     readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(200).build();
-    mockTelemetry = mock(Telemetry.class);
-    mockSource = mock(VectoredSeekableByteChannel.class);
-    optimizer = new SmallObjectOptimizer(readOptions, mockTelemetry);
+    telemetry = new Telemetry(ImmutableList.of());
+    optimizer = new SmallObjectOptimizer(readOptions, telemetry);
+
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder().setGcsReadOptions(readOptions).build();
+    GcsFileSystemOptions fileSystemOptions =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(clientOptions)
+            .setGcsCacheOptions(GcsCacheOptions.builder().build())
+            .build();
+    FakeGcsFileSystemImpl fakeFileSystem = new FakeGcsFileSystemImpl(fileSystemOptions);
+
+    byte[] testData = new byte[100];
+    for (int i = 0; i < 100; i++) {
+      testData[i] = (byte) i;
+    }
+    FakeGcsClientImpl.storage.create(
+        BlobInfo.newBuilder(ITEM_ID.getBucketName(), ITEM_ID.getObjectName().get(), 1L).build(),
+        testData);
+
+    realSource = fakeFileSystem.open(FILE_INFO, readOptions);
   }
 
   @Test
@@ -109,7 +129,7 @@ class SmallObjectOptimizerTest {
   void isApplicable_itemId_returnsTrueIfCacheEnabled() {
     assertThat(optimizer.isApplicable(ITEM_ID)).isTrue();
     readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(0).build();
-    optimizer = new SmallObjectOptimizer(readOptions, mockTelemetry);
+    optimizer = new SmallObjectOptimizer(readOptions, telemetry);
     assertThat(optimizer.isApplicable(ITEM_ID)).isFalse();
   }
 
@@ -120,60 +140,51 @@ class SmallObjectOptimizerTest {
 
   @Test
   void read_smallFile_cachesAndServes() throws IOException {
-    // Arrange
     optimizer.onOpen(FILE_INFO, null);
-    when(mockSource.position()).thenReturn(50L);
-    when(mockSource.read(any(ByteBuffer.class)))
-        .thenAnswer(
-            invocation -> {
-              ByteBuffer bb = invocation.getArgument(0);
-
-              // Act
-              int remaining = bb.remaining();
-              bb.position(bb.position() + remaining);
-              return remaining;
-            });
     ByteBuffer dst = ByteBuffer.allocate(10);
-    int bytesRead = optimizer.read(10, dst, mockSource);
+    realSource.position(50L);
 
-    // Assert
+    int bytesRead = optimizer.read(10, dst, realSource);
+
     assertThat(bytesRead).isEqualTo(10);
-    verify(mockSource).position(0); // Cache miss triggers read from 0
-    verify(mockSource).position(50L); // Restored original position
-    // Second read should be from cache
+    assertThat(dst.array()).isEqualTo(new byte[] {10, 11, 12, 13, 14, 15, 16, 17, 18, 19});
+    assertThat(realSource.position()).isEqualTo(50L); // Position restored
+    // Delete the file from storage to prove second read comes from cache
+    FakeGcsClientImpl.storage.delete(ITEM_ID.getBucketName(), ITEM_ID.getObjectName().get());
     dst.clear();
-    int secondBytesRead = optimizer.read(20, dst, mockSource);
+    int secondBytesRead = optimizer.read(20, dst, realSource);
     assertThat(secondBytesRead).isEqualTo(10);
-    verify(mockSource, times(1)).read(any()); // Only one read from source
+    assertThat(dst.array()).isEqualTo(new byte[] {20, 21, 22, 23, 24, 25, 26, 27, 28, 29});
   }
 
   @Test
   void read_largeFile_returnsZero() throws IOException {
     readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(50).build();
-    optimizer = new SmallObjectOptimizer(readOptions, mockTelemetry);
+    optimizer = new SmallObjectOptimizer(readOptions, telemetry);
     optimizer.onOpen(FILE_INFO, null);
     ByteBuffer dst = ByteBuffer.allocate(10);
 
-    int bytesRead = optimizer.read(0, dst, mockSource);
+    int bytesRead = optimizer.read(0, dst, realSource);
 
     assertThat(bytesRead).isEqualTo(0);
   }
 
   @Test
   void read_unexpectedEofDuringPrefetch_throwsIOException() throws IOException {
+    // Modify file to be shorter than ITEM_INFO claims (100)
+    FakeGcsClientImpl.storage.create(
+        BlobInfo.newBuilder(ITEM_ID.getBucketName(), ITEM_ID.getObjectName().get(), 1L).build(),
+        new byte[50]);
     optimizer.onOpen(FILE_INFO, null);
-    when(mockSource.read(any(ByteBuffer.class))).thenReturn(-1); // Simulate immediate EOF
     ByteBuffer dst = ByteBuffer.allocate(10);
     IOException exception =
-        assertThrows(IOException.class, () -> optimizer.read(0, dst, mockSource));
+        assertThrows(IOException.class, () -> optimizer.read(0, dst, realSource));
 
-    assertThat(exception).hasMessageThat().contains("Unexpected EOF");
+    assertThat(exception).hasMessageThat().contains("Received end of stream signal");
   }
 
   @Test
   void readVectored_uninitializedFileSize_returnsOriginalRanges() throws IOException {
-    // Arrange
-    // fileSize is -1 because onOpen(FILE_INFO) was not called (e.g. opened with itemId)
     optimizer.onOpen(ITEM_ID, null);
     GcsObjectRange range =
         GcsObjectRange.builder()
@@ -183,11 +194,8 @@ class SmallObjectOptimizerTest {
             .build();
     List<GcsObjectRange> ranges = List.of(range);
     List<GcsObjectRange> remaining =
-
-        // Act
         optimizer.readVectored(ranges, (size) -> ByteBuffer.allocate(size));
 
-    // Assert
     assertThat(remaining).isSameInstanceAs(ranges);
   }
 
@@ -195,79 +203,41 @@ class SmallObjectOptimizerTest {
   void read_pastEOF_returnsMinusOne() throws IOException {
     optimizer.onOpen(FILE_INFO, null);
     ByteBuffer dst = ByteBuffer.allocate(10);
-    // Read at position 100 (EOF)
 
-    int bytesReadEof = optimizer.read(100, dst, mockSource);
+    int bytesReadEof = optimizer.read(100, dst, realSource);
 
     assertThat(bytesReadEof).isEqualTo(-1);
-    // Read past position 100
-    int bytesReadPastEof = optimizer.read(110, dst, mockSource);
+    int bytesReadPastEof = optimizer.read(110, dst, realSource);
     assertThat(bytesReadPastEof).isEqualTo(-1);
   }
 
   @Test
   void read_lazyInitFileSize_whenOnOpenWithItemIdUsed() throws IOException {
-    // Arrange
     optimizer.onOpen(ITEM_ID, null);
-    when(mockSource.size()).thenReturn(100L);
-    when(mockSource.position()).thenReturn(0L);
-    when(mockSource.read(any(ByteBuffer.class)))
-        .thenAnswer(
-            inv -> {
-              ByteBuffer bb = inv.getArgument(0);
-              bb.position(bb.limit());
-              return 100;
-            });
     ByteBuffer dst = ByteBuffer.allocate(10);
 
-    // Act
-    int bytesRead = optimizer.read(10, dst, mockSource);
+    int bytesRead = optimizer.read(10, dst, realSource);
 
-    // Assert
     assertThat(bytesRead).isEqualTo(10);
-    verify(mockSource).size();
+    assertThat(dst.array()).isEqualTo(new byte[] {10, 11, 12, 13, 14, 15, 16, 17, 18, 19});
   }
 
   @Test
   void serveFromCache_pastEOF_returnsMinusOne() throws IOException {
-    // Arrange
     optimizer.onOpen(FILE_INFO, null);
-    // Trigger prefetch
-    when(mockSource.position()).thenReturn(0L);
-    when(mockSource.read(any(ByteBuffer.class)))
-        .thenAnswer(
-            invocation -> {
-              ByteBuffer bb = invocation.getArgument(0);
-              bb.position(bb.limit());
-              return 100;
-            });
 
-    // Act
-    optimizer.read(0, ByteBuffer.allocate(10), mockSource);
+    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger prefetch
     ByteBuffer dst = ByteBuffer.allocate(10);
-    // Read at position 150 which is past fileSize 100
-    int bytesRead = optimizer.read(150, dst, mockSource);
+    int bytesRead = optimizer.read(150, dst, realSource);
 
-    // Assert
     assertThat(bytesRead).isEqualTo(-1);
   }
 
   @Test
   void readVectored_pastEOF_completesWithEOFException() throws IOException {
-    // Arrange
     optimizer.onOpen(FILE_INFO, null);
-    // Trigger prefetch
-    when(mockSource.position()).thenReturn(0L);
-    when(mockSource.read(any(ByteBuffer.class)))
-        .thenAnswer(
-            invocation -> {
-              ByteBuffer bb = invocation.getArgument(0);
-              bb.position(bb.limit());
-              return 100;
-            });
 
-    // Act
-    optimizer.read(0, ByteBuffer.allocate(10), mockSource);
+    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger prefetch
     GcsObjectRange pastEofRange =
         GcsObjectRange.builder()
             .setOffset(110)
@@ -278,15 +248,13 @@ class SmallObjectOptimizerTest {
     var exception =
         assertThrows(ExecutionException.class, () -> pastEofRange.getByteBufferFuture().get());
 
-    // Assert
     assertThat(exception.getCause()).isInstanceOf(java.io.EOFException.class);
   }
 
   @Test
   void readVectored_notApplicable_returnsOriginalRanges() throws IOException {
-    // Arrange
     readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(50).build();
-    optimizer = new SmallObjectOptimizer(readOptions, mockTelemetry);
+    optimizer = new SmallObjectOptimizer(readOptions, telemetry);
     optimizer.onOpen(FILE_INFO, null);
     GcsObjectRange range =
         GcsObjectRange.builder()
@@ -296,17 +264,13 @@ class SmallObjectOptimizerTest {
             .build();
     List<GcsObjectRange> ranges = List.of(range);
     List<GcsObjectRange> remaining =
-
-        // Act
         optimizer.readVectored(ranges, (size) -> ByteBuffer.allocate(size));
 
-    // Assert
     assertThat(remaining).isSameInstanceAs(ranges);
   }
 
   @Test
   void readVectored_notYetPrefetched_returnsOriginalRanges() throws IOException {
-    // Arrange
     optimizer.onOpen(FILE_INFO, null);
     GcsObjectRange range =
         GcsObjectRange.builder()
@@ -316,29 +280,16 @@ class SmallObjectOptimizerTest {
             .build();
     List<GcsObjectRange> ranges = List.of(range);
     List<GcsObjectRange> remaining =
-
-        // Act
         optimizer.readVectored(ranges, (size) -> ByteBuffer.allocate(size));
 
-    // Assert
     assertThat(remaining).isSameInstanceAs(ranges);
   }
 
   @Test
   void readVectored_partialRead_completesExceptionally() throws IOException {
-    // Arrange
     optimizer.onOpen(FILE_INFO, null);
-    when(mockSource.position()).thenReturn(0L);
-    when(mockSource.read(any(ByteBuffer.class)))
-        .thenAnswer(
-            invocation -> {
-              ByteBuffer bb = invocation.getArgument(0);
-              bb.position(bb.limit());
-              return 100;
-            });
 
-    // Act
-    optimizer.read(0, ByteBuffer.allocate(10), mockSource);
+    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger prefetch
     GcsObjectRange partialRange =
         GcsObjectRange.builder()
             .setOffset(90)
@@ -349,28 +300,14 @@ class SmallObjectOptimizerTest {
     var exception =
         assertThrows(ExecutionException.class, () -> partialRange.getByteBufferFuture().get());
 
-    // Assert
     assertThat(exception.getCause()).isInstanceOf(java.io.EOFException.class);
   }
 
   @Test
   void readVectored_success_returnsEmptyList() throws Exception {
-    // Arrange
     optimizer.onOpen(FILE_INFO, null);
-    when(mockSource.position()).thenReturn(0L);
-    when(mockSource.read(any(ByteBuffer.class)))
-        .thenAnswer(
-            invocation -> {
-              ByteBuffer bb = invocation.getArgument(0);
 
-              // Act
-              int remaining = bb.remaining();
-              for (int i = 0; i < remaining; i++) {
-                bb.put((byte) i);
-              }
-              return remaining;
-            });
-    optimizer.read(0, ByteBuffer.allocate(10), mockSource);
+    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger prefetch
     GcsObjectRange validRange =
         GcsObjectRange.builder()
             .setOffset(10)
@@ -380,10 +317,10 @@ class SmallObjectOptimizerTest {
     List<GcsObjectRange> remaining =
         optimizer.readVectored(List.of(validRange), ByteBuffer::allocate);
 
-    // Assert
     assertThat(remaining).isEmpty();
     ByteBuffer result = validRange.getByteBufferFuture().get();
     assertThat(result.remaining()).isEqualTo(20);
     assertThat(result.get()).isEqualTo((byte) 10);
+    assertThat(result.get(19)).isEqualTo((byte) 29);
   }
 }
