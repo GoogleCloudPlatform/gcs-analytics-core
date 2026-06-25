@@ -26,6 +26,8 @@ import org.junit.jupiter.api.Test;
 
 class GcsWriteOptionsTest {
 
+  private static final int MB = 1024 * 1024;
+
   @Test
   void builder_withDefaultValues_returnsExpectedDefaults() {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
@@ -33,10 +35,10 @@ class GcsWriteOptionsTest {
     assertThat(options.isChecksumValidationEnabled()).isFalse();
     assertThat(options.isDisableGzipContent()).isTrue();
     assertThat(options.isOverwriteExisting()).isTrue();
-    assertThat(options.getUploadChunkSize()).isEqualTo(24 * 1024 * 1024);
+    assertThat(options.getUploadChunkSize()).isEqualTo(24 * MB);
     assertThat(options.getUploadType()).isEqualTo(GcsWriteOptions.UploadType.CHUNK_UPLOAD);
     assertThat(options.getPcuBufferCount()).isEqualTo(1);
-    assertThat(options.getPcuBufferCapacity()).isEqualTo(32 * 1024 * 1024);
+    assertThat(options.getPcuBufferCapacity()).isEqualTo(32 * MB);
     assertThat(options.getPcuPartFileCleanupType())
         .isEqualTo(GcsWriteOptions.PartFileCleanupType.ALWAYS);
     assertThat(options.getPcuPartFileNamePrefix()).isEmpty();
@@ -56,7 +58,7 @@ class GcsWriteOptionsTest {
             .setUploadChunkSize(1024)
             .setUploadType(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
             .setPcuBufferCount(4)
-            .setPcuBufferCapacity(64 * 1024 * 1024)
+            .setPcuBufferCapacity(64 * MB)
             .setPcuPartFileCleanupType(GcsWriteOptions.PartFileCleanupType.ON_SUCCESS)
             .setPcuPartFileNamePrefix("temp-prefix-")
             .setTemporaryPaths(ImmutableList.of("/tmp/path1", "/tmp/path2"))
@@ -72,7 +74,7 @@ class GcsWriteOptionsTest {
     assertThat(options.getUploadType())
         .isEqualTo(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD);
     assertThat(options.getPcuBufferCount()).isEqualTo(4);
-    assertThat(options.getPcuBufferCapacity()).isEqualTo(64 * 1024 * 1024);
+    assertThat(options.getPcuBufferCapacity()).isEqualTo(64 * MB);
     assertThat(options.getPcuPartFileCleanupType())
         .isEqualTo(GcsWriteOptions.PartFileCleanupType.ON_SUCCESS);
     assertThat(options.getPcuPartFileNamePrefix()).isEqualTo("temp-prefix-");
@@ -110,7 +112,7 @@ class GcsWriteOptionsTest {
     assertThat(options.getUploadType())
         .isEqualTo(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD);
     assertThat(options.getPcuBufferCount()).isEqualTo(4);
-    assertThat(options.getPcuBufferCapacity()).isEqualTo(64 * 1024 * 1024);
+    assertThat(options.getPcuBufferCapacity()).isEqualTo(64 * MB);
     assertThat(options.getPcuPartFileCleanupType())
         .isEqualTo(GcsWriteOptions.PartFileCleanupType.ON_SUCCESS);
     assertThat(options.getPcuPartFileNamePrefix()).isEqualTo("temp-prefix-");
