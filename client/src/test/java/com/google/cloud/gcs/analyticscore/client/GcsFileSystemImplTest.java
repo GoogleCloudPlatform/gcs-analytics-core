@@ -395,7 +395,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeTelemetry_registerListenersToTelemetry() {
+  void initializeTelemetry_registerListenersToTelemetry() throws Exception {
     OperationListener mockListener = mock(OperationListener.class);
     CustomTelemetryOptions customTelemetryOptions =
         CustomTelemetryOptions.builder()

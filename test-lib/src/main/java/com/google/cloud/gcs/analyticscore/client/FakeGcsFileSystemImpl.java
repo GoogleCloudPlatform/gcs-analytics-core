@@ -29,7 +29,8 @@ public class FakeGcsFileSystemImpl extends GcsFileSystemImpl {
     this(fileSystemOptions, new Telemetry(ImmutableList.of()));
   }
 
-  private FakeGcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions, Telemetry telemetry) {
+  private FakeGcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions, Telemetry telemetry)
+      throws IOException {
     super(
         initializeGcsClient(fileSystemOptions, telemetry),
         fileSystemOptions,
