@@ -47,7 +47,7 @@ public class SmallObjectCachingBenchmark {
     public void smallFile(SmallObjectCachingState state) throws IOException {
       GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
               Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
-                      "gcs.analytics-core.small-file.cache.threshold-bytes", state.smallObjectCacheThreshold),
+                      "gcs.analytics-core.small-file.cache.max-size-bytes", state.smallObjectCacheThreshold),
               "gcs.");
 
         URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE);

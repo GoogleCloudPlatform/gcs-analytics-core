@@ -19,6 +19,7 @@ package com.google.cloud.gcs.analyticscore.core.optimizer;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.cloud.gcs.analyticscore.client.AnalyticsCacheManager;
+import com.google.cloud.gcs.analyticscore.client.GcsCacheOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
@@ -32,6 +33,7 @@ import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntFunction;
 
 /** A {@link FormatOptimizer} that caches and serves small objects in a private buffer. */
@@ -39,21 +41,34 @@ public class SmallObjectOptimizer implements FormatOptimizer {
 
   private static final Set<String> DATA_FILE_EXTENSIONS = Set.of(".parquet", ".orc");
 
+  private final GcsCacheOptions cacheOptions;
   private final GcsReadOptions readOptions;
   private final Telemetry telemetry;
 
+  private AnalyticsCacheManager cacheManager;
+  private GcsItemId currentItemId;
   private long fileSize = -1;
-  private ByteBuffer prefetchBuffer;
+  private ByteBuffer localCachedBuffer;
 
-  public SmallObjectOptimizer(GcsReadOptions readOptions, Telemetry telemetry) {
+  public SmallObjectOptimizer(
+      GcsCacheOptions cacheOptions, GcsReadOptions readOptions, Telemetry telemetry) {
+    this.cacheOptions = checkNotNull(cacheOptions, "cacheOptions cannot be null");
     this.readOptions = checkNotNull(readOptions, "readOptions cannot be null");
     this.telemetry = checkNotNull(telemetry, "telemetry cannot be null");
   }
 
   @Override
   public boolean isApplicable(GcsItemId itemId) {
-    return readOptions.getSmallObjectCacheSize() > 0
-        && itemId
+    return false; // File size is required to determine applicability
+  }
+
+  @Override
+  public boolean isApplicable(GcsFileInfo fileInfo) {
+    return cacheOptions.isSmallObjectCacheEnabled()
+        && fileInfo.getItemInfo().getSize() <= readOptions.getSmallObjectCacheThresholdBytes()
+        && fileInfo
+            .getItemInfo()
+            .getItemId()
             .getObjectName()
             .map(
                 name ->
@@ -62,30 +77,22 @@ public class SmallObjectOptimizer implements FormatOptimizer {
   }
 
   @Override
-  public boolean isApplicable(GcsFileInfo fileInfo) {
-    return isApplicable(fileInfo.getItemInfo().getItemId())
-        && fileInfo.getItemInfo().getSize() <= readOptions.getSmallObjectCacheSize();
-  }
-
-  @Override
   public void onOpen(GcsItemId itemId, AnalyticsCacheManager cacheManager) {
-    // No-op
+    this.currentItemId = itemId;
+    this.cacheManager = cacheManager;
   }
 
   @Override
   public void onOpen(GcsFileInfo fileInfo, AnalyticsCacheManager cacheManager) {
-    // TODO(ajayky): Use in memory caching for small files as well.
+    this.currentItemId = fileInfo.getItemInfo().getItemId();
+    this.cacheManager = cacheManager;
     this.fileSize = fileInfo.getItemInfo().getSize();
   }
 
   @Override
   public int read(long position, ByteBuffer dst, VectoredSeekableByteChannel source)
       throws IOException {
-    if (fileSize == -1) {
-      fileSize = source.size();
-    }
-
-    if (fileSize > readOptions.getSmallObjectCacheSize()) {
+    if (fileSize == -1 || fileSize > readOptions.getSmallObjectCacheThresholdBytes()) {
       return 0;
     }
 
@@ -93,24 +100,41 @@ public class SmallObjectOptimizer implements FormatOptimizer {
       return -1;
     }
 
-    if (prefetchBuffer == null) {
-      telemetry.recordMetric(Metric.SMALL_OBJECT_CACHE_MISS, 1L, Collections.emptyMap());
-      ensurePrefetched(source);
-    } else {
-      telemetry.recordMetric(Metric.SMALL_OBJECT_CACHE_HIT, 1L, Collections.emptyMap());
+    if (localCachedBuffer == null) {
+      AtomicBoolean isMiss = new AtomicBoolean(false);
+      localCachedBuffer =
+          cacheManager.getSmallObject(
+              currentItemId,
+              itemId -> {
+                isMiss.set(true);
+                return ensureCached(source);
+              });
+
+      telemetry.recordMetric(
+          isMiss.get() ? Metric.SMALL_OBJECT_CACHE_MISS : Metric.SMALL_OBJECT_CACHE_HIT,
+          1L,
+          Collections.emptyMap());
     }
 
-    return serveFromCache(position, dst);
+    return serveFromCache(position, dst, localCachedBuffer);
   }
 
   @Override
   public List<GcsObjectRange> readVectored(
       List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate) throws IOException {
-    if (fileSize == -1 || fileSize > readOptions.getSmallObjectCacheSize()) {
+    if (fileSize == -1 || fileSize > readOptions.getSmallObjectCacheThresholdBytes()) {
       return ranges;
     }
 
-    if (prefetchBuffer == null) {
+    ByteBuffer cachedBuffer;
+    try {
+      cachedBuffer =
+          cacheManager.getSmallObject(
+              currentItemId,
+              id -> {
+                throw new IOException("Cache miss during vectored read");
+              });
+    } catch (IOException e) {
       return ranges; // Cannot satisfy yet
     }
 
@@ -125,7 +149,7 @@ public class SmallObjectOptimizer implements FormatOptimizer {
                     String.format("Buffer allocation returned null for range: %s", range)));
         continue;
       }
-      int bytesRead = serveFromCache(range.getOffset(), dest);
+      int bytesRead = serveFromCache(range.getOffset(), dest, cachedBuffer);
       if (bytesRead < range.getLength()) {
         range
             .getByteBufferFuture()
@@ -140,27 +164,28 @@ public class SmallObjectOptimizer implements FormatOptimizer {
     return Collections.emptyList();
   }
 
-  private void ensurePrefetched(VectoredSeekableByteChannel source) throws IOException {
-    prefetchBuffer = ByteBuffer.allocate((int) fileSize);
+  private ByteBuffer ensureCached(VectoredSeekableByteChannel source) throws IOException {
+    ByteBuffer buffer = ByteBuffer.allocate((int) fileSize);
     long originalPosition = source.position();
     try {
       source.position(0);
-      while (prefetchBuffer.hasRemaining()) {
-        if (source.read(prefetchBuffer) == -1) {
+      while (buffer.hasRemaining()) {
+        if (source.read(buffer) == -1) {
           throw new IOException("Unexpected EOF encountered while reading small object.");
         }
       }
-      prefetchBuffer.flip();
+      buffer.flip();
+      return buffer;
     } finally {
       source.position(originalPosition);
     }
   }
 
-  private int serveFromCache(long currPosition, ByteBuffer buffer) {
+  private int serveFromCache(long currPosition, ByteBuffer buffer, ByteBuffer cachedBuffer) {
     if (currPosition >= fileSize) {
       return -1;
     }
-    ByteBuffer cacheView = prefetchBuffer.duplicate();
+    ByteBuffer cacheView = cachedBuffer.duplicate();
     cacheView.position((int) currPosition);
     int bytesToRead = Math.min(buffer.remaining(), cacheView.remaining());
     cacheView.limit(cacheView.position() + bytesToRead);

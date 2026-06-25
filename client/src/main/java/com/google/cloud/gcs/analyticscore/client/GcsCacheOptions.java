@@ -28,18 +28,31 @@ public abstract class GcsCacheOptions {
   private static final String FOOTER_CACHE_ENABLED_KEY = "analytics-core.footer.cache.enabled";
   private static final String FOOTER_CACHE_MAX_SIZE_BYTES_KEY =
       "analytics-core.footer.cache.max-size-bytes";
+  private static final String SMALL_FILE_CACHE_ENABLED_KEY =
+      "analytics-core.small-file.cache.enabled";
+  private static final String SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY =
+      "analytics-core.small-file.cache.max-size-bytes";
 
   private static final long KB = 1024L;
   private static final long MB = 1024L * KB;
 
-  private static final boolean DEFAULT_FOOTER_CACHE_ENABLED = true;
+  private static final boolean DEFAULT_FOOTER_CACHE_ENABLED = false;
   private static final long DEFAULT_FOOTER_CACHE_MAX_SIZE_BYTES = 100 * MB;
+  private static final boolean DEFAULT_SMALL_OBJECT_CACHE_ENABLED = false;
+  private static final long DEFAULT_SMALL_OBJECT_CACHE_MAX_SIZE_BYTES = 200 * MB;
 
   /** Returns whether the Parquet footer cache is enabled. */
   public abstract boolean isFooterCacheEnabled();
 
   /** Returns the maximum capacity (in bytes) to hold in the Parquet footer cache. */
   public abstract long getFooterCacheMaxSizeBytes();
+
+  /** Returns the maximum capacity (in bytes) to hold in the small object cache. */
+  /** Returns whether the small object cache is enabled. */
+  public abstract boolean isSmallObjectCacheEnabled();
+
+  /** Returns the maximum capacity (in bytes) to hold in the small object cache. */
+  public abstract long getSmallObjectCacheMaxSizeBytes();
 
   /**
    * Returns a builder for {@link GcsCacheOptions} with the same property values as this instance.
@@ -50,7 +63,9 @@ public abstract class GcsCacheOptions {
   public static Builder builder() {
     return new AutoValue_GcsCacheOptions.Builder()
         .setFooterCacheEnabled(DEFAULT_FOOTER_CACHE_ENABLED)
-        .setFooterCacheMaxSizeBytes(DEFAULT_FOOTER_CACHE_MAX_SIZE_BYTES);
+        .setFooterCacheMaxSizeBytes(DEFAULT_FOOTER_CACHE_MAX_SIZE_BYTES)
+        .setSmallObjectCacheEnabled(DEFAULT_SMALL_OBJECT_CACHE_ENABLED)
+        .setSmallObjectCacheMaxSizeBytes(DEFAULT_SMALL_OBJECT_CACHE_MAX_SIZE_BYTES);
   }
 
   /** Creates a {@link GcsCacheOptions} instance from a map of configuration options. */
@@ -65,6 +80,14 @@ public abstract class GcsCacheOptions {
       optionsBuilder.setFooterCacheMaxSizeBytes(
           Long.parseLong(analyticsCoreOptions.get(prefix + FOOTER_CACHE_MAX_SIZE_BYTES_KEY)));
     }
+    if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_CACHE_ENABLED_KEY)) {
+      optionsBuilder.setSmallObjectCacheEnabled(
+          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + SMALL_FILE_CACHE_ENABLED_KEY)));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY)) {
+      optionsBuilder.setSmallObjectCacheMaxSizeBytes(
+          Long.parseLong(analyticsCoreOptions.get(prefix + SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY)));
+    }
     return optionsBuilder.build();
   }
 
@@ -76,6 +99,13 @@ public abstract class GcsCacheOptions {
 
     /** Sets the maximum capacity (in bytes) to hold in the Parquet footer cache. */
     public abstract Builder setFooterCacheMaxSizeBytes(long footerCacheMaxSizeBytes);
+
+    /** Sets the maximum capacity (in bytes) to hold in the small object cache. */
+    /** Sets whether the small object cache is enabled. */
+    public abstract Builder setSmallObjectCacheEnabled(boolean smallObjectCacheEnabled);
+
+    /** Sets the maximum capacity (in bytes) to hold in the small object cache. */
+    public abstract Builder setSmallObjectCacheMaxSizeBytes(long smallObjectCacheMaxSizeBytes);
 
     abstract GcsCacheOptions autoBuild();
 
@@ -91,6 +121,11 @@ public abstract class GcsCacheOptions {
         checkArgument(
             options.getFooterCacheMaxSizeBytes() > 0,
             "footerCacheMaxSizeBytes must be positive when footerCacheEnabled is true");
+      }
+      if (options.isSmallObjectCacheEnabled()) {
+        checkArgument(
+            options.getSmallObjectCacheMaxSizeBytes() > 0,
+            "smallObjectCacheMaxSizeBytes must be positive when smallObjectCacheEnabled is true");
       }
       return options;
     }

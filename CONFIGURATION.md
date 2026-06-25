@@ -28,9 +28,11 @@ These settings control how aggressively the library prefetches and caches metada
 | `analytics-core.footer.prefetch.enabled` | Controls whether footer prefetching is enabled. | `true` |
 | `analytics-core.small-file.footer.prefetch.size-bytes` | Footer prefetch size (in bytes) for files up to 1 GB. | `51200` (50 KB) |
 | `analytics-core.large-file.footer.prefetch.size-bytes` | Footer prefetch size (in bytes) for files larger than 1 GB. | `1048576` (1 MB) |
-| `analytics-core.footer.cache.enabled` | Controls whether the Parquet footer cache is enabled. | `true` |
+| `analytics-core.footer.cache.enabled` | Controls whether the Parquet footer cache is enabled. | `false` |
 | `analytics-core.footer.cache.max-size-bytes`                 | The maximum capacity (in bytes) to hold in the Parquet footer cache.                        | `104857600` (100 MB) |
 | `analytics-core.small-file.cache.threshold-bytes` | Threshold (in bytes) below which small files are cached entirely. | `1048576` (1 MB) |
+| `analytics-core.small-file.cache.enabled` | Controls whether the small object cache is enabled. | `false` |
+| `analytics-core.small-file.cache.max-size-bytes` | The maximum capacity (in bytes) to hold in the small object cache. | `209715200` (200 MB) |
 
 ### Read Performance and I/O Tuning
 

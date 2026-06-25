@@ -41,9 +41,9 @@ class GcsReadOptionsTest {
             .put("gcs.analytics-core.read.vectored.range.merge-gap.max-bytes", "1024")
             .put("gcs.analytics-core.read.vectored.range.merged-size.max-bytes", "2048")
             .put("gcs.analytics-core.footer.prefetch.enabled", "false")
+            .put("gcs.analytics-core.small-file.cache.threshold-bytes", "102400")
             .put("gcs.analytics-core.large-file.footer.prefetch.size-bytes", "4194304")
             .put("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "41943")
-            .put("gcs.analytics-core.small-file.cache.threshold-bytes", "102400")
             .put("gcs.analytics-core.read.inplace-seek-limit-bytes", "16777216")
             .put("gcs.analytics-core.read.file-access-pattern", "random")
             .put("gcs.analytics-core.adaptive-read.sequential-read-threshold", "5")
@@ -60,7 +60,7 @@ class GcsReadOptionsTest {
     assertThat(readOptions.isFooterPrefetchEnabled()).isEqualTo(false);
     assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(41943);
     assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(4194304);
-    assertThat(readOptions.getSmallObjectCacheSize()).isEqualTo(102400);
+    assertThat(readOptions.getSmallObjectCacheThresholdBytes()).isEqualTo(102400);
     assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(16777216);
     assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.RANDOM);
     assertThat(readOptions.getAdaptiveReadSequentialReadThreshold()).isEqualTo(5);
@@ -90,7 +90,7 @@ class GcsReadOptionsTest {
     assertThat(readOptions.isFooterPrefetchEnabled()).isEqualTo(true);
     assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(50 * KB);
     assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(MB);
-    assertThat(readOptions.getSmallObjectCacheSize()).isEqualTo(0);
+    assertThat(readOptions.getSmallObjectCacheThresholdBytes()).isEqualTo(MB);
     assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(128 * KB);
     assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.AUTO_SEQUENTIAL);
     assertThat(readOptions.getAdaptiveReadSequentialReadThreshold()).isEqualTo(3);

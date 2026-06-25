@@ -37,6 +37,7 @@ public class AnalyticsCacheCaffeineImpl<K, V> implements AnalyticsCache<K, V> {
 
   private AnalyticsCacheCaffeineImpl(long maxWeight, Weigher<K, V> weigher) {
     checkArgument(maxWeight > 0, "maxWeight must be positive");
+    checkNotNull(weigher, "weigher cannot be null");
     this.cache = Caffeine.newBuilder().maximumWeight(maxWeight).weigher(weigher).build();
   }
 

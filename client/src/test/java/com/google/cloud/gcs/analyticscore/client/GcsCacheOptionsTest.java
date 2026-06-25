@@ -30,8 +30,10 @@ class GcsCacheOptionsTest {
   void build_defaultValues_succeeds() {
     GcsCacheOptions options = GcsCacheOptions.builder().build();
 
-    assertThat(options.isFooterCacheEnabled()).isTrue();
+    assertThat(options.isFooterCacheEnabled()).isFalse();
     assertThat(options.getFooterCacheMaxSizeBytes()).isEqualTo(100 * MB);
+    assertThat(options.isSmallObjectCacheEnabled()).isFalse();
+    assertThat(options.getSmallObjectCacheMaxSizeBytes()).isEqualTo(200 * MB);
   }
 
   @Test
@@ -40,10 +42,14 @@ class GcsCacheOptionsTest {
         GcsCacheOptions.builder()
             .setFooterCacheEnabled(false)
             .setFooterCacheMaxSizeBytes(0)
+            .setSmallObjectCacheEnabled(false)
+            .setSmallObjectCacheMaxSizeBytes(0)
             .build();
 
     assertThat(options.isFooterCacheEnabled()).isFalse();
     assertThat(options.getFooterCacheMaxSizeBytes()).isEqualTo(0);
+    assertThat(options.isSmallObjectCacheEnabled()).isFalse();
+    assertThat(options.getSmallObjectCacheMaxSizeBytes()).isEqualTo(0);
   }
 
   @Test
