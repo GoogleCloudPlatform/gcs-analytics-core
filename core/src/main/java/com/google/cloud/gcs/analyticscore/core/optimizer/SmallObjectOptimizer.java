@@ -117,6 +117,14 @@ public class SmallObjectOptimizer implements FormatOptimizer {
     telemetry.recordMetric(Metric.SMALL_OBJECT_CACHE_HIT, ranges.size(), Collections.emptyMap());
     for (GcsObjectRange range : ranges) {
       ByteBuffer dest = allocate.apply(range.getLength());
+      if (dest == null) {
+        range
+            .getByteBufferFuture()
+            .completeExceptionally(
+                new IllegalArgumentException(
+                    String.format("Buffer allocation returned null for range: %s", range)));
+        continue;
+      }
       int bytesRead = serveFromCache(range.getOffset(), dest);
       if (bytesRead < range.getLength()) {
         range
