@@ -273,7 +273,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_writeAndClose_successWithLocalStorage() throws Exception {
+  void create_withLocalStorage_writesSuccessfully() throws Exception {
     GcsClientImpl client =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
           @Override
@@ -283,19 +283,18 @@ class GcsClientImplTest {
         };
     BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_WRITE_OBJECT)).build();
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    WritableByteChannel channel = client.create(blobInfo, options);
 
     byte[] data = "hello write world".getBytes(StandardCharsets.UTF_8);
-    int bytesWritten = channel.write(ByteBuffer.wrap(data));
-    channel.close();
-
-    assertThat(bytesWritten).isEqualTo(data.length);
+    try (WritableByteChannel channel = client.create(blobInfo, options)) {
+      int bytesWritten = channel.write(ByteBuffer.wrap(data));
+      assertThat(bytesWritten).isEqualTo(data.length);
+    }
     byte[] readData = storage.readAllBytes(blobInfo.getBlobId());
     assertThat(new String(readData, StandardCharsets.UTF_8)).isEqualTo("hello write world");
   }
 
   @Test
-  void create_TranslatesAccessDeniedException() throws Exception {
+  void create_whenAccessDenied_throwsAccessDeniedException() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -310,7 +309,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_TranslatesAlreadyExistsException() throws Exception {
+  void create_whenFileExists_throwsFileAlreadyExistsException() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -326,7 +325,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_TranslatesPreconditionFailedException_toFileAlreadyExistsException()
+  void create_whenPreconditionFailedAndNoOverwrite_throwsFileAlreadyExistsException()
       throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
@@ -346,8 +345,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_TranslatesPreconditionFailedException_toGenerationMismatchIOException()
-      throws Exception {
+  void create_whenGenerationMismatch_throwsIOException() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -368,7 +366,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_TranslatesNotFoundException_toFileNotFoundException() throws Exception {
+  void create_whenBucketOrObjectNotFound_throwsFileNotFoundException() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -388,7 +386,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_GenericStorageException() throws Exception {
+  void create_whenStorageExceptionOccurs_throwsIOException() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -406,7 +404,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_GenerateWriteOptions_NullOptions() throws Exception {
+  void create_nullWriteOptions_usesDefaultWriteOptions() throws Exception {
     Storage mockStorage = mock(Storage.class);
     BlobWriteSession mockSession = mock(BlobWriteSession.class);
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
@@ -428,7 +426,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_GenerateWriteOptions_AllOptionsEnabled() throws Exception {
+  void create_allWriteOptionsEnabled_generatesCorrectBlobWriteOptions() throws Exception {
     Storage mockStorage = mock(Storage.class);
     BlobWriteSession mockSession = mock(BlobWriteSession.class);
     when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
@@ -461,7 +459,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_GenerateWriteOptions_WithGenerationId() throws Exception {
+  void create_withGenerationId_generatesGenerationMatchOption() throws Exception {
     Storage mockStorage = mock(Storage.class);
     BlobWriteSession mockSession = mock(BlobWriteSession.class);
     when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
@@ -483,7 +481,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createStorage_withParallelCompositeUpload_setsPCUSessionConfig() throws Exception {
+  void createStorage_withParallelCompositeUpload_setsPcuSessionConfig() throws Exception {
     GcsWriteOptions writeOptions =
         GcsWriteOptions.builder()
             .setUploadType(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
@@ -524,7 +522,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createStorage_withJournaling_throwsUnsupportedOperationExceptionOnHttp() {
+  void createStorage_withJournalingOnHttp_throwsUnsupportedOperationException() {
     GcsWriteOptions writeOptions =
         GcsWriteOptions.builder()
             .setUploadType(GcsWriteOptions.UploadType.JOURNALING)
@@ -545,7 +543,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getBlob_StorageException_ThrowsIOException() throws Exception {
+  void getBlob_whenStorageThrowsException_throwsIOException() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -561,7 +559,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void close_StorageException_HandledSilently() throws Exception {
+  void close_whenStorageThrowsException_handledSilently() throws Exception {
     tempMockStorage = mock(Storage.class);
     doThrow(new RuntimeException("close failed")).when(tempMockStorage).close();
     GcsClientImpl clientWithMock =
@@ -574,7 +572,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void close_Success() throws Exception {
+  void close_whenCalled_closesStorage() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -586,7 +584,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_WriteSessionOpenThrowsIOException_RethrownDirectly() throws Exception {
+  void create_whenOpenThrowsIOException_propagatesIOException() throws Exception {
     Storage mockStorage = mock(Storage.class);
     BlobWriteSession mockSession = mock(BlobWriteSession.class);
     when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
@@ -606,7 +604,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getBlob_NullBucketName_ThrowsNullPointerException() throws Exception {
+  void getBlob_whenBucketNameIsNull_throwsNullPointerException() throws Exception {
     GcsItemId itemId = mock(GcsItemId.class);
     when(itemId.getBucketName()).thenReturn(null);
     when(itemId.getObjectName()).thenReturn(Optional.of(TEST_OBJECT));
@@ -619,7 +617,8 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getGcsItemInfo_bucketItemId_throwsUnsupportedOperationException() throws Exception {
+  void getGcsItemInfo_whenBucketItemIdProvided_throwsUnsupportedOperationException()
+      throws Exception {
     GcsItemId bucketItemId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
     GcsClientImpl client =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -643,7 +642,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createStorage_withWriteToDiskNoTempPaths_setsBufferToTempDirSessionConfig()
+  void createStorage_withWriteToDiskAndNoTempPaths_setsBufferToTempDirSessionConfig()
       throws Exception {
     GcsWriteOptions writeOptions =
         GcsWriteOptions.builder()
@@ -663,7 +662,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createStorage_withParallelCompositeUpload_OnSuccessCleanup_setsPCUSessionConfig()
+  void createStorage_withParallelCompositeUploadAndOnSuccessCleanup_setsPcuSessionConfig()
       throws Exception {
     GcsWriteOptions writeOptions =
         GcsWriteOptions.builder()
@@ -683,7 +682,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createStorage_withParallelCompositeUpload_AlwaysCleanup_setsPCUSessionConfig()
+  void createStorage_withParallelCompositeUploadAndAlwaysCleanup_setsPcuSessionConfig()
       throws Exception {
     GcsWriteOptions writeOptions =
         GcsWriteOptions.builder()
@@ -718,7 +717,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_TranslatesPreconditionFailedException_withNullWriteOptions() throws Exception {
+  void create_whenPreconditionFailedAndNullWriteOptions_throwsIOException() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -735,7 +734,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_TranslatesPreconditionFailedException_withDefaultOverwrite() throws Exception {
+  void create_whenPreconditionFailedAndDefaultOverwrite_throwsIOException() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -753,7 +752,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_TranslatesRuntimeException_directlyPropagated() throws Exception {
+  void create_whenRuntimeExceptionOccurs_directlyPropagates() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -771,7 +770,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_TranslatesGenericCheckedException_wrappedInIOException() throws Exception {
+  void create_whenGenericCheckedExceptionOccurs_throwsIOException() throws Exception {
     tempMockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -804,7 +803,7 @@ class GcsClientImplTest {
 
   @Test
   void
-      getJournalingSessionConfig_withNonHttpStorageOptions_andTemporaryPaths_returnsJournalingConfig()
+      getJournalingSessionConfig_withNonHttpStorageOptionsAndTemporaryPaths_returnsJournalingConfig()
           throws Exception {
     GcsClientImpl client =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
@@ -830,7 +829,7 @@ class GcsClientImplTest {
 
   @Test
   void
-      getJournalingSessionConfig_withNonHttpStorageOptions_andEmptyTemporaryPaths_throwsIllegalArgumentException()
+      getJournalingSessionConfig_withNonHttpStorageOptionsAndEmptyTemporaryPaths_throwsIllegalArgumentException()
           throws Exception {
     GcsClientImpl client =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);

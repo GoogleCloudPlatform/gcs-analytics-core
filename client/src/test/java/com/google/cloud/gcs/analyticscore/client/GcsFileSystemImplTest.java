@@ -110,7 +110,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void constructor_shouldInitializeAndPassMemorizedExecutorServiceToGcsClient() throws Exception {
+  void constructor_withValidOptions_passesExecutorToClient() throws Exception {
     final AtomicReference<Supplier<ExecutorService>> capturedSupplier = new AtomicReference<>();
     try (MockedConstruction<GcsClientImpl> mockGcsClientConstruction =
         Mockito.mockConstruction(
@@ -415,7 +415,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeTelemetry_withLoggingTelemetryOptionsEnabled_registersLoggingTelemetryReporter()
+  void initializeTelemetry_loggingOptionsEnabled_registersLoggingTelemetryReporter()
       throws Exception {
     LoggingTelemetryOptions loggingOptions =
         LoggingTelemetryOptions.builder().setEnabled(true).build();
@@ -438,9 +438,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void
-      initializeTelemetry_withLoggingTelemetryOptionsDisabled_doesNotRegisterLoggingTelemetryReporter()
-          throws Exception {
+  void initializeTelemetry_loggingOptionsDisabled_doesNotRegisterReporter() throws Exception {
     LoggingTelemetryOptions loggingOptions =
         LoggingTelemetryOptions.builder().setEnabled(false).build();
     TelemetryOptions telemetryOptions =
@@ -457,7 +455,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeTelemetry_withOpenTelemetryOptionsEnabled_registersOpenTelemetryReporter()
+  void initializeTelemetry_openTelemetryOptionsEnabled_registersOpenTelemetryReporter()
       throws Exception {
     OpenTelemetryOptions openTelemetryOptions =
         OpenTelemetryOptions.builder().setEnabled(true).build();
@@ -479,8 +477,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeTelemetry_withOpenTelemetryOptionsDisabled_doesNotRegisterOpenTelemetryReporter()
-      throws Exception {
+  void initializeTelemetry_openTelemetryOptionsDisabled_doesNotRegisterReporter() throws Exception {
     OpenTelemetryOptions openTelemetryOptions =
         OpenTelemetryOptions.builder().setEnabled(false).build();
     TelemetryOptions telemetryOptions =
@@ -497,7 +494,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void close_removesRegisteredOpenTelemetryReporters() throws Exception {
+  void close_openTelemetryEnabled_removesRegisteredReporters() throws Exception {
     OpenTelemetryOptions openTelemetryOptions =
         OpenTelemetryOptions.builder().setEnabled(true).build();
     TelemetryOptions telemetryOptions =
@@ -518,7 +515,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void close_removesRegisteredLoggingTelemetryReporters() throws Exception {
+  void close_loggingTelemetryEnabled_removesRegisteredReporters() throws Exception {
     LoggingTelemetryOptions loggingOptions =
         LoggingTelemetryOptions.builder().setEnabled(true).build();
     TelemetryOptions telemetryOptions =
@@ -544,7 +541,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void create_callsGcsClientCreate() throws IOException {
+  void create_withValidArguments_delegatesToClient() throws IOException {
     BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
@@ -557,7 +554,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void create_withNullBlobInfo_throwsNullPointerException() {
+  void create_nullBlobInfo_throwsNullPointerException() {
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
 
     NullPointerException e =
@@ -568,7 +565,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void create_withNullWriteOptions_delegatesToGcsClientWithNullOptions() throws IOException {
+  void create_nullWriteOptions_delegatesToClientWithNullOptions() throws IOException {
     BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
     when(mockClient.create(eq(blobInfo), eq(null))).thenReturn(mockChannel);

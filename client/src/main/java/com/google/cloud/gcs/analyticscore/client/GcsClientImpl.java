@@ -126,56 +126,13 @@ class GcsClientImpl implements GcsClient {
   @Override
   public WritableByteChannel create(BlobInfo blobInfo, GcsWriteOptions writeOptions)
       throws IOException {
+    checkNotNull(blobInfo, "blobInfo should not be null");
     try {
       BlobWriteOption[] sdkWriteOptions = generateWriteOptions(writeOptions, blobInfo);
       BlobWriteSession sdkWriteSession = this.storage.blobWriteSession(blobInfo, sdkWriteOptions);
       return new GcsWriteChannel(sdkWriteSession, sdkWriteSession.open(), blobInfo, writeOptions);
     } catch (StorageException e) {
-      LOG.error(
-          "Failed to initialize BlobWriteSession for object: gs://{}/{}",
-          blobInfo.getBucket(),
-          blobInfo.getName(),
-          e);
-      ErrorType errorType = getErrorType(e);
-      if (errorType == ErrorType.ALREADY_EXISTS) {
-        throw (FileAlreadyExistsException)
-            new FileAlreadyExistsException(
-                    String.format(
-                        "Object gs://%s/%s already exists.",
-                        blobInfo.getBucket(), blobInfo.getName()))
-                .initCause(e);
-      } else if (errorType == ErrorType.PRECONDITION_FAILED) {
-        if (writeOptions != null && !writeOptions.isOverwriteExisting()) {
-          throw (FileAlreadyExistsException)
-              new FileAlreadyExistsException(
-                      String.format(
-                          "Object gs://%s/%s already exists.",
-                          blobInfo.getBucket(), blobInfo.getName()))
-                  .initCause(e);
-        } else if (blobInfo.getBlobId().getGeneration() != null) {
-          throw new IOException(
-              String.format(
-                  "Generation mismatch for object gs://%s/%s. The file may have been modified concurrently.",
-                  blobInfo.getBucket(), blobInfo.getName()),
-              e);
-        }
-      } else if (errorType == ErrorType.NOT_FOUND) {
-        throw (FileNotFoundException)
-            new FileNotFoundException(
-                    String.format(
-                        "Bucket or object not found: gs://%s/%s",
-                        blobInfo.getBucket(), blobInfo.getName()))
-                .initCause(e);
-      } else if (errorType == ErrorType.ACCESS_DENIED) {
-        throw (AccessDeniedException)
-            new AccessDeniedException(
-                    String.format("gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()),
-                    null,
-                    String.format(
-                        "Access denied to object during initialization: %s", e.getMessage()))
-                .initCause(e);
-      }
-      throw new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId(), e);
+      throw translateStorageException(e, blobInfo, writeOptions);
     } catch (Exception e) {
       throw propagateAsIOException(e, blobInfo);
     }
@@ -187,6 +144,56 @@ class GcsClientImpl implements GcsClient {
     }
     if (e instanceof RuntimeException) {
       throw (RuntimeException) e;
+    }
+    return new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId(), e);
+  }
+
+  private IOException translateStorageException(
+      StorageException e, BlobInfo blobInfo, GcsWriteOptions writeOptions) {
+    LOG.error(
+        "Failed to initialize BlobWriteSession for object: gs://{}/{}",
+        blobInfo.getBucket(),
+        blobInfo.getName(),
+        e);
+    ErrorType errorType = getErrorType(e);
+    if (errorType == ErrorType.ALREADY_EXISTS) {
+      return (FileAlreadyExistsException)
+          new FileAlreadyExistsException(
+                  String.format(
+                      "Object gs://%s/%s already exists.",
+                      blobInfo.getBucket(), blobInfo.getName()))
+              .initCause(e);
+    } else if (errorType == ErrorType.PRECONDITION_FAILED) {
+      if (writeOptions != null && !writeOptions.isOverwriteExisting()) {
+        return (FileAlreadyExistsException)
+            new FileAlreadyExistsException(
+                    String.format(
+                        "Object gs://%s/%s already exists.",
+                        blobInfo.getBucket(), blobInfo.getName()))
+                .initCause(e);
+      } else if (blobInfo.getBlobId().getGeneration() != null) {
+        return new IOException(
+            String.format(
+                "Generation mismatch for object gs://%s/%s. "
+                    + "The file may have been modified concurrently.",
+                blobInfo.getBucket(), blobInfo.getName()),
+            e);
+      }
+    } else if (errorType == ErrorType.NOT_FOUND) {
+      return (FileNotFoundException)
+          new FileNotFoundException(
+                  String.format(
+                      "Bucket or object not found: gs://%s/%s",
+                      blobInfo.getBucket(), blobInfo.getName()))
+              .initCause(e);
+    } else if (errorType == ErrorType.ACCESS_DENIED) {
+      return (AccessDeniedException)
+          new AccessDeniedException(
+                  String.format("gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()),
+                  null,
+                  String.format(
+                      "Access denied to object during initialization: %s", e.getMessage()))
+              .initCause(e);
     }
     return new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId(), e);
   }
@@ -238,12 +245,12 @@ class GcsClientImpl implements GcsClient {
       GcsWriteOptions writeOptions, StorageOptions storageOptions) throws IOException {
     if (storageOptions instanceof HttpStorageOptions) {
       throw new UnsupportedOperationException(
-          "JOURNALING upload type is not supported because it requires the gRPC transport backend (HTTP transport is currently active).");
+          "JOURNALING upload type is not supported because it requires the gRPC "
+              + "transport backend (HTTP transport is currently active).");
     }
-    if (writeOptions.getTemporaryPaths().isEmpty()) {
-      throw new IllegalArgumentException(
-          "Temporary paths must be configured for JOURNALING upload type");
-    }
+    checkArgument(
+        !writeOptions.getTemporaryPaths().isEmpty(),
+        "Temporary paths must be configured for JOURNALING upload type");
     List<Path> paths = new ArrayList<>();
     for (String pathStr : writeOptions.getTemporaryPaths()) {
       paths.add(Paths.get(pathStr));

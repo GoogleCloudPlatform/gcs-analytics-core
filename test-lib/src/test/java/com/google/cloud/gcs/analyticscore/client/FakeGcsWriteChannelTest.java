@@ -16,7 +16,7 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
 
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
@@ -43,16 +43,16 @@ class FakeGcsWriteChannelTest {
   }
 
   @Test
-  void write_incrementsWriteCallCount() throws Exception {
+  void write_whenChannelWritten_incrementsWriteCallCount() throws Exception {
     fakeGcsWriteChannel.write(ByteBuffer.wrap(new byte[] {1, 2, 3}));
 
-    assertEquals(1, FakeGcsWriteChannel.getWriteCallCount());
+    assertThat(FakeGcsWriteChannel.getWriteCallCount()).isEqualTo(1);
   }
 
   @Test
-  void close_incrementsCloseCallCount() throws Exception {
+  void close_whenChannelClosed_incrementsCloseCallCount() throws Exception {
     fakeGcsWriteChannel.close();
 
-    assertEquals(1, FakeGcsWriteChannel.getCloseCallCount());
+    assertThat(FakeGcsWriteChannel.getCloseCallCount()).isEqualTo(1);
   }
 }
