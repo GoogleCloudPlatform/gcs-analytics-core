@@ -22,8 +22,11 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.contrib.gcp.resource.GCPResourceProvider;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.common.CompletableResultCode;
+import io.opentelemetry.sdk.metrics.Aggregation;
+import io.opentelemetry.sdk.metrics.InstrumentSelector;
 import io.opentelemetry.sdk.metrics.SdkMeterProvider;
 import io.opentelemetry.sdk.metrics.SdkMeterProviderBuilder;
+import io.opentelemetry.sdk.metrics.View;
 import io.opentelemetry.sdk.metrics.export.MetricExporter;
 import io.opentelemetry.sdk.metrics.export.PeriodicMetricReader;
 import io.opentelemetry.sdk.resources.Resource;
@@ -116,6 +119,16 @@ public class CloudMonitoringOpenTelemetryProvider implements OpenTelemetryProvid
       Duration exportInterval, Optional<String> projectId) {
     Resource resource = Resource.getDefault().merge(getGcpResource()).merge(getInstanceResource());
     SdkMeterProviderBuilder meterProviderBuilder = SdkMeterProvider.builder().setResource(resource);
+
+    // Google Cloud Operations Exporter rejects distribution metrics that do not specify bucket
+    // boundaries.
+    // The internal SDK metric 'otel.sdk.metric_reader.collection.duration' lacks explicit
+    // boundaries.
+    // We drop it to prevent the exporter from throwing InvalidArgumentExceptions.
+    meterProviderBuilder.registerView(
+        InstrumentSelector.builder().setName("otel.sdk.metric_reader.collection.duration").build(),
+        View.builder().setAggregation(Aggregation.drop()).build());
+
     MetricExporter cloudExporter =
         GoogleCloudMetricExporter.createWithConfiguration(getMetricConfiguration(projectId));
     PeriodicMetricReader metricReader =
