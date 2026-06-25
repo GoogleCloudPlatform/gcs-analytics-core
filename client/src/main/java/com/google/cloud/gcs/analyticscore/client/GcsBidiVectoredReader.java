@@ -55,10 +55,10 @@ class GcsBidiVectoredReader implements AutoCloseable {
       Storage storage,
       GcsItemId itemId,
       ExecutorService executorService,
-      long bidiClientTimeoutSeconds) {
+      GcsReadOptions readOptions) {
     this.storage = checkNotNull(storage, "Storage instance cannot be null");
     this.executorService = checkNotNull(executorService, "Executor service cannot be null");
-    this.bidiClientTimeoutSeconds = bidiClientTimeoutSeconds;
+    this.bidiClientTimeoutSeconds = readOptions.getBidiTimeout();
     checkNotNull(itemId, "ItemId cannot be null");
 
     String bucketName = itemId.getBucketName();

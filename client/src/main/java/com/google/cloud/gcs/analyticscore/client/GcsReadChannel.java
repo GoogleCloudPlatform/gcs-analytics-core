@@ -200,6 +200,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     } finally {
       if (bidiVectoredReader != null) {
         bidiVectoredReader.close();
+        bidiVectoredReader = null;
       }
     }
   }
@@ -209,10 +210,8 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       throw new ClosedChannelException();
     }
     if (bidiVectoredReader == null) {
-      // TODO: Pass client timeout configurations.
-      long bidiTimeout = 10;
       bidiVectoredReader =
-          new GcsBidiVectoredReader(storage, itemId, executorServiceSupplier.get(), bidiTimeout);
+          new GcsBidiVectoredReader(storage, itemId, executorServiceSupplier.get(), readOptions);
     }
     return bidiVectoredReader;
   }

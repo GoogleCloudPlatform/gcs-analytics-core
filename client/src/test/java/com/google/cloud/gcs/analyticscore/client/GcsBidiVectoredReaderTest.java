@@ -60,7 +60,8 @@ class GcsBidiVectoredReaderTest {
     when(storage.blobReadSession(any(BlobId.class))).thenReturn(sessionFuture);
     when(sessionFuture.get(anyLong(), any())).thenReturn(blobReadSession);
 
-    reader = new GcsBidiVectoredReader(storage, itemId, directExecutor, 10);
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    reader = new GcsBidiVectoredReader(storage, itemId, directExecutor, readOptions);
   }
 
   @Test
@@ -112,9 +113,10 @@ class GcsBidiVectoredReaderTest {
 
   @Test
   void testConstructor_nullItemId() {
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     org.junit.jupiter.api.Assertions.assertThrows(
         NullPointerException.class,
-        () -> new GcsBidiVectoredReader(storage, null, directExecutor, 10));
+        () -> new GcsBidiVectoredReader(storage, null, directExecutor, readOptions));
   }
 
   @Test
