@@ -57,14 +57,11 @@ class AnalyticsCacheCaffeineImplTest {
               callCount.incrementAndGet();
               return "computed-" + keyToLoad;
             });
+    String secondValue = cache.get(key, keyToLoad -> "should-not-happen");
 
     assertThat(value).isEqualTo("computed-key1");
     assertThat(callCount.get()).isEqualTo(1);
-
-    String secondValue = cache.get(key, keyToLoad -> "should-not-happen");
-
     assertThat(secondValue).isEqualTo("computed-key1");
-    assertThat(callCount.get()).isEqualTo(1);
   }
 
   @Test

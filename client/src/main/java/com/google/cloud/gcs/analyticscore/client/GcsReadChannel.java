@@ -260,6 +260,12 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
                   combinedObjectRange.getOffset(), combinedObjectRange.getLength())) {
             validatePosition(combinedObjectRange.getOffset());
             ByteBuffer dataBuffer = allocate.apply(combinedObjectRange.getLength());
+            if (dataBuffer == null) {
+              throw new IllegalArgumentException(
+                  String.format(
+                      "Buffer allocation returned null for combinedObjectRange: %s",
+                      combinedObjectRange));
+            }
             int numOfBytesRead = 0;
             while (dataBuffer.hasRemaining()) {
               int bytesRead = channel.read(dataBuffer);

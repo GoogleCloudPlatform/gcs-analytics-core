@@ -44,6 +44,9 @@ public class OpenTelemetryReporter implements OperationListener {
       case LOGGING:
         openTelemetryProvider = new LoggingOpenTelemetryProvider(options);
         break;
+      case CLOUD_MONITORING:
+        openTelemetryProvider = new CloudMonitoringOpenTelemetryProvider(options);
+        break;
       case PRE_CONFIGURED:
         OpenTelemetry otel =
             options

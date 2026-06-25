@@ -27,6 +27,8 @@ import org.junit.jupiter.api.Test;
 
 class RandomReadStrategyTest {
 
+  private static final int KB = 1024;
+
   private static final Storage storage = LocalStorageHelper.getOptions().getService();
   private static final GcsItemId itemId =
       GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
@@ -51,7 +53,7 @@ class RandomReadStrategyTest {
     strategy.getReadChannel(10, 20);
 
     TrackingReadChannel trackingChannel = strategy.getCreatedChannels().get(0);
-    assertThat(trackingChannel.getLastLimit()).isEqualTo(30L);
+    assertThat(trackingChannel.getLastLimit()).isEqualTo(128 * KB + 10);
     assertThat(trackingChannel.getLastChunkSize()).isEqualTo(0);
     assertThat(trackingChannel.getSeekCalls()).isEqualTo(1);
   }
@@ -86,18 +88,19 @@ class RandomReadStrategyTest {
     assertThat(strategy.getCreatedChannels()).hasSize(2);
     assertThat(trackingChannel.getCloseCalls()).isEqualTo(1);
     TrackingReadChannel trackingChannel2 = strategy.getCreatedChannels().get(1);
-    assertThat(trackingChannel2.getLastLimit()).isEqualTo(15L);
+    assertThat(trackingChannel2.getLastLimit()).isEqualTo(128 * KB + 10);
   }
 
   @Test
   void getReadChannel_channelOpen_notReusable_closesOldChannel() throws IOException {
-    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(150000));
+    GcsItemInfo localItemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(150000L).build();
     FakeRandomReadStrategy strategy =
-        new FakeRandomReadStrategy(storage, itemId, options, itemInfo);
+        new FakeRandomReadStrategy(storage, itemId, options, localItemInfo);
     strategy.getReadChannel(0, 20);
     TrackingReadChannel trackingChannel = strategy.getCreatedChannels().get(0);
 
-    strategy.getReadChannel(40, 10);
+    strategy.getReadChannel(140000, 10);
 
     assertThat(strategy.getCreatedChannels()).hasSize(2);
     assertThat(trackingChannel.getCloseCalls()).isEqualTo(1);
@@ -105,27 +108,29 @@ class RandomReadStrategyTest {
 
   @Test
   void getReadChannel_recreatesChannel_whenPastLimit() throws IOException {
-    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(1000));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(150000));
+    GcsItemInfo localItemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(150000L).build();
     FakeRandomReadStrategy strategy =
-        new FakeRandomReadStrategy(storage, itemId, options, itemInfo);
+        new FakeRandomReadStrategy(storage, itemId, options, localItemInfo);
     strategy.getReadChannel(10, 20);
 
-    strategy.getReadChannel(40, 10);
+    strategy.getReadChannel(140000, 10);
 
     assertThat(strategy.getCreatedChannels()).hasSize(2);
     TrackingReadChannel trackingChannel2 = strategy.getCreatedChannels().get(1);
-    assertThat(trackingChannel2.getLastLimit()).isEqualTo(50L);
+    assertThat(trackingChannel2.getLastLimit()).isEqualTo(140000 + 128 * KB);
     assertThat(trackingChannel2.getSeekCalls()).isEqualTo(1);
   }
 
   @Test
   void getReadChannel_seekBeyondLimit_closesChannel() throws IOException {
-    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(100));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(150000));
+    GcsItemInfo localItemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(150000L).build();
     FakeRandomReadStrategy strategy =
-        new FakeRandomReadStrategy(storage, itemId, options, itemInfo);
+        new FakeRandomReadStrategy(storage, itemId, options, localItemInfo);
     strategy.getReadChannel(0, 10);
 
-    strategy.getReadChannel(20, 5);
+    strategy.getReadChannel(140000, 5);
 
     TrackingReadChannel trackingChannel = strategy.getCreatedChannels().get(0);
     assertThat(trackingChannel.getCloseCalls()).isEqualTo(1);
@@ -140,7 +145,7 @@ class RandomReadStrategyTest {
 
     long limit = strategy.getLimit();
 
-    assertThat(limit).isEqualTo(30);
+    assertThat(limit).isEqualTo(128 * KB + 10);
   }
 
   @Test
@@ -162,13 +167,14 @@ class RandomReadStrategyTest {
 
   @Test
   void getReadChannel_hitsLimit_opensNewChannel() throws IOException {
-    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(100));
+    StorageTestUtils.createBlobInStorage(storage, itemId, "a".repeat(150000));
+    GcsItemInfo localItemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(150000L).build();
     FakeRandomReadStrategy strategy =
-        new FakeRandomReadStrategy(storage, itemId, options, itemInfo);
-    strategy.getReadChannel(0, 5);
-    strategy.position(5);
+        new FakeRandomReadStrategy(storage, itemId, options, localItemInfo);
+    strategy.getReadChannel(0, 128 * KB);
+    strategy.position(128 * KB);
 
-    strategy.getReadChannel(5, 5);
+    strategy.getReadChannel(128 * KB, 5);
 
     assertThat(strategy.getCreatedChannels()).hasSize(2);
     TrackingReadChannel trackingChannel1 = strategy.getCreatedChannels().get(0);

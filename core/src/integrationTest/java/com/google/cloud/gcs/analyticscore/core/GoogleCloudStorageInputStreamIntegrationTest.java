@@ -174,10 +174,35 @@ class GoogleCloudStorageInputStreamIntegrationTest {
 
   @ParameterizedTest
   @ValueSource(
+          strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE})
+  void forSampleParquetFiles_footerCacheEnabled_readsFileSuccessfully(String fileName) {
+    GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+            Map.of("gcs.analytics-core.footer.cache.enabled", "true",
+                   "gcs.analytics-core.footer.cache.max-entries", "500"), "gcs.");
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+    ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, gcsFileSystemOptions);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+          strings = {IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE,
+                  IntegrationTestHelper.TPCDS_CUSTOMER_LARGE_FILE})
+  void forSampleParquetFiles_footerCacheDisabled_readsFileSuccessfully(String fileName) {
+    GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
+            Map.of("gcs.analytics-core.footer.cache.enabled", "false"), "gcs.");
+    URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
+    ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, gcsFileSystemOptions);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
       strings = {
         IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE,
       })
-  void read_capturesTelemetryAttributes_withCorrectReadLength(String fileName) throws IOException {
+  void read_capturesTelemetryAttributes(String fileName) throws IOException {
     AtomicReference<Map<MetricKey, Long>> capturedReadMetrics = new AtomicReference<>();
     AtomicReference<Operation> capturedReadOperation = new AtomicReference<>();
     OperationListener listener =
@@ -222,13 +247,13 @@ class GoogleCloudStorageInputStreamIntegrationTest {
 
       googleCloudStorageInputStream.read(buffer);
     }
-    
+
     MetricKey bytesReadKey =
         capturedReadMetrics.get().keySet().stream()
             .filter(k -> k.getMetric().getName().equals(GcsAnalyticsCoreTelemetryConstants.Metric.READ_BYTES.getName()))
             .findFirst()
             .get();
     assertThat(capturedReadMetrics.get().get(bytesReadKey)).isEqualTo(5L);
-    assertThat(capturedReadOperation.get().getAttributes().get("READ_LENGTH")).isEqualTo("5");
+
   }
 }

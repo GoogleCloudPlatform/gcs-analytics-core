@@ -38,6 +38,9 @@ public abstract class GcsFileSystemOptions {
 
   public abstract GcsClientOptions getGcsClientOptions();
 
+  /** Returns the configuration options for the GCS caching layer. */
+  public abstract GcsCacheOptions getGcsCacheOptions();
+
   public abstract TelemetryOptions getAnalyticsCoreTelemetryOptions();
 
   public abstract Builder toBuilder();
@@ -47,6 +50,7 @@ public abstract class GcsFileSystemOptions {
         .setReadThreadCount(16)
         .setClientType(ClientType.HTTP_CLIENT)
         .setGcsClientOptions(GcsClientOptions.builder().build())
+        .setGcsCacheOptions(GcsCacheOptions.builder().build())
         .setAnalyticsCoreTelemetryOptions(TelemetryOptions.builder().build());
   }
 
@@ -63,6 +67,8 @@ public abstract class GcsFileSystemOptions {
     }
     optionsBuilder.setGcsClientOptions(
         GcsClientOptions.createFromOptions(analyticsCoreOptions, prefix));
+    optionsBuilder.setGcsCacheOptions(
+        GcsCacheOptions.createFromOptions(analyticsCoreOptions, prefix));
     // Analytics Core telemetry options are prefixed with "analytics-core."
     optionsBuilder.setAnalyticsCoreTelemetryOptions(
         TelemetryOptions.createFromOptions(analyticsCoreOptions, prefix + "analytics-core."));
@@ -79,6 +85,9 @@ public abstract class GcsFileSystemOptions {
     public abstract Builder setReadThreadCount(int readThreadCount);
 
     public abstract Builder setGcsClientOptions(GcsClientOptions gcsClientOptions);
+
+    /** Sets the configuration options for the GCS caching layer. */
+    public abstract Builder setGcsCacheOptions(GcsCacheOptions gcsCacheOptions);
 
     public abstract Builder setAnalyticsCoreTelemetryOptions(TelemetryOptions telemetryOptions);
 

@@ -39,6 +39,20 @@ class GcsFileSystemOptionsTest {
   }
 
   @Test
+  void createFromOptions_cacheProperties_createsCorrectOptions() {
+    ImmutableMap<String, String> properties =
+        ImmutableMap.of(
+            "fs.gs.analytics-core.footer.cache.enabled", "false",
+            "fs.gs.analytics-core.footer.cache.max-entries", "500");
+
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
+
+    GcsCacheOptions cacheOptions = options.getGcsCacheOptions();
+    assertThat(cacheOptions.isFooterCacheEnabled()).isFalse();
+    assertThat(cacheOptions.getFooterCacheMaxEntries()).isEqualTo(500);
+  }
+
+  @Test
   void createFromOptions_withDefaultProperties_shouldCreateCorrectOptions() {
     ImmutableMap<String, String> properties = ImmutableMap.of();
 
@@ -47,5 +61,9 @@ class GcsFileSystemOptionsTest {
     assertThat(options.getGcsClientOptions().getProjectId().isEmpty()).isTrue();
     assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.HTTP_CLIENT);
     assertThat(options.getReadThreadCount()).isEqualTo(16);
+
+    GcsCacheOptions cacheOptions = options.getGcsCacheOptions();
+    assertThat(cacheOptions.isFooterCacheEnabled()).isTrue();
+    assertThat(cacheOptions.getFooterCacheMaxEntries()).isEqualTo(100);
   }
 }
