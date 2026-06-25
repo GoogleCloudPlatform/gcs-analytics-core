@@ -109,7 +109,7 @@ public class GcsFooterOptimizer implements FormatOptimizer {
       }
     } else {
       // If we already fetched it locally for this stream, it's a guaranteed hit
-      telemetry.recordMetric(Metric.FOOTER_CACHE_HIT, 1L, Collections.emptyMap());
+      telemetry.recordMetric(Metric.FOOTER_PREFETCH_HIT, 1L, Collections.emptyMap());
     }
 
     ByteBuffer footerView = localFooterBuffer.duplicate();

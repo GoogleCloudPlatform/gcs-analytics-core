@@ -331,6 +331,6 @@ class GcsFooterOptimizerTest {
     assertThat(dst2.array()[0]).isEqualTo(testData[980]);
     verify(mockCacheManager, times(1)).getFooter(eq(ITEM_ID), any());
     verify(telemetry, times(1)).recordMetric(eq(Metric.FOOTER_CACHE_MISS), eq(1L), any());
-    verify(telemetry, times(1)).recordMetric(eq(Metric.FOOTER_CACHE_HIT), eq(1L), any());
+    verify(telemetry, times(1)).recordMetric(eq(Metric.FOOTER_PREFETCH_HIT), eq(1L), any());
   }
 }

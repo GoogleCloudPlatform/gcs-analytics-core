@@ -30,6 +30,7 @@ public class GcsAnalyticsCoreTelemetryConstants {
     READ_CACHE_MISS("gcs.analytics-core.client.read.cache.misses", MetricType.COUNTER),
     FOOTER_CACHE_HIT("gcs.analytics-core.client.footer.cache.hits", MetricType.COUNTER),
     FOOTER_CACHE_MISS("gcs.analytics-core.client.footer.cache.misses", MetricType.COUNTER),
+    FOOTER_PREFETCH_HIT("gcs.analytics-core.client.footer.prefetch.hits", MetricType.COUNTER),
     SMALL_OBJECT_CACHE_HIT("gcs.analytics-core.client.small.object.cache.hits", MetricType.COUNTER),
     SMALL_OBJECT_CACHE_MISS(
         "gcs.analytics-core.client.small.object.cache.misses", MetricType.COUNTER),
