@@ -21,6 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -35,6 +37,7 @@ import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobInfo;
 import com.google.common.collect.ImmutableList;
@@ -78,7 +81,7 @@ class GcsFooterOptimizerTest {
             .setSmallObjectCacheSize(0)
             .build();
 
-    telemetry = new Telemetry(ImmutableList.of());
+    telemetry = spy(new Telemetry(ImmutableList.of()));
     mockCacheManager = mock(AnalyticsCacheManager.class);
     optimizer = new GcsFooterOptimizer(readOptions, telemetry);
 
@@ -304,5 +307,30 @@ class GcsFooterOptimizerTest {
     int bytesRead = optimizer.read(0, dst, realSource);
 
     assertThat(bytesRead).isEqualTo(10);
+  }
+
+  @Test
+  void read_multipleReads_usesLocalBufferAndRecordsTelemetry() throws IOException {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    realSource.position(500L);
+    when(mockCacheManager.getFooter(eq(ITEM_ID), any()))
+        .thenAnswer(
+            invocation -> {
+              AnalyticsCacheManager.FooterLoader loader = invocation.getArgument(1);
+              return loader.load(ITEM_ID);
+            });
+    ByteBuffer dst1 = ByteBuffer.allocate(10);
+    ByteBuffer dst2 = ByteBuffer.allocate(10);
+
+    int bytesRead1 = optimizer.read(990, dst1, realSource);
+    int bytesRead2 = optimizer.read(980, dst2, realSource);
+
+    assertThat(bytesRead1).isEqualTo(10);
+    assertThat(dst1.array()[0]).isEqualTo(testData[990]);
+    assertThat(bytesRead2).isEqualTo(10);
+    assertThat(dst2.array()[0]).isEqualTo(testData[980]);
+    verify(mockCacheManager, times(1)).getFooter(eq(ITEM_ID), any());
+    verify(telemetry, times(1)).recordMetric(eq(Metric.FOOTER_CACHE_MISS), eq(1L), any());
+    verify(telemetry, times(1)).recordMetric(eq(Metric.FOOTER_CACHE_HIT), eq(1L), any());
   }
 }
