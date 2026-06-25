@@ -74,6 +74,7 @@ public class SmallObjectOptimizer implements FormatOptimizer {
 
   @Override
   public void onOpen(GcsFileInfo fileInfo, AnalyticsCacheManager cacheManager) {
+    // TODO(ajayky): Use in memory caching for small files as well.
     this.fileSize = fileInfo.getItemInfo().getSize();
   }
 
