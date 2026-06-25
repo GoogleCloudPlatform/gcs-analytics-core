@@ -88,7 +88,7 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getDecryptionKey()).isEqualTo(Optional.empty());
     assertThat(readOptions.getUserProjectId()).isEqualTo(Optional.empty());
     assertThat(readOptions.isFooterPrefetchEnabled()).isEqualTo(true);
-    assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(100 * KB);
+    assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(50 * KB);
     assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(MB);
     assertThat(readOptions.getSmallObjectCacheSize()).isEqualTo(0);
     assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(128 * KB);

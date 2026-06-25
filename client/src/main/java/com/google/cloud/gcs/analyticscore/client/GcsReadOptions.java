@@ -46,7 +46,7 @@ public abstract class GcsReadOptions {
 
   private static final boolean DEFAULT_FOOTER_PREFETCH_ENABLED = true;
   private static final int DEFAULT_INPLACE_SEEK_LIMIT = 128 * KB;
-  private static final int DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE = 100 * KB;
+  private static final int DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE = 50 * KB;
   private static final int DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE = MB;
   private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = 0; // 0 bytes = disabled
   private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN =
