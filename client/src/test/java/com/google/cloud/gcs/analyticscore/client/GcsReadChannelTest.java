@@ -981,4 +981,25 @@ class GcsReadChannelTest {
     // Verify that the underlying session was closed!
     Mockito.verify(mockSession, Mockito.times(1)).close();
   }
+
+  @Test
+  void readVectored_whenChannelClosed_throwsClosedChannelException() throws Exception {
+    GcsItemInfo itemInfo = createItemInfoWith(100);
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder()
+            .setUserProjectId(TEST_PROJECT_ID)
+            .setBidiVectoredReadEnabled(true)
+            .build();
+
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+
+    // Close the channel immediately
+    gcsReadChannel.close();
+
+    // Assert that a subsequent call to readVectored() throws ClosedChannelException
+    assertThrows(
+        ClosedChannelException.class,
+        () -> gcsReadChannel.readVectored(ImmutableList.of(), ByteBuffer::allocate));
+  }
 }
