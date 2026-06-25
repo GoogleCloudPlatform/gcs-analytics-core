@@ -28,6 +28,7 @@ import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.ZeroCopySupport.DisposableByteString;
 import com.google.protobuf.ByteString;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
@@ -238,5 +239,93 @@ class GcsBidiVectoredReaderTest {
 
     assertThat(exception.getMessage())
         .contains("Failed to get BlobReadSession due to client timeout limit");
+  }
+
+  @Test
+  void testReadVectored_afterClose_throwsClosedStateException() throws Exception {
+    reader.close();
+
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(10)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+
+    IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
+
+    IOException exception =
+        org.junit.jupiter.api.Assertions.assertThrows(
+            IOException.class, () -> reader.readVectored(Arrays.asList(range), allocate));
+
+    assertThat(exception.getMessage()).contains("Reader is closed.");
+    assertThat(range.getByteBufferFuture().isCompletedExceptionally()).isTrue();
+
+    ExecutionException executionException =
+        org.junit.jupiter.api.Assertions.assertThrows(
+            ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(executionException.getCause()).isInstanceOf(IOException.class);
+    assertThat(executionException.getCause().getMessage()).contains("Reader is closed.");
+  }
+
+  @Test
+  void testReadVectored_nullAllocator_throwsNullPointerException() throws Exception {
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(10)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+
+    byte[] data = new byte[10];
+    Arrays.fill(data, (byte) 1);
+    ByteString byteString = ByteString.copyFrom(data);
+
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(byteString);
+
+    IntFunction<ByteBuffer> allocate = size -> null;
+
+    reader.readVectored(Arrays.asList(range), allocate);
+
+    CompletableFuture<ByteBuffer> future = range.getByteBufferFuture();
+    assertThat(future.isCompletedExceptionally()).isTrue();
+
+    ExecutionException executionException =
+        org.junit.jupiter.api.Assertions.assertThrows(ExecutionException.class, () -> future.get());
+    assertThat(executionException.getCause()).isInstanceOf(NullPointerException.class);
+    assertThat(executionException.getCause().getMessage())
+        .contains("Allocator returned a null ByteBuffer!");
+  }
+
+  @Test
+  void testClose_isIdempotent() throws Exception {
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(10)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+
+    byte[] data = new byte[10];
+    ByteString byteString = ByteString.copyFrom(data);
+
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(byteString);
+
+    IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
+
+    reader.readVectored(Arrays.asList(range), allocate);
+
+    // Call close() the first time
+    reader.close();
+    verify(blobReadSession, times(1)).close();
+
+    // Call close() the second time
+    reader.close();
+    // Verify that blobReadSession.close() was still called only once
+    verify(blobReadSession, times(1)).close();
   }
 }
