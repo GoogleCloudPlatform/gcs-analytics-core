@@ -23,6 +23,9 @@ import org.junit.jupiter.api.Test;
 
 class GcsFileSystemOptionsTest {
 
+  private static final long KB = 1024L;
+  private static final long MB = 1024L * KB;
+
   @Test
   void createFromOptions_withValidProperties_shouldCreateCorrectOptions() {
     ImmutableMap<String, String> properties =
@@ -42,14 +45,16 @@ class GcsFileSystemOptionsTest {
   void createFromOptions_cacheProperties_createsCorrectOptions() {
     ImmutableMap<String, String> properties =
         ImmutableMap.of(
-            "fs.gs.analytics-core.footer.cache.enabled", "false",
-            "fs.gs.analytics-core.footer.cache.max-entries", "500");
+            "fs.gs.analytics-core.footer.cache.enabled",
+            "false",
+            "fs.gs.analytics-core.footer.cache.max-size-bytes",
+            String.valueOf(500 * MB));
 
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
     GcsCacheOptions cacheOptions = options.getGcsCacheOptions();
     assertThat(cacheOptions.isFooterCacheEnabled()).isFalse();
-    assertThat(cacheOptions.getFooterCacheMaxEntries()).isEqualTo(500);
+    assertThat(cacheOptions.getFooterCacheMaxSizeBytes()).isEqualTo(500 * MB);
   }
 
   @Test
@@ -64,6 +69,6 @@ class GcsFileSystemOptionsTest {
 
     GcsCacheOptions cacheOptions = options.getGcsCacheOptions();
     assertThat(cacheOptions.isFooterCacheEnabled()).isTrue();
-    assertThat(cacheOptions.getFooterCacheMaxEntries()).isEqualTo(100);
+    assertThat(cacheOptions.getFooterCacheMaxSizeBytes()).isEqualTo(100 * MB);
   }
 }
