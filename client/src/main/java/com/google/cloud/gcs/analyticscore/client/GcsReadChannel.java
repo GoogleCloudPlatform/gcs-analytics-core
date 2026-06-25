@@ -191,7 +191,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   }
 
   @Override
-  public void close() throws IOException {
+  public synchronized void close() throws IOException {
     try {
       if (isGcsReadChannelOpen) {
         isGcsReadChannelOpen = false;
@@ -204,7 +204,10 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
-  private synchronized GcsBidiVectoredReader getBidiVectoredReader() {
+  private synchronized GcsBidiVectoredReader getBidiVectoredReader() throws ClosedChannelException {
+    if (!isGcsReadChannelOpen) {
+      throw new ClosedChannelException();
+    }
     if (bidiVectoredReader == null) {
       // TODO: Pass client timeout configurations.
       long bidiTimeout = 10;

@@ -95,7 +95,6 @@ public abstract class GcsReadOptions {
         .setFooterPrefetchSizeLargeFile(DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE)
         .setSmallObjectCacheSize(DEFAULT_SMALL_FILE_CACHE_THRESHOLD)
         .setBidiVectoredReadEnabled(DEFAULT_BIDI_VECTORED_READ_ENABLED)
-        .setSmallObjectCacheSize(DEFAULT_SMALL_FILE_CACHE_THRESHOLD)
         .setInplaceSeekLimit(DEFAULT_INPLACE_SEEK_LIMIT)
         .setFileAccessPattern(DEFAULT_FILE_ACCESS_PATTERN)
         .setAdaptiveReadSequentialReadThreshold(DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD)

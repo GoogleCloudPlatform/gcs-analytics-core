@@ -49,6 +49,7 @@ class GcsBidiVectoredReader implements AutoCloseable {
   private final BlobId blobId;
   private final long bidiClientTimeoutSeconds;
   private volatile BlobReadSession blobReadSession;
+  private volatile boolean closed = false;
 
   GcsBidiVectoredReader(
       Storage storage,
@@ -73,6 +74,9 @@ class GcsBidiVectoredReader implements AutoCloseable {
   private BlobReadSession getBlobReadSession() throws IOException {
     if (blobReadSession == null) {
       synchronized (this) {
+        if (closed) {
+          throw new IOException("Reader is closed.");
+        }
         if (blobReadSession == null) {
           try {
             ApiFuture<BlobReadSession> sessionFuture = storage.blobReadSession(blobId);
@@ -97,7 +101,13 @@ class GcsBidiVectoredReader implements AutoCloseable {
 
   public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException {
-    BlobReadSession session = getBlobReadSession();
+    BlobReadSession session;
+    try {
+      session = getBlobReadSession();
+    } catch (IOException | RuntimeException e) {
+      ranges.forEach(range -> range.getByteBufferFuture().completeExceptionally(e));
+      throw e;
+    }
     ranges.forEach(
         range -> {
           ApiFuture<DisposableByteString> futureBytes =
@@ -139,6 +149,9 @@ class GcsBidiVectoredReader implements AutoCloseable {
       ByteString byteString = dbs.byteString();
       int size = byteString.size();
       ByteBuffer buf = allocate.apply(size);
+      if (buf == null) {
+        throw new NullPointerException("Allocator returned a null ByteBuffer!");
+      }
       for (ByteBuffer b : byteString.asReadOnlyByteBufferList()) {
         buf.put(b);
       }
@@ -150,6 +163,10 @@ class GcsBidiVectoredReader implements AutoCloseable {
   @Override
   public void close() throws IOException {
     synchronized (this) {
+      if (closed) {
+        return;
+      }
+      closed = true;
       if (blobReadSession != null) {
         blobReadSession.close();
         blobReadSession = null;
