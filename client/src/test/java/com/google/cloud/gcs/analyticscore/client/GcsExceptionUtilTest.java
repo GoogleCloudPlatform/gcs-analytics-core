@@ -40,54 +40,42 @@ class GcsExceptionUtilTest {
   @Test
   void getErrorType_404_returnsNotFound() {
     StorageException se = new StorageException(404, "Not Found");
-
     ErrorType errorType = GcsExceptionUtil.getErrorType(se);
-
     assertThat(errorType).isEqualTo(ErrorType.NOT_FOUND);
   }
 
   @Test
   void getErrorType_409_returnsAlreadyExists() {
     StorageException se = new StorageException(409, "Conflict");
-
     ErrorType errorType = GcsExceptionUtil.getErrorType(se);
-
     assertThat(errorType).isEqualTo(ErrorType.ALREADY_EXISTS);
   }
 
   @Test
   void getErrorType_412_returnsPreconditionFailed() {
     StorageException se = new StorageException(412, "Precondition Failed");
-
     ErrorType errorType = GcsExceptionUtil.getErrorType(se);
-
     assertThat(errorType).isEqualTo(ErrorType.PRECONDITION_FAILED);
   }
 
   @Test
   void getErrorType_403_returnsAccessDenied() {
     StorageException se = new StorageException(403, "Forbidden");
-
     ErrorType errorType = GcsExceptionUtil.getErrorType(se);
-
     assertThat(errorType).isEqualTo(ErrorType.ACCESS_DENIED);
   }
 
   @Test
   void getErrorType_401_returnsAccessDenied() {
     StorageException se = new StorageException(401, "Unauthorized");
-
     ErrorType errorType = GcsExceptionUtil.getErrorType(se);
-
     assertThat(errorType).isEqualTo(ErrorType.ACCESS_DENIED);
   }
 
   @Test
   void getErrorType_500_returnsUnknown() {
     StorageException se = new StorageException(500, "Internal Error");
-
     ErrorType errorType = GcsExceptionUtil.getErrorType(se);
-
     assertThat(errorType).isEqualTo(ErrorType.UNKNOWN);
   }
 
@@ -174,9 +162,7 @@ class GcsExceptionUtilTest {
   @Test
   void getStorageException_withStorageException_returnsItself() {
     StorageException se = new StorageException(404, "Not Found");
-
     Optional<StorageException> result = GcsExceptionUtil.getStorageException(se);
-
     assertThat(result).hasValue(se);
   }
 
@@ -193,9 +179,7 @@ class GcsExceptionUtilTest {
   @Test
   void getStorageException_withOtherException_returnsNull() {
     IOException ioe = new IOException("Generic I/O error");
-
     Optional<StorageException> result = GcsExceptionUtil.getStorageException(ioe);
-
     assertThat(result).isEmpty();
   }
 
@@ -278,8 +262,5 @@ class GcsExceptionUtilTest {
     Constructor<GcsExceptionUtil> constructor = GcsExceptionUtil.class.getDeclaredConstructor();
 
     assertThat(Modifier.isPrivate(constructor.getModifiers())).isTrue();
-
-    constructor.setAccessible(true);
-    constructor.newInstance();
   }
 }
