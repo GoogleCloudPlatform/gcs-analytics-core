@@ -44,6 +44,7 @@ public class GcsFooterOptimizer implements FormatOptimizer {
   private GcsItemId gcsItemId;
   private long fileSize = -1;
   private long prefetchSize = -1;
+  private ByteBuffer localFooterBuffer;
 
   public GcsFooterOptimizer(GcsReadOptions readOptions, Telemetry telemetry) {
     this.readOptions = checkNotNull(readOptions, "readOptions cannot be null");
@@ -92,21 +93,23 @@ public class GcsFooterOptimizer implements FormatOptimizer {
       return -1;
     }
 
-    // AtomicBoolean serves as a mutable wrapper to signal intent clearly
-    AtomicBoolean isMiss = new AtomicBoolean(false);
-    ByteBuffer footer =
-        cacheManager.getFooter(
-            gcsItemId,
-            itemId -> {
-              isMiss.set(true);
-              return loadFooter(source);
-            });
+    if (localFooterBuffer == null) {
+      // AtomicBoolean serves as a mutable wrapper to signal intent clearly
+      AtomicBoolean isMiss = new AtomicBoolean(false);
+      localFooterBuffer =
+          cacheManager.getFooter(
+              gcsItemId,
+              itemId -> {
+                isMiss.set(true);
+                return loadFooter(source);
+              });
 
-    if (!isMiss.get()) {
-      telemetry.recordMetric(Metric.FOOTER_CACHE_HIT, 1L, Collections.emptyMap());
+      if (!isMiss.get()) {
+        telemetry.recordMetric(Metric.FOOTER_CACHE_HIT, 1L, Collections.emptyMap());
+      }
     }
 
-    ByteBuffer footerView = footer.duplicate();
+    ByteBuffer footerView = localFooterBuffer.duplicate();
     int readStartPosition = (int) (position - (fileSize - prefetchSize));
     footerView.position(readStartPosition);
 
