@@ -243,4 +243,40 @@ class GcsClientImplTest {
             telemetry);
     assertThat(client.storage.getOptions().getCredentials()).isEqualTo(NoCredentials.getInstance());
   }
+
+  @Test
+  void openReadChannel_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setBidiVectoredReadEnabled(true)
+            .build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket-name")
+            .setObjectName("test-object-name")
+            .build();
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(100L).setContentGeneration(0L).build();
+
+    VectoredSeekableByteChannel channel = gcsClient.openReadChannel(itemInfo, readOptions);
+    assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
+  }
+
+  @Test
+  void openReadChannel_itemId_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder()
+            .setUserProjectId("test-project")
+            .setBidiVectoredReadEnabled(true)
+            .build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket-name")
+            .setObjectName("test-object-name")
+            .build();
+
+    VectoredSeekableByteChannel channel = gcsClient.openReadChannel(itemId, readOptions);
+    assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
+  }
 }
