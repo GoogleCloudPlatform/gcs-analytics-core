@@ -23,8 +23,8 @@ import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
 
 public class FakeGcsWriteChannel extends GcsWriteChannel {
-  private static int writeCallCount = 0;
-  private static int closeCallCount = 0;
+  private int writeCallCount = 0;
+  private int closeCallCount = 0;
 
   public FakeGcsWriteChannel(
       BlobWriteSession blobWriteSession,
@@ -46,16 +46,11 @@ public class FakeGcsWriteChannel extends GcsWriteChannel {
     super.close();
   }
 
-  public static int getWriteCallCount() {
+  public int getWriteCallCount() {
     return writeCallCount;
   }
 
-  public static int getCloseCallCount() {
+  public int getCloseCallCount() {
     return closeCallCount;
-  }
-
-  public static void resetCounts() {
-    writeCallCount = 0;
-    closeCallCount = 0;
   }
 }

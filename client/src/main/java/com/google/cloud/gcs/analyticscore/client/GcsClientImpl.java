@@ -156,46 +156,43 @@ class GcsClientImpl implements GcsClient {
         blobInfo.getName(),
         e);
     ErrorType errorType = getErrorType(e);
+    String gcsPath = String.format("gs://%s/%s", blobInfo.getBucket(), blobInfo.getName());
+
+    IOException ioException;
     if (errorType == ErrorType.ALREADY_EXISTS) {
-      return (FileAlreadyExistsException)
-          new FileAlreadyExistsException(
-                  String.format(
-                      "Object gs://%s/%s already exists.",
-                      blobInfo.getBucket(), blobInfo.getName()))
-              .initCause(e);
+      ioException =
+          new FileAlreadyExistsException(String.format("Object %s already exists.", gcsPath));
     } else if (errorType == ErrorType.PRECONDITION_FAILED) {
       if (writeOptions != null && !writeOptions.isOverwriteExisting()) {
-        return (FileAlreadyExistsException)
-            new FileAlreadyExistsException(
-                    String.format(
-                        "Object gs://%s/%s already exists.",
-                        blobInfo.getBucket(), blobInfo.getName()))
-                .initCause(e);
+        ioException =
+            new FileAlreadyExistsException(String.format("Object %s already exists.", gcsPath));
       } else if (blobInfo.getBlobId().getGeneration() != null) {
-        return new IOException(
-            String.format(
-                "Generation mismatch for object gs://%s/%s. "
-                    + "The file may have been modified concurrently.",
-                blobInfo.getBucket(), blobInfo.getName()),
-            e);
+        ioException =
+            new IOException(
+                String.format(
+                    "Generation mismatch for object %s. "
+                        + "The file may have been modified concurrently.",
+                    gcsPath));
+      } else {
+        ioException =
+            new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId());
       }
     } else if (errorType == ErrorType.NOT_FOUND) {
-      return (FileNotFoundException)
-          new FileNotFoundException(
-                  String.format(
-                      "Bucket or object not found: gs://%s/%s",
-                      blobInfo.getBucket(), blobInfo.getName()))
-              .initCause(e);
+      ioException =
+          new FileNotFoundException(String.format("Bucket or object not found: %s", gcsPath));
     } else if (errorType == ErrorType.ACCESS_DENIED) {
-      return (AccessDeniedException)
+      ioException =
           new AccessDeniedException(
-                  String.format("gs://%s/%s", blobInfo.getBucket(), blobInfo.getName()),
-                  null,
-                  String.format(
-                      "Access denied to object during initialization: %s", e.getMessage()))
-              .initCause(e);
+              gcsPath,
+              null,
+              String.format("Access denied to object during initialization: %s", e.getMessage()));
+    } else {
+      ioException =
+          new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId());
     }
-    return new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId(), e);
+
+    ioException.initCause(e);
+    return ioException;
   }
 
   private BlobWriteSessionConfig generateSessionConfig(

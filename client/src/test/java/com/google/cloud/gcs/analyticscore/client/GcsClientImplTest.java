@@ -65,6 +65,7 @@ class GcsClientImplTest {
   private static final String TEST_NON_EXISTENT_OBJECT = "non-existent";
   private static final String TEST_OBJECT_NAME = "test-object-name";
   private static final String BLOB_WRITE_SESSION_CONFIG_FIELD = "blobWriteSessionConfig";
+  private static final int MB = 1024 * 1024;
 
   private static final GcsClientOptions TEST_GCS_CLIENT_OPTIONS =
       GcsClientOptions.builder().setProjectId(TEST_PROJECT).build();
@@ -283,14 +284,15 @@ class GcsClientImplTest {
         };
     BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_WRITE_OBJECT)).build();
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-
     byte[] data = "hello write world".getBytes(StandardCharsets.UTF_8);
+
     try (WritableByteChannel channel = client.create(blobInfo, options)) {
       int bytesWritten = channel.write(ByteBuffer.wrap(data));
       assertThat(bytesWritten).isEqualTo(data.length);
     }
-    byte[] readData = storage.readAllBytes(blobInfo.getBlobId());
-    assertThat(new String(readData, StandardCharsets.UTF_8)).isEqualTo("hello write world");
+
+    assertThat(new String(storage.readAllBytes(blobInfo.getBlobId()), StandardCharsets.UTF_8))
+        .isEqualTo("hello write world");
   }
 
   @Test
@@ -486,7 +488,7 @@ class GcsClientImplTest {
         GcsWriteOptions.builder()
             .setUploadType(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
             .setPcuBufferCount(5)
-            .setPcuBufferCapacity(128 * 1024 * 1024)
+            .setPcuBufferCapacity(128 * MB)
             .setPcuPartFileCleanupType(GcsWriteOptions.PartFileCleanupType.NEVER)
             .setPcuPartFileNamePrefix("custom-prefix-")
             .build();
@@ -637,8 +639,8 @@ class GcsClientImplTest {
     try (WritableByteChannel channel = gcsClient.create(blobInfo, null)) {
       channel.write(ByteBuffer.wrap("null options write".getBytes(UTF_8)));
     }
-    byte[] data = storage.readAllBytes(blobInfo.getBlobId());
-    assertThat(new String(data, UTF_8)).isEqualTo("null options write");
+    assertThat(new String(storage.readAllBytes(blobInfo.getBlobId()), UTF_8))
+        .isEqualTo("null options write");
   }
 
   @Test
@@ -792,13 +794,21 @@ class GcsClientImplTest {
   }
 
   private BlobWriteSessionConfig getBlobWriteSessionConfig(StorageOptions options) {
-    try {
-      Field field = options.getClass().getDeclaredField(BLOB_WRITE_SESSION_CONFIG_FIELD);
-      field.setAccessible(true);
-      return (BlobWriteSessionConfig) field.get(options);
-    } catch (Exception e) {
-      throw new RuntimeException(e);
+    Class<?> clazz = options.getClass();
+    while (clazz != null) {
+      try {
+        Field field = clazz.getDeclaredField(BLOB_WRITE_SESSION_CONFIG_FIELD);
+        field.setAccessible(true);
+        return (BlobWriteSessionConfig) field.get(options);
+      } catch (NoSuchFieldException e) {
+        clazz = clazz.getSuperclass();
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
     }
+    throw new RuntimeException(
+        new NoSuchFieldException(
+            "Field " + BLOB_WRITE_SESSION_CONFIG_FIELD + " not found in options hierarchy"));
   }
 
   @Test
@@ -807,15 +817,12 @@ class GcsClientImplTest {
           throws Exception {
     GcsClientImpl client =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
-
     StorageOptions mockStorageOptions = mock(StorageOptions.class);
-
     GcsWriteOptions writeOptions =
         GcsWriteOptions.builder()
             .setUploadType(GcsWriteOptions.UploadType.JOURNALING)
             .setTemporaryPaths(ImmutableList.of("/tmp/journal1", "/tmp/journal2"))
             .build();
-
     Method method =
         GcsClientImpl.class.getDeclaredMethod(
             "getJournalingSessionConfig", GcsWriteOptions.class, StorageOptions.class);
@@ -833,15 +840,12 @@ class GcsClientImplTest {
           throws Exception {
     GcsClientImpl client =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
-
     StorageOptions mockStorageOptions = mock(StorageOptions.class);
-
     GcsWriteOptions writeOptions =
         GcsWriteOptions.builder()
             .setUploadType(GcsWriteOptions.UploadType.JOURNALING)
             .setTemporaryPaths(ImmutableList.of())
             .build();
-
     Method method =
         GcsClientImpl.class.getDeclaredMethod(
             "getJournalingSessionConfig", GcsWriteOptions.class, StorageOptions.class);

@@ -39,20 +39,19 @@ class FakeGcsWriteChannelTest {
     fakeGcsWriteChannel =
         new FakeGcsWriteChannel(
             session, session.open(), blobInfo, GcsWriteOptions.builder().build());
-    FakeGcsWriteChannel.resetCounts();
   }
 
   @Test
   void write_whenChannelWritten_incrementsWriteCallCount() throws Exception {
     fakeGcsWriteChannel.write(ByteBuffer.wrap(new byte[] {1, 2, 3}));
 
-    assertThat(FakeGcsWriteChannel.getWriteCallCount()).isEqualTo(1);
+    assertThat(fakeGcsWriteChannel.getWriteCallCount()).isEqualTo(1);
   }
 
   @Test
   void close_whenChannelClosed_incrementsCloseCallCount() throws Exception {
     fakeGcsWriteChannel.close();
 
-    assertThat(FakeGcsWriteChannel.getCloseCallCount()).isEqualTo(1);
+    assertThat(fakeGcsWriteChannel.getCloseCallCount()).isEqualTo(1);
   }
 }
