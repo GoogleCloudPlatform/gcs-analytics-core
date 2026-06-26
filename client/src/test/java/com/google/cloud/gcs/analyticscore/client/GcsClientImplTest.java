@@ -461,6 +461,28 @@ class GcsClientImplTest {
   }
 
   @Test
+  void create_withDisableGzipContentFalse_doesNotAddDisableGzipOption() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    when(mockSession.open()).thenReturn(mock(WritableByteChannel.class));
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = mockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().setDisableGzipContent(false).build();
+
+    clientWithMock.create(blobInfo, writeOptions);
+
+    ArgumentCaptor<Storage.BlobWriteOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobWriteOption[].class);
+    verify(mockStorage).blobWriteSession(eq(blobInfo), optionsCaptor.capture());
+    String capturedOptionsString = Arrays.toString(optionsCaptor.getValue());
+    assertThat(capturedOptionsString).doesNotContain("disableGzipContent");
+  }
+
+  @Test
   void create_withGenerationId_generatesGenerationMatchOption() throws Exception {
     Storage mockStorage = mock(Storage.class);
     BlobWriteSession mockSession = mock(BlobWriteSession.class);
@@ -788,9 +810,8 @@ class GcsClientImplTest {
   }
 
   @Test
-  void
-      getJournalingSessionConfig_withNonHttpStorageOptionsAndTemporaryPaths_returnsJournalingConfig()
-          throws Exception {
+  void generateSessionConfig_withJournalingAndNonHttpStorageOptions_returnsJournalingConfig()
+      throws Exception {
     GcsClientImpl client =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
     StorageOptions mockStorageOptions = mock(StorageOptions.class);
@@ -801,7 +822,7 @@ class GcsClientImplTest {
             .build();
     Method method =
         GcsClientImpl.class.getDeclaredMethod(
-            "getJournalingSessionConfig", GcsWriteOptions.class, StorageOptions.class);
+            "generateSessionConfig", GcsWriteOptions.class, StorageOptions.class);
     method.setAccessible(true);
 
     Object result = method.invoke(client, writeOptions, mockStorageOptions);
