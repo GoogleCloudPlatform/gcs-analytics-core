@@ -124,7 +124,7 @@ public class CloudMonitoringOpenTelemetryProvider implements OpenTelemetryProvid
     PeriodicMetricReader metricReader =
         PeriodicMetricReader.builder(cloudExporter).setInterval(exportInterval).build();
 
-    // Droping OTEL internal metrics to avoid high cardinality data points.
+    // Dropping OTEL internal metrics to avoid high cardinality data points.
     meterProviderBuilder.registerView(
         InstrumentSelector.builder().setName("otel.sdk.*").build(),
         View.builder().setAggregation(Aggregation.drop()).build());
