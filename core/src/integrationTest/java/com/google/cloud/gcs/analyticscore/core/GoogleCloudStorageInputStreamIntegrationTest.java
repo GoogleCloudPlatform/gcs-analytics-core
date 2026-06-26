@@ -71,7 +71,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
   void forSampleParquetFiles_vectoredIOEnabled_footerPrefetchingDisabled_readsFileSuccessfully(String fileName) {
     GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
             Map.of("gcs.analytics-core.footer.prefetch.enabled", "false",
-                    "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
+                    "gcs.analytics-core.small-file.cache.enabled", "true", "gcs.analytics-core.small-file.cache.max-size-bytes", "1048576"), "gcs.");
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
     ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, gcsFileSystemOptions);
   }
@@ -85,7 +85,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
     GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
             Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
                     "gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
-                    "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
+                    "gcs.analytics-core.small-file.cache.enabled", "true", "gcs.analytics-core.small-file.cache.max-size-bytes", "1048576"), "gcs.");
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
     ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, gcsFileSystemOptions);
   }
@@ -99,7 +99,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
     GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
             Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
                     "gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
-                    "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
+                    "gcs.analytics-core.small-file.cache.enabled", "true", "gcs.analytics-core.small-file.cache.max-size-bytes", "1048576"), "gcs.");
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
     ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ false, gcsFileSystemOptions);
   }
@@ -113,7 +113,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
     GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
             Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "102400",
                     "gcs.analytics-core.large-file.footer.prefetch.size-bytes", "1048576",
-                    "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
+                    "gcs.analytics-core.small-file.cache.enabled", "true", "gcs.analytics-core.small-file.cache.max-size-bytes", "1048576"), "gcs.");
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
 
     ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
@@ -131,7 +131,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
   void tpcdsCustomerTableData_footerPrefetchingDisabled_parsesParquetSchemaCorrectly(String fileName) throws IOException {
     GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
             Map.of("gcs.analytics-core.footer.prefetch.enabled", "false",
-                    "gcs.analytics-core.small-file.cache.threshold-bytes", "0"), "gcs.");
+                    "gcs.analytics-core.small-file.cache.enabled", "false", "gcs.analytics-core.small-file.cache.max-size-bytes", "0"), "gcs.");
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
 
     ParquetMetadata metadata = ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
@@ -160,7 +160,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
                 "102400",
                 "gcs.analytics-core.large-file.footer.prefetch.size-bytes",
                 "1048576",
-                "gcs.analytics-core.small-file.cache.threshold-bytes",
+                "gcs.analytics-core.small-file.cache.max-size-bytes",
                 "1048576"),
             "gcs.");
     try (GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
@@ -180,7 +180,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
   void forSampleParquetFiles_footerCacheEnabled_readsFileSuccessfully(String fileName) {
     GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
             Map.of("gcs.analytics-core.footer.cache.enabled", "true",
-                   "gcs.analytics-core.footer.cache.max-entries", "500"), "gcs.");
+                   "gcs.analytics-core.footer.cache.max-size-bytes", "52428800"), "gcs.");
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
     ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, gcsFileSystemOptions);
   }

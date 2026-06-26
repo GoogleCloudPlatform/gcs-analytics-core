@@ -35,7 +35,8 @@ class AnalyticsCacheManagerTest {
 
   @BeforeEach
   void setUp() {
-    manager = new AnalyticsCacheManager(GcsCacheOptions.builder().build());
+    manager =
+        new AnalyticsCacheManager(GcsCacheOptions.builder().setFooterCacheEnabled(true).build());
   }
 
   @Test
@@ -107,6 +108,29 @@ class AnalyticsCacheManagerTest {
         new AnalyticsCacheManager(GcsCacheOptions.builder().setFooterCacheEnabled(false).build());
 
     manager.invalidateAll();
+  }
+
+  @Test
+  void invalidateSmallObject_present_removesEntry() throws IOException {
+    GcsCacheOptions cacheOptions =
+        GcsCacheOptions.builder()
+            .setSmallObjectCacheEnabled(true)
+            .setSmallObjectCacheMaxSizeBytes(200)
+            .build();
+    manager = new AnalyticsCacheManager(cacheOptions);
+    manager.getSmallObject(ITEM_ID, itemId -> FOOTER.duplicate());
+
+    manager.invalidateSmallObject(ITEM_ID);
+
+    AtomicInteger callCount = new AtomicInteger(0);
+    manager.getSmallObject(
+        ITEM_ID,
+        itemId -> {
+          callCount.incrementAndGet();
+          return FOOTER.duplicate();
+        });
+
+    assertThat(callCount.get()).isEqualTo(1);
   }
 
   @Test

@@ -18,7 +18,11 @@ package com.google.cloud.gcs.analyticscore.core.optimizer;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.google.cloud.gcs.analyticscore.client.AnalyticsCacheManager;
 import com.google.cloud.gcs.analyticscore.client.FakeGcsClientImpl;
 import com.google.cloud.gcs.analyticscore.client.FakeGcsFileSystemImpl;
 import com.google.cloud.gcs.analyticscore.client.GcsCacheOptions;
@@ -56,23 +60,31 @@ class SmallObjectOptimizerTest {
           .setAttributes(ImmutableMap.of())
           .build();
 
-  private GcsReadOptions readOptions;
   private Telemetry telemetry;
   private VectoredSeekableByteChannel realSource;
   private SmallObjectOptimizer optimizer;
+  private AnalyticsCacheManager cacheManager;
 
   @BeforeEach
   void initializeOptimizerAndFakeStorage() throws IOException {
-    readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(200).build();
+    GcsCacheOptions cacheOptions =
+        GcsCacheOptions.builder()
+            .setSmallObjectCacheEnabled(true)
+            .setSmallObjectCacheMaxSizeBytes(200)
+            .build();
+    cacheManager = new AnalyticsCacheManager(cacheOptions);
     telemetry = new Telemetry(ImmutableList.of());
-    optimizer = new SmallObjectOptimizer(readOptions, telemetry);
+
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setSmallObjectCacheThresholdBytes(200).build();
+    optimizer = new SmallObjectOptimizer(cacheOptions, readOptions, telemetry);
 
     GcsClientOptions clientOptions =
         GcsClientOptions.builder().setGcsReadOptions(readOptions).build();
     GcsFileSystemOptions fileSystemOptions =
         GcsFileSystemOptions.builder()
             .setGcsClientOptions(clientOptions)
-            .setGcsCacheOptions(GcsCacheOptions.builder().build())
+            .setGcsCacheOptions(cacheOptions)
             .build();
     FakeGcsFileSystemImpl fakeFileSystem = new FakeGcsFileSystemImpl(fileSystemOptions);
 
@@ -84,7 +96,7 @@ class SmallObjectOptimizerTest {
         BlobInfo.newBuilder(ITEM_ID.getBucketName(), ITEM_ID.getObjectName().get(), 1L).build(),
         testData);
 
-    realSource = fakeFileSystem.open(FILE_INFO, readOptions);
+    realSource = fakeFileSystem.open(FILE_INFO, GcsReadOptions.builder().build());
   }
 
   @Test
@@ -93,15 +105,16 @@ class SmallObjectOptimizerTest {
   }
 
   @Test
-  void isApplicable_orcFile_returnsTrue() {
-    GcsItemId orcItemId = GcsItemId.builder().setBucketName("b").setObjectName("test.orc").build();
-    assertThat(optimizer.isApplicable(orcItemId)).isTrue();
+  void isApplicable_itemId_returnsFalse() {
+    assertThat(optimizer.isApplicable(ITEM_ID)).isFalse();
   }
 
   @Test
-  void isApplicable_nonDataFile_returnsFalse() {
-    GcsItemId csvItemId = GcsItemId.builder().setBucketName("b").setObjectName("test.csv").build();
-    assertThat(optimizer.isApplicable(csvItemId)).isFalse();
+  void isApplicable_fileInfo_orcFile_returnsTrue() {
+    GcsItemId orcItemId = GcsItemId.builder().setBucketName("b").setObjectName("test.orc").build();
+    GcsItemInfo orcInfo = GcsItemInfo.builder().setItemId(orcItemId).setSize(100).build();
+    GcsFileInfo orcFile = FILE_INFO.toBuilder().setItemInfo(orcInfo).build();
+    assertThat(optimizer.isApplicable(orcFile)).isTrue();
   }
 
   @Test
@@ -126,21 +139,41 @@ class SmallObjectOptimizerTest {
   }
 
   @Test
-  void isApplicable_itemId_returnsTrueIfCacheEnabled() {
-    assertThat(optimizer.isApplicable(ITEM_ID)).isTrue();
-    readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(0).build();
-    optimizer = new SmallObjectOptimizer(readOptions, telemetry);
-    assertThat(optimizer.isApplicable(ITEM_ID)).isFalse();
+  void isApplicable_fileInfo_returnsFalseIfThresholdIsZero() {
+    assertThat(optimizer.isApplicable(FILE_INFO)).isTrue();
+    GcsCacheOptions cacheOptions =
+        GcsCacheOptions.builder()
+            .setSmallObjectCacheEnabled(true)
+            .setSmallObjectCacheMaxSizeBytes(200)
+            .build();
+    GcsReadOptions readOptions0 =
+        GcsReadOptions.builder().setSmallObjectCacheThresholdBytes(0).build();
+    optimizer = new SmallObjectOptimizer(cacheOptions, readOptions0, telemetry);
+    assertThat(optimizer.isApplicable(FILE_INFO)).isFalse();
+  }
+
+  @Test
+  void isApplicable_fileInfo_returnsFalseIfCacheMaxIsZero() {
+    GcsCacheOptions cacheOptions0 =
+        GcsCacheOptions.builder()
+            .setSmallObjectCacheEnabled(false)
+            .setSmallObjectCacheMaxSizeBytes(0)
+            .build();
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setSmallObjectCacheThresholdBytes(200).build();
+    optimizer = new SmallObjectOptimizer(cacheOptions0, readOptions, telemetry);
+    assertThat(optimizer.isApplicable(FILE_INFO)).isFalse();
   }
 
   @Test
   void onOpen_itemIdOnly_isNoOp() {
-    optimizer.onOpen(ITEM_ID, null);
+    optimizer.onOpen(ITEM_ID, cacheManager);
   }
 
   @Test
   void read_smallFile_cachesAndServes() throws IOException {
-    optimizer.onOpen(FILE_INFO, null);
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
     ByteBuffer dst = ByteBuffer.allocate(10);
     realSource.position(50L);
 
@@ -159,9 +192,19 @@ class SmallObjectOptimizerTest {
 
   @Test
   void read_largeFile_returnsZero() throws IOException {
-    readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(50).build();
-    optimizer = new SmallObjectOptimizer(readOptions, telemetry);
-    optimizer.onOpen(FILE_INFO, null);
+    GcsCacheOptions cacheOptions50 =
+        GcsCacheOptions.builder()
+            .setSmallObjectCacheEnabled(true)
+            .setSmallObjectCacheMaxSizeBytes(50)
+            .build();
+    cacheManager = new AnalyticsCacheManager(cacheOptions50);
+    optimizer =
+        new SmallObjectOptimizer(
+            cacheOptions50,
+            GcsReadOptions.builder().setSmallObjectCacheThresholdBytes(50).build(),
+            telemetry);
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
     ByteBuffer dst = ByteBuffer.allocate(10);
 
     int bytesRead = optimizer.read(0, dst, realSource);
@@ -170,22 +213,27 @@ class SmallObjectOptimizerTest {
   }
 
   @Test
-  void read_unexpectedEofDuringPrefetch_throwsIOException() throws IOException {
-    // Modify file to be shorter than ITEM_INFO claims (100)
-    FakeGcsClientImpl.storage.create(
-        BlobInfo.newBuilder(ITEM_ID.getBucketName(), ITEM_ID.getObjectName().get(), 1L).build(),
-        new byte[50]);
-    optimizer.onOpen(FILE_INFO, null);
-    ByteBuffer dst = ByteBuffer.allocate(10);
-    IOException exception =
-        assertThrows(IOException.class, () -> optimizer.read(0, dst, realSource));
+  void read_unexpectedEofDuringCaching_throwsIOException() throws IOException {
+    VectoredSeekableByteChannel mockSource = mock(VectoredSeekableByteChannel.class);
+    when(mockSource.position()).thenReturn(0L);
+    when(mockSource.size()).thenReturn(100L);
+    when(mockSource.read(any(ByteBuffer.class))).thenReturn(-1);
 
-    assertThat(exception).hasMessageThat().contains("Received end of stream signal");
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
+    ByteBuffer dst = ByteBuffer.allocate(10);
+
+    IOException exception =
+        assertThrows(IOException.class, () -> optimizer.read(0, dst, mockSource));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .contains("Unexpected EOF encountered while reading small object");
   }
 
   @Test
   void readVectored_uninitializedFileSize_returnsOriginalRanges() throws IOException {
-    optimizer.onOpen(ITEM_ID, null);
+    optimizer.onOpen(ITEM_ID, cacheManager);
     GcsObjectRange range =
         GcsObjectRange.builder()
             .setOffset(0)
@@ -201,7 +249,8 @@ class SmallObjectOptimizerTest {
 
   @Test
   void read_pastEOF_returnsMinusOne() throws IOException {
-    optimizer.onOpen(FILE_INFO, null);
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
     ByteBuffer dst = ByteBuffer.allocate(10);
 
     int bytesReadEof = optimizer.read(100, dst, realSource);
@@ -213,20 +262,20 @@ class SmallObjectOptimizerTest {
 
   @Test
   void read_lazyInitFileSize_whenOnOpenWithItemIdUsed() throws IOException {
-    optimizer.onOpen(ITEM_ID, null);
+    optimizer.onOpen(ITEM_ID, cacheManager);
     ByteBuffer dst = ByteBuffer.allocate(10);
 
     int bytesRead = optimizer.read(10, dst, realSource);
 
-    assertThat(bytesRead).isEqualTo(10);
-    assertThat(dst.array()).isEqualTo(new byte[] {10, 11, 12, 13, 14, 15, 16, 17, 18, 19});
+    assertThat(bytesRead).isEqualTo(0);
   }
 
   @Test
   void serveFromCache_pastEOF_returnsMinusOne() throws IOException {
-    optimizer.onOpen(FILE_INFO, null);
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
 
-    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger prefetch
+    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger caching
     ByteBuffer dst = ByteBuffer.allocate(10);
     int bytesRead = optimizer.read(150, dst, realSource);
 
@@ -235,9 +284,10 @@ class SmallObjectOptimizerTest {
 
   @Test
   void readVectored_pastEOF_completesWithEOFException() throws IOException {
-    optimizer.onOpen(FILE_INFO, null);
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
 
-    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger prefetch
+    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger caching
     GcsObjectRange pastEofRange =
         GcsObjectRange.builder()
             .setOffset(110)
@@ -253,9 +303,19 @@ class SmallObjectOptimizerTest {
 
   @Test
   void readVectored_notApplicable_returnsOriginalRanges() throws IOException {
-    readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(50).build();
-    optimizer = new SmallObjectOptimizer(readOptions, telemetry);
-    optimizer.onOpen(FILE_INFO, null);
+    GcsCacheOptions cacheOptions50 =
+        GcsCacheOptions.builder()
+            .setSmallObjectCacheEnabled(true)
+            .setSmallObjectCacheMaxSizeBytes(50)
+            .build();
+    cacheManager = new AnalyticsCacheManager(cacheOptions50);
+    optimizer =
+        new SmallObjectOptimizer(
+            cacheOptions50,
+            GcsReadOptions.builder().setSmallObjectCacheThresholdBytes(50).build(),
+            telemetry);
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
     GcsObjectRange range =
         GcsObjectRange.builder()
             .setOffset(0)
@@ -270,8 +330,9 @@ class SmallObjectOptimizerTest {
   }
 
   @Test
-  void readVectored_notYetPrefetched_returnsOriginalRanges() throws IOException {
-    optimizer.onOpen(FILE_INFO, null);
+  void readVectored_notYetCached_returnsOriginalRanges() throws IOException {
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
     GcsObjectRange range =
         GcsObjectRange.builder()
             .setOffset(0)
@@ -287,9 +348,10 @@ class SmallObjectOptimizerTest {
 
   @Test
   void readVectored_partialRead_completesExceptionally() throws IOException {
-    optimizer.onOpen(FILE_INFO, null);
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
 
-    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger prefetch
+    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger caching
     GcsObjectRange partialRange =
         GcsObjectRange.builder()
             .setOffset(90)
@@ -304,10 +366,35 @@ class SmallObjectOptimizerTest {
   }
 
   @Test
-  void readVectored_success_returnsEmptyList() throws Exception {
-    optimizer.onOpen(FILE_INFO, null);
+  void readVectored_allocateReturnsNull_completesExceptionally() throws Exception {
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
+    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger caching
 
-    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger prefetch
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(10)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+
+    optimizer.readVectored(ImmutableList.of(range), size -> null);
+
+    ExecutionException exception =
+        assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(exception).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(exception)
+        .hasCauseThat()
+        .hasMessageThat()
+        .contains("Buffer allocation returned null");
+  }
+
+  @Test
+  void readVectored_success_returnsEmptyList() throws Exception {
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
+
+    optimizer.read(0, ByteBuffer.allocate(10), realSource); // Trigger caching
     GcsObjectRange validRange =
         GcsObjectRange.builder()
             .setOffset(10)

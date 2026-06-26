@@ -26,11 +26,13 @@ These settings control how aggressively the library prefetches and caches metada
 | Property | Description | Default Value |
 | :--- | :--- | :--- |
 | `analytics-core.footer.prefetch.enabled` | Controls whether footer prefetching is enabled. | `true` |
-| `analytics-core.small-file.footer.prefetch.size-bytes` | Footer prefetch size (in bytes) for files up to 1 GB. | 51200 (50 KB) |
-| `analytics-core.large-file.footer.prefetch.size-bytes` | Footer prefetch size (in bytes) for files larger than 1 GB. | 1048576 (1 MB) |
-| `analytics-core.footer.cache.enabled` | Controls whether the Parquet footer cache is enabled. | `true` |
-| `analytics-core.footer.cache.max-entries` | The maximum number of entries to hold in the Parquet footer cache. | `100` |
-| `analytics-core.small-file.cache.threshold-bytes` | Threshold (in bytes) below which small files are cached entirely. | 1048576 (1 MB) |
+| `analytics-core.small-file.footer.prefetch.size-bytes` | Footer prefetch size (in bytes) for files up to 1 GB. | `51200` (50 KB) |
+| `analytics-core.large-file.footer.prefetch.size-bytes` | Footer prefetch size (in bytes) for files larger than 1 GB. | `1048576` (1 MB) |
+| `analytics-core.footer.cache.enabled` | Controls whether the Parquet footer cache is enabled. | `false` |
+| `analytics-core.footer.cache.max-size-bytes`                 | The maximum capacity (in bytes) to hold in the Parquet footer cache.                        | `104857600` (100 MB) |
+| `analytics-core.small-file.cache.threshold-bytes` | Threshold (in bytes) below which small files are cached entirely. | `1048576` (1 MB) |
+| `analytics-core.small-file.cache.enabled` | Controls whether the small object cache is enabled. | `false` |
+| `analytics-core.small-file.cache.max-size-bytes` | The maximum capacity (in bytes) to hold in the small object cache. | `209715200` (200 MB) |
 
 ### Read Performance and I/O Tuning
 
@@ -39,13 +41,13 @@ These parameters fine-tune the low-level data streaming behavior. They allow you
 | Property | Description | Default Value |
 | :--- | :--- | :--- |
 | `channel.read.chunk-size-bytes` | Chunk size for GCS channel reads. | - |
-| `analytics-core.read.thread.count` | Number of threads for parallel read operations like vectored IO. | 16 |
-| `analytics-core.read.vectored.range.merge-gap.max-bytes` | Maximum gap (in bytes) between ranges to merge in vectored reads. | 4096 (4 KB) |
-| `analytics-core.read.vectored.range.merged-size.max-bytes` | Maximum size (in bytes) of a merged range in vectored reads. | 8388608 (8 MB) |
-| `analytics-core.read.inplace-seek-limit-bytes` | In-place seek limit (in bytes). | 131072 (128 KB) |
+| `analytics-core.read.thread.count` | Number of threads for parallel read operations like vectored IO. | `16` |
+| `analytics-core.read.vectored.range.merge-gap.max-bytes` | Maximum gap (in bytes) between ranges to merge in vectored reads. | `4096` (4 KB) |
+| `analytics-core.read.vectored.range.merged-size.max-bytes` | Maximum size (in bytes) of a merged range in vectored reads. | `8388608` (8 MB) |
+| `analytics-core.read.inplace-seek-limit-bytes` | In-place seek limit (in bytes). | `131072` (128 KB) |
 | `analytics-core.read.file-access-pattern` | File access pattern. Supported values: `RANDOM`, `SEQUENTIAL`, `AUTO_SEQUENTIAL`, `AUTO_RANDOM`. | `AUTO_SEQUENTIAL` |
 | `analytics-core.adaptive-read.sequential-read-threshold` | Threshold for number of sequential reads to switch to sequential mode. | `3` |
-| `analytics-core.random-read.min-request-size` | Minimum request size for random reads. If the requested read size is smaller, it reads up to this size. | `131072 (128 KB)` |
+| `analytics-core.random-read.min-request-size` | Minimum request size for random reads. If the requested read size is smaller, it reads up to this size. | `131072` (128 KB) |
 
 ### Telemetry and Monitoring
 
