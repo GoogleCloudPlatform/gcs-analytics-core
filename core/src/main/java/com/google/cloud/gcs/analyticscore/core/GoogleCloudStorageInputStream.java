@@ -21,6 +21,9 @@ import com.google.cloud.gcs.analyticscore.client.*;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Attribute;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Operation;
+import com.google.cloud.gcs.analyticscore.core.channel.SmartReadChannel;
+import com.google.cloud.gcs.analyticscore.core.optimizer.GcsFooterOptimizer;
+import com.google.cloud.gcs.analyticscore.core.optimizer.SmallObjectOptimizer;
 import com.google.cloud.storage.BlobId;
 import com.google.common.collect.ImmutableMap;
 import java.io.EOFException;
@@ -31,13 +34,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.IntFunction;
 import javax.annotation.Nonnull;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** This is a seekable input stream for GCS objects. It is backed by a GcsFileSystem instance. */
 public class GoogleCloudStorageInputStream extends SeekableInputStream {
-  private static final Logger LOG = LoggerFactory.getLogger(GoogleCloudStorageInputStream.class);
-  private static final int LARGE_FILE_SIZE_THRESHOLD = 1024 * 1024 * 1024; // 1 GB.
   // Used for single-byte reads to avoid repeated allocation.
   private final ByteBuffer singleByteBuffer = ByteBuffer.wrap(new byte[1]);
 
@@ -49,11 +48,6 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   private final ImmutableMap<String, String> commonAttributes;
 
   private volatile boolean closed;
-
-  // Unified cache for small objects or footers.
-  private long prefetchSize;
-  private long fileSize;
-  private volatile ByteBuffer prefetchBuffer;
 
   private GcsFileInfo gcsFileInfo;
 
@@ -82,7 +76,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   private GoogleCloudStorageInputStream(
       GcsFileSystem gcsFileSystem, VectoredSeekableByteChannel channel, GcsFileInfo gcsFileInfo) {
     this(gcsFileSystem, channel, gcsFileInfo.getItemInfo().getItemId());
-    initializeMetadata(gcsFileInfo);
+    this.gcsFileInfo = gcsFileInfo;
   }
 
   private GoogleCloudStorageInputStream(
@@ -123,7 +117,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   @Override
   public int read() throws IOException {
     checkNotClosed("Cannot read: already closed");
-    // Delegate to the byte array read method to reuse the cache logic.
+    // Delegate to the byte array read method.
     int bytesRead = read(singleByteBuffer.array(), 0, 1);
     if (bytesRead == -1) {
       return -1;
@@ -142,20 +136,6 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             commonAttributes,
             recorder -> {
               checkNotClosed("Cannot read: already closed");
-              if (isMetadataInitialized()
-                  && prefetchBuffer == null
-                  && position >= fileSize - prefetchSize) {
-                cacheObjectOrFooter();
-              }
-              if (prefetchBuffer != null && (position >= fileSize - prefetchSize)) {
-                int bytesRead = serveFromCache(byteBuffer);
-                if (bytesRead > 0) {
-                  recorder.record(Metric.READ_BYTES, bytesRead, Collections.emptyMap());
-                  recorder.record(Metric.READ_CACHE_HIT, 1, Collections.emptyMap());
-                }
-                return bytesRead;
-              }
-              recorder.record(Metric.READ_CACHE_MISS, 1, Collections.emptyMap());
               long channelPosition = channel.position();
               checkState(
                   channelPosition == position,
@@ -197,9 +177,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             recorder -> {
               if (!closed) {
                 closed = true;
-                if (channel != null) {
-                  channel.close();
-                }
+                channel.close();
               }
               return null;
             });
@@ -245,8 +223,8 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             Metric.READ_DURATION,
             commonAttributes,
             recorder -> {
-              if (!isMetadataInitialized()) {
-                initializeMetadata();
+              if (gcsFileInfo == null) {
+                gcsFileInfo = gcsFileSystem.getFileInfo(gcsItemId);
               }
               try (VectoredSeekableByteChannel byteChannel =
                   openReadChannel(gcsFileSystem, gcsItemId, gcsFileInfo)) {
@@ -265,91 +243,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   @Override
   public void readVectored(List<GcsObjectRange> fileRanges, IntFunction<ByteBuffer> alloc)
       throws IOException {
-    if (prefetchBuffer != null && prefetchSize == fileSize) {
-      // Entire object is cached, serve from prefetchBuffer
-      for (GcsObjectRange range : fileRanges) {
-        ByteBuffer dest = alloc.apply(range.getLength());
-        int bytesRead = serveFromCacheWithoutSeek(range.getOffset(), dest);
-        if (bytesRead < range.getLength()) {
-          range
-              .getByteBufferFuture()
-              .completeExceptionally(
-                  new EOFException(
-                      String.format("Error while populating range: %s, unexpected EOF", range)));
-        } else {
-          dest.flip();
-          range.getByteBufferFuture().complete(dest);
-        }
-      }
-    } else {
-      channel.readVectored(fileRanges, alloc);
-    }
-  }
-
-  private boolean isMetadataInitialized() {
-    return gcsFileInfo != null;
-  }
-
-  private void initializeMetadata() throws IOException {
-    initializeMetadata(gcsFileSystem.getFileInfo(gcsItemId));
-  }
-
-  private void initializeMetadata(GcsFileInfo fileInfo) {
-    this.gcsFileInfo = fileInfo;
-    this.gcsItemId = fileInfo.getItemInfo().getItemId();
-    this.fileSize = fileInfo.getItemInfo().getSize();
-    GcsReadOptions readOptions =
-        gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions();
-    this.prefetchSize = calculatePrefetchSize(fileSize, readOptions);
-  }
-
-  private void cacheObjectOrFooter() throws IOException {
-    long originalPosition = getPos();
-    long startPosition = fileSize - prefetchSize;
-    int bufferSize = (int) (fileSize - startPosition);
-    LOG.debug(
-        "Caching GCS object {} from position: {} size: {}", gcsPath, startPosition, bufferSize);
-    try {
-      ByteBuffer cacheBuffer = ByteBuffer.allocate(bufferSize);
-      channel.position(startPosition);
-      while (cacheBuffer.hasRemaining()) {
-        if (channel.read(cacheBuffer) == -1) {
-          throw new IOException("Unexpected EOF encountered.");
-        }
-      }
-      cacheBuffer.flip();
-      this.prefetchBuffer = cacheBuffer;
-    } catch (IOException e) {
-      LOG.warn(
-          "Error while caching object {} from position: {} length: {}. Error : {}",
-          gcsPath,
-          startPosition,
-          bufferSize,
-          e.getMessage());
-    } finally {
-      seek(originalPosition);
-    }
-  }
-
-  private int serveFromCache(ByteBuffer buffer) throws IOException {
-    int bytesToRead = serveFromCacheWithoutSeek(position, buffer);
-    if (bytesToRead != -1) {
-      seek(position + bytesToRead);
-    }
-    return bytesToRead;
-  }
-
-  private int serveFromCacheWithoutSeek(long currPosition, ByteBuffer buffer) throws IOException {
-    ByteBuffer cacheView = prefetchBuffer.duplicate();
-    int readStartPosition = (int) (currPosition - (fileSize - prefetchSize));
-    cacheView.position(readStartPosition);
-    if (cacheView.remaining() == 0) {
-      return -1;
-    }
-    int bytesToRead = Math.min(buffer.remaining(), cacheView.remaining());
-    cacheView.limit(cacheView.position() + bytesToRead);
-    buffer.put(cacheView);
-    return bytesToRead;
+    channel.readVectored(fileRanges, alloc);
   }
 
   private static VectoredSeekableByteChannel openReadChannel(
@@ -362,31 +256,22 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             Metric.OPEN_DURATION,
             buildCommonAttributes(),
             recorder -> {
-              if (gcsFileInfo != null) {
-                return gcsFileSystem.open(
-                    gcsFileInfo,
-                    gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions());
-              }
-              return gcsFileSystem.open(
-                  gcsItemId,
-                  gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions());
-            });
-  }
+              GcsReadOptions readOptions =
+                  gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions();
+              VectoredSeekableByteChannel rawChannel =
+                  gcsFileInfo != null
+                      ? gcsFileSystem.open(gcsFileInfo, readOptions)
+                      : gcsFileSystem.open(gcsItemId, readOptions);
 
-  private static long calculatePrefetchSize(long fileSize, GcsReadOptions readOptions) {
-    if (!readOptions.isFooterPrefetchEnabled()
-        && readOptions.getSmallObjectCacheSize() < fileSize) {
-      // Both footer prefetch and small object cache are disabled.
-      return 0;
-    }
-    if (readOptions.getSmallObjectCacheSize() >= fileSize) {
-      // Small object cache is enabled and file size is <= the cache size.
-      return fileSize;
-    }
-    // Footer prefetch.
-    return fileSize > LARGE_FILE_SIZE_THRESHOLD
-        ? Math.min(readOptions.getFooterPrefetchSizeLargeFile(), fileSize)
-        : Math.min(readOptions.getFooterPrefetchSizeSmallFile(), fileSize);
+              return SmartReadChannel.builder()
+                  .setDelegate(rawChannel)
+                  .setItemId(gcsItemId)
+                  .setFileInfo(gcsFileInfo)
+                  .setCacheManager(gcsFileSystem.getCacheManager())
+                  .addOptimizer(new SmallObjectOptimizer(readOptions, gcsFileSystem.getTelemetry()))
+                  .addOptimizer(new GcsFooterOptimizer(readOptions, gcsFileSystem.getTelemetry()))
+                  .build();
+            });
   }
 
   private static ImmutableMap<String, String> buildCommonAttributes() {
