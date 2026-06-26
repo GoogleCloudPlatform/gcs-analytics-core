@@ -14,9 +14,11 @@ This library aims to provide a consistently high-performance experience for all 
 
 ## Key Features
 
--   **Vectored I/O**: Improves read performance by fetching multiple data ranges in a single operation, significantly reducing the number of round trips to GCS.
--   **Parquet Footer Caching and Prefetching**: Caches Parquet file footers in memory to avoid redundant reads and accelerate query planning and execution.
--   **Optimized GCS Interactions**: Streamlined communication with GCS APIs to minimize latency and enhance throughput.
+-   **Vectored I/O**: Improves read performance by fetching multiple data ranges in a single asynchronous operation, significantly reducing the number of round trips to GCS.
+-   **Parquet Footer Prefetching & Caching**: Intelligently prefetches Parquet/ORC footers and caches them to avoid redundant network reads and accelerate query planning and execution.
+-   **Small Object Prefetching & Caching**: Entirely prefetches and caches small objects below a configurable threshold, providing high-throughput sequential disk performance.
+-   **Adaptive Read Optimization**: Dynamically heuristically detects file access patterns (`RANDOM` vs `SEQUENTIAL`) and uses in-place seek limits to tune network stream utilization in real-time.
+-   **Comprehensive Telemetry**: Provides deep observability into cache hit/miss rates, I/O throughput, and stream durations. Seamlessly exports metrics via logs or directly to OpenTelemetry backends like Google Cloud Monitoring.
 -   **Unified and Simplified Configuration**: Provides a single, optimized path to GCS, reducing the need for framework-specific tuning for GCS access.
 
 
@@ -43,14 +45,17 @@ graph TD
             direction TB
             subgraph GCSIS ["GoogleCloudStorageInputStream"]
                 VIO["VectoredRead"]
-                PFP["Parquet Footer Prefetch"]
+                PFP["Parquet Footer Prefetch & Cache"]
+                SOP["Small Object Prefetch & Cache"]
                 ARR["Adaptive Range Read"]
             end
             subgraph GFS ["GcsFileSystem"]
                 GACO["GcsAnalyticsCoreOptions"]
+                ACM["AnalyticsCacheManager"]
             end
             direction LR
             GCSIS -- "open()" -->  GFS
+            GCSIS -- "getCache()" --> ACM
         end
     end
 
@@ -75,15 +80,14 @@ graph TD
 
     class AE1,AE2 engine;
     class Core core;
-    class VR,FP,FS feature;
+    class VIO,PFP,SOP,ARR feature;
     class Lib lib;
     class GCS storage;
 ```
 
 ## Current Status
 
-The library currently implements optimizations for read operation on columnar file formats (eg: parquet) stored in GCS
-buckets.
+The library currently implements optimizations for read operations on columnar file formats (e.g., parquet) and small objects stored in GCS buckets.
 
 ## Getting Started
 
@@ -112,35 +116,36 @@ For other build systems like Gradle, please refer to Maven Central.
 Configuration options for the library are typically provided through the [`GcsAnalyticsCoreOptions`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GcsAnalyticsCoreOptions.java) class. Detailed configuration parameters can be found in the [CONFIGURATION.md](CONFIGURATION.md) file.
 
 ### Usage Examples
-To leverage the read operation performance optimizations of this library, replace the InputStream implementation in your implementation
-with the [`GoogleCloudStorageInputStream`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java)
-implementation provided by the library. Example steps to initialize the [`GoogleCloudStorageInputStream`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java)
-implementation:
+To leverage the read operation performance optimizations of this library, replace the InputStream implementation in your application with the [`GoogleCloudStorageInputStream`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java) provided by the library.
 
-1. Create configuration object
+Example steps to initialize the [`GoogleCloudStorageInputStream`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java) implementation:
 
-    1. Create configuration object from map of flags (refer [CONFIGURATION](CONFIGURATION.md) for supported flags):
+1. Create a configuration object
+
+    1. Create a configuration object from a map of flags (refer to [CONFIGURATION.md](CONFIGURATION.md) for supported flags):
         ```java
-        ImputableMap<String, String> flagsExample1 = ImmutableMap.of(
+        ImmutableMap<String, String> flagsExample1 = ImmutableMap.of(
                 "gcs.project-id", "my-project-id",
-                "gcs.analytics-core.footer.prefetch.enabled", "true");
+                "gcs.analytics-core.footer.prefetch.enabled", "true",
+                "gcs.analytics-core.footer.cache.enabled", "true");
         GcsAnalyticsCoreOptions gcsAnalyticsCoreOptions = new GcsAnalyticsCoreOptions("gcs.", flagsExample1);
 
-        ImputableMap<String, String> flagsExample2 = ImmutableMap.of(
+        ImmutableMap<String, String> flagsExample2 = ImmutableMap.of(
                 "fs.gs.project-id", "my-project-id",
                 "fs.gs.analytics-core.footer.prefetch.enabled", "true");
-        GcsAnalyticsCoreOptions gcsAnalyticsCoreOptions = new GcsAnalyticsCoreOptions("fs.gs.", flagsExample2);
+        GcsAnalyticsCoreOptions gcsAnalyticsCoreOptions2 = new GcsAnalyticsCoreOptions("fs.gs.", flagsExample2);
         ```
 
-    2. Create configuration object by  directly initializing GcsFileSystemOption:
+    2. Or create a configuration object by directly initializing `GcsFileSystemOptions`:
         ```java
         GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions
                 .builder()
-                .setGcsClientOption(GcsClientOptions.builder().setProjectId("my-project-id").build())
+                .setGcsClientOptions(GcsClientOptions.builder().setProjectId("my-project-id").build())
+                .setGcsCacheOptions(GcsCacheOptions.builder().setFooterCacheEnabled(true).build())
                 .build();
         ```
 
-2. Initialize [`GcsFileSystem`](client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsFileSystem.java) with configuration:
+2. Initialize [`GcsFileSystem`](client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsFileSystem.java) with the configuration:
     ```java
     GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsAnalyticsCoreOptions.getGcsFileSystemOptions());
     // or

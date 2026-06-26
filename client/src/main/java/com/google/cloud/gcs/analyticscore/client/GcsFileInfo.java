@@ -41,6 +41,8 @@ public abstract class GcsFileInfo {
   @SuppressWarnings("AutoValueImmutableFields")
   public abstract Map<String, byte[]> getAttributes();
 
+  public abstract Builder toBuilder();
+
   public static Builder builder() {
     return new AutoValue_GcsFileInfo.Builder();
   }
