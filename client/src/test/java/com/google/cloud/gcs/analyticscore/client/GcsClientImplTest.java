@@ -402,7 +402,7 @@ class GcsClientImplTest {
     IOException thrown =
         assertThrows(IOException.class, () -> clientWithMock.create(blobInfo, writeOptions));
 
-    assertThat(thrown).hasMessageThat().contains("Failed to initialize BlobWriteSession");
+    assertThat(thrown).hasMessageThat().contains("Error during initialization to GCS");
   }
 
   @Test

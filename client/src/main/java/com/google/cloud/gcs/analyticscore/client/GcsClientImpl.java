@@ -15,13 +15,11 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
-import static com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.getErrorType;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.auth.Credentials;
-import com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.ErrorType;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
@@ -39,11 +37,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
-import java.nio.file.AccessDeniedException;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -133,7 +128,12 @@ class GcsClientImpl implements GcsClient {
       BlobWriteSession sdkWriteSession = this.storage.blobWriteSession(blobInfo, sdkWriteOptions);
       return new GcsWriteChannel(sdkWriteSession, sdkWriteSession.open(), blobInfo, writeOptions);
     } catch (StorageException e) {
-      throw translateStorageException(e, blobInfo, writeOptions);
+      boolean overwrite =
+          Optional.ofNullable(writeOptions).map(GcsWriteOptions::isOverwriteExisting).orElse(true);
+      throw overwrite
+          ? GcsExceptionUtil.translateExceptionWithOverwrite(
+              e, "initialization", blobInfo.getBlobId(), 0L)
+          : GcsExceptionUtil.translateException(e, "initialization", blobInfo.getBlobId(), 0L);
     } catch (Exception e) {
       throw propagateAsIOException(e, blobInfo);
     }
@@ -147,45 +147,6 @@ class GcsClientImpl implements GcsClient {
       throw (RuntimeException) e;
     }
     return new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId(), e);
-  }
-
-  private IOException translateStorageException(
-      StorageException e, BlobInfo blobInfo, GcsWriteOptions writeOptions) {
-    ErrorType errorType = getErrorType(e);
-    String gcsPath = String.format("gs://%s/%s", blobInfo.getBucket(), blobInfo.getName());
-
-    IOException ioException;
-    if (errorType == ErrorType.ALREADY_EXISTS
-        || (errorType == ErrorType.PRECONDITION_FAILED
-            && !Optional.ofNullable(writeOptions)
-                .map(GcsWriteOptions::isOverwriteExisting)
-                .orElse(true))) {
-      ioException =
-          new FileAlreadyExistsException(String.format("Object %s already exists.", gcsPath));
-    } else if (errorType == ErrorType.PRECONDITION_FAILED
-        && blobInfo.getBlobId().getGeneration() != null) {
-      ioException =
-          new IOException(
-              String.format(
-                  "Generation mismatch for object %s. "
-                      + "The file may have been modified concurrently.",
-                  gcsPath));
-    } else if (errorType == ErrorType.NOT_FOUND) {
-      ioException =
-          new FileNotFoundException(String.format("Bucket or object not found: %s", gcsPath));
-    } else if (errorType == ErrorType.ACCESS_DENIED) {
-      ioException =
-          new AccessDeniedException(
-              gcsPath,
-              null,
-              String.format("Access denied to object during initialization: %s", e.getMessage()));
-    } else {
-      ioException =
-          new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId());
-    }
-
-    ioException.initCause(e);
-    return ioException;
   }
 
   private BlobWriteSessionConfig generateSessionConfig(

@@ -59,6 +59,13 @@ class GcsExceptionUtil {
   static IOException translateException(
       StorageException e, String context, BlobId blobId, long position) {
     ErrorType errorType = getErrorType(e);
+    if (errorType == ErrorType.PRECONDITION_FAILED && blobId.getGeneration() != null) {
+      return new IOException(
+          String.format(
+              "Generation mismatch for object gs://%s/%s. Concurrent modification detected.",
+              blobId.getBucket(), blobId.getName()),
+          e);
+    }
     if (errorType == ErrorType.PRECONDITION_FAILED) {
       return (FileAlreadyExistsException)
           new FileAlreadyExistsException(
