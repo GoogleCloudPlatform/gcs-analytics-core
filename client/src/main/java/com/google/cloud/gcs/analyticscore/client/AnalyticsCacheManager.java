@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.github.benmanes.caffeine.cache.Weigher;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCache;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCacheCaffeineImpl;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCacheNoOpImpl;
@@ -39,9 +40,10 @@ public class AnalyticsCacheManager {
    */
   public AnalyticsCacheManager(GcsCacheOptions options) {
     checkNotNull(options, "options cannot be null");
+    Weigher<GcsItemId, ByteBuffer> weigher = (key, value) -> value.remaining();
     this.footerCache =
         options.isFooterCacheEnabled()
-            ? AnalyticsCacheCaffeineImpl.create(options.getFooterCacheMaxEntries())
+            ? AnalyticsCacheCaffeineImpl.create(options.getFooterCacheMaxSizeBytes(), weigher)
             : AnalyticsCacheNoOpImpl.getInstance();
   }
 

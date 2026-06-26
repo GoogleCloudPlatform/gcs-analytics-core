@@ -180,7 +180,7 @@ class GoogleCloudStorageInputStreamIntegrationTest {
   void forSampleParquetFiles_footerCacheEnabled_readsFileSuccessfully(String fileName) {
     GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
             Map.of("gcs.analytics-core.footer.cache.enabled", "true",
-                   "gcs.analytics-core.footer.cache.max-entries", "500"), "gcs.");
+                   "gcs.analytics-core.footer.cache.max-size-bytes", "52428800"), "gcs.");
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
     ParquetHelper.readParquetObjectRecords(uri, /* readVectoredEnabled= */ true, gcsFileSystemOptions);
   }

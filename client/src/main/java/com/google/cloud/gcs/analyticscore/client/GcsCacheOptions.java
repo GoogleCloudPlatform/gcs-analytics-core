@@ -26,17 +26,20 @@ import java.util.Map;
 public abstract class GcsCacheOptions {
 
   private static final String FOOTER_CACHE_ENABLED_KEY = "analytics-core.footer.cache.enabled";
-  private static final String FOOTER_CACHE_MAX_ENTRIES_KEY =
-      "analytics-core.footer.cache.max-entries";
+  private static final String FOOTER_CACHE_MAX_SIZE_BYTES_KEY =
+      "analytics-core.footer.cache.max-size-bytes";
+
+  private static final long KB = 1024L;
+  private static final long MB = 1024L * KB;
 
   private static final boolean DEFAULT_FOOTER_CACHE_ENABLED = true;
-  private static final int DEFAULT_FOOTER_CACHE_MAX_ENTRIES = 100;
+  private static final long DEFAULT_FOOTER_CACHE_MAX_SIZE_BYTES = 100 * MB;
 
   /** Returns whether the Parquet footer cache is enabled. */
   public abstract boolean isFooterCacheEnabled();
 
-  /** Returns the maximum number of entries to hold in the Parquet footer cache. */
-  public abstract int getFooterCacheMaxEntries();
+  /** Returns the maximum capacity (in bytes) to hold in the Parquet footer cache. */
+  public abstract long getFooterCacheMaxSizeBytes();
 
   /**
    * Returns a builder for {@link GcsCacheOptions} with the same property values as this instance.
@@ -47,7 +50,7 @@ public abstract class GcsCacheOptions {
   public static Builder builder() {
     return new AutoValue_GcsCacheOptions.Builder()
         .setFooterCacheEnabled(DEFAULT_FOOTER_CACHE_ENABLED)
-        .setFooterCacheMaxEntries(DEFAULT_FOOTER_CACHE_MAX_ENTRIES);
+        .setFooterCacheMaxSizeBytes(DEFAULT_FOOTER_CACHE_MAX_SIZE_BYTES);
   }
 
   /** Creates a {@link GcsCacheOptions} instance from a map of configuration options. */
@@ -58,9 +61,9 @@ public abstract class GcsCacheOptions {
       optionsBuilder.setFooterCacheEnabled(
           Boolean.parseBoolean(analyticsCoreOptions.get(prefix + FOOTER_CACHE_ENABLED_KEY)));
     }
-    if (analyticsCoreOptions.containsKey(prefix + FOOTER_CACHE_MAX_ENTRIES_KEY)) {
-      optionsBuilder.setFooterCacheMaxEntries(
-          Integer.parseInt(analyticsCoreOptions.get(prefix + FOOTER_CACHE_MAX_ENTRIES_KEY)));
+    if (analyticsCoreOptions.containsKey(prefix + FOOTER_CACHE_MAX_SIZE_BYTES_KEY)) {
+      optionsBuilder.setFooterCacheMaxSizeBytes(
+          Long.parseLong(analyticsCoreOptions.get(prefix + FOOTER_CACHE_MAX_SIZE_BYTES_KEY)));
     }
     return optionsBuilder.build();
   }
@@ -71,23 +74,23 @@ public abstract class GcsCacheOptions {
     /** Sets whether the Parquet footer cache is enabled. */
     public abstract Builder setFooterCacheEnabled(boolean footerCacheEnabled);
 
-    /** Sets the maximum number of entries to hold in the Parquet footer cache. */
-    public abstract Builder setFooterCacheMaxEntries(int footerCacheMaxEntries);
+    /** Sets the maximum capacity (in bytes) to hold in the Parquet footer cache. */
+    public abstract Builder setFooterCacheMaxSizeBytes(long footerCacheMaxSizeBytes);
 
     abstract GcsCacheOptions autoBuild();
 
     /**
      * Builds the {@link GcsCacheOptions} instance.
      *
-     * @throws IllegalArgumentException if {@code footerCacheMaxEntries} is non-positive when {@code
-     *     footerCacheEnabled} is {@code true}.
+     * @throws IllegalArgumentException if {@code footerCacheMaxSizeBytes} is non-positive when
+     *     {@code footerCacheEnabled} is {@code true}.
      */
     public GcsCacheOptions build() {
       GcsCacheOptions options = autoBuild();
       if (options.isFooterCacheEnabled()) {
         checkArgument(
-            options.getFooterCacheMaxEntries() > 0,
-            "footerCacheMaxEntries must be positive when footerCacheEnabled is true");
+            options.getFooterCacheMaxSizeBytes() > 0,
+            "footerCacheMaxSizeBytes must be positive when footerCacheEnabled is true");
       }
       return options;
     }

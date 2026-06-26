@@ -30,7 +30,7 @@ class AnalyticsCacheCaffeineImplTest {
 
   @BeforeEach
   void setUp() {
-    cache = AnalyticsCacheCaffeineImpl.create(10);
+    cache = AnalyticsCacheCaffeineImpl.create(10, (key, value) -> 1);
   }
 
   @Test
