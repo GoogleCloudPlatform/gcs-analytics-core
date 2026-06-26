@@ -36,6 +36,13 @@ public interface GcsClient {
   /** Close the client. */
   void close();
 
-  /** Creates a new object and returns a WritableByteChannel for writing to it. */
+  /**
+   * Creates a new GCS object and returns a WritableByteChannel for writing to it.
+   *
+   * @param blobInfo the GCS object metadata to be created
+   * @param options configuration options for controlling upload strategies and integrity checks
+   * @return a channel for writing data to the newly created object
+   * @throws IOException if an I/O error occurs during channel initialization or translation
+   */
   WritableByteChannel create(BlobInfo blobInfo, GcsWriteOptions options) throws IOException;
 }

@@ -492,16 +492,8 @@ class GcsClientImplTest {
             .setPcuPartFileCleanupType(GcsWriteOptions.PartFileCleanupType.NEVER)
             .setPcuPartFileNamePrefix("custom-prefix-")
             .build();
-    GcsClientOptions clientOptions =
-        GcsClientOptions.builder()
-            .setProjectId(TEST_PROJECT)
-            .setGcsWriteOptions(writeOptions)
-            .build();
 
-    GcsClientImpl client = new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry);
-
-    assertThat(getBlobWriteSessionConfig(client.storage.getOptions()))
-        .isInstanceOf(ParallelCompositeUploadBlobWriteSessionConfig.class);
+    assertPcuSessionConfig(writeOptions);
   }
 
   @Test
@@ -671,16 +663,8 @@ class GcsClientImplTest {
             .setUploadType(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
             .setPcuPartFileCleanupType(GcsWriteOptions.PartFileCleanupType.ON_SUCCESS)
             .build();
-    GcsClientOptions clientOptions =
-        GcsClientOptions.builder()
-            .setProjectId(TEST_PROJECT)
-            .setGcsWriteOptions(writeOptions)
-            .build();
 
-    GcsClientImpl client = new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry);
-
-    assertThat(getBlobWriteSessionConfig(client.storage.getOptions()))
-        .isInstanceOf(ParallelCompositeUploadBlobWriteSessionConfig.class);
+    assertPcuSessionConfig(writeOptions);
   }
 
   @Test
@@ -691,16 +675,8 @@ class GcsClientImplTest {
             .setUploadType(GcsWriteOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
             .setPcuPartFileCleanupType(GcsWriteOptions.PartFileCleanupType.ALWAYS)
             .build();
-    GcsClientOptions clientOptions =
-        GcsClientOptions.builder()
-            .setProjectId(TEST_PROJECT)
-            .setGcsWriteOptions(writeOptions)
-            .build();
 
-    GcsClientImpl client = new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry);
-
-    assertThat(getBlobWriteSessionConfig(client.storage.getOptions()))
-        .isInstanceOf(ParallelCompositeUploadBlobWriteSessionConfig.class);
+    assertPcuSessionConfig(writeOptions);
   }
 
   @Test
@@ -860,5 +836,17 @@ class GcsClientImplTest {
     assertThat(exception.getCause())
         .hasMessageThat()
         .contains("Temporary paths must be configured for JOURNALING upload type");
+  }
+
+  private void assertPcuSessionConfig(GcsWriteOptions writeOptions) throws Exception {
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setGcsWriteOptions(writeOptions)
+            .build();
+    GcsClientImpl client = new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry);
+
+    assertThat(getBlobWriteSessionConfig(client.storage.getOptions()))
+        .isInstanceOf(ParallelCompositeUploadBlobWriteSessionConfig.class);
   }
 }

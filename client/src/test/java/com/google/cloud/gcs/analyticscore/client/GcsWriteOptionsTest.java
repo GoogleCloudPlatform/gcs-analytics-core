@@ -126,9 +126,7 @@ class GcsWriteOptionsTest {
   void createFromOptions_withWhitespaceAndEmptyPaths_filtersThemOut() {
     Map<String, String> rawOptions =
         ImmutableMap.of("gcs.channel.write.temporary-paths", "  , /tmp/path1 , , /tmp/path2 ");
-
     GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");
-
     assertThat(options.getTemporaryPaths()).containsExactly("/tmp/path1", "/tmp/path2").inOrder();
   }
 
@@ -150,56 +148,34 @@ class GcsWriteOptionsTest {
 
   @Test
   void createFromOptions_withOverflowingUploadChunkSize_throwsIllegalArgumentException() {
-    Map<String, String> rawOptions =
-        ImmutableMap.of(
-            "gcs.channel.write.chunk-size-bytes", String.valueOf((long) Integer.MAX_VALUE + 1L));
-
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> GcsWriteOptions.createFromOptions(rawOptions, "gcs."));
-
-    assertThat(exception.getMessage()).contains("gcs.channel.write.chunk-size-bytes");
-    assertThat(exception.getMessage()).contains("cannot be greater than Integer.MAX_VALUE");
+    assertOverflowThrows("gcs.channel.write.chunk-size-bytes");
   }
 
   @Test
   void createFromOptions_withOverflowingPcuBufferCount_throwsIllegalArgumentException() {
-    Map<String, String> rawOptions =
-        ImmutableMap.of(
-            "gcs.channel.write.pcu.buffer.count", String.valueOf((long) Integer.MAX_VALUE + 1L));
-
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> GcsWriteOptions.createFromOptions(rawOptions, "gcs."));
-
-    assertThat(exception.getMessage()).contains("gcs.channel.write.pcu.buffer.count");
-    assertThat(exception.getMessage()).contains("cannot be greater than Integer.MAX_VALUE");
+    assertOverflowThrows("gcs.channel.write.pcu.buffer.count");
   }
 
   @Test
   void createFromOptions_withOverflowingPcuBufferCapacity_throwsIllegalArgumentException() {
-    Map<String, String> rawOptions =
-        ImmutableMap.of(
-            "gcs.channel.write.pcu.buffer.capacity-bytes",
-            String.valueOf((long) Integer.MAX_VALUE + 1L));
+    assertOverflowThrows("gcs.channel.write.pcu.buffer.capacity-bytes");
+  }
 
+  private void assertOverflowThrows(String key) {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(key, String.valueOf((long) Integer.MAX_VALUE + 1L));
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class,
             () -> GcsWriteOptions.createFromOptions(rawOptions, "gcs."));
-
-    assertThat(exception.getMessage()).contains("gcs.channel.write.pcu.buffer.capacity-bytes");
+    assertThat(exception.getMessage()).contains(key);
     assertThat(exception.getMessage()).contains("cannot be greater than Integer.MAX_VALUE");
   }
 
   @Test
   void createFromOptions_withOnlyWhitespacePaths_doesNotSetPaths() {
     Map<String, String> rawOptions = ImmutableMap.of("gcs.channel.write.temporary-paths", "   ");
-
     GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");
-
     assertThat(options.getTemporaryPaths()).isEmpty();
   }
 }

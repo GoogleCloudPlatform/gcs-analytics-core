@@ -47,6 +47,7 @@ import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -150,33 +151,25 @@ class GcsClientImpl implements GcsClient {
 
   private IOException translateStorageException(
       StorageException e, BlobInfo blobInfo, GcsWriteOptions writeOptions) {
-    LOG.error(
-        "Failed to initialize BlobWriteSession for object: gs://{}/{}",
-        blobInfo.getBucket(),
-        blobInfo.getName(),
-        e);
     ErrorType errorType = getErrorType(e);
     String gcsPath = String.format("gs://%s/%s", blobInfo.getBucket(), blobInfo.getName());
 
     IOException ioException;
-    if (errorType == ErrorType.ALREADY_EXISTS) {
+    if (errorType == ErrorType.ALREADY_EXISTS
+        || (errorType == ErrorType.PRECONDITION_FAILED
+            && !Optional.ofNullable(writeOptions)
+                .map(GcsWriteOptions::isOverwriteExisting)
+                .orElse(true))) {
       ioException =
           new FileAlreadyExistsException(String.format("Object %s already exists.", gcsPath));
-    } else if (errorType == ErrorType.PRECONDITION_FAILED) {
-      if (writeOptions != null && !writeOptions.isOverwriteExisting()) {
-        ioException =
-            new FileAlreadyExistsException(String.format("Object %s already exists.", gcsPath));
-      } else if (blobInfo.getBlobId().getGeneration() != null) {
-        ioException =
-            new IOException(
-                String.format(
-                    "Generation mismatch for object %s. "
-                        + "The file may have been modified concurrently.",
-                    gcsPath));
-      } else {
-        ioException =
-            new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId());
-      }
+    } else if (errorType == ErrorType.PRECONDITION_FAILED
+        && blobInfo.getBlobId().getGeneration() != null) {
+      ioException =
+          new IOException(
+              String.format(
+                  "Generation mismatch for object %s. "
+                      + "The file may have been modified concurrently.",
+                  gcsPath));
     } else if (errorType == ErrorType.NOT_FOUND) {
       ioException =
           new FileNotFoundException(String.format("Bucket or object not found: %s", gcsPath));
@@ -228,10 +221,7 @@ class GcsClientImpl implements GcsClient {
   private BlobWriteSessionConfig getWriteToDiskSessionConfig(GcsWriteOptions writeOptions)
       throws IOException {
     if (!writeOptions.getTemporaryPaths().isEmpty()) {
-      List<Path> paths = new ArrayList<>();
-      for (String pathStr : writeOptions.getTemporaryPaths()) {
-        paths.add(Paths.get(pathStr));
-      }
+      List<Path> paths = toPaths(writeOptions.getTemporaryPaths());
       return BlobWriteSessionConfigs.bufferToDiskThenUpload(paths);
     } else {
       return BlobWriteSessionConfigs.bufferToTempDirThenUpload();
@@ -248,11 +238,16 @@ class GcsClientImpl implements GcsClient {
     checkArgument(
         !writeOptions.getTemporaryPaths().isEmpty(),
         "Temporary paths must be configured for JOURNALING upload type");
+    List<Path> paths = toPaths(writeOptions.getTemporaryPaths());
+    return BlobWriteSessionConfigs.journaling(paths);
+  }
+
+  private static List<Path> toPaths(Collection<String> pathStrings) {
     List<Path> paths = new ArrayList<>();
-    for (String pathStr : writeOptions.getTemporaryPaths()) {
+    for (String pathStr : pathStrings) {
       paths.add(Paths.get(pathStr));
     }
-    return BlobWriteSessionConfigs.journaling(paths);
+    return paths;
   }
 
   private ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy getSdkCleanupStrategy(
@@ -271,23 +266,28 @@ class GcsClientImpl implements GcsClient {
   private BlobWriteOption[] generateWriteOptions(GcsWriteOptions writeOptions, BlobInfo blobInfo) {
     List<BlobWriteOption> sdkWriteOptions = new ArrayList<>();
 
-    if (writeOptions != null) {
-      if (writeOptions.isDisableGzipContent()) {
-        sdkWriteOptions.add(BlobWriteOption.disableGzipContent());
-      }
-      if (writeOptions.isChecksumValidationEnabled()) {
-        sdkWriteOptions.add(BlobWriteOption.crc32cMatch());
-      }
-      if (writeOptions.getKmsKeyName().isPresent()) {
-        sdkWriteOptions.add(BlobWriteOption.kmsKeyName(writeOptions.getKmsKeyName().get()));
-      }
-      if (writeOptions.getEncryptionKey().isPresent()) {
-        sdkWriteOptions.add(BlobWriteOption.encryptionKey(writeOptions.getEncryptionKey().get()));
-      }
-      if (writeOptions.getUserProject().isPresent()) {
-        sdkWriteOptions.add(BlobWriteOption.userProject(writeOptions.getUserProject().get()));
-      }
-    }
+    Optional.ofNullable(writeOptions)
+        .ifPresent(
+            options -> {
+              if (options.isDisableGzipContent()) {
+                sdkWriteOptions.add(BlobWriteOption.disableGzipContent());
+              }
+              if (options.isChecksumValidationEnabled()) {
+                sdkWriteOptions.add(BlobWriteOption.crc32cMatch());
+              }
+              options
+                  .getKmsKeyName()
+                  .map(BlobWriteOption::kmsKeyName)
+                  .ifPresent(sdkWriteOptions::add);
+              options
+                  .getEncryptionKey()
+                  .map(BlobWriteOption::encryptionKey)
+                  .ifPresent(sdkWriteOptions::add);
+              options
+                  .getUserProject()
+                  .map(BlobWriteOption::userProject)
+                  .ifPresent(sdkWriteOptions::add);
+            });
 
     // Determine overwrite semantics based on exact generation ID or 'doesNotExist' flag
     if (blobInfo.getBlobId().getGeneration() != null) {
