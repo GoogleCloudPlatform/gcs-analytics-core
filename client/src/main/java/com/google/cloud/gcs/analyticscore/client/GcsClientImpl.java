@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.client.GcsReadChannel.ItemInfoProvider;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
@@ -97,30 +98,13 @@ class GcsClientImpl implements GcsClient {
       GcsItemId gcsItemId, GcsReadOptions readOptions) throws IOException {
     checkNotNull(gcsItemId, "gcsItemId should not be null");
     checkNotNull(readOptions, "readOptions should not be null");
+    ItemInfoProvider itemInfoProvider = this::getGcsItemInfo;
     if (readOptions.isBidiVectoredReadEnabled()) {
       return new GcsBidiReadChannel(
-          storage, gcsItemId, readOptions, executorServiceSupplier, telemetry) {
-        @Override
-        public long size() throws IOException {
-          if (itemInfo == null) {
-            itemInfo = getGcsItemInfo(itemId);
-            itemId = itemInfo.getItemId();
-          }
-          return itemInfo.getSize();
-        }
-      };
+          storage, gcsItemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider);
     } else {
       return new GcsReadChannel(
-          storage, gcsItemId, readOptions, executorServiceSupplier, telemetry) {
-        @Override
-        public long size() throws IOException {
-          if (itemInfo == null) {
-            itemInfo = getGcsItemInfo(itemId);
-            itemId = itemInfo.getItemId();
-          }
-          return itemInfo.getSize();
-        }
-      };
+          storage, gcsItemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider);
     }
   }
 

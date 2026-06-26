@@ -38,6 +38,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.function.IntFunction;
 
 class GcsReadChannel implements VectoredSeekableByteChannel {
+  @FunctionalInterface
+  public interface ItemInfoProvider {
+    GcsItemInfo getItemInfo(GcsItemId itemId) throws IOException;
+  }
+
   protected Storage storage;
   protected GcsReadOptions readOptions;
   protected GcsItemInfo itemInfo;
@@ -49,6 +54,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   protected final Telemetry telemetry;
   private final ReadStrategy strategy;
   private boolean isGcsReadChannelOpen = true;
+  protected final ItemInfoProvider itemInfoProvider;
 
   GcsReadChannel(
       Storage storage,
@@ -73,7 +79,28 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry)
       throws IOException {
-    this(storage, null, itemId, readOptions, executorServiceSupplier, telemetry);
+    this(storage, itemId, readOptions, executorServiceSupplier, telemetry, null);
+  }
+
+  GcsReadChannel(
+      Storage storage,
+      GcsItemId itemId,
+      GcsReadOptions readOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry,
+      ItemInfoProvider itemInfoProvider)
+      throws IOException {
+    checkNotNull(storage, "Storage instance cannot be null");
+    checkNotNull(itemId, "Item id cannot be null");
+    checkNotNull(executorServiceSupplier, "Thread pool supplier must not be null");
+    checkNotNull(telemetry, "Telemetry instance cannot be null");
+    this.storage = storage;
+    this.itemId = itemId;
+    this.readOptions = readOptions;
+    this.executorServiceSupplier = executorServiceSupplier;
+    this.telemetry = telemetry;
+    this.itemInfoProvider = itemInfoProvider;
+    this.strategy = createReadStrategy(storage, itemId, readOptions, null);
   }
 
   private GcsReadChannel(
@@ -94,6 +121,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     this.itemId = itemId;
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
+    this.itemInfoProvider = null;
     this.strategy = createReadStrategy(storage, itemId, readOptions, itemInfo);
   }
 
@@ -173,10 +201,15 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public long size() throws IOException {
-    if (null != itemInfo) {
-      return itemInfo.getSize();
+    if (itemInfo == null) {
+      if (itemInfoProvider != null) {
+        itemInfo = itemInfoProvider.getItemInfo(itemId);
+        itemId = itemInfo.getItemId();
+      } else {
+        throw new IOException("ItemInfo is not initialized and no ItemInfoProvider was provided.");
+      }
     }
-    throw new IOException("Object metadata not initialized");
+    return itemInfo.getSize();
   }
 
   @Override

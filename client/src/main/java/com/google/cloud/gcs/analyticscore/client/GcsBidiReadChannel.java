@@ -70,7 +70,18 @@ class GcsBidiReadChannel extends GcsReadChannel {
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry)
       throws IOException {
-    super(storage, itemId, readOptions, executorServiceSupplier, telemetry);
+    this(storage, itemId, readOptions, executorServiceSupplier, telemetry, null);
+  }
+
+  GcsBidiReadChannel(
+      Storage storage,
+      GcsItemId itemId,
+      GcsReadOptions readOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry,
+      ItemInfoProvider itemInfoProvider)
+      throws IOException {
+    super(storage, itemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider);
     this.bidiClientTimeoutSeconds = readOptions.getBidiTimeout();
     this.blobId = initBlobId();
   }

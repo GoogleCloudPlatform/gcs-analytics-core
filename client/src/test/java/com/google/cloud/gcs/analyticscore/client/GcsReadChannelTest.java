@@ -457,7 +457,34 @@ class GcsReadChannelTest {
             storage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
 
     IOException e = assertThrows(IOException.class, () -> gcsReadChannel.size());
-    assertThat(e).hasMessageThat().isEqualTo("Object metadata not initialized");
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("ItemInfo is not initialized and no ItemInfoProvider was provided.");
+  }
+
+  @Test
+  void size_withItemInfoProvider_lazyLoadsMetadata() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(4242).setContentGeneration(123L).build();
+
+    java.util.concurrent.atomic.AtomicInteger providerCallCount =
+        new java.util.concurrent.atomic.AtomicInteger(0);
+    GcsReadChannel.ItemInfoProvider provider =
+        (id) -> {
+          providerCallCount.incrementAndGet();
+          return itemInfo;
+        };
+
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            storage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry, provider);
+
+    // Call size() multiple times, it should load once and return correct size
+    assertThat(gcsReadChannel.size()).isEqualTo(4242);
+    assertThat(gcsReadChannel.size()).isEqualTo(4242);
+    assertThat(providerCallCount.get()).isEqualTo(1);
   }
 
   @Test
