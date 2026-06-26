@@ -83,8 +83,13 @@ class GcsClientImpl implements GcsClient {
         gcsItemInfo.getItemId().isGcsObject(),
         "Expected GCS object to be provided. But got: " + gcsItemInfo.getItemId());
 
-    return new GcsReadChannel(
-        storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
+    if (readOptions.isBidiVectoredReadEnabled()) {
+      return new GcsBidiReadChannel(
+          storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
+    } else {
+      return new GcsReadChannel(
+          storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
+    }
   }
 
   @Override
@@ -92,16 +97,31 @@ class GcsClientImpl implements GcsClient {
       GcsItemId gcsItemId, GcsReadOptions readOptions) throws IOException {
     checkNotNull(gcsItemId, "gcsItemId should not be null");
     checkNotNull(readOptions, "readOptions should not be null");
-    return new GcsReadChannel(storage, gcsItemId, readOptions, executorServiceSupplier, telemetry) {
-      @Override
-      public long size() throws IOException {
-        if (itemInfo == null) {
-          itemInfo = getGcsItemInfo(itemId);
-          itemId = itemInfo.getItemId();
+    if (readOptions.isBidiVectoredReadEnabled()) {
+      return new GcsBidiReadChannel(
+          storage, gcsItemId, readOptions, executorServiceSupplier, telemetry) {
+        @Override
+        public long size() throws IOException {
+          if (itemInfo == null) {
+            itemInfo = getGcsItemInfo(itemId);
+            itemId = itemInfo.getItemId();
+          }
+          return itemInfo.getSize();
         }
-        return itemInfo.getSize();
-      }
-    };
+      };
+    } else {
+      return new GcsReadChannel(
+          storage, gcsItemId, readOptions, executorServiceSupplier, telemetry) {
+        @Override
+        public long size() throws IOException {
+          if (itemInfo == null) {
+            itemInfo = getGcsItemInfo(itemId);
+            itemId = itemInfo.getItemId();
+          }
+          return itemInfo.getSize();
+        }
+      };
+    }
   }
 
   @Override

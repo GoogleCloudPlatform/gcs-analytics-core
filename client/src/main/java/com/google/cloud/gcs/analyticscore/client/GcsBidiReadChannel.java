@@ -16,11 +16,11 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.core.ApiFuture;
 import com.google.api.core.ApiFutureCallback;
 import com.google.api.core.ApiFutures;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobReadSession;
 import com.google.cloud.storage.RangeSpec;
@@ -28,10 +28,12 @@ import com.google.cloud.storage.ReadProjectionConfigs;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.ZeroCopySupport.DisposableByteString;
+import com.google.common.base.Supplier;
 import com.google.protobuf.ByteString;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -41,34 +43,73 @@ import java.util.function.IntFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-class GcsBidiVectoredReader implements AutoCloseable {
-  private static final Logger logger = LoggerFactory.getLogger(GcsBidiVectoredReader.class);
+class GcsBidiReadChannel extends GcsReadChannel {
+  private static final Logger logger = LoggerFactory.getLogger(GcsBidiReadChannel.class);
 
-  private final Storage storage;
-  private final ExecutorService executorService;
-  private final BlobId blobId;
   private final long bidiClientTimeoutSeconds;
+  private final BlobId blobId;
   private volatile BlobReadSession blobReadSession;
   private volatile boolean closed = false;
 
-  GcsBidiVectoredReader(
+  GcsBidiReadChannel(
+      Storage storage,
+      GcsItemInfo itemInfo,
+      GcsReadOptions readOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry)
+      throws IOException {
+    super(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+    this.bidiClientTimeoutSeconds = readOptions.getBidiTimeout();
+    this.blobId = initBlobId();
+  }
+
+  GcsBidiReadChannel(
       Storage storage,
       GcsItemId itemId,
-      ExecutorService executorService,
-      GcsReadOptions readOptions) {
-    this.storage = checkNotNull(storage, "Storage instance cannot be null");
-    this.executorService = checkNotNull(executorService, "Executor service cannot be null");
+      GcsReadOptions readOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry)
+      throws IOException {
+    super(storage, itemId, readOptions, executorServiceSupplier, telemetry);
     this.bidiClientTimeoutSeconds = readOptions.getBidiTimeout();
-    checkNotNull(itemId, "ItemId cannot be null");
+    this.blobId = initBlobId();
+  }
 
+  private BlobId initBlobId() {
     String bucketName = itemId.getBucketName();
     checkArgument(itemId.getObjectName().isPresent(), "ObjectName cannot be empty");
     String objectName = itemId.getObjectName().get();
-    this.blobId =
-        itemId
-            .getContentGeneration()
-            .map(gen -> BlobId.of(bucketName, objectName, gen))
-            .orElse(BlobId.of(bucketName, objectName));
+    return itemId
+        .getContentGeneration()
+        .map(gen -> BlobId.of(bucketName, objectName, gen))
+        .orElse(BlobId.of(bucketName, objectName));
+  }
+
+  @Override
+  protected ReadStrategy createReadStrategy(
+      Storage storage, GcsItemId itemId, GcsReadOptions readOptions, GcsItemInfo itemInfo) {
+    return new ReadStrategy() {
+      @Override
+      public com.google.cloud.ReadChannel getReadChannel(long requestedPosition, int bytesToRead) {
+        throw new UnsupportedOperationException("Standard read is not supported on Bidi channel");
+      }
+
+      @Override
+      public void position(long newPosition) {}
+
+      @Override
+      public long getLimit() {
+        return 0;
+      }
+
+      @Override
+      public boolean isEof(long position) {
+        return true;
+      }
+
+      @Override
+      public void close() {}
+    };
   }
 
   private BlobReadSession getBlobReadSession() throws IOException {
@@ -82,7 +123,7 @@ class GcsBidiVectoredReader implements AutoCloseable {
             ApiFuture<BlobReadSession> sessionFuture = storage.blobReadSession(blobId);
             blobReadSession = sessionFuture.get(bidiClientTimeoutSeconds, TimeUnit.SECONDS);
           } catch (InterruptedException e) {
-            Thread.currentThread().interrupt(); // Restore interrupt status
+            Thread.currentThread().interrupt();
             throw new IOException("Failed to get BlobReadSession due to thread interruption", e);
           } catch (ExecutionException e) {
             Throwable cause = e.getCause();
@@ -99,8 +140,20 @@ class GcsBidiVectoredReader implements AutoCloseable {
     return blobReadSession;
   }
 
+  @Override
   public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException {
+    if (closed) {
+      ClosedChannelException e =
+          new ClosedChannelException() {
+            @Override
+            public String getMessage() {
+              return "Reader is closed.";
+            }
+          };
+      ranges.forEach(range -> range.getByteBufferFuture().completeExceptionally(e));
+      throw e;
+    }
     BlobReadSession session;
     try {
       session = getBlobReadSession();
@@ -136,7 +189,7 @@ class GcsBidiVectoredReader implements AutoCloseable {
                   }
                 }
               },
-              executorService);
+              executorServiceSupplier.get());
         });
   }
 
@@ -161,12 +214,14 @@ class GcsBidiVectoredReader implements AutoCloseable {
   }
 
   @Override
-  public void close() throws IOException {
-    synchronized (this) {
-      if (closed) {
-        return;
-      }
-      closed = true;
+  public synchronized void close() throws IOException {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    try {
+      super.close();
+    } finally {
       if (blobReadSession != null) {
         blobReadSession.close();
         blobReadSession = null;

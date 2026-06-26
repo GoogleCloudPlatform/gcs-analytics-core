@@ -38,16 +38,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.function.IntFunction;
 
 class GcsReadChannel implements VectoredSeekableByteChannel {
-  private Storage storage;
-  private GcsReadOptions readOptions;
+  protected Storage storage;
+  protected GcsReadOptions readOptions;
   protected GcsItemInfo itemInfo;
   protected GcsItemId itemId;
   private long gcsReadChannelPosition = 0;
-  private Supplier<ExecutorService> executorServiceSupplier;
-  private GcsBidiVectoredReader bidiVectoredReader;
+  protected Supplier<ExecutorService> executorServiceSupplier;
   private static final ImmutableMap<String, String> COMMON_ATTRIBUTES =
       ImmutableMap.of(Attribute.CLASS_NAME.name(), GcsReadChannel.class.getName());
-  private final Telemetry telemetry;
+  protected final Telemetry telemetry;
   private final ReadStrategy strategy;
   private boolean isGcsReadChannelOpen = true;
 
@@ -192,38 +191,15 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public synchronized void close() throws IOException {
-    try {
-      if (isGcsReadChannelOpen) {
-        isGcsReadChannelOpen = false;
-        strategy.close();
-      }
-    } finally {
-      if (bidiVectoredReader != null) {
-        bidiVectoredReader.close();
-        bidiVectoredReader = null;
-      }
+    if (isGcsReadChannelOpen) {
+      isGcsReadChannelOpen = false;
+      strategy.close();
     }
-  }
-
-  private synchronized GcsBidiVectoredReader getBidiVectoredReader() throws ClosedChannelException {
-    if (!isGcsReadChannelOpen) {
-      throw new ClosedChannelException();
-    }
-    if (bidiVectoredReader == null) {
-      bidiVectoredReader =
-          new GcsBidiVectoredReader(storage, itemId, executorServiceSupplier.get(), readOptions);
-    }
-    return bidiVectoredReader;
   }
 
   @Override
   public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException {
-    if (readOptions.isBidiVectoredReadEnabled()) {
-      getBidiVectoredReader().readVectored(ranges, allocate);
-      return;
-    }
-
     Operation operation =
         Operation.builder()
             .setName(GcsAnalyticsCoreTelemetryConstants.Operation.VECTORED_READ.name())

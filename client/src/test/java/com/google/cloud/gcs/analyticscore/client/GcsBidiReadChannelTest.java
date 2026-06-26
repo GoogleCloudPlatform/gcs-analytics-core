@@ -21,11 +21,13 @@ import static org.mockito.Mockito.*;
 
 import com.google.api.core.ApiFuture;
 import com.google.api.core.ApiFutures;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobReadSession;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.ZeroCopySupport.DisposableByteString;
+import com.google.common.base.Supplier;
 import com.google.protobuf.ByteString;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -41,28 +43,32 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
-class GcsBidiVectoredReaderTest {
+class GcsBidiReadChannelTest {
 
   @Mock private Storage storage;
   @Mock private BlobReadSession blobReadSession;
   @Mock private ApiFuture<BlobReadSession> sessionFuture;
   @Mock private DisposableByteString disposableByteString;
+  @Mock private Telemetry telemetry;
 
   private GcsItemId itemId;
-  private GcsBidiVectoredReader reader;
+  private GcsBidiReadChannel reader;
   private ExecutorService directExecutor;
+  private Supplier<ExecutorService> executorServiceSupplier;
 
   @BeforeEach
   void setUp() throws Exception {
     MockitoAnnotations.openMocks(this);
     itemId = GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     directExecutor = com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService();
+    executorServiceSupplier = () -> directExecutor;
 
     when(storage.blobReadSession(any(BlobId.class))).thenReturn(sessionFuture);
     when(sessionFuture.get(anyLong(), any())).thenReturn(blobReadSession);
 
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
-    reader = new GcsBidiVectoredReader(storage, itemId, directExecutor, readOptions);
+    reader =
+        new GcsBidiReadChannel(storage, itemId, readOptions, executorServiceSupplier, telemetry);
   }
 
   @Test
@@ -117,7 +123,9 @@ class GcsBidiVectoredReaderTest {
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     org.junit.jupiter.api.Assertions.assertThrows(
         NullPointerException.class,
-        () -> new GcsBidiVectoredReader(storage, null, directExecutor, readOptions));
+        () ->
+            new GcsBidiReadChannel(
+                storage, (GcsItemId) null, readOptions, executorServiceSupplier, telemetry));
   }
 
   @Test
