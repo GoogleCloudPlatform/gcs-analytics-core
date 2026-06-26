@@ -127,26 +127,14 @@ class GcsClientImpl implements GcsClient {
       BlobWriteOption[] sdkWriteOptions = generateWriteOptions(writeOptions, blobInfo);
       BlobWriteSession sdkWriteSession = this.storage.blobWriteSession(blobInfo, sdkWriteOptions);
       return new GcsWriteChannel(sdkWriteSession, sdkWriteSession.open(), blobInfo, writeOptions);
-    } catch (StorageException e) {
+    } catch (StorageException | IOException e) {
       boolean overwrite =
           Optional.ofNullable(writeOptions).map(GcsWriteOptions::isOverwriteExisting).orElse(true);
       throw overwrite
           ? GcsExceptionUtil.translateExceptionWithOverwrite(
               e, "initialization", blobInfo.getBlobId(), 0L)
           : GcsExceptionUtil.translateException(e, "initialization", blobInfo.getBlobId(), 0L);
-    } catch (Exception e) {
-      throw propagateAsIOException(e, blobInfo);
     }
-  }
-
-  private static IOException propagateAsIOException(Exception e, BlobInfo blobInfo) {
-    if (e instanceof IOException) {
-      return (IOException) e;
-    }
-    if (e instanceof RuntimeException) {
-      throw (RuntimeException) e;
-    }
-    return new IOException("Failed to initialize BlobWriteSession for " + blobInfo.getBlobId(), e);
   }
 
   private BlobWriteSessionConfig generateSessionConfig(
@@ -154,13 +142,10 @@ class GcsClientImpl implements GcsClient {
     switch (writeOptions.getUploadType()) {
       case PARALLEL_COMPOSITE_UPLOAD:
         return getParallelCompositeUploadSessionConfig(writeOptions);
-
       case WRITE_TO_DISK_THEN_UPLOAD:
         return getWriteToDiskSessionConfig(writeOptions);
-
       case JOURNALING:
         return getJournalingSessionConfig(writeOptions, storageOptions);
-
       case CHUNK_UPLOAD:
       default:
         return BlobWriteSessionConfigs.getDefault();

@@ -44,14 +44,12 @@ class FakeGcsWriteChannelTest {
   @Test
   void write_whenChannelWritten_incrementsWriteCallCount() throws Exception {
     fakeGcsWriteChannel.write(ByteBuffer.wrap(new byte[] {1, 2, 3}));
-
     assertThat(fakeGcsWriteChannel.getWriteCallCount()).isEqualTo(1);
   }
 
   @Test
   void close_whenChannelClosed_incrementsCloseCallCount() throws Exception {
     fakeGcsWriteChannel.close();
-
     assertThat(fakeGcsWriteChannel.getCloseCallCount()).isEqualTo(1);
   }
 }

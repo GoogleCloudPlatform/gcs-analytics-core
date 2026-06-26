@@ -406,6 +406,28 @@ class GcsClientImplTest {
   }
 
   @Test
+  void create_whenOpenThrowsIOExceptionWrappingStorageException_translatesStorageException()
+      throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    StorageException nestedStorageException = new StorageException(404, "Not Found");
+    IOException wrappingException = new IOException(nestedStorageException);
+    when(mockSession.open()).thenThrow(wrappingException);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    clientWithMock.storage = mockStorage;
+    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+
+    IOException exception =
+        assertThrows(IOException.class, () -> clientWithMock.create(blobInfo, null));
+
+    assertThat(exception).isInstanceOf(FileNotFoundException.class);
+    assertThat(exception).hasCauseThat().isSameInstanceAs(nestedStorageException);
+  }
+
+  @Test
   void create_nullWriteOptions_usesDefaultWriteOptions() throws Exception {
     Storage mockStorage = mock(Storage.class);
     BlobWriteSession mockSession = mock(BlobWriteSession.class);
@@ -767,28 +789,6 @@ class GcsClientImplTest {
         assertThrows(RuntimeException.class, () -> clientWithMock.create(blobInfo, writeOptions));
 
     assertThat(exception).isSameInstanceAs(runtimeException);
-  }
-
-  @Test
-  void create_whenGenericCheckedExceptionOccurs_throwsIOException() throws Exception {
-    tempMockStorage = mock(Storage.class);
-    GcsClientImpl clientWithMock =
-        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
-    clientWithMock.storage = tempMockStorage;
-    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
-    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
-    Exception checkedException = new Exception("mock checked exception");
-    when(tempMockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
-        .thenAnswer(
-            invocation -> {
-              throw checkedException;
-            });
-
-    IOException exception =
-        assertThrows(IOException.class, () -> clientWithMock.create(blobInfo, writeOptions));
-
-    assertThat(exception).hasMessageThat().contains("Failed to initialize BlobWriteSession");
-    assertThat(exception).hasCauseThat().isSameInstanceAs(checkedException);
   }
 
   private BlobWriteSessionConfig getBlobWriteSessionConfig(StorageOptions options) {
