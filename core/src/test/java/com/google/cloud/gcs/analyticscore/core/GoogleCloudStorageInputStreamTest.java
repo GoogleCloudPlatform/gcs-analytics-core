@@ -34,13 +34,19 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockitoAnnotations;
 
 class GoogleCloudStorageInputStreamTest {
+
+  private static final int SMALL_OBJECT_CACHE_THRESHOLD_BYTES = 1024;
 
   private final long fileSize = 1000L;
   private final int prefetchSize = 10;
@@ -579,5 +585,165 @@ class GoogleCloudStorageInputStreamTest {
 
       assertThat(buffer[i]).isEqualTo(testData[100 + i]);
     }
+  }
+
+  @Test
+  void readFully_createWithGcsItemId_readsData() throws IOException {
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(Map.of(), "");
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    byte[] data = TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
+    FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
+    googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(fakeGcsFileSystem, itemId);
+    long initialStreamPosition = googleCloudStorageInputStream.getPos();
+    int readPosition = 100;
+    int length = 100;
+    byte[] buffer = new byte[length];
+
+    googleCloudStorageInputStream.readFully(readPosition, buffer, 0, length);
+
+    for (int i = 0; i < length; i++) {
+      assertThat(buffer[i]).isEqualTo(data[readPosition + i]);
+    }
+    assertThat(googleCloudStorageInputStream.getPos()).isEqualTo(initialStreamPosition);
+  }
+
+  @Test
+  void readTail_createWithGcsItemId_readsData() throws IOException {
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(Map.of(), "");
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    byte[] data = TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
+    FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
+    googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(fakeGcsFileSystem, itemId);
+    long initialStreamPosition = googleCloudStorageInputStream.getPos();
+    int length = 100;
+    int offset = 5;
+    byte[] buffer = new byte[length];
+
+    int bytesRead = googleCloudStorageInputStream.readTail(buffer, offset, length - offset);
+
+    assertTargetByteBufferPresentAtOffset(
+        data, ByteBuffer.wrap(buffer, offset, bytesRead), data.length - bytesRead, bytesRead);
+    assertThat(googleCloudStorageInputStream.getPos()).isEqualTo(initialStreamPosition);
+  }
+
+  @Test
+  void readTail_zeroLength_returnsZero() throws IOException {
+    googleCloudStorageInputStream = defaultGcsInputStream();
+    byte[] buffer = new byte[20];
+
+    int bytesRead = googleCloudStorageInputStream.readTail(buffer, 0, 0);
+
+    assertThat(bytesRead).isEqualTo(0);
+  }
+
+  @Test
+  void readVectored_withRelease_delegatesToChannel() throws IOException {
+    VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
+    when(mockFileSystem.getCacheManager()).thenReturn(fakeFileSystem.getCacheManager());
+    when(mockFileSystem.open(any(GcsItemId.class), any())).thenReturn(mockChannel);
+
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(mockFileSystem, testGcsItemId);
+    GcsObjectRange range = createGcsObjectRange(0, 10);
+    List<GcsObjectRange> ranges = List.of(range);
+    Consumer<ByteBuffer> release = buffer -> {};
+    googleCloudStorageInputStream.readVectored(
+        ranges, (size) -> ByteBuffer.allocate(size), release);
+
+    verify(mockChannel).readVectored(eq(ranges), any(), eq(release));
+  }
+
+  @Test
+  void readVectored_smallObjectCached_partialRead_releasesAllocatedBuffer()
+      throws IOException, InterruptedException {
+    GcsFileSystemOptions options = smallObjectCacheOptions();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket")
+            .setObjectName("test-object.parquet")
+            .build();
+    TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
+    FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(
+            fakeGcsFileSystem, URI.create("gs://test-bucket/test-object.parquet"));
+    GcsObjectRange range = createGcsObjectRange(/* offset= */ 1000, /* length= */ 100);
+    AtomicReference<ByteBuffer> allocatedBuffer = new AtomicReference<>();
+    AtomicReference<ByteBuffer> releasedBuffer = new AtomicReference<>();
+    googleCloudStorageInputStream.read();
+
+    googleCloudStorageInputStream.readVectored(
+        List.of(range),
+        size -> {
+          ByteBuffer buffer = ByteBuffer.allocate(size);
+          allocatedBuffer.set(buffer);
+          return buffer;
+        },
+        releasedBuffer::set);
+
+    assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(releasedBuffer.get()).isSameInstanceAs(allocatedBuffer.get());
+  }
+
+  @Test
+  void readVectored_smallObjectCached_allocationError_completesFuturesExceptionally()
+      throws IOException {
+    GcsFileSystemOptions options = smallObjectCacheOptions();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket")
+            .setObjectName("test-object.parquet")
+            .build();
+    TestDataGenerator.createGcsData(itemId, SMALL_OBJECT_CACHE_THRESHOLD_BYTES);
+    FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(
+            fakeGcsFileSystem, URI.create("gs://test-bucket/test-object.parquet"));
+    GcsObjectRange range1 = createGcsObjectRange(/* offset= */ 200, /* length= */ 100);
+    GcsObjectRange range2 = createGcsObjectRange(/* offset= */ 600, /* length= */ 100);
+    AtomicInteger allocationCount = new AtomicInteger();
+    AtomicInteger releaseCount = new AtomicInteger();
+    googleCloudStorageInputStream.read();
+
+    googleCloudStorageInputStream.readVectored(
+        List.of(range1, range2),
+        size -> {
+          allocationCount.incrementAndGet();
+          throw new RuntimeException("Allocation failed");
+        },
+        buffer -> releaseCount.incrementAndGet());
+
+    ExecutionException range1Exception =
+        assertThrows(ExecutionException.class, () -> range1.getByteBufferFuture().get());
+    ExecutionException range2Exception =
+        assertThrows(ExecutionException.class, () -> range2.getByteBufferFuture().get());
+    assertThat(range1Exception).hasCauseThat().isInstanceOf(IOException.class);
+    assertThat(range2Exception).hasCauseThat().isInstanceOf(IOException.class);
+    assertThat(allocationCount.get()).isEqualTo(2);
+    assertThat(releaseCount.get()).isEqualTo(0);
+  }
+
+  private void assertTargetByteBufferPresentAtOffset(
+      byte[] source, ByteBuffer target, long offset, int size) {
+    ByteBuffer sourceSlice =
+        ByteBuffer.wrap(source)
+            .position(Math.toIntExact(offset))
+            .limit(Math.toIntExact(offset + size));
+    assertThat(sourceSlice.equals(target)).isTrue();
+  }
+
+  private static GcsFileSystemOptions smallObjectCacheOptions() {
+    return GcsFileSystemOptions.createFromOptions(
+        Map.of(
+            "analytics-core.small-file.cache.enabled",
+            "true",
+            "analytics-core.small-file.cache.threshold-bytes",
+            String.valueOf(SMALL_OBJECT_CACHE_THRESHOLD_BYTES)),
+        "");
   }
 }

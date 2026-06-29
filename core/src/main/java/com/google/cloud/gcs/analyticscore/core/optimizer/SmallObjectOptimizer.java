@@ -34,6 +34,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.function.IntFunction;
 
 /** A {@link FormatOptimizer} that caches and serves small objects in a private buffer. */
@@ -122,6 +123,13 @@ public class SmallObjectOptimizer implements FormatOptimizer {
   @Override
   public List<GcsObjectRange> readVectored(
       List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate) throws IOException {
+    return readVectored(ranges, allocate, release -> {});
+  }
+
+  @Override
+  public List<GcsObjectRange> readVectored(
+      List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate, Consumer<ByteBuffer> release)
+      throws IOException {
     if (fileSize == -1 || fileSize > readOptions.getSmallObjectCacheThresholdBytes()) {
       return ranges;
     }
@@ -140,25 +148,33 @@ public class SmallObjectOptimizer implements FormatOptimizer {
 
     telemetry.recordMetric(Metric.SMALL_OBJECT_CACHE_HIT, ranges.size(), Collections.emptyMap());
     for (GcsObjectRange range : ranges) {
-      ByteBuffer dest = allocate.apply(range.getLength());
-      if (dest == null) {
-        range
-            .getByteBufferFuture()
-            .completeExceptionally(
-                new IllegalArgumentException(
-                    String.format("Buffer allocation returned null for range: %s", range)));
-        continue;
-      }
-      int bytesRead = serveFromCache(range.getOffset(), dest, cachedBuffer);
-      if (bytesRead < range.getLength()) {
-        range
-            .getByteBufferFuture()
-            .completeExceptionally(
-                new EOFException(
-                    String.format("Error while populating range: %s, unexpected EOF", range)));
-      } else {
+      ByteBuffer dest = null;
+      try {
+        dest = allocate.apply(range.getLength());
+        if (dest == null) {
+          throw new IllegalArgumentException(
+              String.format("Buffer allocation returned null for range: %s", range));
+        }
+        int bytesRead = serveFromCache(range.getOffset(), dest, cachedBuffer);
+        if (bytesRead < range.getLength()) {
+          throw new EOFException(
+              String.format("Error while populating range: %s, unexpected EOF", range));
+        }
         dest.flip();
         range.getByteBufferFuture().complete(dest);
+      } catch (Exception e) {
+        if (dest != null) {
+          try {
+            release.accept(dest);
+          } catch (RuntimeException releaseException) {
+            e.addSuppressed(releaseException);
+          }
+        }
+        Throwable completionException =
+            e instanceof EOFException || e instanceof IllegalArgumentException
+                ? e
+                : new IOException(String.format("Error while populating range: %s", range), e);
+        range.getByteBufferFuture().completeExceptionally(completionException);
       }
     }
     return Collections.emptyList();

@@ -48,6 +48,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntFunction;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -608,6 +609,62 @@ class GcsReadChannelTest {
   }
 
   @Test
+  void readVectored_allocationError_doesNotReleaseBuffer() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "hello world";
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(objectData.length())
+            .setContentGeneration(0L)
+            .build();
+    StorageTestUtils.createBlobInStorage(
+        storage, BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+    ImmutableList<GcsObjectRange> ranges = createRanges(ImmutableMap.of(0L, 5));
+    AtomicInteger releaseCount = new AtomicInteger();
+    IntFunction<ByteBuffer> badAllocator =
+        size -> {
+          throw new RuntimeException("Allocation failed");
+        };
+
+    gcsReadChannel.readVectored(ranges, badAllocator, buffer -> releaseCount.incrementAndGet());
+
+    assertThrows(ExecutionException.class, () -> ranges.get(0).getByteBufferFuture().get());
+    assertThat(releaseCount.get()).isEqualTo(0);
+  }
+
+  @Test
+  void readVectored_success_doesNotReleaseBuffer()
+      throws IOException, ExecutionException, InterruptedException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "hello world";
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(objectData.length())
+            .setContentGeneration(0L)
+            .build();
+    StorageTestUtils.createBlobInStorage(
+        storage, BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+    ImmutableList<GcsObjectRange> ranges = createRanges(ImmutableMap.of(0L, 5));
+    AtomicInteger releaseCount = new AtomicInteger();
+
+    gcsReadChannel.readVectored(
+        ranges, ByteBuffer::allocate, buffer -> releaseCount.incrementAndGet());
+
+    assertThat(getGcsObjectRangeData(ranges.get(0))).isEqualTo("hello");
+    assertThat(releaseCount.get()).isEqualTo(0);
+  }
+
+  @Test
   void readVectored_combinedRange_partialFirstRead_readsFully() throws Exception {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
@@ -716,6 +773,57 @@ class GcsReadChannelTest {
     assertThat(e.getCause().getCause())
         .hasMessageThat()
         .contains("EOF reached while reading combinedObjectRange");
+  }
+
+  @Test
+  void readVectored_eofReachedBeforeFullyRead_releasesAllocatedBuffer() throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "abcde";
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(objectData.length())
+            .setContentGeneration(0L)
+            .build();
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    byte[] dataBytes = objectData.getBytes(StandardCharsets.UTF_8);
+    AtomicInteger callCount = new AtomicInteger(0);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buffer = invocation.getArgument(0);
+              if (callCount.get() == 0) {
+                buffer.put(dataBytes, 0, 5);
+                callCount.incrementAndGet();
+                return 5;
+              }
+              return -1;
+            });
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            mockStorage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+    GcsObjectRange range = createRange(0, 10);
+    AtomicReference<ByteBuffer> allocatedBuffer = new AtomicReference<>();
+    AtomicReference<ByteBuffer> releasedBuffer = new AtomicReference<>();
+
+    gcsReadChannel.readVectored(
+        ImmutableList.of(range),
+        size -> {
+          ByteBuffer buffer = ByteBuffer.allocate(size);
+          allocatedBuffer.set(buffer);
+          return buffer;
+        },
+        releasedBuffer::set);
+
+    assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(releasedBuffer.get()).isSameInstanceAs(allocatedBuffer.get());
   }
 
   @Test

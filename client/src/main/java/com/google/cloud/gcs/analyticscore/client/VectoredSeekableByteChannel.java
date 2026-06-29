@@ -19,6 +19,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.IntFunction;
 
 public interface VectoredSeekableByteChannel extends SeekableByteChannel {
@@ -31,4 +33,22 @@ public interface VectoredSeekableByteChannel extends SeekableByteChannel {
    */
   void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException;
+
+  /**
+   * Reads the list of provided ranges in parallel.
+   *
+   * <p>If a read fails after a buffer has been allocated, the implementation may invoke {@code
+   * release} with the allocated buffer before completing the relevant range futures exceptionally.
+   *
+   * @param ranges Ranges to be fetched in parallel
+   * @param allocate the function to allocate ByteBuffer
+   * @param release the function to release allocated ByteBuffer instances on failure
+   * @throws IOException on any IO failure
+   */
+  default void readVectored(
+      List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate, Consumer<ByteBuffer> release)
+      throws IOException {
+    Objects.requireNonNull(release, "Buffer release function must not be null");
+    readVectored(ranges, allocate);
+  }
 }
