@@ -21,10 +21,11 @@ import com.google.cloud.storage.BlobWriteSession;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class FakeGcsWriteChannel extends GcsWriteChannel {
-  private int writeCallCount = 0;
-  private int closeCallCount = 0;
+  private final AtomicInteger writeCallCount = new AtomicInteger(0);
+  private final AtomicInteger closeCallCount = new AtomicInteger(0);
 
   public FakeGcsWriteChannel(
       BlobWriteSession blobWriteSession,
@@ -36,21 +37,21 @@ public class FakeGcsWriteChannel extends GcsWriteChannel {
 
   @Override
   public int write(ByteBuffer src) throws IOException {
-    writeCallCount++;
+    writeCallCount.incrementAndGet();
     return super.write(src);
   }
 
   @Override
   public void close() throws IOException {
-    closeCallCount++;
+    closeCallCount.incrementAndGet();
     super.close();
   }
 
   public int getWriteCallCount() {
-    return writeCallCount;
+    return writeCallCount.get();
   }
 
   public int getCloseCallCount() {
-    return closeCallCount;
+    return closeCallCount.get();
   }
 }

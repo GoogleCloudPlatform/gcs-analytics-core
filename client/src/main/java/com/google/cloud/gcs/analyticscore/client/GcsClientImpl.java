@@ -126,7 +126,17 @@ class GcsClientImpl implements GcsClient {
     try {
       BlobWriteOption[] sdkWriteOptions = generateWriteOptions(writeOptions, blobInfo);
       BlobWriteSession sdkWriteSession = this.storage.blobWriteSession(blobInfo, sdkWriteOptions);
-      return new GcsWriteChannel(sdkWriteSession, sdkWriteSession.open(), blobInfo, writeOptions);
+      WritableByteChannel channel = sdkWriteSession.open();
+      try {
+        return new GcsWriteChannel(sdkWriteSession, channel, blobInfo, writeOptions);
+      } catch (Throwable t) {
+        try {
+          channel.close();
+        } catch (IOException closeEx) {
+          t.addSuppressed(closeEx);
+        }
+        throw t;
+      }
     } catch (StorageException | IOException e) {
       boolean overwrite =
           Optional.ofNullable(writeOptions).map(GcsWriteOptions::isOverwriteExisting).orElse(true);
