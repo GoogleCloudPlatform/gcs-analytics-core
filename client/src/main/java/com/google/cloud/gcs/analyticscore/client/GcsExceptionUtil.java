@@ -159,6 +159,20 @@ class GcsExceptionUtil {
         .orElseGet(() -> translateGenericException(e, context, blobId, position));
   }
 
+  /**
+   * Translates a generic Exception, deciding between overwrite and no-overwrite scenarios based on
+   * the provided GcsWriteOptions.
+   */
+  static IOException translateWriteException(
+      Exception e, String context, BlobId blobId, long position, GcsWriteOptions writeOptions) {
+    boolean overwrite =
+        Optional.ofNullable(writeOptions).map(GcsWriteOptions::isOverwriteExisting).orElse(true);
+    if (overwrite) {
+      return translateExceptionWithOverwrite(e, context, blobId, position);
+    }
+    return translateException(e, context, blobId, position);
+  }
+
   private static IOException translateGenericException(
       Exception e, String context, BlobId blobId, long position) {
     if (e instanceof IOException) {

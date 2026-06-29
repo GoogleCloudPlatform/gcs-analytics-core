@@ -46,6 +46,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -120,12 +121,15 @@ class GcsClientImpl implements GcsClient {
   }
 
   @Override
-  public WritableByteChannel create(BlobInfo blobInfo, GcsWriteOptions writeOptions)
+  public WritableByteChannel create(GcsItemId itemId, GcsWriteOptions writeOptions)
       throws IOException {
-    checkNotNull(blobInfo, "blobInfo should not be null");
+    checkNotNull(itemId, "itemId should not be null");
+
+    BlobInfo blobInfo = createBlobInfo(itemId);
+
     try {
-      BlobWriteOption[] sdkWriteOptions = generateWriteOptions(writeOptions, blobInfo);
-      BlobWriteSession sdkWriteSession = this.storage.blobWriteSession(blobInfo, sdkWriteOptions);
+      BlobWriteOption[] sdkWriteOptions = generateWriteOptions(writeOptions, itemId);
+      BlobWriteSession sdkWriteSession = storage.blobWriteSession(blobInfo, sdkWriteOptions);
       WritableByteChannel channel = sdkWriteSession.open();
       try {
         return createGcsWriteChannel(sdkWriteSession, channel, blobInfo, writeOptions);
@@ -138,25 +142,23 @@ class GcsClientImpl implements GcsClient {
         throw t;
       }
     } catch (StorageException | IOException e) {
-      boolean overwrite =
-          Optional.ofNullable(writeOptions).map(GcsWriteOptions::isOverwriteExisting).orElse(true);
-      throw overwrite
-          ? GcsExceptionUtil.translateExceptionWithOverwrite(
-              e, "initialization", blobInfo.getBlobId(), 0L)
-          : GcsExceptionUtil.translateException(e, "initialization", blobInfo.getBlobId(), 0L);
+      throw GcsExceptionUtil.translateWriteException(
+          e, "initialization", blobInfo.getBlobId(), 0L, writeOptions);
     }
   }
 
   private BlobWriteSessionConfig generateSessionConfig(
-      GcsWriteOptions writeOptions, StorageOptions storageOptions) throws IOException {
+      GcsWriteOptions writeOptions, boolean isHttpTransport) throws IOException {
     switch (writeOptions.getUploadType()) {
       case PARALLEL_COMPOSITE_UPLOAD:
         return getParallelCompositeUploadSessionConfig(writeOptions);
       case WRITE_TO_DISK_THEN_UPLOAD:
         return getWriteToDiskSessionConfig(writeOptions);
       case JOURNALING:
-        return getJournalingSessionConfig(writeOptions, storageOptions);
+        return getJournalingSessionConfig(writeOptions, isHttpTransport);
       case CHUNK_UPLOAD:
+        return BlobWriteSessionConfigs.getDefault()
+            .withChunkSize(writeOptions.getUploadChunkSize());
       default:
         return BlobWriteSessionConfigs.getDefault();
     }
@@ -185,8 +187,8 @@ class GcsClientImpl implements GcsClient {
   }
 
   private BlobWriteSessionConfig getJournalingSessionConfig(
-      GcsWriteOptions writeOptions, StorageOptions storageOptions) throws IOException {
-    if (storageOptions instanceof HttpStorageOptions) {
+      GcsWriteOptions writeOptions, boolean isHttpTransport) throws IOException {
+    if (isHttpTransport) {
       throw new UnsupportedOperationException(
           "JOURNALING upload type is not supported because it requires the gRPC "
               + "transport backend (HTTP transport is currently active).");
@@ -199,11 +201,7 @@ class GcsClientImpl implements GcsClient {
   }
 
   private static List<Path> toPaths(Collection<String> pathStrings) {
-    List<Path> paths = new ArrayList<>();
-    for (String pathStr : pathStrings) {
-      paths.add(Paths.get(pathStr));
-    }
-    return paths;
+    return pathStrings.stream().map(Paths::get).collect(Collectors.toList());
   }
 
   private ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy getSdkCleanupStrategy(
@@ -219,34 +217,29 @@ class GcsClientImpl implements GcsClient {
     }
   }
 
-  private BlobWriteOption[] generateWriteOptions(GcsWriteOptions writeOptions, BlobInfo blobInfo) {
+  private BlobWriteOption[] generateWriteOptions(GcsWriteOptions writeOptions, GcsItemId itemId) {
     List<BlobWriteOption> sdkWriteOptions = new ArrayList<>();
 
-    Optional.ofNullable(writeOptions)
-        .ifPresent(
-            options -> {
-              if (options.isDisableGzipContent()) {
-                sdkWriteOptions.add(BlobWriteOption.disableGzipContent());
-              }
-              if (options.isChecksumValidationEnabled()) {
-                sdkWriteOptions.add(BlobWriteOption.crc32cMatch());
-              }
-              options
-                  .getKmsKeyName()
-                  .map(BlobWriteOption::kmsKeyName)
-                  .ifPresent(sdkWriteOptions::add);
-              options
-                  .getEncryptionKey()
-                  .map(BlobWriteOption::encryptionKey)
-                  .ifPresent(sdkWriteOptions::add);
-              options
-                  .getUserProject()
-                  .map(BlobWriteOption::userProject)
-                  .ifPresent(sdkWriteOptions::add);
-            });
+    if (writeOptions != null) {
+      if (writeOptions.isDisableGzipContent()) {
+        sdkWriteOptions.add(BlobWriteOption.disableGzipContent());
+      }
+      if (writeOptions.isChecksumValidationEnabled()) {
+        sdkWriteOptions.add(BlobWriteOption.crc32cMatch());
+      }
+      writeOptions.getKmsKeyName().map(BlobWriteOption::kmsKeyName).ifPresent(sdkWriteOptions::add);
+      writeOptions
+          .getEncryptionKey()
+          .map(BlobWriteOption::encryptionKey)
+          .ifPresent(sdkWriteOptions::add);
+      writeOptions
+          .getUserProject()
+          .map(BlobWriteOption::userProject)
+          .ifPresent(sdkWriteOptions::add);
+    }
 
     // Determine overwrite semantics based on exact generation ID or 'doesNotExist' flag
-    if (blobInfo.getBlobId().getGeneration() != null) {
+    if (itemId.getContentGeneration().isPresent()) {
       sdkWriteOptions.add(BlobWriteOption.generationMatch());
     } else if (writeOptions != null && !writeOptions.isOverwriteExisting()) {
       sdkWriteOptions.add(BlobWriteOption.doesNotExist());
@@ -284,8 +277,9 @@ class GcsClientImpl implements GcsClient {
     clientOptions.getServiceHost().ifPresent(builder::setHost);
     credentials.ifPresent(builder::setCredentials);
 
+    boolean isHttp = builder instanceof HttpStorageOptions.Builder;
     builder.setBlobWriteSessionConfig(
-        generateSessionConfig(clientOptions.getGcsWriteOptions(), builder.build()));
+        generateSessionConfig(clientOptions.getGcsWriteOptions(), isHttp));
 
     return builder.build().getService();
   }
@@ -340,5 +334,19 @@ class GcsClientImpl implements GcsClient {
       BlobInfo blobInfo,
       GcsWriteOptions writeOptions) {
     return new GcsWriteChannel(blobWriteSession, sdkWriteChannel, blobInfo, writeOptions);
+  }
+
+  private BlobInfo createBlobInfo(GcsItemId itemId) {
+    BlobId blobId;
+    if (itemId.getContentGeneration().isPresent()) {
+      blobId =
+          BlobId.of(
+              itemId.getBucketName(),
+              itemId.getObjectName().get(),
+              itemId.getContentGeneration().get());
+    } else {
+      blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get());
+    }
+    return BlobInfo.newBuilder(blobId).build();
   }
 }

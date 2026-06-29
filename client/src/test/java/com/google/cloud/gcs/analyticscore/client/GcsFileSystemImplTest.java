@@ -32,8 +32,6 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
-import com.google.cloud.storage.BlobId;
-import com.google.cloud.storage.BlobInfo;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -542,37 +540,39 @@ class GcsFileSystemImplTest {
 
   @Test
   void create_withValidArguments_delegatesToClient() throws IOException {
-    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
-    when(mockClient.create(eq(blobInfo), eq(writeOptions))).thenReturn(mockChannel);
+    when(mockClient.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
 
-    WritableByteChannel resultChannel = gcsFileSystem.create(blobInfo, writeOptions);
+    WritableByteChannel resultChannel = gcsFileSystem.create(itemId, writeOptions);
 
-    verify(mockClient).create(blobInfo, writeOptions);
+    verify(mockClient).create(itemId, writeOptions);
     assertThat(resultChannel).isSameInstanceAs(mockChannel);
   }
 
   @Test
-  void create_nullBlobInfo_throwsNullPointerException() {
+  void create_nullItemId_throwsNullPointerException() {
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
 
     NullPointerException e =
         assertThrows(
-            NullPointerException.class, () -> gcsFileSystem.create((BlobInfo) null, writeOptions));
+            NullPointerException.class, () -> gcsFileSystem.create((GcsItemId) null, writeOptions));
 
-    assertThat(e).hasMessageThat().contains("blobInfo should not be null");
+    assertThat(e).hasMessageThat().contains("itemId should not be null");
   }
 
   @Test
   void create_nullWriteOptions_delegatesToClientWithNullOptions() throws IOException {
-    BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
-    when(mockClient.create(eq(blobInfo), eq(null))).thenReturn(mockChannel);
+    when(mockClient.create(eq(itemId), eq(null))).thenReturn(mockChannel);
 
-    WritableByteChannel resultChannel = gcsFileSystem.create(blobInfo, null);
+    WritableByteChannel resultChannel = gcsFileSystem.create(itemId, null);
 
-    verify(mockClient).create(blobInfo, null);
+    verify(mockClient).create(itemId, null);
     assertThat(resultChannel).isSameInstanceAs(mockChannel);
   }
 

@@ -69,6 +69,8 @@ class GcsClientImplTest {
 
   private static final GcsClientOptions TEST_GCS_CLIENT_OPTIONS =
       GcsClientOptions.builder().setProjectId(TEST_PROJECT).build();
+  private static final GcsItemId TEST_ITEM_ID =
+      GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
   private static final BlobInfo TEST_BLOB_INFO =
       BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
   private static final GcsWriteOptions DEFAULT_WRITE_OPTIONS = GcsWriteOptions.builder().build();
@@ -284,10 +286,12 @@ class GcsClientImplTest {
             return GcsClientImplTest.this.storage;
           }
         };
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_WRITE_OBJECT).build();
     BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_WRITE_OBJECT)).build();
     byte[] data = "hello write world".getBytes(StandardCharsets.UTF_8);
 
-    try (WritableByteChannel channel = client.create(blobInfo, DEFAULT_WRITE_OPTIONS)) {
+    try (WritableByteChannel channel = client.create(itemId, DEFAULT_WRITE_OPTIONS)) {
       int bytesWritten = channel.write(ByteBuffer.wrap(data));
       assertThat(bytesWritten).isEqualTo(data.length);
     }
@@ -306,7 +310,7 @@ class GcsClientImplTest {
 
     assertThrows(
         AccessDeniedException.class,
-        () -> clientWithMock.create(TEST_BLOB_INFO, DEFAULT_WRITE_OPTIONS));
+        () -> clientWithMock.create(TEST_ITEM_ID, DEFAULT_WRITE_OPTIONS));
   }
 
   @Test
@@ -319,7 +323,7 @@ class GcsClientImplTest {
 
     assertThrows(
         FileAlreadyExistsException.class,
-        () -> clientWithMock.create(TEST_BLOB_INFO, DEFAULT_WRITE_OPTIONS));
+        () -> clientWithMock.create(TEST_ITEM_ID, DEFAULT_WRITE_OPTIONS));
   }
 
   @Test
@@ -335,7 +339,7 @@ class GcsClientImplTest {
     FileAlreadyExistsException exception =
         assertThrows(
             FileAlreadyExistsException.class,
-            () -> clientWithMock.create(TEST_BLOB_INFO, writeOptions));
+            () -> clientWithMock.create(TEST_ITEM_ID, writeOptions));
 
     assertThat(exception).hasCauseThat().isSameInstanceAs(e412);
   }
@@ -344,6 +348,12 @@ class GcsClientImplTest {
   void create_whenGenerationMismatch_throwsIOException() throws Exception {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+    GcsItemId itemIdWithGen =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET)
+            .setObjectName(TEST_OBJECT)
+            .setContentGeneration(12345L)
+            .build();
     BlobInfo blobInfoWithGen =
         BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT, 12345L)).build();
     StorageException e412 = new StorageException(412, "Precondition Failed");
@@ -352,7 +362,7 @@ class GcsClientImplTest {
 
     IOException exception =
         assertThrows(
-            IOException.class, () -> clientWithMock.create(blobInfoWithGen, DEFAULT_WRITE_OPTIONS));
+            IOException.class, () -> clientWithMock.create(itemIdWithGen, DEFAULT_WRITE_OPTIONS));
 
     assertThat(exception).hasMessageThat().contains("Generation mismatch for object");
     assertThat(exception).hasCauseThat().isSameInstanceAs(e412);
@@ -362,6 +372,11 @@ class GcsClientImplTest {
   void create_whenBucketOrObjectNotFound_throwsFileNotFoundException() throws Exception {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("non-existent-bucket")
+            .setObjectName("test-object")
+            .build();
     BlobInfo blobInfo =
         BlobInfo.newBuilder(BlobId.of("non-existent-bucket", "test-object")).build();
     StorageException e404 = new StorageException(404, "Not Found");
@@ -371,7 +386,7 @@ class GcsClientImplTest {
     FileNotFoundException exception =
         assertThrows(
             FileNotFoundException.class,
-            () -> clientWithMock.create(blobInfo, DEFAULT_WRITE_OPTIONS));
+            () -> clientWithMock.create(itemId, DEFAULT_WRITE_OPTIONS));
 
     assertThat(exception).hasCauseThat().isSameInstanceAs(e404);
   }
@@ -386,7 +401,7 @@ class GcsClientImplTest {
 
     IOException thrown =
         assertThrows(
-            IOException.class, () -> clientWithMock.create(TEST_BLOB_INFO, DEFAULT_WRITE_OPTIONS));
+            IOException.class, () -> clientWithMock.create(TEST_ITEM_ID, DEFAULT_WRITE_OPTIONS));
 
     assertThat(thrown).hasMessageThat().contains("Error during initialization to GCS");
   }
@@ -402,7 +417,7 @@ class GcsClientImplTest {
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
     IOException exception =
-        assertThrows(IOException.class, () -> clientWithMock.create(TEST_BLOB_INFO, null));
+        assertThrows(IOException.class, () -> clientWithMock.create(TEST_ITEM_ID, null));
 
     assertThat(exception).isInstanceOf(FileNotFoundException.class);
     assertThat(exception).hasCauseThat().isSameInstanceAs(nestedStorageException);
@@ -416,7 +431,7 @@ class GcsClientImplTest {
     when(mockSession.open()).thenReturn(mockChannel);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
-    WritableByteChannel returnedChannel = clientWithMock.create(TEST_BLOB_INFO, null);
+    WritableByteChannel returnedChannel = clientWithMock.create(TEST_ITEM_ID, null);
 
     assertThat(returnedChannel).isInstanceOf(GcsWriteChannel.class);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3});
@@ -441,7 +456,7 @@ class GcsClientImplTest {
             .setUserProject("user-project")
             .build();
 
-    clientWithMock.create(TEST_BLOB_INFO, allOptions);
+    clientWithMock.create(TEST_ITEM_ID, allOptions);
 
     String capturedOptionsString = captureBlobWriteOptions(mockStorage, TEST_BLOB_INFO);
     assertThat(capturedOptionsString).contains("Crc32cMatchExtractor");
@@ -458,7 +473,7 @@ class GcsClientImplTest {
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().setDisableGzipContent(false).build();
 
-    clientWithMock.create(TEST_BLOB_INFO, writeOptions);
+    clientWithMock.create(TEST_ITEM_ID, writeOptions);
 
     String capturedOptionsString = captureBlobWriteOptions(mockStorage, TEST_BLOB_INFO);
     assertThat(capturedOptionsString).doesNotContain("disableGzipContent");
@@ -470,10 +485,16 @@ class GcsClientImplTest {
     BlobWriteSession mockSession = mockBlobWriteSession(mockStorage);
     when(mockSession.open()).thenReturn(mock(WritableByteChannel.class));
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+    GcsItemId itemIdWithGen =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET)
+            .setObjectName(TEST_OBJECT)
+            .setContentGeneration(12345L)
+            .build();
     BlobInfo blobInfoWithGen =
         BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT, 12345L)).build();
 
-    clientWithMock.create(blobInfoWithGen, DEFAULT_WRITE_OPTIONS);
+    clientWithMock.create(itemIdWithGen, DEFAULT_WRITE_OPTIONS);
 
     String capturedOptionsString = captureBlobWriteOptions(mockStorage, blobInfoWithGen);
     assertThat(capturedOptionsString).contains("GenerationMatchExtractor");
@@ -567,7 +588,7 @@ class GcsClientImplTest {
 
     IOException thrown =
         assertThrows(
-            IOException.class, () -> clientWithMock.create(TEST_BLOB_INFO, DEFAULT_WRITE_OPTIONS));
+            IOException.class, () -> clientWithMock.create(TEST_ITEM_ID, DEFAULT_WRITE_OPTIONS));
 
     assertThat(thrown).isSameInstanceAs(ioException);
   }
@@ -601,12 +622,17 @@ class GcsClientImplTest {
 
   @Test
   void create_withNullWriteOptions_success() throws Exception {
-    BlobInfo blobInfo =
-        BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_NULL_OPTIONS_OBJECT)).build();
-    try (WritableByteChannel channel = gcsClient.create(blobInfo, null)) {
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET)
+            .setObjectName(TEST_NULL_OPTIONS_OBJECT)
+            .build();
+    try (WritableByteChannel channel = gcsClient.create(itemId, null)) {
       channel.write(ByteBuffer.wrap("null options write".getBytes(UTF_8)));
     }
-    assertThat(new String(storage.readAllBytes(blobInfo.getBlobId()), UTF_8))
+    assertThat(
+            new String(
+                storage.readAllBytes(BlobId.of(TEST_BUCKET, TEST_NULL_OPTIONS_OBJECT)), UTF_8))
         .isEqualTo("null options write");
   }
 
@@ -651,12 +677,18 @@ class GcsClientImplTest {
 
   @Test
   void createStorage_withChunkUpload_setsDefaultSessionConfig() throws Exception {
+    int customChunkSize = 2 * MB;
     GcsWriteOptions writeOptions =
-        GcsWriteOptions.builder().setUploadType(GcsWriteOptions.UploadType.CHUNK_UPLOAD).build();
+        GcsWriteOptions.builder()
+            .setUploadType(GcsWriteOptions.UploadType.CHUNK_UPLOAD)
+            .setUploadChunkSize(customChunkSize)
+            .build();
 
     GcsClientImpl client = createClientWithWriteOptions(writeOptions);
 
-    assertThat(getBlobWriteSessionConfig(client.storage.getOptions())).isNotNull();
+    BlobWriteSessionConfig config = getBlobWriteSessionConfig(client.storage.getOptions());
+    assertThat(config).isInstanceOf(DefaultBlobWriteSessionConfig.class);
+    assertThat(((DefaultBlobWriteSessionConfig) config).getChunkSize()).isEqualTo(customChunkSize);
   }
 
   @Test
@@ -668,7 +700,7 @@ class GcsClientImplTest {
         .thenThrow(e412);
 
     IOException exception =
-        assertThrows(IOException.class, () -> clientWithMock.create(TEST_BLOB_INFO, null));
+        assertThrows(IOException.class, () -> clientWithMock.create(TEST_ITEM_ID, null));
 
     assertThat(exception).hasCauseThat().isSameInstanceAs(e412);
   }
@@ -683,7 +715,7 @@ class GcsClientImplTest {
         .thenThrow(e412);
 
     IOException exception =
-        assertThrows(IOException.class, () -> clientWithMock.create(TEST_BLOB_INFO, writeOptions));
+        assertThrows(IOException.class, () -> clientWithMock.create(TEST_ITEM_ID, writeOptions));
 
     assertThat(exception).hasCauseThat().isSameInstanceAs(e412);
   }
@@ -699,7 +731,7 @@ class GcsClientImplTest {
     RuntimeException exception =
         assertThrows(
             RuntimeException.class,
-            () -> clientWithMock.create(TEST_BLOB_INFO, DEFAULT_WRITE_OPTIONS));
+            () -> clientWithMock.create(TEST_ITEM_ID, DEFAULT_WRITE_OPTIONS));
 
     assertThat(exception).isSameInstanceAs(runtimeException);
   }
@@ -727,7 +759,6 @@ class GcsClientImplTest {
       throws Exception {
     GcsClientImpl client =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
-    StorageOptions mockStorageOptions = mock(StorageOptions.class);
     GcsWriteOptions writeOptions =
         GcsWriteOptions.builder()
             .setUploadType(GcsWriteOptions.UploadType.JOURNALING)
@@ -735,10 +766,10 @@ class GcsClientImplTest {
             .build();
     Method method =
         GcsClientImpl.class.getDeclaredMethod(
-            "generateSessionConfig", GcsWriteOptions.class, StorageOptions.class);
+            "generateSessionConfig", GcsWriteOptions.class, boolean.class);
     method.setAccessible(true);
 
-    Object result = method.invoke(client, writeOptions, mockStorageOptions);
+    Object result = method.invoke(client, writeOptions, false);
 
     assertThat(result).isNotNull();
     assertThat(result.getClass().getSimpleName()).contains("Journaling");
@@ -750,7 +781,6 @@ class GcsClientImplTest {
           throws Exception {
     GcsClientImpl client =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
-    StorageOptions mockStorageOptions = mock(StorageOptions.class);
     GcsWriteOptions writeOptions =
         GcsWriteOptions.builder()
             .setUploadType(GcsWriteOptions.UploadType.JOURNALING)
@@ -758,13 +788,12 @@ class GcsClientImplTest {
             .build();
     Method method =
         GcsClientImpl.class.getDeclaredMethod(
-            "getJournalingSessionConfig", GcsWriteOptions.class, StorageOptions.class);
+            "getJournalingSessionConfig", GcsWriteOptions.class, boolean.class);
     method.setAccessible(true);
 
     InvocationTargetException exception =
         assertThrows(
-            InvocationTargetException.class,
-            () -> method.invoke(client, writeOptions, mockStorageOptions));
+            InvocationTargetException.class, () -> method.invoke(client, writeOptions, false));
 
     assertThat(exception.getCause()).isInstanceOf(IllegalArgumentException.class);
     assertThat(exception.getCause())
@@ -821,7 +850,7 @@ class GcsClientImplTest {
     RuntimeException thrown =
         assertThrows(
             RuntimeException.class,
-            () -> clientWithMock.create(TEST_BLOB_INFO, DEFAULT_WRITE_OPTIONS));
+            () -> clientWithMock.create(TEST_ITEM_ID, DEFAULT_WRITE_OPTIONS));
 
     assertThat(thrown).hasMessageThat().isEqualTo("Simulated constructor failure");
     verify(mockChannel).close();
@@ -841,7 +870,7 @@ class GcsClientImplTest {
     RuntimeException thrown =
         assertThrows(
             RuntimeException.class,
-            () -> clientWithMock.create(TEST_BLOB_INFO, DEFAULT_WRITE_OPTIONS));
+            () -> clientWithMock.create(TEST_ITEM_ID, DEFAULT_WRITE_OPTIONS));
 
     assertThat(thrown).hasMessageThat().isEqualTo("Simulated constructor failure");
     assertThat(thrown.getSuppressed()).asList().containsExactly(closeException);

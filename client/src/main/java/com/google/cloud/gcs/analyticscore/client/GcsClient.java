@@ -15,7 +15,6 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
-import com.google.cloud.storage.BlobInfo;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
@@ -39,10 +38,10 @@ public interface GcsClient {
   /**
    * Creates a new GCS object and returns a WritableByteChannel for writing to it.
    *
-   * @param blobInfo the GCS object metadata to be created
+   * @param itemId the identity of the GCS object to be created
    * @param options configuration options for controlling upload strategies and integrity checks
    * @return a channel for writing data to the newly created object
    * @throws IOException if an I/O error occurs during channel initialization or translation
    */
-  WritableByteChannel create(BlobInfo blobInfo, GcsWriteOptions options) throws IOException;
+  WritableByteChannel create(GcsItemId itemId, GcsWriteOptions options) throws IOException;
 }
