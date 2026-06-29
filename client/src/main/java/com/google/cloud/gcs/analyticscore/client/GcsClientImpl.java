@@ -128,7 +128,7 @@ class GcsClientImpl implements GcsClient {
       BlobWriteSession sdkWriteSession = this.storage.blobWriteSession(blobInfo, sdkWriteOptions);
       WritableByteChannel channel = sdkWriteSession.open();
       try {
-        return new GcsWriteChannel(sdkWriteSession, channel, blobInfo, writeOptions);
+        return createGcsWriteChannel(sdkWriteSession, channel, blobInfo, writeOptions);
       } catch (Throwable t) {
         try {
           channel.close();
@@ -331,5 +331,14 @@ class GcsClientImpl implements GcsClient {
     } catch (StorageException storageException) {
       throw new IOException("Unable to access blob :" + blobId, storageException);
     }
+  }
+
+  @VisibleForTesting
+  WritableByteChannel createGcsWriteChannel(
+      BlobWriteSession blobWriteSession,
+      WritableByteChannel sdkWriteChannel,
+      BlobInfo blobInfo,
+      GcsWriteOptions writeOptions) {
+    return new GcsWriteChannel(blobWriteSession, sdkWriteChannel, blobInfo, writeOptions);
   }
 }

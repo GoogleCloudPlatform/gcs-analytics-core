@@ -809,4 +809,57 @@ class GcsClientImplTest {
     verify(mockStorage).blobWriteSession(eq(blobInfo), optionsCaptor.capture());
     return Arrays.toString(optionsCaptor.getValue());
   }
+
+  @Test
+  void create_whenGcsWriteChannelConstructionFails_closesSdkChannel() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mockBlobWriteSession(mockStorage);
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockSession.open()).thenReturn(mockChannel);
+    GcsClientImpl clientWithMock = createClientWithFailingConstructor(mockStorage);
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class,
+            () -> clientWithMock.create(TEST_BLOB_INFO, DEFAULT_WRITE_OPTIONS));
+
+    assertThat(thrown).hasMessageThat().isEqualTo("Simulated constructor failure");
+    verify(mockChannel).close();
+  }
+
+  @Test
+  void create_whenGcsWriteChannelConstructionFailsAndCloseThrows_suppressesCloseException()
+      throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mockBlobWriteSession(mockStorage);
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockSession.open()).thenReturn(mockChannel);
+    IOException closeException = new IOException("Close failed");
+    doThrow(closeException).when(mockChannel).close();
+    GcsClientImpl clientWithMock = createClientWithFailingConstructor(mockStorage);
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class,
+            () -> clientWithMock.create(TEST_BLOB_INFO, DEFAULT_WRITE_OPTIONS));
+
+    assertThat(thrown).hasMessageThat().isEqualTo("Simulated constructor failure");
+    assertThat(thrown.getSuppressed()).asList().containsExactly(closeException);
+  }
+
+  private GcsClientImpl createClientWithFailingConstructor(Storage mockStorage) throws IOException {
+    GcsClientImpl client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          WritableByteChannel createGcsWriteChannel(
+              BlobWriteSession blobWriteSession,
+              WritableByteChannel sdkWriteChannel,
+              BlobInfo blobInfo,
+              GcsWriteOptions writeOptions) {
+            throw new RuntimeException("Simulated constructor failure");
+          }
+        };
+    client.storage = mockStorage;
+    return client;
+  }
 }
