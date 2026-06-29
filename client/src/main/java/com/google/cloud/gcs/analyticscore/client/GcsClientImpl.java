@@ -131,16 +131,7 @@ class GcsClientImpl implements GcsClient {
       BlobWriteOption[] sdkWriteOptions = generateWriteOptions(writeOptions, itemId);
       BlobWriteSession sdkWriteSession = storage.blobWriteSession(blobInfo, sdkWriteOptions);
       WritableByteChannel channel = sdkWriteSession.open();
-      try {
-        return createGcsWriteChannel(sdkWriteSession, channel, blobInfo, writeOptions);
-      } catch (Throwable t) {
-        try {
-          channel.close();
-        } catch (IOException closeEx) {
-          t.addSuppressed(closeEx);
-        }
-        throw t;
-      }
+      return new GcsWriteChannel(sdkWriteSession, channel, blobInfo, writeOptions);
     } catch (StorageException | IOException e) {
       throw GcsExceptionUtil.translateWriteException(
           e, "initialization", blobInfo.getBlobId(), 0L, writeOptions);
@@ -325,15 +316,6 @@ class GcsClientImpl implements GcsClient {
     } catch (StorageException storageException) {
       throw new IOException("Unable to access blob :" + blobId, storageException);
     }
-  }
-
-  @VisibleForTesting
-  WritableByteChannel createGcsWriteChannel(
-      BlobWriteSession blobWriteSession,
-      WritableByteChannel sdkWriteChannel,
-      BlobInfo blobInfo,
-      GcsWriteOptions writeOptions) {
-    return new GcsWriteChannel(blobWriteSession, sdkWriteChannel, blobInfo, writeOptions);
   }
 
   private BlobInfo createBlobInfo(GcsItemId itemId) {
