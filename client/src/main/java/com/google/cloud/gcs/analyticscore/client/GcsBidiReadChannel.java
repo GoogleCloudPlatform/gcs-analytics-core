@@ -102,7 +102,8 @@ class GcsBidiReadChannel extends GcsReadChannel {
     return new ReadStrategy() {
       @Override
       public com.google.cloud.ReadChannel getReadChannel(long requestedPosition, int bytesToRead) {
-        throw new UnsupportedOperationException("Standard read is not supported on Bidi channel");
+        throw new UnsupportedOperationException(
+            "Standard read is not supported on Bidi channel yet.");
       }
 
       @Override

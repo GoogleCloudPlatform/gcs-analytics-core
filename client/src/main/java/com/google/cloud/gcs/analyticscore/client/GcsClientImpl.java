@@ -129,7 +129,10 @@ class GcsClientImpl implements GcsClient {
 
   @VisibleForTesting
   protected Storage createStorage(Optional<Credentials> credentials) {
-    StorageOptions.Builder builder = StorageOptions.newBuilder();
+    StorageOptions.Builder builder =
+        clientOptions.getGcsReadOptions().isBidiVectoredReadEnabled()
+            ? StorageOptions.grpc()
+            : StorageOptions.newBuilder();
     String userAgent = getUserAgent();
     builder.setHeaderProvider(FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
