@@ -20,9 +20,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
+import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsWriteChannel;
 import com.google.cloud.gcs.analyticscore.client.GcsWriteOptions;
-import com.google.cloud.storage.BlobInfo;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
@@ -46,11 +46,11 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
    * layer.
    */
   public static GoogleCloudStorageOutputStream create(
-      GcsFileSystem gcsFileSystem, BlobInfo blobInfo, GcsWriteOptions writeOptions)
+      GcsFileSystem gcsFileSystem, GcsItemId itemId, GcsWriteOptions writeOptions)
       throws IOException {
     checkState(gcsFileSystem != null, "GcsFileSystem shouldn't be null");
-    checkState(blobInfo != null, "BlobInfo shouldn't be null");
-    WritableByteChannel channel = gcsFileSystem.create(blobInfo, writeOptions);
+    checkState(itemId != null, "GcsItemId shouldn't be null");
+    WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions);
     return new GoogleCloudStorageOutputStream(channel);
   }
 
