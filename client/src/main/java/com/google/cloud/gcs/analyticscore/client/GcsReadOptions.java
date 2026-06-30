@@ -55,8 +55,7 @@ public abstract class GcsReadOptions {
   private static final int DEFAULT_INPLACE_SEEK_LIMIT = 128 * KB;
   private static final int DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE = 50 * KB;
   private static final int DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE = MB;
-
-  private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = 0; // 0 bytes = disabled
+  private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = MB;
   private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN =
       FileAccessPattern.AUTO_SEQUENTIAL;
   private static final int DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD = 3;
@@ -74,7 +73,7 @@ public abstract class GcsReadOptions {
 
   public abstract boolean isFooterPrefetchEnabled();
 
-  public abstract int getSmallObjectCacheSize();
+  public abstract int getSmallObjectCacheThresholdBytes();
 
   public abstract boolean isBidiVectoredReadEnabled();
 
@@ -98,13 +97,13 @@ public abstract class GcsReadOptions {
         .setFooterPrefetchEnabled(DEFAULT_FOOTER_PREFETCH_ENABLED)
         .setFooterPrefetchSizeSmallFile(DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE)
         .setFooterPrefetchSizeLargeFile(DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE)
-        .setSmallObjectCacheSize(DEFAULT_SMALL_FILE_CACHE_THRESHOLD)
-        .setBidiVectoredReadEnabled(DEFAULT_BIDI_VECTORED_READ_ENABLED)
-        .setBidiTimeout(DEFAULT_BIDI_TIMEOUT_SECONDS)
+        .setSmallObjectCacheThresholdBytes(DEFAULT_SMALL_FILE_CACHE_THRESHOLD)
         .setInplaceSeekLimit(DEFAULT_INPLACE_SEEK_LIMIT)
         .setFileAccessPattern(DEFAULT_FILE_ACCESS_PATTERN)
         .setAdaptiveReadSequentialReadThreshold(DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD)
-        .setRandomReadMinRequestSize(DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE);
+        .setRandomReadMinRequestSize(DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE)
+        .setBidiVectoredReadEnabled(DEFAULT_BIDI_VECTORED_READ_ENABLED)
+        .setBidiTimeout(DEFAULT_BIDI_TIMEOUT_SECONDS);
   }
 
   public static GcsReadOptions createFromOptions(
@@ -133,7 +132,7 @@ public abstract class GcsReadOptions {
           safeParseInteger(analyticsCoreOptions, prefix + LARGE_FILE_FOOTER_PREFETCH_SIZE_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_CACHE_THRESHOLD_KEY)) {
-      optionsBuilder.setSmallObjectCacheSize(
+      optionsBuilder.setSmallObjectCacheThresholdBytes(
           safeParseInteger(analyticsCoreOptions, prefix + SMALL_FILE_CACHE_THRESHOLD_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + BIDI_VECTORED_READ_ENABLED_KEY)) {
@@ -198,7 +197,7 @@ public abstract class GcsReadOptions {
 
     public abstract Builder setFooterPrefetchSizeLargeFile(int footerPrefetchSizeLargeFile);
 
-    public abstract Builder setSmallObjectCacheSize(int smallObjectCacheSize);
+    public abstract Builder setSmallObjectCacheThresholdBytes(int smallObjectCacheThresholdBytes);
 
     public abstract Builder setBidiVectoredReadEnabled(boolean enabled);
 

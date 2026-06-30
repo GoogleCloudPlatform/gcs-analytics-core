@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Weigher;
 import java.util.Optional;
 
 /**
@@ -34,16 +35,18 @@ public class AnalyticsCacheCaffeineImpl<K, V> implements AnalyticsCache<K, V> {
 
   private final Cache<K, V> cache;
 
-  private AnalyticsCacheCaffeineImpl(long maxEntries) {
-    checkArgument(maxEntries > 0, "maxEntries must be positive");
-    this.cache = Caffeine.newBuilder().maximumSize(maxEntries).build();
+  private AnalyticsCacheCaffeineImpl(long maxWeight, Weigher<K, V> weigher) {
+    checkArgument(maxWeight > 0, "maxWeight must be positive");
+    checkNotNull(weigher, "weigher cannot be null");
+    this.cache = Caffeine.newBuilder().maximumWeight(maxWeight).weigher(weigher).build();
   }
 
   /**
-   * Creates a new {@link AnalyticsCacheCaffeineImpl} with the specified maximum number of entries.
+   * Creates a new {@link AnalyticsCacheCaffeineImpl} with the specified maximum weight and weigher.
    */
-  public static <K, V> AnalyticsCacheCaffeineImpl<K, V> create(long maxEntries) {
-    return new AnalyticsCacheCaffeineImpl<>(maxEntries);
+  public static <K, V> AnalyticsCacheCaffeineImpl<K, V> create(
+      long maxWeight, Weigher<K, V> weigher) {
+    return new AnalyticsCacheCaffeineImpl<>(maxWeight, weigher);
   }
 
   /** {@inheritDoc} */

@@ -23,6 +23,9 @@ import org.junit.jupiter.api.Test;
 
 class GcsFileSystemOptionsTest {
 
+  private static final long KB = 1024L;
+  private static final long MB = 1024L * KB;
+
   @Test
   void createFromOptions_withValidProperties_shouldCreateCorrectOptions() {
     ImmutableMap<String, String> properties =
@@ -42,28 +45,21 @@ class GcsFileSystemOptionsTest {
   void createFromOptions_cacheProperties_createsCorrectOptions() {
     ImmutableMap<String, String> properties =
         ImmutableMap.of(
-            "fs.gs.analytics-core.footer.cache.enabled", "false",
-            "fs.gs.analytics-core.footer.cache.max-entries", "500");
+            "fs.gs.analytics-core.footer.cache.enabled",
+            "false",
+            "fs.gs.analytics-core.footer.cache.max-size-bytes",
+            String.valueOf(500 * MB),
+            "fs.gs.analytics-core.small-file.cache.enabled",
+            "true",
+            "fs.gs.analytics-core.small-file.cache.max-size-bytes",
+            String.valueOf(200 * MB));
 
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
     GcsCacheOptions cacheOptions = options.getGcsCacheOptions();
     assertThat(cacheOptions.isFooterCacheEnabled()).isFalse();
-    assertThat(cacheOptions.getFooterCacheMaxEntries()).isEqualTo(500);
-  }
-
-  @Test
-  void createFromOptions_withDefaultProperties_shouldCreateCorrectOptions() {
-    ImmutableMap<String, String> properties = ImmutableMap.of();
-
-    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
-
-    assertThat(options.getGcsClientOptions().getProjectId().isEmpty()).isTrue();
-    assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.HTTP_CLIENT);
-    assertThat(options.getReadThreadCount()).isEqualTo(16);
-
-    GcsCacheOptions cacheOptions = options.getGcsCacheOptions();
-    assertThat(cacheOptions.isFooterCacheEnabled()).isTrue();
-    assertThat(cacheOptions.getFooterCacheMaxEntries()).isEqualTo(100);
+    assertThat(cacheOptions.getFooterCacheMaxSizeBytes()).isEqualTo(500 * MB);
+    assertThat(cacheOptions.isSmallObjectCacheEnabled()).isTrue();
+    assertThat(cacheOptions.getSmallObjectCacheMaxSizeBytes()).isEqualTo(200 * MB);
   }
 }

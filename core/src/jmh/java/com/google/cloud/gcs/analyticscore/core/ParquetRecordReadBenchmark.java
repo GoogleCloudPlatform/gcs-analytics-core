@@ -43,7 +43,7 @@ public class ParquetRecordReadBenchmark {
       GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
               Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
-                      "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576",
+                      "gcs.analytics-core.small-file.cache.max-size-bytes", "1048576"
                       "gcs.analytics-core.read.bidi.vectored.enabled", String.valueOf(state.enableBidiVectoredRead)), "gcs.");
         String requestedSchema = "message requested_schema {\n"
                 + "required binary c_customer_id (STRING);\n"

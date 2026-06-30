@@ -23,35 +23,47 @@ import org.junit.jupiter.api.Test;
 
 class GcsCacheOptionsTest {
 
+  private static final long KB = 1024L;
+  private static final long MB = 1024L * KB;
+
   @Test
   void build_defaultValues_succeeds() {
     GcsCacheOptions options = GcsCacheOptions.builder().build();
 
-    assertThat(options.isFooterCacheEnabled()).isTrue();
-    assertThat(options.getFooterCacheMaxEntries()).isEqualTo(100);
+    assertThat(options.isFooterCacheEnabled()).isFalse();
+    assertThat(options.getFooterCacheMaxSizeBytes()).isEqualTo(100 * MB);
+    assertThat(options.isSmallObjectCacheEnabled()).isFalse();
+    assertThat(options.getSmallObjectCacheMaxSizeBytes()).isEqualTo(200 * MB);
   }
 
   @Test
-  void build_disabledCacheNonPositiveEntries_succeeds() {
+  void build_disabledCacheNonPositiveSizeBytes_succeeds() {
     GcsCacheOptions options =
-        GcsCacheOptions.builder().setFooterCacheEnabled(false).setFooterCacheMaxEntries(0).build();
+        GcsCacheOptions.builder()
+            .setFooterCacheEnabled(false)
+            .setFooterCacheMaxSizeBytes(0)
+            .setSmallObjectCacheEnabled(false)
+            .setSmallObjectCacheMaxSizeBytes(0)
+            .build();
 
     assertThat(options.isFooterCacheEnabled()).isFalse();
-    assertThat(options.getFooterCacheMaxEntries()).isEqualTo(0);
+    assertThat(options.getFooterCacheMaxSizeBytes()).isEqualTo(0);
+    assertThat(options.isSmallObjectCacheEnabled()).isFalse();
+    assertThat(options.getSmallObjectCacheMaxSizeBytes()).isEqualTo(0);
   }
 
   @Test
-  void build_enabledCacheZeroEntries_throwsException() {
+  void build_enabledCacheZeroSizeBytes_throwsException() {
     GcsCacheOptions.Builder builder =
-        GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxEntries(0);
+        GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxSizeBytes(0);
 
     assertThrows(IllegalArgumentException.class, builder::build);
   }
 
   @Test
-  void build_enabledCacheNegativeEntries_throwsException() {
+  void build_enabledCacheNegativeSizeBytes_throwsException() {
     GcsCacheOptions.Builder builder =
-        GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxEntries(-1);
+        GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxSizeBytes(-1);
 
     assertThrows(IllegalArgumentException.class, builder::build);
   }

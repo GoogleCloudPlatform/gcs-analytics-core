@@ -22,8 +22,11 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.contrib.gcp.resource.GCPResourceProvider;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.common.CompletableResultCode;
+import io.opentelemetry.sdk.metrics.Aggregation;
+import io.opentelemetry.sdk.metrics.InstrumentSelector;
 import io.opentelemetry.sdk.metrics.SdkMeterProvider;
 import io.opentelemetry.sdk.metrics.SdkMeterProviderBuilder;
+import io.opentelemetry.sdk.metrics.View;
 import io.opentelemetry.sdk.metrics.export.MetricExporter;
 import io.opentelemetry.sdk.metrics.export.PeriodicMetricReader;
 import io.opentelemetry.sdk.resources.Resource;
@@ -120,6 +123,11 @@ public class CloudMonitoringOpenTelemetryProvider implements OpenTelemetryProvid
         GoogleCloudMetricExporter.createWithConfiguration(getMetricConfiguration(projectId));
     PeriodicMetricReader metricReader =
         PeriodicMetricReader.builder(cloudExporter).setInterval(exportInterval).build();
+
+    // Dropping OTEL internal metrics to avoid high cardinality data points.
+    meterProviderBuilder.registerView(
+        InstrumentSelector.builder().setName("otel.sdk.*").build(),
+        View.builder().setAggregation(Aggregation.drop()).build());
 
     return meterProviderBuilder.registerMetricReader(metricReader).build();
   }

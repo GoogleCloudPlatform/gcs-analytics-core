@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.4.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.3.1...v1.4.0) (2026-06-26)
+
+
+### Features
+
+* **client:** implement cache management and integrate with GcsFileSystem ([#282](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/282)) ([d998d65](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d998d65487cfa2efa5c20c4e2e8a1e7775b5b67d))
+* **common:** add Cloud Monitoring OpenTelemetry provider ([#309](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/309)) ([92cb75c](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/92cb75cebe1298f79902f343d4b3c4712e6036bd))
+* **core:** implement in-memory caching for small objects bounded by byte size ([#325](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/325)) ([a33c7ca](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/a33c7ca2523462af5e51f2f2d0a8a2fffdc4df4e))
+* **core:** restrict GcsFooterOptimizer to parquet files only ([22253fe](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/22253fe564b6dd37fe2277543d3fe61f9cb4efeb))
+* Implement Footer Cache and Small Object Prefetch Optimizer and integrate with GCS InputStream [4/4] ([#314](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/314)) ([22253fe](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/22253fe564b6dd37fe2277543d3fe61f9cb4efeb))
+* Implement GcsWriteChannel ([#268](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/268)) ([be232a7](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/be232a7ca0ff828815c884d2416a6f23f525fbd8))
+
+
+### Bug Fixes
+
+* Modify default value of file access pattern to auto sequential. ([#316](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/316)) ([3028d33](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/3028d33971bb0331091c426c1f4c270687095b33))
+* Removing otel library specific metrics. ([#322](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/322)) ([3ed0869](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/3ed0869997929b16e3a4f658c9168f8f93de679b))
+
+
+### Documentation
+
+* Standardize the default values format in CONFIGURATION file ([#327](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/327)) ([2769f8c](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/2769f8c70e0ebcc0e518587272e295180863b806))
+
 ## [1.3.1](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.3.0...v1.3.1) (2026-06-09)
 
 

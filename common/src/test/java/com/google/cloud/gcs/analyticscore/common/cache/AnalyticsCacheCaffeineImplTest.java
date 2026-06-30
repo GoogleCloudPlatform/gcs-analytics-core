@@ -30,7 +30,14 @@ class AnalyticsCacheCaffeineImplTest {
 
   @BeforeEach
   void setUp() {
-    cache = AnalyticsCacheCaffeineImpl.create(10);
+    cache = AnalyticsCacheCaffeineImpl.create(10, (key, value) -> 1);
+  }
+
+  @Test
+  void create_nullWeigher_throwsException() {
+    NullPointerException exception =
+        assertThrows(NullPointerException.class, () -> AnalyticsCacheCaffeineImpl.create(10, null));
+    assertThat(exception).hasMessageThat().contains("weigher cannot be null");
   }
 
   @Test

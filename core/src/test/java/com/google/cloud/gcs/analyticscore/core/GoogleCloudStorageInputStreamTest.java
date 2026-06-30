@@ -218,7 +218,6 @@ class GoogleCloudStorageInputStreamTest {
         GcsReadOptions.builder()
             .setFooterPrefetchEnabled(true)
             .setFooterPrefetchSizeSmallFile(prefetchSize)
-            .setSmallObjectCacheSize(0)
             .build();
     googleCloudStorageInputStream = createStream(readOptions);
 
@@ -235,7 +234,6 @@ class GoogleCloudStorageInputStreamTest {
         GcsReadOptions.builder()
             .setFooterPrefetchEnabled(true)
             .setFooterPrefetchSizeSmallFile(prefetchSize)
-            .setSmallObjectCacheSize(0)
             .build();
     googleCloudStorageInputStream = createStream(readOptions);
 
@@ -255,7 +253,6 @@ class GoogleCloudStorageInputStreamTest {
         GcsReadOptions.builder()
             .setFooterPrefetchEnabled(true)
             .setFooterPrefetchSizeSmallFile(prefetchSize)
-            .setSmallObjectCacheSize(0)
             .build();
     googleCloudStorageInputStream = createStream(readOptions);
 
@@ -280,7 +277,6 @@ class GoogleCloudStorageInputStreamTest {
         GcsReadOptions.builder()
             .setFooterPrefetchEnabled(true)
             .setFooterPrefetchSizeSmallFile(prefetchSize)
-            .setSmallObjectCacheSize(0)
             .build();
     googleCloudStorageInputStream = createStream(readOptions);
 
@@ -372,7 +368,7 @@ class GoogleCloudStorageInputStreamTest {
 
   @Test
   void close_calledTwice_onlyClosesUnderlyingChannelOnce() throws IOException {
-    GcsReadOptions readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(0).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().build();
     googleCloudStorageInputStream = createStream(readOptions);
     // Read to ensure channel is opened
 
@@ -429,7 +425,7 @@ class GoogleCloudStorageInputStreamTest {
 
   @Test
   void readTail_withInitializedFileInfo_reusesFileInfo() throws IOException {
-    GcsReadOptions readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(0).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().build();
     googleCloudStorageInputStream = createStream(readOptions);
     byte[] buffer = new byte[10];
     // Read first to initialize gcsFileInfo
@@ -511,7 +507,7 @@ class GoogleCloudStorageInputStreamTest {
   @Test
   void readVectored_smallObjectCached_readsFromCache()
       throws IOException, ExecutionException, InterruptedException {
-    GcsReadOptions readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(2000).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().build();
     googleCloudStorageInputStream = createStream(readOptions);
 
     GcsObjectRange range1 = createGcsObjectRange(/* offset= */ 200, /* length= */ 100);
@@ -536,7 +532,7 @@ class GoogleCloudStorageInputStreamTest {
 
   @Test
   void read_fromHead_smallObjectCachingEnabled_objectSmall_caches() throws IOException {
-    GcsReadOptions readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(2000).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().build();
     googleCloudStorageInputStream = createStream(readOptions);
 
     byte read = (byte) googleCloudStorageInputStream.read();
@@ -558,7 +554,7 @@ class GoogleCloudStorageInputStreamTest {
 
   @Test
   void readFully_reachesEOF_throwsEOFException() throws IOException {
-    GcsReadOptions readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(0).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().build();
     googleCloudStorageInputStream = createStream(readOptions);
     byte[] buffer = new byte[100];
     // Total file size is 1000. Start reading from 950 for 100 bytes (hits EOF)
@@ -573,7 +569,7 @@ class GoogleCloudStorageInputStreamTest {
 
   @Test
   void readFully_success_readsExpectedBytes() throws IOException {
-    GcsReadOptions readOptions = GcsReadOptions.builder().setSmallObjectCacheSize(0).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().build();
     googleCloudStorageInputStream = createStream(readOptions);
     byte[] buffer = new byte[10];
     // Read 10 bytes starting from 100
