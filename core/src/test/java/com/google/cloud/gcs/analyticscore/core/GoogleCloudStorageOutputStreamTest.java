@@ -32,8 +32,6 @@ import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsWriteChannel;
 import com.google.cloud.gcs.analyticscore.client.GcsWriteOptions;
-import com.google.cloud.storage.BlobId;
-import com.google.cloud.storage.BlobInfo;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -50,8 +48,8 @@ class GoogleCloudStorageOutputStreamTest {
 
   private static final String TEST_BUCKET = "test-bucket";
   private static final String TEST_OBJECT = "test-object";
-  private final BlobInfo blobInfo =
-      BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+  private final GcsItemId itemId =
+      GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
   private final GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
 
   @Mock private GcsFileSystem mockFileSystem;
@@ -65,13 +63,13 @@ class GoogleCloudStorageOutputStreamTest {
 
   @Test
   void create_initializesWriteSessionAndReturnsStream() throws IOException {
-    when(mockFileSystem.create(eq(blobInfo), eq(writeOptions))).thenReturn(mockChannel);
+    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
 
     GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, blobInfo, writeOptions);
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
 
     assertThat(stream).isNotNull();
-    verify(mockFileSystem).create(blobInfo, writeOptions);
+    verify(mockFileSystem).create(itemId, writeOptions);
   }
 
   @Test
@@ -79,7 +77,7 @@ class GoogleCloudStorageOutputStreamTest {
     var exception =
         assertThrows(
             IllegalStateException.class,
-            () -> GoogleCloudStorageOutputStream.create(null, blobInfo, writeOptions));
+            () -> GoogleCloudStorageOutputStream.create(null, itemId, writeOptions));
 
     assertThat(exception).hasMessageThat().isEqualTo("GcsFileSystem shouldn't be null");
   }
@@ -91,26 +89,26 @@ class GoogleCloudStorageOutputStreamTest {
             IllegalStateException.class,
             () -> GoogleCloudStorageOutputStream.create(mockFileSystem, null, writeOptions));
 
-    assertThat(exception).hasMessageThat().isEqualTo("BlobInfo shouldn't be null");
+    assertThat(exception).hasMessageThat().isEqualTo("GcsItemId shouldn't be null");
   }
 
   @Test
   void create_nullWriteOptions_succeeds() throws IOException {
-    when(mockFileSystem.create(eq(blobInfo), eq(null))).thenReturn(mockChannel);
+    when(mockFileSystem.create(eq(itemId), eq(null))).thenReturn(mockChannel);
 
     GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, blobInfo, null);
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, null);
 
     assertThat(stream).isNotNull();
-    verify(mockFileSystem).create(blobInfo, null);
+    verify(mockFileSystem).create(itemId, null);
   }
 
   @Test
   void write_singleByte_writesToChannel() throws IOException {
-    when(mockFileSystem.create(eq(blobInfo), eq(writeOptions))).thenReturn(mockChannel);
+    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
     when(mockChannel.write(any(ByteBuffer.class))).thenReturn(1);
     GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, blobInfo, writeOptions);
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
 
     stream.write(65); // 'A'
 
@@ -123,10 +121,10 @@ class GoogleCloudStorageOutputStreamTest {
 
   @Test
   void write_byteArray_writesToChannel() throws IOException {
-    when(mockFileSystem.create(eq(blobInfo), eq(writeOptions))).thenReturn(mockChannel);
+    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
     when(mockChannel.write(any(ByteBuffer.class))).thenReturn(5);
     GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, blobInfo, writeOptions);
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
 
     byte[] data = new byte[] {1, 2, 3, 4, 5};
     stream.write(data, 1, 3); // Writes {2, 3, 4}
@@ -143,9 +141,9 @@ class GoogleCloudStorageOutputStreamTest {
 
   @Test
   void write_byteArray_invalidArgs_throwsExceptions() throws IOException {
-    when(mockFileSystem.create(eq(blobInfo), eq(writeOptions))).thenReturn(mockChannel);
+    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
     GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, blobInfo, writeOptions);
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
     byte[] data = new byte[] {1, 2, 3};
 
     assertThrows(NullPointerException.class, () -> stream.write(null, 0, 1));
@@ -156,9 +154,9 @@ class GoogleCloudStorageOutputStreamTest {
 
   @Test
   void write_byteArray_zeroLength_doesNothing() throws IOException {
-    when(mockFileSystem.create(eq(blobInfo), eq(writeOptions))).thenReturn(mockChannel);
+    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
     GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, blobInfo, writeOptions);
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
     byte[] data = new byte[] {1, 2, 3};
 
     stream.write(data, 0, 0);
@@ -168,10 +166,10 @@ class GoogleCloudStorageOutputStreamTest {
 
   @Test
   void close_closesChannel() throws IOException {
-    when(mockFileSystem.create(eq(blobInfo), eq(writeOptions))).thenReturn(mockChannel);
+    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
     when(mockChannel.isOpen()).thenReturn(true);
     GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, blobInfo, writeOptions);
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
 
     stream.close();
 
@@ -180,11 +178,11 @@ class GoogleCloudStorageOutputStreamTest {
 
   @Test
   void close_whenChannelAlreadyClosed_isIdempotent() throws IOException {
-    when(mockFileSystem.create(eq(blobInfo), eq(writeOptions))).thenReturn(mockChannel);
+    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
     when(mockChannel.isOpen()).thenReturn(false);
 
     GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, blobInfo, writeOptions);
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
     stream.close();
 
     verify(mockChannel, never()).close();
@@ -192,20 +190,20 @@ class GoogleCloudStorageOutputStreamTest {
 
   @Test
   void close_whenChannelIsNull_succeedsSilently() throws IOException {
-    when(mockFileSystem.create(eq(blobInfo), eq(writeOptions))).thenReturn(null);
+    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(null);
 
     GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, blobInfo, writeOptions);
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
     stream.close();
   }
 
   @Test
   void getBytesWritten_delegatesToGcsWriteChannel() throws IOException {
-    when(mockFileSystem.create(eq(blobInfo), eq(writeOptions))).thenReturn(mockGcsWriteChannel);
+    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockGcsWriteChannel);
     when(mockGcsWriteChannel.getBytesWritten()).thenReturn(100L);
 
     GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, blobInfo, writeOptions);
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
 
     assertThat(stream.getBytesWritten()).isEqualTo(100L);
     verify(mockGcsWriteChannel).getBytesWritten();
@@ -213,10 +211,10 @@ class GoogleCloudStorageOutputStreamTest {
 
   @Test
   void getBytesWritten_nonGcsWriteChannel_returnsZero() throws IOException {
-    when(mockFileSystem.create(eq(blobInfo), eq(writeOptions))).thenReturn(mockChannel);
+    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
 
     GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, blobInfo, writeOptions);
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
 
     assertThat(stream.getBytesWritten()).isEqualTo(0L);
   }
@@ -225,25 +223,22 @@ class GoogleCloudStorageOutputStreamTest {
   void write_withFakeGcsFileSystem_writesDataCorrectly() throws IOException {
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(Map.of(), "");
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
-    GcsItemId itemId =
+    GcsItemId testItemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    BlobInfo blobInfo =
-        BlobInfo.newBuilder(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()))
-            .build();
 
     try (GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(fakeGcsFileSystem, blobInfo, writeOptions)) {
+        GoogleCloudStorageOutputStream.create(fakeGcsFileSystem, testItemId, writeOptions)) {
       stream.write("hello fake world".getBytes(UTF_8));
     }
 
     // Verify the data is present in the fake file system
-    GcsFileInfo fileInfo = fakeGcsFileSystem.getFileInfo(itemId);
+    GcsFileInfo fileInfo = fakeGcsFileSystem.getFileInfo(testItemId);
     assertThat(fileInfo).isNotNull();
     assertThat(fileInfo.getItemInfo().getSize()).isEqualTo("hello fake world".length());
 
     // Read the data back using GoogleCloudStorageInputStream to verify
     try (GoogleCloudStorageInputStream inputStream =
-        GoogleCloudStorageInputStream.create(fakeGcsFileSystem, itemId)) {
+        GoogleCloudStorageInputStream.create(fakeGcsFileSystem, testItemId)) {
       byte[] buffer = new byte[50];
       int read = inputStream.read(buffer, 0, buffer.length);
       assertThat(new String(buffer, 0, read, UTF_8)).isEqualTo("hello fake world");
@@ -254,11 +249,8 @@ class GoogleCloudStorageOutputStreamTest {
   void write_multipleChunksAndSingleBytes_withFakeGcsFileSystem() throws IOException {
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(Map.of(), "");
     FakeGcsFileSystemImpl fakeGcsFileSystem = new FakeGcsFileSystemImpl(options);
-    GcsItemId itemId =
+    GcsItemId testItemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
-    BlobInfo blobInfo =
-        BlobInfo.newBuilder(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()))
-            .build();
     int valA = 65; // 'A'
     byte[] chunk1 = "hello".getBytes(UTF_8);
     int valB = 66; // 'B'
@@ -274,7 +266,7 @@ class GoogleCloudStorageOutputStreamTest {
     byte[] expectedBytes = expectedStream.toByteArray();
 
     try (GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(fakeGcsFileSystem, blobInfo, writeOptions)) {
+        GoogleCloudStorageOutputStream.create(fakeGcsFileSystem, testItemId, writeOptions)) {
       stream.write(valA);
       stream.write(chunk1);
       stream.write(valB);
@@ -282,12 +274,12 @@ class GoogleCloudStorageOutputStreamTest {
     }
 
     // Verify the data is present in the fake file system
-    GcsFileInfo fileInfo = fakeGcsFileSystem.getFileInfo(itemId);
+    GcsFileInfo fileInfo = fakeGcsFileSystem.getFileInfo(testItemId);
     assertThat(fileInfo).isNotNull();
     assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(expectedBytes.length);
 
     try (GoogleCloudStorageInputStream inputStream =
-        GoogleCloudStorageInputStream.create(fakeGcsFileSystem, itemId)) {
+        GoogleCloudStorageInputStream.create(fakeGcsFileSystem, testItemId)) {
       byte[] buffer = new byte[expectedBytes.length + 10];
       int read = inputStream.read(buffer, 0, buffer.length);
       assertThat(read).isEqualTo(expectedBytes.length);
