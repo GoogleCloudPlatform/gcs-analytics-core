@@ -41,6 +41,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.IntFunction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,7 +63,7 @@ class SmartReadChannelTest {
   private FormatOptimizer mockOptimizer;
 
   @BeforeEach
-  void setUp() throws IOException {
+  void initializeMocks() throws IOException {
     mockDelegate = mock(VectoredSeekableByteChannel.class);
     mockCacheManager = mock(AnalyticsCacheManager.class);
     mockOptimizer = mock(FormatOptimizer.class);
@@ -529,5 +530,170 @@ class SmartReadChannelTest {
 
     Error exception = assertThrows(Error.class, smartChannel::close);
     assertThat(exception).hasMessageThat().isEqualTo("fatal error");
+  }
+
+  @Test
+  void readVectored_delegatesToOptimizersAndThenChannel() throws IOException {
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(10)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+    List<GcsObjectRange> ranges = List.of(range);
+    FormatOptimizer mockOptimizer1 = mock(FormatOptimizer.class);
+    when(mockOptimizer1.isApplicable(any(GcsItemId.class))).thenReturn(true);
+    when(mockOptimizer1.readVectored(any(), any())).thenReturn(ranges);
+    FormatOptimizer mockOptimizer2 = mock(FormatOptimizer.class);
+    when(mockOptimizer2.isApplicable(any(GcsItemId.class))).thenReturn(true);
+    when(mockOptimizer2.readVectored(any(), any())).thenReturn(java.util.Collections.emptyList());
+    SmartReadChannel smartChannel =
+        SmartReadChannel.builder()
+            .setDelegate(mockDelegate)
+            .setItemId(ITEM_ID)
+            .setCacheManager(mockCacheManager)
+            .addOptimizer(mockOptimizer1)
+            .addOptimizer(mockOptimizer2)
+            .build();
+
+    smartChannel.readVectored(ranges, ByteBuffer::allocate);
+
+    verify(mockOptimizer1).readVectored(eq(ranges), any());
+    verify(mockOptimizer2).readVectored(eq(ranges), any());
+    verify(mockDelegate, org.mockito.Mockito.never()).readVectored(any(), any());
+  }
+
+  @Test
+  void readVectored_delegatesToChannelWhenOptimizersDoNotSatisfy() throws IOException {
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(10)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+    List<GcsObjectRange> ranges = List.of(range);
+    FormatOptimizer mockOptimizer = mock(FormatOptimizer.class);
+    when(mockOptimizer.isApplicable(any(GcsItemId.class))).thenReturn(true);
+    when(mockOptimizer.readVectored(any(), any())).thenReturn(ranges);
+    SmartReadChannel smartChannel =
+        SmartReadChannel.builder()
+            .setDelegate(mockDelegate)
+            .setItemId(ITEM_ID)
+            .setCacheManager(mockCacheManager)
+            .addOptimizer(mockOptimizer)
+            .build();
+
+    smartChannel.readVectored(ranges, ByteBuffer::allocate);
+
+    verify(mockOptimizer).readVectored(eq(ranges), any());
+    verify(mockDelegate).readVectored(eq(ranges), any());
+  }
+
+  @Test
+  void init_throwsRuntimeException_suppressedExceptionPreserved() throws IOException {
+    FormatOptimizer successfulOptimizer = mock(FormatOptimizer.class);
+    when(successfulOptimizer.isApplicable(any(GcsFileInfo.class))).thenReturn(true);
+    org.mockito.Mockito.doThrow(new IOException("close failed"))
+        .when(successfulOptimizer)
+        .onClose();
+    FormatOptimizer failingOptimizer = mock(FormatOptimizer.class);
+    when(failingOptimizer.isApplicable(any(GcsFileInfo.class))).thenReturn(true);
+    org.mockito.Mockito.doThrow(new RuntimeException("init runtime failed"))
+        .when(failingOptimizer)
+        .onOpen(any(GcsFileInfo.class), any());
+    RuntimeException exception =
+        assertThrows(
+            RuntimeException.class,
+            () ->
+                SmartReadChannel.builder()
+                    .setDelegate(mockDelegate)
+                    .setFileInfo(FILE_INFO)
+                    .setCacheManager(mockCacheManager)
+                    .addOptimizer(successfulOptimizer)
+                    .addOptimizer(failingOptimizer)
+                    .build());
+
+    assertThat(exception).hasMessageThat().isEqualTo("init runtime failed");
+    assertThat(exception.getSuppressed()).hasLength(1);
+    assertThat(exception.getSuppressed()[0]).hasMessageThat().isEqualTo("close failed");
+    verify(successfulOptimizer).onClose();
+  }
+
+  @Test
+  void close_success_closesAllOptimizersAndDelegate() throws IOException {
+    FormatOptimizer mockOptimizer1 = mock(FormatOptimizer.class);
+    when(mockOptimizer1.isApplicable(any(GcsItemId.class))).thenReturn(true);
+    FormatOptimizer mockOptimizer2 = mock(FormatOptimizer.class);
+    when(mockOptimizer2.isApplicable(any(GcsItemId.class))).thenReturn(true);
+    SmartReadChannel smartChannel =
+        SmartReadChannel.builder()
+            .setDelegate(mockDelegate)
+            .setItemId(ITEM_ID)
+            .setCacheManager(mockCacheManager)
+            .addOptimizer(mockOptimizer1)
+            .addOptimizer(mockOptimizer2)
+            .build();
+
+    smartChannel.close();
+
+    verify(mockOptimizer1).onClose();
+    verify(mockOptimizer2).onClose();
+    verify(mockDelegate).close();
+  }
+
+  @Test
+  void close_throwsIOException_rethrowsIOException() throws IOException {
+    FormatOptimizer mockOptimizer = mock(FormatOptimizer.class);
+    when(mockOptimizer.isApplicable(any(GcsItemId.class))).thenReturn(true);
+    org.mockito.Mockito.doThrow(new IOException("IO close failed")).when(mockOptimizer).onClose();
+    SmartReadChannel smartChannel =
+        SmartReadChannel.builder()
+            .setDelegate(mockDelegate)
+            .setItemId(ITEM_ID)
+            .setCacheManager(mockCacheManager)
+            .addOptimizer(mockOptimizer)
+            .build();
+
+    IOException exception = assertThrows(IOException.class, smartChannel::close);
+
+    assertThat(exception).hasMessageThat().isEqualTo("IO close failed");
+  }
+
+  @Test
+  void close_throwsRuntimeException_rethrowsRuntimeException() throws IOException {
+    FormatOptimizer mockOptimizer = mock(FormatOptimizer.class);
+    when(mockOptimizer.isApplicable(any(GcsItemId.class))).thenReturn(true);
+    org.mockito.Mockito.doThrow(new RuntimeException("Runtime close failed"))
+        .when(mockOptimizer)
+        .onClose();
+    SmartReadChannel smartChannel =
+        SmartReadChannel.builder()
+            .setDelegate(mockDelegate)
+            .setItemId(ITEM_ID)
+            .setCacheManager(mockCacheManager)
+            .addOptimizer(mockOptimizer)
+            .build();
+
+    RuntimeException exception = assertThrows(RuntimeException.class, smartChannel::close);
+
+    assertThat(exception).hasMessageThat().isEqualTo("Runtime close failed");
+  }
+
+  @Test
+  void close_throwsError_rethrowsError() throws IOException {
+    FormatOptimizer mockOptimizer = mock(FormatOptimizer.class);
+    when(mockOptimizer.isApplicable(any(GcsItemId.class))).thenReturn(true);
+    org.mockito.Mockito.doThrow(new Error("Error close failed")).when(mockOptimizer).onClose();
+    SmartReadChannel smartChannel =
+        SmartReadChannel.builder()
+            .setDelegate(mockDelegate)
+            .setItemId(ITEM_ID)
+            .setCacheManager(mockCacheManager)
+            .addOptimizer(mockOptimizer)
+            .build();
+
+    Error exception = assertThrows(Error.class, smartChannel::close);
+
+    assertThat(exception).hasMessageThat().isEqualTo("Error close failed");
   }
 }

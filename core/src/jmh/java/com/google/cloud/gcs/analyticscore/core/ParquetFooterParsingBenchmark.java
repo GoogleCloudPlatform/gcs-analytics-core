@@ -42,7 +42,7 @@ public class ParquetFooterParsingBenchmark {
       GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
               Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
-                      "gcs.analytics-core.small-file.cache.threshold-bytes", "1048576"), "gcs.");
+                      "gcs.analytics-core.small-file.cache.max-size-bytes", "1048576"), "gcs.");
         URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE);
         ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
     }

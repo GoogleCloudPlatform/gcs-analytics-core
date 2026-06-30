@@ -25,9 +25,16 @@ import org.junit.jupiter.api.Test;
 
 class GcsCacheOptionsTest {
 
+  private static final long KB = 1024L;
+  private static final long MB = 1024L * KB;
+
   private static final String FOOTER_CACHE_ENABLED_KEY = "gcs.analytics-core.footer.cache.enabled";
-  private static final String FOOTER_CACHE_MAX_ENTRIES_KEY =
-      "gcs.analytics-core.footer.cache.max-entries";
+  private static final String FOOTER_CACHE_MAX_SIZE_BYTES_KEY =
+      "gcs.analytics-core.footer.cache.max-size-bytes";
+  private static final String SMALL_OBJECT_CACHE_ENABLED_KEY =
+      "gcs.analytics-core.small-file.cache.enabled";
+  private static final String SMALL_OBJECT_CACHE_MAX_SIZE_BYTES_KEY =
+      "gcs.analytics-core.small-file.cache.max-size-bytes";
   private static final String BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY =
       "gcs.analytics-core.bucket-properties.cache.max-entry-age-minutes";
 
@@ -35,32 +42,41 @@ class GcsCacheOptionsTest {
   void build_defaultValues_succeeds() {
     GcsCacheOptions options = GcsCacheOptions.builder().build();
 
-    assertThat(options.isFooterCacheEnabled()).isTrue();
-    assertThat(options.getFooterCacheMaxEntries()).isEqualTo(100);
+    assertThat(options.isFooterCacheEnabled()).isFalse();
+    assertThat(options.getFooterCacheMaxSizeBytes()).isEqualTo(100 * MB);
+    assertThat(options.isSmallObjectCacheEnabled()).isFalse();
+    assertThat(options.getSmallObjectCacheMaxSizeBytes()).isEqualTo(200 * MB);
     assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes()).isEqualTo(10);
   }
 
   @Test
-  void build_disabledFooterCacheNonPositiveEntries_succeeds() {
+  void build_disabledCacheNonPositiveSizeBytes_succeeds() {
     GcsCacheOptions options =
-        GcsCacheOptions.builder().setFooterCacheEnabled(false).setFooterCacheMaxEntries(0).build();
+        GcsCacheOptions.builder()
+            .setFooterCacheEnabled(false)
+            .setFooterCacheMaxSizeBytes(0)
+            .setSmallObjectCacheEnabled(false)
+            .setSmallObjectCacheMaxSizeBytes(0)
+            .build();
 
     assertThat(options.isFooterCacheEnabled()).isFalse();
-    assertThat(options.getFooterCacheMaxEntries()).isEqualTo(0);
+    assertThat(options.getFooterCacheMaxSizeBytes()).isEqualTo(0);
+    assertThat(options.isSmallObjectCacheEnabled()).isFalse();
+    assertThat(options.getSmallObjectCacheMaxSizeBytes()).isEqualTo(0);
   }
 
   @Test
-  void build_enabledFooterCacheZeroEntries_throwsException() {
+  void build_enabledCacheZeroSizeBytes_throwsException() {
     GcsCacheOptions.Builder builder =
-        GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxEntries(0);
+        GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxSizeBytes(0);
 
     assertThrows(IllegalArgumentException.class, builder::build);
   }
 
   @Test
-  void build_enabledFooterCacheNegativeEntries_throwsException() {
+  void build_enabledCacheNegativeSizeBytes_throwsException() {
     GcsCacheOptions.Builder builder =
-        GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxEntries(-1);
+        GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxSizeBytes(-1);
 
     assertThrows(IllegalArgumentException.class, builder::build);
   }
@@ -84,11 +100,15 @@ class GcsCacheOptionsTest {
   @Test
   void createFromOptions_withAllOptions_succeeds() {
     boolean footerCacheEnabled = false;
-    int footerCacheMaxEntries = 50;
+    long footerCacheMaxSizeBytes = 50 * MB;
+    boolean smallObjectCacheEnabled = true;
+    long smallObjectCacheMaxSizeBytes = 100 * MB;
     int bucketPropertiesCacheMaxEntryAgeMinutes = 20;
     Map<String, String> map = new HashMap<>();
     map.put(FOOTER_CACHE_ENABLED_KEY, String.valueOf(footerCacheEnabled));
-    map.put(FOOTER_CACHE_MAX_ENTRIES_KEY, String.valueOf(footerCacheMaxEntries));
+    map.put(FOOTER_CACHE_MAX_SIZE_BYTES_KEY, String.valueOf(footerCacheMaxSizeBytes));
+    map.put(SMALL_OBJECT_CACHE_ENABLED_KEY, String.valueOf(smallObjectCacheEnabled));
+    map.put(SMALL_OBJECT_CACHE_MAX_SIZE_BYTES_KEY, String.valueOf(smallObjectCacheMaxSizeBytes));
     map.put(
         BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY,
         String.valueOf(bucketPropertiesCacheMaxEntryAgeMinutes));
@@ -96,7 +116,9 @@ class GcsCacheOptionsTest {
     GcsCacheOptions options = GcsCacheOptions.createFromOptions(map, "gcs.");
 
     assertThat(options.isFooterCacheEnabled()).isEqualTo(footerCacheEnabled);
-    assertThat(options.getFooterCacheMaxEntries()).isEqualTo(footerCacheMaxEntries);
+    assertThat(options.getFooterCacheMaxSizeBytes()).isEqualTo(footerCacheMaxSizeBytes);
+    assertThat(options.isSmallObjectCacheEnabled()).isEqualTo(smallObjectCacheEnabled);
+    assertThat(options.getSmallObjectCacheMaxSizeBytes()).isEqualTo(smallObjectCacheMaxSizeBytes);
     assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes())
         .isEqualTo(bucketPropertiesCacheMaxEntryAgeMinutes);
   }
@@ -107,15 +129,17 @@ class GcsCacheOptionsTest {
 
     GcsCacheOptions options = GcsCacheOptions.createFromOptions(map, "gcs.");
 
-    assertThat(options.isFooterCacheEnabled()).isTrue();
-    assertThat(options.getFooterCacheMaxEntries()).isEqualTo(100);
+    assertThat(options.isFooterCacheEnabled()).isFalse();
+    assertThat(options.getFooterCacheMaxSizeBytes()).isEqualTo(100 * MB);
+    assertThat(options.isSmallObjectCacheEnabled()).isFalse();
+    assertThat(options.getSmallObjectCacheMaxSizeBytes()).isEqualTo(200 * MB);
     assertThat(options.getBucketPropertiesCacheMaxEntryAgeMinutes()).isEqualTo(10);
   }
 
   @Test
   void createFromOptions_malformedInteger_throwsNumberFormatException() {
     Map<String, String> map = new HashMap<>();
-    map.put(FOOTER_CACHE_MAX_ENTRIES_KEY, "not-a-number");
+    map.put(FOOTER_CACHE_MAX_SIZE_BYTES_KEY, "not-a-number");
 
     assertThrows(NumberFormatException.class, () -> GcsCacheOptions.createFromOptions(map, "gcs."));
   }

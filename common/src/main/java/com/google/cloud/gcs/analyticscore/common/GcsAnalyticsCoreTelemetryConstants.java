@@ -28,6 +28,12 @@ public class GcsAnalyticsCoreTelemetryConstants {
     OPEN_DURATION("gcs.analytics-core.client.open.duration", MetricType.DURATION),
     READ_CACHE_HIT("gcs.analytics-core.client.read.cache.hits", MetricType.COUNTER),
     READ_CACHE_MISS("gcs.analytics-core.client.read.cache.misses", MetricType.COUNTER),
+    FOOTER_CACHE_HIT("gcs.analytics-core.client.footer.cache.hits", MetricType.COUNTER),
+    FOOTER_CACHE_MISS("gcs.analytics-core.client.footer.cache.misses", MetricType.COUNTER),
+    FOOTER_PREFETCH_HIT("gcs.analytics-core.client.footer.prefetch.hits", MetricType.COUNTER),
+    SMALL_OBJECT_CACHE_HIT("gcs.analytics-core.client.small.object.cache.hits", MetricType.COUNTER),
+    SMALL_OBJECT_CACHE_MISS(
+        "gcs.analytics-core.client.small.object.cache.misses", MetricType.COUNTER),
     CLOSE_DURATION("gcs.analytics-core.client.close.duration", MetricType.DURATION),
     GCS_CLIENT_CREATE_DURATION("gcs.analytics-core.client.create.duration", MetricType.DURATION);
 

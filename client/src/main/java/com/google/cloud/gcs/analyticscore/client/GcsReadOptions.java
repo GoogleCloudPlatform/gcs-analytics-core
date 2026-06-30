@@ -46,10 +46,11 @@ public abstract class GcsReadOptions {
 
   private static final boolean DEFAULT_FOOTER_PREFETCH_ENABLED = true;
   private static final int DEFAULT_INPLACE_SEEK_LIMIT = 128 * KB;
-  private static final int DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE = 100 * KB;
+  private static final int DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE = 50 * KB;
   private static final int DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE = MB;
-  private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = 0; // 0 bytes = disabled
-  private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN = FileAccessPattern.SEQUENTIAL;
+  private static final int DEFAULT_SMALL_FILE_CACHE_THRESHOLD = MB;
+  private static final FileAccessPattern DEFAULT_FILE_ACCESS_PATTERN =
+      FileAccessPattern.AUTO_SEQUENTIAL;
   private static final int DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD = 3;
   private static final int DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE = 128 * KB;
 
@@ -65,7 +66,7 @@ public abstract class GcsReadOptions {
 
   public abstract boolean isFooterPrefetchEnabled();
 
-  public abstract int getSmallObjectCacheSize();
+  public abstract int getSmallObjectCacheThresholdBytes();
 
   public abstract GcsVectoredReadOptions getGcsVectoredReadOptions();
 
@@ -85,7 +86,7 @@ public abstract class GcsReadOptions {
         .setFooterPrefetchEnabled(DEFAULT_FOOTER_PREFETCH_ENABLED)
         .setFooterPrefetchSizeSmallFile(DEFAULT_SMALL_FILE_FOOTER_PREFETCH_SIZE)
         .setFooterPrefetchSizeLargeFile(DEFAULT_LARGE_FILE_FOOTER_PREFETCH_SIZE)
-        .setSmallObjectCacheSize(DEFAULT_SMALL_FILE_CACHE_THRESHOLD)
+        .setSmallObjectCacheThresholdBytes(DEFAULT_SMALL_FILE_CACHE_THRESHOLD)
         .setInplaceSeekLimit(DEFAULT_INPLACE_SEEK_LIMIT)
         .setFileAccessPattern(DEFAULT_FILE_ACCESS_PATTERN)
         .setAdaptiveReadSequentialReadThreshold(DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD)
@@ -118,7 +119,7 @@ public abstract class GcsReadOptions {
           safeParseInteger(analyticsCoreOptions, prefix + LARGE_FILE_FOOTER_PREFETCH_SIZE_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_CACHE_THRESHOLD_KEY)) {
-      optionsBuilder.setSmallObjectCacheSize(
+      optionsBuilder.setSmallObjectCacheThresholdBytes(
           safeParseInteger(analyticsCoreOptions, prefix + SMALL_FILE_CACHE_THRESHOLD_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + INPLACE_SEEK_LIMIT_KEY)) {
@@ -175,7 +176,7 @@ public abstract class GcsReadOptions {
 
     public abstract Builder setFooterPrefetchSizeLargeFile(int footerPrefetchSizeLargeFile);
 
-    public abstract Builder setSmallObjectCacheSize(int smallObjectCacheSize);
+    public abstract Builder setSmallObjectCacheThresholdBytes(int smallObjectCacheThresholdBytes);
 
     public abstract Builder setInplaceSeekLimit(int inplaceSeekLimit);
 

@@ -26,22 +26,36 @@ import java.util.Map;
 public abstract class GcsCacheOptions {
 
   private static final String FOOTER_CACHE_ENABLED_KEY = "analytics-core.footer.cache.enabled";
-  private static final String FOOTER_CACHE_MAX_ENTRIES_KEY =
-      "analytics-core.footer.cache.max-entries";
-
+  private static final String FOOTER_CACHE_MAX_SIZE_BYTES_KEY =
+      "analytics-core.footer.cache.max-size-bytes";
+  private static final String SMALL_FILE_CACHE_ENABLED_KEY =
+      "analytics-core.small-file.cache.enabled";
+  private static final String SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY =
+      "analytics-core.small-file.cache.max-size-bytes";
   private static final String BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY =
       "analytics-core.bucket-properties.cache.max-entry-age-minutes";
 
-  private static final boolean DEFAULT_FOOTER_CACHE_ENABLED = true;
-  private static final int DEFAULT_FOOTER_CACHE_MAX_ENTRIES = 100;
+  private static final long KB = 1024L;
+  private static final long MB = 1024L * KB;
 
+  private static final boolean DEFAULT_FOOTER_CACHE_ENABLED = false;
+  private static final long DEFAULT_FOOTER_CACHE_MAX_SIZE_BYTES = 100 * MB;
+  private static final boolean DEFAULT_SMALL_OBJECT_CACHE_ENABLED = false;
+  private static final long DEFAULT_SMALL_OBJECT_CACHE_MAX_SIZE_BYTES = 200 * MB;
   private static final int DEFAULT_BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES = 10;
 
   /** Returns whether the Parquet footer cache is enabled. */
   public abstract boolean isFooterCacheEnabled();
 
-  /** Returns the maximum number of entries to hold in the Parquet footer cache. */
-  public abstract int getFooterCacheMaxEntries();
+  /** Returns the maximum capacity (in bytes) to hold in the Parquet footer cache. */
+  public abstract long getFooterCacheMaxSizeBytes();
+
+  /** Returns the maximum capacity (in bytes) to hold in the small object cache. */
+  /** Returns whether the small object cache is enabled. */
+  public abstract boolean isSmallObjectCacheEnabled();
+
+  /** Returns the maximum capacity (in bytes) to hold in the small object cache. */
+  public abstract long getSmallObjectCacheMaxSizeBytes();
 
   /** Returns the maximum age (in minutes) of an entry in the bucket properties cache. */
   public abstract int getBucketPropertiesCacheMaxEntryAgeMinutes();
@@ -55,7 +69,9 @@ public abstract class GcsCacheOptions {
   public static Builder builder() {
     return new AutoValue_GcsCacheOptions.Builder()
         .setFooterCacheEnabled(DEFAULT_FOOTER_CACHE_ENABLED)
-        .setFooterCacheMaxEntries(DEFAULT_FOOTER_CACHE_MAX_ENTRIES)
+        .setFooterCacheMaxSizeBytes(DEFAULT_FOOTER_CACHE_MAX_SIZE_BYTES)
+        .setSmallObjectCacheEnabled(DEFAULT_SMALL_OBJECT_CACHE_ENABLED)
+        .setSmallObjectCacheMaxSizeBytes(DEFAULT_SMALL_OBJECT_CACHE_MAX_SIZE_BYTES)
         .setBucketPropertiesCacheMaxEntryAgeMinutes(
             DEFAULT_BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES);
   }
@@ -68,9 +84,17 @@ public abstract class GcsCacheOptions {
       optionsBuilder.setFooterCacheEnabled(
           Boolean.parseBoolean(analyticsCoreOptions.get(prefix + FOOTER_CACHE_ENABLED_KEY)));
     }
-    if (analyticsCoreOptions.containsKey(prefix + FOOTER_CACHE_MAX_ENTRIES_KEY)) {
-      optionsBuilder.setFooterCacheMaxEntries(
-          Integer.parseInt(analyticsCoreOptions.get(prefix + FOOTER_CACHE_MAX_ENTRIES_KEY)));
+    if (analyticsCoreOptions.containsKey(prefix + FOOTER_CACHE_MAX_SIZE_BYTES_KEY)) {
+      optionsBuilder.setFooterCacheMaxSizeBytes(
+          Long.parseLong(analyticsCoreOptions.get(prefix + FOOTER_CACHE_MAX_SIZE_BYTES_KEY)));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_CACHE_ENABLED_KEY)) {
+      optionsBuilder.setSmallObjectCacheEnabled(
+          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + SMALL_FILE_CACHE_ENABLED_KEY)));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY)) {
+      optionsBuilder.setSmallObjectCacheMaxSizeBytes(
+          Long.parseLong(analyticsCoreOptions.get(prefix + SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY)));
     }
     if (analyticsCoreOptions.containsKey(
         prefix + BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY)) {
@@ -88,8 +112,15 @@ public abstract class GcsCacheOptions {
     /** Sets whether the Parquet footer cache is enabled. */
     public abstract Builder setFooterCacheEnabled(boolean footerCacheEnabled);
 
-    /** Sets the maximum number of entries to hold in the Parquet footer cache. */
-    public abstract Builder setFooterCacheMaxEntries(int footerCacheMaxEntries);
+    /** Sets the maximum capacity (in bytes) to hold in the Parquet footer cache. */
+    public abstract Builder setFooterCacheMaxSizeBytes(long footerCacheMaxSizeBytes);
+
+    /** Sets the maximum capacity (in bytes) to hold in the small object cache. */
+    /** Sets whether the small object cache is enabled. */
+    public abstract Builder setSmallObjectCacheEnabled(boolean smallObjectCacheEnabled);
+
+    /** Sets the maximum capacity (in bytes) to hold in the small object cache. */
+    public abstract Builder setSmallObjectCacheMaxSizeBytes(long smallObjectCacheMaxSizeBytes);
 
     /** Sets the maximum age (in minutes) of an entry in the bucket properties cache. */
     public abstract Builder setBucketPropertiesCacheMaxEntryAgeMinutes(
@@ -100,15 +131,20 @@ public abstract class GcsCacheOptions {
     /**
      * Builds the {@link GcsCacheOptions} instance.
      *
-     * @throws IllegalArgumentException if {@code footerCacheMaxEntries} is non-positive when {@code
-     *     footerCacheEnabled} is {@code true}.
+     * @throws IllegalArgumentException if {@code footerCacheMaxSizeBytes} is non-positive when
+     *     {@code footerCacheEnabled} is {@code true}.
      */
     public GcsCacheOptions build() {
       GcsCacheOptions options = autoBuild();
       if (options.isFooterCacheEnabled()) {
         checkArgument(
-            options.getFooterCacheMaxEntries() > 0,
-            "footerCacheMaxEntries must be positive when footerCacheEnabled is true");
+            options.getFooterCacheMaxSizeBytes() > 0,
+            "footerCacheMaxSizeBytes must be positive when footerCacheEnabled is true");
+      }
+      if (options.isSmallObjectCacheEnabled()) {
+        checkArgument(
+            options.getSmallObjectCacheMaxSizeBytes() > 0,
+            "smallObjectCacheMaxSizeBytes must be positive when smallObjectCacheEnabled is true");
       }
       checkArgument(
           options.getBucketPropertiesCacheMaxEntryAgeMinutes() >= 0,
