@@ -29,5 +29,5 @@ public class ParquetRecordReadState {
     public String footerPrefetchSize;
 
     @Param({"true", "false"})
-    public boolean enableBidiVectoredRead;
+    public boolean enableBidiRead;
 }

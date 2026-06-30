@@ -33,8 +33,7 @@ public abstract class GcsReadOptions {
   private static final String LARGE_FILE_FOOTER_PREFETCH_SIZE_KEY =
       "analytics-core.large-file.footer.prefetch.size-bytes";
   private static final String USER_PROJECT_KEY = "user-project";
-  private static final String BIDI_VECTORED_READ_ENABLED_KEY =
-      "analytics-core.read.bidi.vectored.enabled";
+  private static final String BIDI_READ_ENABLED_KEY = "analytics-core.read.bidi.enabled";
   private static final String BIDI_TIMEOUT_SECONDS = "analytics-core.read.bidi.timeout-seconds";
   private static final String INPLACE_SEEK_LIMIT_KEY =
       "analytics-core.read.inplace-seek-limit-bytes";
@@ -49,7 +48,7 @@ public abstract class GcsReadOptions {
 
   private static final boolean DEFAULT_FOOTER_PREFETCH_ENABLED = true;
 
-  private static final boolean DEFAULT_BIDI_VECTORED_READ_ENABLED = false;
+  private static final boolean DEFAULT_BIDI_READ_ENABLED = false;
   private static final int DEFAULT_BIDI_TIMEOUT_SECONDS = 10;
 
   private static final int DEFAULT_INPLACE_SEEK_LIMIT = 128 * KB;
@@ -75,7 +74,7 @@ public abstract class GcsReadOptions {
 
   public abstract int getSmallObjectCacheThresholdBytes();
 
-  public abstract boolean isBidiVectoredReadEnabled();
+  public abstract boolean isBidiReadEnabled();
 
   public abstract int getBidiTimeout();
 
@@ -102,7 +101,7 @@ public abstract class GcsReadOptions {
         .setFileAccessPattern(DEFAULT_FILE_ACCESS_PATTERN)
         .setAdaptiveReadSequentialReadThreshold(DEFAULT_ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD)
         .setRandomReadMinRequestSize(DEFAULT_RANDOM_READ_MIN_REQUEST_SIZE)
-        .setBidiVectoredReadEnabled(DEFAULT_BIDI_VECTORED_READ_ENABLED)
+        .setBidiReadEnabled(DEFAULT_BIDI_READ_ENABLED)
         .setBidiTimeout(DEFAULT_BIDI_TIMEOUT_SECONDS);
   }
 
@@ -135,9 +134,9 @@ public abstract class GcsReadOptions {
       optionsBuilder.setSmallObjectCacheThresholdBytes(
           safeParseInteger(analyticsCoreOptions, prefix + SMALL_FILE_CACHE_THRESHOLD_KEY));
     }
-    if (analyticsCoreOptions.containsKey(prefix + BIDI_VECTORED_READ_ENABLED_KEY)) {
-      optionsBuilder.setBidiVectoredReadEnabled(
-          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + BIDI_VECTORED_READ_ENABLED_KEY)));
+    if (analyticsCoreOptions.containsKey(prefix + BIDI_READ_ENABLED_KEY)) {
+      optionsBuilder.setBidiReadEnabled(
+          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + BIDI_READ_ENABLED_KEY)));
     }
     if (analyticsCoreOptions.containsKey(prefix + BIDI_TIMEOUT_SECONDS)) {
       optionsBuilder.setBidiTimeout(
@@ -199,7 +198,7 @@ public abstract class GcsReadOptions {
 
     public abstract Builder setSmallObjectCacheThresholdBytes(int smallObjectCacheThresholdBytes);
 
-    public abstract Builder setBidiVectoredReadEnabled(boolean enabled);
+    public abstract Builder setBidiReadEnabled(boolean enabled);
 
     public abstract Builder setBidiTimeout(int bidiTimeout);
 

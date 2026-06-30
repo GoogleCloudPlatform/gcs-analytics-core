@@ -260,7 +260,7 @@ class GcsClientImplTest {
     GcsClientOptions options =
         GcsClientOptions.builder()
             .setProjectId("test-project")
-            .setGcsReadOptions(GcsReadOptions.builder().setBidiVectoredReadEnabled(true).build())
+            .setGcsReadOptions(GcsReadOptions.builder().setBidiReadEnabled(true).build())
             .build();
     GcsClientImpl client = new GcsClientImpl(options, executorServiceSupplier, telemetry);
     assertThat(client.storage.getOptions()).isInstanceOf(GrpcStorageOptions.class);
@@ -269,10 +269,7 @@ class GcsClientImplTest {
   @Test
   void openReadChannel_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
     GcsReadOptions readOptions =
-        GcsReadOptions.builder()
-            .setUserProjectId("test-project")
-            .setBidiVectoredReadEnabled(true)
-            .build();
+        GcsReadOptions.builder().setUserProjectId("test-project").setBidiReadEnabled(true).build();
     GcsItemId itemId =
         GcsItemId.builder()
             .setBucketName("test-bucket-name")
@@ -300,10 +297,7 @@ class GcsClientImplTest {
   @Test
   void openReadChannel_itemId_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
     GcsReadOptions readOptions =
-        GcsReadOptions.builder()
-            .setUserProjectId("test-project")
-            .setBidiVectoredReadEnabled(true)
-            .build();
+        GcsReadOptions.builder().setUserProjectId("test-project").setBidiReadEnabled(true).build();
     GcsItemId itemId =
         GcsItemId.builder()
             .setBucketName("test-bucket-name")
