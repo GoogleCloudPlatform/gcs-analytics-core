@@ -50,6 +50,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
   private final BlobId blobId;
   private volatile BlobReadSession blobReadSession;
   private volatile boolean closed = false;
+  private final ApiFuture<BlobReadSession> sessionFuture;
 
   GcsBidiReadChannel(
       Storage storage,
@@ -61,6 +62,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
     super(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
     this.bidiClientTimeoutSeconds = readOptions.getBidiTimeout();
     this.blobId = initBlobId();
+    this.sessionFuture = storage.blobReadSession(blobId);
   }
 
   GcsBidiReadChannel(
@@ -84,6 +86,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
     super(storage, itemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider);
     this.bidiClientTimeoutSeconds = readOptions.getBidiTimeout();
     this.blobId = initBlobId();
+    this.sessionFuture = storage.blobReadSession(blobId);
   }
 
   private BlobId initBlobId() {
@@ -125,27 +128,27 @@ class GcsBidiReadChannel extends GcsReadChannel {
   }
 
   private BlobReadSession getBlobReadSession() throws IOException {
-    if (blobReadSession == null) {
-      synchronized (this) {
-        if (closed) {
-          throw new IOException("Reader is closed.");
-        }
-        if (blobReadSession == null) {
-          try {
-            ApiFuture<BlobReadSession> sessionFuture = storage.blobReadSession(blobId);
-            blobReadSession = sessionFuture.get(bidiClientTimeoutSeconds, TimeUnit.SECONDS);
-          } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("Failed to get BlobReadSession due to thread interruption", e);
-          } catch (ExecutionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof StorageException && ((StorageException) cause).getCode() == 404) {
-              throw new FileNotFoundException("Object not found: " + blobId);
-            }
-            throw new IOException("Failed to get BlobReadSession", e);
-          } catch (TimeoutException e) {
-            throw new IOException("Failed to get BlobReadSession due to client timeout limit", e);
+    if (blobReadSession != null) {
+      return blobReadSession;
+    }
+    synchronized (this) {
+      if (closed) {
+        throw new IOException("Reader is closed.");
+      }
+      if (blobReadSession == null) {
+        try {
+          blobReadSession = this.sessionFuture.get(bidiClientTimeoutSeconds, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new IOException("Failed to get BlobReadSession due to thread interruption", e);
+        } catch (ExecutionException e) {
+          Throwable cause = e.getCause();
+          if (cause instanceof StorageException && ((StorageException) cause).getCode() == 404) {
+            throw new FileNotFoundException("Object not found: " + blobId);
           }
+          throw new IOException("Failed to get BlobReadSession", e);
+        } catch (TimeoutException e) {
+          throw new IOException("Failed to get BlobReadSession due to client timeout limit", e);
         }
       }
     }
@@ -173,36 +176,38 @@ class GcsBidiReadChannel extends GcsReadChannel {
       ranges.forEach(range -> range.getByteBufferFuture().completeExceptionally(e));
       throw e;
     }
-    ranges.forEach(
-        range -> {
-          ApiFuture<DisposableByteString> futureBytes =
-              session.readAs(
-                  ReadProjectionConfigs.asFutureByteString()
-                      .withRangeSpec(RangeSpec.of(range.getOffset(), range.getLength())));
+    ranges.forEach(range -> readAndAttachCallback(range, session, allocate));
+  }
 
-          ApiFutures.addCallback(
-              futureBytes,
-              new ApiFutureCallback<DisposableByteString>() {
-                @Override
-                public void onFailure(Throwable t) {
-                  range.getByteBufferFuture().completeExceptionally(t);
-                  logger.debug(
-                      "Vectored Read failed for range starting from {} with length {}",
-                      range.getOffset(),
-                      range.getLength());
-                }
+  private void readAndAttachCallback(
+      GcsObjectRange range, BlobReadSession session, IntFunction<ByteBuffer> allocate) {
+    ApiFuture<DisposableByteString> futureBytes =
+        session.readAs(
+            ReadProjectionConfigs.asFutureByteString()
+                .withRangeSpec(RangeSpec.of(range.getOffset(), range.getLength())));
 
-                @Override
-                public void onSuccess(DisposableByteString disposableByteString) {
-                  try {
-                    processBytesAndCompleteRange(disposableByteString, range, allocate);
-                  } catch (Throwable t) {
-                    range.getByteBufferFuture().completeExceptionally(t);
-                  }
-                }
-              },
-              executorServiceSupplier.get());
-        });
+    ApiFutures.addCallback(
+        futureBytes,
+        new ApiFutureCallback<DisposableByteString>() {
+          @Override
+          public void onFailure(Throwable t) {
+            range.getByteBufferFuture().completeExceptionally(t);
+            logger.debug(
+                "Vectored Read failed for range starting from {} with length {}",
+                range.getOffset(),
+                range.getLength());
+          }
+
+          @Override
+          public void onSuccess(DisposableByteString disposableByteString) {
+            try {
+              processBytesAndCompleteRange(disposableByteString, range, allocate);
+            } catch (Throwable t) {
+              range.getByteBufferFuture().completeExceptionally(t);
+            }
+          }
+        },
+        executorServiceSupplier.get());
   }
 
   private void processBytesAndCompleteRange(

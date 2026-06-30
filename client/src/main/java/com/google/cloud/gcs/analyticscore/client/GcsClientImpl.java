@@ -87,10 +87,10 @@ class GcsClientImpl implements GcsClient {
     if (readOptions.isBidiVectoredReadEnabled()) {
       return new GcsBidiReadChannel(
           storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
-    } else {
-      return new GcsReadChannel(
-          storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
     }
+
+    return new GcsReadChannel(
+        storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
   }
 
   @Override

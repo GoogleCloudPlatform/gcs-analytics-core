@@ -18,7 +18,11 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.google.api.core.ApiFuture;
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
@@ -277,7 +281,19 @@ class GcsClientImplTest {
     GcsItemInfo itemInfo =
         GcsItemInfo.builder().setItemId(itemId).setSize(100L).setContentGeneration(0L).build();
 
-    VectoredSeekableByteChannel channel = gcsClient.openReadChannel(itemInfo, readOptions);
+    Storage mockStorage = mock(Storage.class);
+    ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
+    when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
+
+    GcsClient bidiClient =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return mockStorage;
+          }
+        };
+
+    VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemInfo, readOptions);
     assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
   }
 
@@ -294,7 +310,19 @@ class GcsClientImplTest {
             .setObjectName("test-object-name")
             .build();
 
-    VectoredSeekableByteChannel channel = gcsClient.openReadChannel(itemId, readOptions);
+    Storage mockStorage = mock(Storage.class);
+    ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
+    when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
+
+    GcsClient bidiClient =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return mockStorage;
+          }
+        };
+
+    VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemId, readOptions);
     assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
   }
 }

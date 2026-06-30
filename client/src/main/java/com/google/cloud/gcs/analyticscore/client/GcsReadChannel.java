@@ -53,7 +53,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       ImmutableMap.of(Attribute.CLASS_NAME.name(), GcsReadChannel.class.getName());
   protected final Telemetry telemetry;
   private final ReadStrategy strategy;
-  private boolean isGcsReadChannelOpen = true;
+  private volatile boolean isGcsReadChannelOpen = true;
   protected final ItemInfoProvider itemInfoProvider;
 
   GcsReadChannel(
@@ -201,14 +201,15 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public long size() throws IOException {
-    if (itemInfo == null) {
-      if (itemInfoProvider != null) {
-        itemInfo = itemInfoProvider.getItemInfo(itemId);
-        itemId = itemInfo.getItemId();
-      } else {
-        throw new IOException("ItemInfo is not initialized and no ItemInfoProvider was provided.");
-      }
+    if (itemInfo != null) {
+      return itemInfo.getSize();
     }
+    if (itemInfoProvider == null) {
+      throw new IOException("ItemInfo is not initialized and no ItemInfoProvider was provided.");
+    }
+
+    itemInfo = itemInfoProvider.getItemInfo(itemId);
+    itemId = itemInfo.getItemId();
     return itemInfo.getSize();
   }
 
@@ -223,8 +224,11 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   }
 
   @Override
-  public synchronized void close() throws IOException {
-    if (isGcsReadChannelOpen) {
+  public void close() throws IOException {
+    if (!isGcsReadChannelOpen) {
+      return;
+    }
+    synchronized (this) {
       isGcsReadChannelOpen = false;
       strategy.close();
     }
