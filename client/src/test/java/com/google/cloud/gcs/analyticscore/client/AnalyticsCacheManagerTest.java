@@ -27,8 +27,9 @@ import org.junit.jupiter.api.Test;
 
 class AnalyticsCacheManagerTest {
 
+  private static final String BUCKET_NAME = "test-bucket";
   private static final GcsItemId ITEM_ID =
-      GcsItemId.builder().setBucketName("b").setObjectName("o").build();
+      GcsItemId.builder().setBucketName(BUCKET_NAME).setObjectName("o").build();
   private static final ByteBuffer FOOTER = ByteBuffer.wrap(new byte[] {1, 2, 3});
 
   private AnalyticsCacheManager manager;
@@ -135,11 +136,11 @@ class AnalyticsCacheManagerTest {
 
   @Test
   void invalidateFooter_present_removesEntry() throws IOException {
+    AtomicInteger callCount = new AtomicInteger(0);
     manager.getFooter(ITEM_ID, itemId -> FOOTER.duplicate());
 
     manager.invalidateFooter(ITEM_ID);
 
-    AtomicInteger callCount = new AtomicInteger(0);
     manager.getFooter(
         ITEM_ID,
         itemId -> {
@@ -151,13 +152,14 @@ class AnalyticsCacheManagerTest {
 
   @Test
   void invalidateAll_withEntries_clearsCache() throws IOException {
-    GcsItemId itemId2 = GcsItemId.builder().setBucketName("b").setObjectName("o2").build();
+    GcsItemId itemId2 = GcsItemId.builder().setBucketName(BUCKET_NAME).setObjectName("o2").build();
     manager.getFooter(ITEM_ID, itemId -> FOOTER.duplicate());
     manager.getFooter(itemId2, itemId -> ByteBuffer.wrap(new byte[] {2}));
+    manager.getBucketProperties(BUCKET_NAME, bucketName -> BucketProperties.create(true));
+    AtomicInteger callCount = new AtomicInteger(0);
 
     manager.invalidateAll();
 
-    AtomicInteger callCount = new AtomicInteger(0);
     manager.getFooter(
         ITEM_ID,
         itemId -> {
@@ -170,6 +172,92 @@ class AnalyticsCacheManagerTest {
           callCount.incrementAndGet();
           return FOOTER.duplicate();
         });
+    manager.getBucketProperties(
+        BUCKET_NAME,
+        bucketName -> {
+          callCount.incrementAndGet();
+          return BucketProperties.create(true);
+        });
+    assertThat(callCount.get()).isEqualTo(3);
+  }
+
+  @Test
+  void getBucketProperties_notPresent_computesAndCachesValue() throws IOException {
+    AtomicInteger callCount = new AtomicInteger(0);
+    BucketProperties bucketProperties = BucketProperties.create(true);
+
+    BucketProperties result1 =
+        manager.getBucketProperties(
+            BUCKET_NAME,
+            bucketName -> {
+              callCount.incrementAndGet();
+              return bucketProperties;
+            });
+    BucketProperties result2 =
+        manager.getBucketProperties(
+            BUCKET_NAME,
+            bucketName -> {
+              callCount.incrementAndGet();
+              return BucketProperties.create(false);
+            });
+
+    assertThat(result1).isEqualTo(bucketProperties);
+    assertThat(result2).isEqualTo(bucketProperties);
+    assertThat(callCount.get()).isEqualTo(1);
+  }
+
+  @Test
+  void getBucketProperties_loaderThrowsIOException_rethrowsIOException() {
+    assertThrows(
+        IOException.class,
+        () ->
+            manager.getBucketProperties(
+                BUCKET_NAME,
+                bucketName -> {
+                  throw new IOException("test-io-exception");
+                }));
+  }
+
+  @Test
+  void invalidateBucketProperties_present_removesEntry() throws IOException {
+    AtomicInteger callCount = new AtomicInteger(0);
+    manager.getBucketProperties(BUCKET_NAME, bucketName -> BucketProperties.create(true));
+
+    manager.invalidateBucketProperties(BUCKET_NAME);
+    manager.getBucketProperties(
+        BUCKET_NAME,
+        bucketName -> {
+          callCount.incrementAndGet();
+          return BucketProperties.create(true);
+        });
+
+    assertThat(callCount.get()).isEqualTo(1);
+  }
+
+  @Test
+  void getBucketProperties_cacheDisabled_anyKey_callsLoaderEveryTime() throws IOException {
+    manager =
+        new AnalyticsCacheManager(
+            GcsCacheOptions.builder().setBucketPropertiesCacheMaxEntryAgeMinutes(0).build());
+    AtomicInteger callCount = new AtomicInteger(0);
+    AnalyticsCacheManager.BucketPropertiesLoader loader =
+        bucketName -> {
+          callCount.incrementAndGet();
+          return BucketProperties.create(true);
+        };
+
+    manager.getBucketProperties(BUCKET_NAME, loader);
+    manager.getBucketProperties(BUCKET_NAME, loader);
+
     assertThat(callCount.get()).isEqualTo(2);
+  }
+
+  @Test
+  void invalidateBucketProperties_cacheDisabled_anyKey_succeeds() {
+    manager =
+        new AnalyticsCacheManager(
+            GcsCacheOptions.builder().setBucketPropertiesCacheMaxEntryAgeMinutes(0).build());
+
+    manager.invalidateBucketProperties(BUCKET_NAME);
   }
 }

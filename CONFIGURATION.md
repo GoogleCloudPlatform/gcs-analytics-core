@@ -48,6 +48,7 @@ These parameters fine-tune the low-level data streaming behavior. They allow you
 | `analytics-core.read.file-access-pattern` | File access pattern. Supported values: `RANDOM`, `SEQUENTIAL`, `AUTO_SEQUENTIAL`, `AUTO_RANDOM`. | `AUTO_SEQUENTIAL` |
 | `analytics-core.adaptive-read.sequential-read-threshold` | Threshold for number of sequential reads to switch to sequential mode. | `3` |
 | `analytics-core.random-read.min-request-size` | Minimum request size for random reads. If the requested read size is smaller, it reads up to this size. | `131072` (128 KB) |
+| `analytics-core.bucket-properties.cache.max-entry-age-minutes`| Maximum age (in minutes) of an entry in the bucket properties cache.                                  | `10`             |
 
 ### Telemetry and Monitoring
 

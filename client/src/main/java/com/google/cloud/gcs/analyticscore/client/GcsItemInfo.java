@@ -16,12 +16,14 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import com.google.common.collect.ImmutableMap;
 import java.util.Optional;
 
 /** Represents metadata of a GCS Item. */
 @AutoValue
 public abstract class GcsItemInfo {
 
+  /** Returns the identifier of the GCS item. */
   public abstract GcsItemId getItemId();
 
   /** Size of an object in bytes. Returns -1 for items that do not exist. */
@@ -30,9 +32,25 @@ public abstract class GcsItemInfo {
   /** Generation ID of the object when the metadata is read. */
   public abstract Optional<Long> getContentGeneration();
 
+  /** Indicates whether this is a simulated directory. */
+  public abstract boolean isInferredDirectory();
+
+  /**
+   * Indicates whether the item is a natively created folder in a Hierarchical Namespace (HNS)
+   * enabled bucket.
+   */
+  public abstract boolean isNativeHnsFolder();
+
+  /** Returns the custom extended attributes (metadata) associated with the item. */
+  public abstract ImmutableMap<String, byte[]> getExtendedAttributes();
+
   public static Builder builder() {
     // By default, set size to -1, indicating a non-existent item.
-    return new AutoValue_GcsItemInfo.Builder().setSize(-1L);
+    return new AutoValue_GcsItemInfo.Builder()
+        .setSize(-1L)
+        .setInferredDirectory(false)
+        .setNativeHnsFolder(false)
+        .setExtendedAttributes(ImmutableMap.of());
   }
 
   /** Builder for {@link GcsItemInfo}. */
@@ -44,6 +62,12 @@ public abstract class GcsItemInfo {
     public abstract Builder setSize(long size);
 
     public abstract Builder setContentGeneration(long contentGeneration);
+
+    public abstract Builder setInferredDirectory(boolean isInferredDirectory);
+
+    public abstract Builder setNativeHnsFolder(boolean isNativeHnsFolder);
+
+    public abstract Builder setExtendedAttributes(ImmutableMap<String, byte[]> extendedAttributes);
 
     public abstract GcsItemInfo build();
   }

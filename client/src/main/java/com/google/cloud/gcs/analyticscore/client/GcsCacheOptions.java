@@ -32,6 +32,8 @@ public abstract class GcsCacheOptions {
       "analytics-core.small-file.cache.enabled";
   private static final String SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY =
       "analytics-core.small-file.cache.max-size-bytes";
+  private static final String BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY =
+      "analytics-core.bucket-properties.cache.max-entry-age-minutes";
 
   private static final long KB = 1024L;
   private static final long MB = 1024L * KB;
@@ -40,6 +42,7 @@ public abstract class GcsCacheOptions {
   private static final long DEFAULT_FOOTER_CACHE_MAX_SIZE_BYTES = 100 * MB;
   private static final boolean DEFAULT_SMALL_OBJECT_CACHE_ENABLED = false;
   private static final long DEFAULT_SMALL_OBJECT_CACHE_MAX_SIZE_BYTES = 200 * MB;
+  private static final int DEFAULT_BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES = 10;
 
   /** Returns whether the Parquet footer cache is enabled. */
   public abstract boolean isFooterCacheEnabled();
@@ -54,6 +57,9 @@ public abstract class GcsCacheOptions {
   /** Returns the maximum capacity (in bytes) to hold in the small object cache. */
   public abstract long getSmallObjectCacheMaxSizeBytes();
 
+  /** Returns the maximum age (in minutes) of an entry in the bucket properties cache. */
+  public abstract int getBucketPropertiesCacheMaxEntryAgeMinutes();
+
   /**
    * Returns a builder for {@link GcsCacheOptions} with the same property values as this instance.
    */
@@ -65,7 +71,9 @@ public abstract class GcsCacheOptions {
         .setFooterCacheEnabled(DEFAULT_FOOTER_CACHE_ENABLED)
         .setFooterCacheMaxSizeBytes(DEFAULT_FOOTER_CACHE_MAX_SIZE_BYTES)
         .setSmallObjectCacheEnabled(DEFAULT_SMALL_OBJECT_CACHE_ENABLED)
-        .setSmallObjectCacheMaxSizeBytes(DEFAULT_SMALL_OBJECT_CACHE_MAX_SIZE_BYTES);
+        .setSmallObjectCacheMaxSizeBytes(DEFAULT_SMALL_OBJECT_CACHE_MAX_SIZE_BYTES)
+        .setBucketPropertiesCacheMaxEntryAgeMinutes(
+            DEFAULT_BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES);
   }
 
   /** Creates a {@link GcsCacheOptions} instance from a map of configuration options. */
@@ -88,6 +96,13 @@ public abstract class GcsCacheOptions {
       optionsBuilder.setSmallObjectCacheMaxSizeBytes(
           Long.parseLong(analyticsCoreOptions.get(prefix + SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY)));
     }
+    if (analyticsCoreOptions.containsKey(
+        prefix + BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY)) {
+      optionsBuilder.setBucketPropertiesCacheMaxEntryAgeMinutes(
+          Integer.parseInt(
+              analyticsCoreOptions.get(
+                  prefix + BUCKET_PROPERTIES_CACHE_MAX_ENTRY_AGE_MINUTES_KEY)));
+    }
     return optionsBuilder.build();
   }
 
@@ -106,6 +121,10 @@ public abstract class GcsCacheOptions {
 
     /** Sets the maximum capacity (in bytes) to hold in the small object cache. */
     public abstract Builder setSmallObjectCacheMaxSizeBytes(long smallObjectCacheMaxSizeBytes);
+
+    /** Sets the maximum age (in minutes) of an entry in the bucket properties cache. */
+    public abstract Builder setBucketPropertiesCacheMaxEntryAgeMinutes(
+        int bucketPropertiesCacheMaxEntryAgeMinutes);
 
     abstract GcsCacheOptions autoBuild();
 
@@ -127,6 +146,9 @@ public abstract class GcsCacheOptions {
             options.getSmallObjectCacheMaxSizeBytes() > 0,
             "smallObjectCacheMaxSizeBytes must be positive when smallObjectCacheEnabled is true");
       }
+      checkArgument(
+          options.getBucketPropertiesCacheMaxEntryAgeMinutes() >= 0,
+          "bucketPropertiesCacheMaxEntryAgeMinutes must be non-negative");
       return options;
     }
   }

@@ -23,6 +23,7 @@ import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BucketInfo;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
@@ -112,6 +113,27 @@ class GcsClientImpl implements GcsClient {
     }
     throw new UnsupportedOperationException(
         String.format("Expected gcs object but got %s", itemId));
+  }
+
+  @Override
+  public BucketProperties getBucketProperties(String bucketName) throws IOException {
+    checkNotNull(bucketName, "bucketName cannot be null");
+    try {
+      BucketInfo bucketInfo =
+          storage.get(
+              bucketName,
+              Storage.BucketGetOption.fields(Storage.BucketField.HIERARCHICAL_NAMESPACE));
+      if (bucketInfo == null) {
+        throw new IOException("Bucket not found: " + bucketName);
+      }
+      boolean hnsEnabled =
+          Optional.ofNullable(bucketInfo.getHierarchicalNamespace())
+              .map(BucketInfo.HierarchicalNamespace::getEnabled)
+              .orElse(false);
+      return BucketProperties.create(hnsEnabled);
+    } catch (StorageException storageException) {
+      throw new IOException("Unable to access bucket: " + bucketName, storageException);
+    }
   }
 
   @Override
