@@ -251,7 +251,11 @@ class GcsClientImplTest {
   @Test
   void createStore_bidiDisabled_usesHttpTransport() {
     GcsClientImpl client =
-        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+        new GcsClientImpl(
+            NoCredentials.getInstance(),
+            TEST_GCS_CLIENT_OPTIONS,
+            executorServiceSupplier,
+            telemetry);
     assertThat(client.storage.getOptions()).isInstanceOf(HttpStorageOptions.class);
   }
 
@@ -262,7 +266,8 @@ class GcsClientImplTest {
             .setProjectId("test-project")
             .setGcsReadOptions(GcsReadOptions.builder().setBidiReadEnabled(true).build())
             .build();
-    GcsClientImpl client = new GcsClientImpl(options, executorServiceSupplier, telemetry);
+    GcsClientImpl client =
+        new GcsClientImpl(NoCredentials.getInstance(), options, executorServiceSupplier, telemetry);
     assertThat(client.storage.getOptions()).isInstanceOf(GrpcStorageOptions.class);
   }
 
