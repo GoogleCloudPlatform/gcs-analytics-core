@@ -106,7 +106,14 @@ class GoogleCloudStorageOutputStreamTest {
   @Test
   void write_singleByte_writesToChannel() throws IOException {
     when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
-    when(mockChannel.write(any(ByteBuffer.class))).thenReturn(1);
+    when(mockChannel.write(any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buffer = invocation.getArgument(0);
+              int remaining = buffer.remaining();
+              buffer.position(buffer.position() + remaining);
+              return remaining;
+            });
     GoogleCloudStorageOutputStream stream =
         GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
 
@@ -120,9 +127,40 @@ class GoogleCloudStorageOutputStreamTest {
   }
 
   @Test
+  void write_singleByte_partialWrites_loopsUntilFinished() throws IOException {
+    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
+    int[] callCount = {0};
+    when(mockChannel.write(any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buffer = invocation.getArgument(0);
+              if (callCount[0] == 0) {
+                callCount[0]++;
+                return 0; // Simulate 0 bytes written on first try
+              }
+              int remaining = buffer.remaining();
+              buffer.position(buffer.position() + remaining);
+              return remaining;
+            });
+    GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
+
+    stream.write(65); // 'A'
+
+    verify(mockChannel, org.mockito.Mockito.times(2)).write(any(ByteBuffer.class));
+  }
+
+  @Test
   void write_byteArray_writesToChannel() throws IOException {
     when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
-    when(mockChannel.write(any(ByteBuffer.class))).thenReturn(5);
+    when(mockChannel.write(any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buffer = invocation.getArgument(0);
+              int remaining = buffer.remaining();
+              buffer.position(buffer.position() + remaining);
+              return remaining;
+            });
     GoogleCloudStorageOutputStream stream =
         GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
 
@@ -132,11 +170,38 @@ class GoogleCloudStorageOutputStreamTest {
     ArgumentCaptor<ByteBuffer> bufferCaptor = ArgumentCaptor.forClass(ByteBuffer.class);
     verify(mockChannel).write(bufferCaptor.capture());
     ByteBuffer capturedBuffer = bufferCaptor.getValue();
-    assertThat(capturedBuffer.position()).isEqualTo(1);
+    assertThat(capturedBuffer.position()).isEqualTo(4);
     assertThat(capturedBuffer.limit()).isEqualTo(4);
     assertThat(capturedBuffer.get(1)).isEqualTo((byte) 2);
     assertThat(capturedBuffer.get(2)).isEqualTo((byte) 3);
     assertThat(capturedBuffer.get(3)).isEqualTo((byte) 4);
+  }
+
+  @Test
+  void write_byteArray_partialWrites_loopsUntilFinished() throws IOException {
+    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
+    int[] callCount = {0};
+    when(mockChannel.write(any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buffer = invocation.getArgument(0);
+              if (callCount[0] == 0) {
+                callCount[0]++;
+                buffer.position(buffer.position() + 1);
+                return 1; // Simulate 1 byte written
+              }
+              int remaining = buffer.remaining();
+              buffer.position(buffer.position() + remaining);
+              return remaining;
+            });
+    GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
+
+    byte[] data = new byte[] {1, 2, 3};
+    stream.write(data, 0, 3); // Writes {1, 2, 3}
+
+    // Should take 2 loop iterations: 1st writes 1 byte, 2nd writes remaining 2 bytes
+    verify(mockChannel, org.mockito.Mockito.times(2)).write(any(ByteBuffer.class));
   }
 
   @Test

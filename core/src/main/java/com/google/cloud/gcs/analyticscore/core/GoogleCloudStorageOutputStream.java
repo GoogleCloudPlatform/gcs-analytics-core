@@ -63,7 +63,9 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
     singleByteBuffer.clear();
     singleByteBuffer.put((byte) b);
     singleByteBuffer.flip();
-    channel.write(singleByteBuffer);
+    while (singleByteBuffer.hasRemaining()) {
+      channel.write(singleByteBuffer);
+    }
   }
 
   @Override
@@ -77,7 +79,10 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
     }
 
     // Wrap the byte array and pass it to the GcsWriteChannel in the client module
-    channel.write(ByteBuffer.wrap(b, off, len));
+    ByteBuffer buffer = ByteBuffer.wrap(b, off, len);
+    while (buffer.hasRemaining()) {
+      channel.write(buffer);
+    }
   }
 
   @Override
