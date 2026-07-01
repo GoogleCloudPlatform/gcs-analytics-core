@@ -19,6 +19,7 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.channels.WritableByteChannel;
 
 public interface GcsFileSystem extends AutoCloseable {
 
@@ -71,4 +72,14 @@ public interface GcsFileSystem extends AutoCloseable {
   /** Close the file system. */
   @Override
   void close();
+
+  /**
+   * Creates a new GCS object and returns a WritableByteChannel for writing to it.
+   *
+   * @param itemId the identity of the GCS object to be created
+   * @param options configuration options for controlling upload strategies and integrity checks
+   * @return a channel for writing data to the newly created object
+   * @throws IOException if an I/O error occurs during channel initialization or translation
+   */
+  WritableByteChannel create(GcsItemId itemId, GcsWriteOptions options) throws IOException;
 }

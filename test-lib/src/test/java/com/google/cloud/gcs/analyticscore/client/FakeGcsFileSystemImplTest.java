@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 class FakeGcsFileSystemImplTest {
 
   @Test
-  void constructor_initializedWithFakeGcsClient() {
+  void constructor_initializedWithFakeGcsClient() throws Exception {
     GcsFileSystemOptions options = GcsFileSystemOptions.builder().build();
 
     FakeGcsFileSystemImpl fakeFileSystem = new FakeGcsFileSystemImpl(options);

@@ -59,6 +59,13 @@ class GcsExceptionUtil {
   static IOException translateException(
       StorageException e, String context, BlobId blobId, long position) {
     ErrorType errorType = getErrorType(e);
+    if (errorType == ErrorType.PRECONDITION_FAILED && blobId.getGeneration() != null) {
+      return new IOException(
+          String.format(
+              "Generation mismatch for object gs://%s/%s. Concurrent modification detected.",
+              blobId.getBucket(), blobId.getName()),
+          e);
+    }
     if (errorType == ErrorType.PRECONDITION_FAILED) {
       return (FileAlreadyExistsException)
           new FileAlreadyExistsException(
@@ -150,6 +157,20 @@ class GcsExceptionUtil {
     return getStorageException(e)
         .map(se -> translateExceptionWithOverwrite(se, context, blobId, position))
         .orElseGet(() -> translateGenericException(e, context, blobId, position));
+  }
+
+  /**
+   * Translates a generic Exception, deciding between overwrite and no-overwrite scenarios based on
+   * the provided GcsWriteOptions.
+   */
+  static IOException translateWriteException(
+      Exception e, String context, BlobId blobId, long position, GcsWriteOptions writeOptions) {
+    boolean overwrite =
+        Optional.ofNullable(writeOptions).map(GcsWriteOptions::isOverwriteExisting).orElse(true);
+    if (overwrite) {
+      return translateExceptionWithOverwrite(e, context, blobId, position);
+    }
+    return translateException(e, context, blobId, position);
   }
 
   private static IOException translateGenericException(

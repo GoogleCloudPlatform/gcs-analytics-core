@@ -37,6 +37,7 @@ import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.channels.WritableByteChannel;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -80,7 +81,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void constructor_withCredentials_createsClientWithProvidedCredentials() {
+  void constructor_withCredentials_createsClientWithProvidedCredentials() throws Exception {
     try (GcsFileSystemImpl gcsFileSystem =
         new GcsFileSystemImpl(NoCredentials.getInstance(), TEST_GCS_FILESYSTEM_OPTIONS)) {
       GcsClientImpl gcsClientImpl = (GcsClientImpl) gcsFileSystem.getGcsClient();
@@ -91,7 +92,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void constructor_withFileSystemOptions_createsClientWithDefaultCredentials() {
+  void constructor_withFileSystemOptions_createsClientWithDefaultCredentials() throws Exception {
     GcsClientOptions clientOptions =
         GcsClientOptions.builder().setProjectId("test-project-default").build();
     GcsFileSystemOptions fileSystemOptions =
@@ -107,7 +108,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void constructor_shouldInitializeAndPassMemorizedExecutorServiceToGcsClient() {
+  void constructor_withValidOptions_passesExecutorToClient() throws Exception {
     final AtomicReference<Supplier<ExecutorService>> capturedSupplier = new AtomicReference<>();
     try (MockedConstruction<GcsClientImpl> mockGcsClientConstruction =
         Mockito.mockConstruction(
@@ -392,7 +393,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeTelemetry_registerListenersToTelemetry() {
+  void initializeTelemetry_registerListenersToTelemetry() throws Exception {
     OperationListener mockListener = mock(OperationListener.class);
     CustomTelemetryOptions customTelemetryOptions =
         CustomTelemetryOptions.builder()
@@ -412,7 +413,8 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeTelemetry_withLoggingTelemetryOptionsEnabled_registersLoggingTelemetryReporter() {
+  void initializeTelemetry_loggingOptionsEnabled_registersLoggingTelemetryReporter()
+      throws Exception {
     LoggingTelemetryOptions loggingOptions =
         LoggingTelemetryOptions.builder().setEnabled(true).build();
     TelemetryOptions telemetryOptions =
@@ -434,8 +436,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void
-      initializeTelemetry_withLoggingTelemetryOptionsDisabled_doesNotRegisterLoggingTelemetryReporter() {
+  void initializeTelemetry_loggingOptionsDisabled_doesNotRegisterReporter() throws Exception {
     LoggingTelemetryOptions loggingOptions =
         LoggingTelemetryOptions.builder().setEnabled(false).build();
     TelemetryOptions telemetryOptions =
@@ -452,7 +453,8 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeTelemetry_withOpenTelemetryOptionsEnabled_registersOpenTelemetryReporter() {
+  void initializeTelemetry_openTelemetryOptionsEnabled_registersOpenTelemetryReporter()
+      throws Exception {
     OpenTelemetryOptions openTelemetryOptions =
         OpenTelemetryOptions.builder().setEnabled(true).build();
     TelemetryOptions telemetryOptions =
@@ -473,7 +475,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeTelemetry_withOpenTelemetryOptionsDisabled_doesNotRegisterOpenTelemetryReporter() {
+  void initializeTelemetry_openTelemetryOptionsDisabled_doesNotRegisterReporter() throws Exception {
     OpenTelemetryOptions openTelemetryOptions =
         OpenTelemetryOptions.builder().setEnabled(false).build();
     TelemetryOptions telemetryOptions =
@@ -490,7 +492,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void close_removesRegisteredOpenTelemetryReporters() {
+  void close_openTelemetryEnabled_removesRegisteredReporters() throws Exception {
     OpenTelemetryOptions openTelemetryOptions =
         OpenTelemetryOptions.builder().setEnabled(true).build();
     TelemetryOptions telemetryOptions =
@@ -511,7 +513,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void close_removesRegisteredLoggingTelemetryReporters() {
+  void close_loggingTelemetryEnabled_removesRegisteredReporters() throws Exception {
     LoggingTelemetryOptions loggingOptions =
         LoggingTelemetryOptions.builder().setEnabled(true).build();
     TelemetryOptions telemetryOptions =
@@ -534,6 +536,44 @@ class GcsFileSystemImplTest {
 
     assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
     assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).doesNotContain(reporter);
+  }
+
+  @Test
+  void create_withValidArguments_delegatesToClient() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockClient.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
+
+    WritableByteChannel resultChannel = gcsFileSystem.create(itemId, writeOptions);
+
+    verify(mockClient).create(itemId, writeOptions);
+    assertThat(resultChannel).isSameInstanceAs(mockChannel);
+  }
+
+  @Test
+  void create_nullItemId_throwsNullPointerException() {
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class, () -> gcsFileSystem.create((GcsItemId) null, writeOptions));
+
+    assertThat(e).hasMessageThat().contains("itemId should not be null");
+  }
+
+  @Test
+  void create_nullWriteOptions_delegatesToClientWithNullOptions() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockClient.create(eq(itemId), eq(null))).thenReturn(mockChannel);
+
+    WritableByteChannel resultChannel = gcsFileSystem.create(itemId, null);
+
+    verify(mockClient).create(itemId, null);
+    assertThat(resultChannel).isSameInstanceAs(mockChannel);
   }
 
   @SuppressWarnings("unchecked")

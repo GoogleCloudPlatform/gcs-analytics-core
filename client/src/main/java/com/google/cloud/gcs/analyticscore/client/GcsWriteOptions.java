@@ -76,6 +76,8 @@ public abstract class GcsWriteOptions {
 
   public abstract boolean isOverwriteExisting();
 
+  // TODO: Move the upload related configs to GcsClientOptions since they are tied to the client
+  // configuration (Storage session) rather than individual write operations.
   public abstract int getUploadChunkSize();
 
   public abstract UploadType getUploadType();
