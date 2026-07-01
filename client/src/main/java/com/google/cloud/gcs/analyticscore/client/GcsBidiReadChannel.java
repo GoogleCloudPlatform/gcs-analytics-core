@@ -231,17 +231,19 @@ class GcsBidiReadChannel extends GcsReadChannel {
   }
 
   @Override
-  public synchronized void close() throws IOException {
+  public void close() throws IOException {
     if (closed) {
       return;
     }
-    closed = true;
-    try {
-      super.close();
-    } finally {
-      if (blobReadSession != null) {
-        blobReadSession.close();
-        blobReadSession = null;
+    synchronized (this) {
+      closed = true;
+      try {
+        super.close();
+      } finally {
+        if (blobReadSession != null) {
+          blobReadSession.close();
+          blobReadSession = null;
+        }
       }
     }
   }
