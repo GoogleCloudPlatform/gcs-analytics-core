@@ -841,7 +841,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createStore_bidiDisabled_usesHttpTransport() {
+  void createStore_bidiDisabled_usesHttpTransport() throws IOException {
     GcsClientImpl client =
         new GcsClientImpl(
             NoCredentials.getInstance(),
@@ -852,7 +852,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createStore_bidiEnabled_usesGrpcTransport() {
+  void createStore_bidiEnabled_usesGrpcTransport() throws IOException {
     GcsClientOptions options =
         GcsClientOptions.builder()
             .setProjectId("test-project")
@@ -915,5 +915,5 @@ class GcsClientImplTest {
 
     VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemId, readOptions);
     assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
-}
+  }
 }
