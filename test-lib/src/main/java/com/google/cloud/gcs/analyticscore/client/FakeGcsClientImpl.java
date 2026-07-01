@@ -35,14 +35,16 @@ public class FakeGcsClientImpl extends GcsClientImpl {
       Credentials credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry) {
+      Telemetry telemetry)
+      throws IOException {
     super(credentials, clientOptions, executorServiceSupplier, telemetry);
   }
 
   FakeGcsClientImpl(
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry) {
+      Telemetry telemetry)
+      throws IOException {
     super(clientOptions, executorServiceSupplier, telemetry);
   }
 

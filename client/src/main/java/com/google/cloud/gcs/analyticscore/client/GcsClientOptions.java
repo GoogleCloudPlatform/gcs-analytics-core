@@ -38,11 +38,14 @@ public abstract class GcsClientOptions {
 
   public abstract GcsReadOptions getGcsReadOptions();
 
+  public abstract GcsWriteOptions getGcsWriteOptions();
+
   public abstract Builder toBuilder();
 
   public static Builder builder() {
     return new AutoValue_GcsClientOptions.Builder()
-        .setGcsReadOptions(GcsReadOptions.builder().build());
+        .setGcsReadOptions(GcsReadOptions.builder().build())
+        .setGcsWriteOptions(GcsWriteOptions.builder().build());
   }
 
   public static GcsClientOptions createFromOptions(
@@ -62,6 +65,8 @@ public abstract class GcsClientOptions {
     }
     optionsBuilder.setGcsReadOptions(
         GcsReadOptions.createFromOptions(analyticsCoreOptions, prefix));
+    optionsBuilder.setGcsWriteOptions(
+        GcsWriteOptions.createFromOptions(analyticsCoreOptions, prefix));
 
     return optionsBuilder.build();
   }
@@ -79,6 +84,8 @@ public abstract class GcsClientOptions {
     public abstract Builder setUserAgent(String userAgent);
 
     public abstract Builder setGcsReadOptions(GcsReadOptions readOptions);
+
+    public abstract Builder setGcsWriteOptions(GcsWriteOptions writeOptions);
 
     public abstract GcsClientOptions build();
   }

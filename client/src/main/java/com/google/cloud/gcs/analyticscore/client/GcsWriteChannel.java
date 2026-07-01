@@ -16,7 +16,6 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.StorageException;
@@ -117,13 +116,8 @@ public class GcsWriteChannel implements WritableByteChannel {
   }
 
   private IOException handleException(Exception e, String context) {
-    BlobId blobId = blobInfo.getBlobId();
-    boolean overwrite =
-        Optional.ofNullable(writeOptions).map(GcsWriteOptions::isOverwriteExisting).orElse(true);
-    if (overwrite) {
-      return GcsExceptionUtil.translateExceptionWithOverwrite(e, context, blobId, bytesWritten);
-    }
-    return GcsExceptionUtil.translateException(e, context, blobId, bytesWritten);
+    return GcsExceptionUtil.translateWriteException(
+        e, context, blobInfo.getBlobId(), bytesWritten, writeOptions);
   }
 
   public long getBytesWritten() {
