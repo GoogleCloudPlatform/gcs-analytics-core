@@ -25,6 +25,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.google.api.core.ApiFuture;
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
@@ -837,5 +838,82 @@ class GcsClientImplTest {
         ArgumentCaptor.forClass(Storage.BlobWriteOption[].class);
     verify(mockStorage).blobWriteSession(eq(blobInfo), optionsCaptor.capture());
     return Arrays.toString(optionsCaptor.getValue());
+  }
+
+  @Test
+  void createStore_bidiDisabled_usesHttpTransport() throws IOException {
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(),
+            TEST_GCS_CLIENT_OPTIONS,
+            executorServiceSupplier,
+            telemetry);
+    assertThat(client.storage.getOptions()).isInstanceOf(HttpStorageOptions.class);
+  }
+
+  @Test
+  void createStore_bidiEnabled_usesGrpcTransport() throws IOException {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId("test-project")
+            .setGcsReadOptions(GcsReadOptions.builder().setBidiReadEnabled(true).build())
+            .build();
+    GcsClientImpl client =
+        new GcsClientImpl(NoCredentials.getInstance(), options, executorServiceSupplier, telemetry);
+    assertThat(client.storage.getOptions()).isInstanceOf(GrpcStorageOptions.class);
+  }
+
+  @Test
+  void openReadChannel_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setUserProjectId("test-project").setBidiReadEnabled(true).build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket-name")
+            .setObjectName("test-object-name")
+            .build();
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(100L).setContentGeneration(0L).build();
+
+    Storage mockStorage = mock(Storage.class);
+    ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
+    when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
+
+    GcsClient bidiClient =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return mockStorage;
+          }
+        };
+
+    VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemInfo, readOptions);
+    assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
+  }
+
+  @Test
+  void openReadChannel_itemId_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setUserProjectId("test-project").setBidiReadEnabled(true).build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket-name")
+            .setObjectName("test-object-name")
+            .build();
+
+    Storage mockStorage = mock(Storage.class);
+    ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
+    when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
+
+    GcsClient bidiClient =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return mockStorage;
+          }
+        };
+
+    VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemId, readOptions);
+    assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
   }
 }

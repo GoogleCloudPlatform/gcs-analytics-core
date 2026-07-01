@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.client.GcsReadChannel.ItemInfoProvider;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
@@ -99,6 +100,11 @@ class GcsClientImpl implements GcsClient {
         gcsItemInfo.getItemId().isGcsObject(),
         "Expected GCS object to be provided. But got: " + gcsItemInfo.getItemId());
 
+    if (readOptions.isBidiReadEnabled()) {
+      return new GcsBidiReadChannel(
+          storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
+    }
+
     return new GcsReadChannel(
         storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
   }
@@ -108,16 +114,14 @@ class GcsClientImpl implements GcsClient {
       GcsItemId gcsItemId, GcsReadOptions readOptions) throws IOException {
     checkNotNull(gcsItemId, "gcsItemId should not be null");
     checkNotNull(readOptions, "readOptions should not be null");
-    return new GcsReadChannel(storage, gcsItemId, readOptions, executorServiceSupplier, telemetry) {
-      @Override
-      public long size() throws IOException {
-        if (itemInfo == null) {
-          itemInfo = getGcsItemInfo(itemId);
-          itemId = itemInfo.getItemId();
-        }
-        return itemInfo.getSize();
-      }
-    };
+    ItemInfoProvider itemInfoProvider = this::getGcsItemInfo;
+    if (readOptions.isBidiReadEnabled()) {
+      return new GcsBidiReadChannel(
+          storage, gcsItemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider);
+    } else {
+      return new GcsReadChannel(
+          storage, gcsItemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider);
+    }
   }
 
   @Override
@@ -260,7 +264,10 @@ class GcsClientImpl implements GcsClient {
 
   @VisibleForTesting
   protected Storage createStorage(Optional<Credentials> credentials) throws IOException {
-    StorageOptions.Builder builder = StorageOptions.newBuilder();
+    StorageOptions.Builder builder =
+        clientOptions.getGcsReadOptions().isBidiReadEnabled()
+            ? StorageOptions.grpc()
+            : StorageOptions.newBuilder();
     String userAgent = getUserAgent();
     builder.setHeaderProvider(FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
