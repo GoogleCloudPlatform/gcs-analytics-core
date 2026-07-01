@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.4.0...v1.5.0) (2026-07-01)
+
+
+### Features
+
+* implement bidi vectored reads  ([#289](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/289)) ([60bb286](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/60bb286ff26d372c2472c1dd5d76cc07118a9a5f))
+
 ## [1.4.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.3.1...v1.4.0) (2026-06-26)
 
 
