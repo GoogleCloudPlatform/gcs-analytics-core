@@ -48,6 +48,8 @@ class GcsReadOptionsTest {
             .put("gcs.analytics-core.read.file-access-pattern", "random")
             .put("gcs.analytics-core.adaptive-read.sequential-read-threshold", "5")
             .put("gcs.analytics-core.random-read.min-request-size", "65536")
+            .put("gcs.analytics-core.read.bidi.enabled", "true")
+            .put("gcs.analytics-core.read.bidi.timeout-seconds", "30")
             .build();
     String prefix = "gcs.";
 
@@ -61,6 +63,8 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(41943);
     assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(4194304);
     assertThat(readOptions.getSmallObjectCacheThresholdBytes()).isEqualTo(102400);
+    assertThat(readOptions.isBidiReadEnabled()).isEqualTo(true);
+    assertThat(readOptions.getBidiTimeout()).isEqualTo(30);
     assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(16777216);
     assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.RANDOM);
     assertThat(readOptions.getAdaptiveReadSequentialReadThreshold()).isEqualTo(5);
@@ -91,6 +95,8 @@ class GcsReadOptionsTest {
     assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(50 * KB);
     assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(MB);
     assertThat(readOptions.getSmallObjectCacheThresholdBytes()).isEqualTo(MB);
+    assertThat(readOptions.isBidiReadEnabled()).isEqualTo(false);
+    assertThat(readOptions.getBidiTimeout()).isEqualTo(10);
     assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(128 * KB);
     assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.AUTO_SEQUENTIAL);
     assertThat(readOptions.getAdaptiveReadSequentialReadThreshold()).isEqualTo(3);
@@ -108,6 +114,7 @@ class GcsReadOptionsTest {
         "gcs.analytics-core.read.inplace-seek-limit-bytes",
         "gcs.analytics-core.adaptive-read.sequential-read-threshold",
         "gcs.analytics-core.random-read.min-request-size",
+        "gcs.analytics-core.read.bidi.timeout-seconds",
       })
   void createFromOptions_integerValuesGreaterThanIntegerMax_throwsIllegalArgumentException(
       String propertyKey) {
@@ -143,5 +150,28 @@ class GcsReadOptionsTest {
         .hasMessageThat()
         .contains(
             "No enum constant com.google.cloud.gcs.analyticscore.client.FileAccessPattern.INVALID");
+  }
+
+  @Test
+  void createFromOptions_withBidiReadEnabledSet_shouldParseCorrectly() {
+    Map<String, String> propertiesTrue =
+        ImmutableMap.of("gcs.analytics-core.read.bidi.enabled", "true");
+    GcsReadOptions readOptionsTrue = GcsReadOptions.createFromOptions(propertiesTrue, "gcs.");
+    assertThat(readOptionsTrue.isBidiReadEnabled()).isTrue();
+    assertThat(readOptionsTrue.getBidiTimeout()).isEqualTo(10); // default value
+
+    Map<String, String> propertiesFalse =
+        ImmutableMap.of("gcs.analytics-core.read.bidi.enabled", "false");
+    GcsReadOptions readOptionsFalse = GcsReadOptions.createFromOptions(propertiesFalse, "gcs.");
+    assertThat(readOptionsFalse.isBidiReadEnabled()).isFalse();
+  }
+
+  @Test
+  void createFromOptions_withBidiTimeoutSet_shouldParseCorrectly() {
+    Map<String, String> properties =
+        ImmutableMap.of("gcs.analytics-core.read.bidi.timeout-seconds", "45");
+    GcsReadOptions readOptions = GcsReadOptions.createFromOptions(properties, "gcs.");
+    assertThat(readOptions.getBidiTimeout()).isEqualTo(45);
+    assertThat(readOptions.isBidiReadEnabled()).isFalse(); // default value
   }
 }
