@@ -18,7 +18,9 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.cloud.ReadChannel;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Collection;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import javax.annotation.Nullable;
@@ -116,7 +118,7 @@ final class GcsReadChannelMetadataExtractor {
     }
     try {
       return future.get();
-    } catch (ExecutionException ignored) {
+    } catch (CancellationException | ExecutionException ignored) {
       LOG.debug("Future execution failed or was cancelled", ignored);
       return null;
     } catch (InterruptedException e) {
@@ -135,7 +137,7 @@ final class GcsReadChannelMetadataExtractor {
         }
       }
     }
-    if (target instanceof Map) {
+    if (target instanceof Map || target instanceof Collection) {
       return -1L;
     }
     for (Method m : target.getClass().getMethods()) {

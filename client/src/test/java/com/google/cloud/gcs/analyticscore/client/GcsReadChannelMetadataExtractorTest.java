@@ -23,8 +23,11 @@ import com.google.cloud.storage.BlobInfo;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -222,6 +225,34 @@ class GcsReadChannelMetadataExtractorTest {
     assertThat(metadata).isNull();
   }
 
+  @Test
+  @SuppressWarnings("FutureReturnValueIgnored")
+  void extract_futureCancelledException_returnsNull() throws Exception {
+    Future<BlobInfo> mockFuture = Mockito.mock(Future.class);
+    Mockito.when(mockFuture.isDone()).thenReturn(true);
+    Mockito.when(mockFuture.get()).thenThrow(new CancellationException("cancelled"));
+    ReflectiveFutureChannel channel = Mockito.mock(ReflectiveFutureChannel.class);
+    Mockito.when(channel.getObject()).thenReturn(mockFuture);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNull();
+  }
+
+  @Test
+  void extract_targetIsCollection_doesNotUseFallbackGetter_returnsNull() {
+    List<Object> collectionTarget = new ArrayList<>();
+    collectionTarget.add("item");
+    ReflectiveCollectionChannel channel = Mockito.mock(ReflectiveCollectionChannel.class);
+    Mockito.when(channel.getResolvedObject()).thenReturn(collectionTarget);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNull();
+  }
+
   static class ThrowingModel {
     public long getSize() {
       throw new RuntimeException("size retrieval failed");
@@ -243,6 +274,10 @@ class GcsReadChannelMetadataExtractorTest {
 
   interface ReflectiveMapChannel extends ReadChannel {
     Map<String, Object> getResolvedObject();
+  }
+
+  interface ReflectiveCollectionChannel extends ReadChannel {
+    List<Object> getResolvedObject();
   }
 
   interface ReflectiveNoSizeChannel extends ReadChannel {

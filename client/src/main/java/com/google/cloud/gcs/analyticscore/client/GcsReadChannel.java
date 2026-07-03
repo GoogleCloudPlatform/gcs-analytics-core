@@ -46,8 +46,8 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   protected Storage storage;
   protected GcsReadOptions readOptions;
-  protected GcsItemInfo itemInfo;
-  protected GcsItemId itemId;
+  protected volatile GcsItemInfo itemInfo;
+  protected volatile GcsItemId itemId;
   private long gcsReadChannelPosition = 0;
   protected Supplier<ExecutorService> executorServiceSupplier;
   private static final ImmutableMap<String, String> COMMON_ATTRIBUTES =
@@ -153,7 +153,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private int readNextChunk(ByteBuffer dst) throws IOException {
     ReadChannel sdkChannel = strategy.getReadChannel(gcsReadChannelPosition, dst.remaining());
     int bytesRead = sdkChannel.read(dst);
-    if (this.itemInfo == null) {
+    if (this.itemInfo == null && !metadataExtractionAttempted) {
       extractMetadataAfterRead();
     }
     if (bytesRead >= 0) {
@@ -297,7 +297,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             int numOfBytesRead = 0;
             while (dataBuffer.hasRemaining()) {
               int bytesRead = channel.read(dataBuffer);
-              if (GcsReadChannel.this.itemInfo == null) {
+              if (GcsReadChannel.this.itemInfo == null && !metadataExtractionAttempted) {
                 extractMetadataAfterRead(readStrategy);
               }
               if (bytesRead < 0) {
@@ -379,13 +379,14 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     return extractMetadataAfterRead(this.strategy);
   }
 
-  private synchronized boolean extractMetadataAfterRead(@Nullable ReadStrategy strategy) {
+  private synchronized boolean extractMetadataAfterRead(ReadStrategy strategy) {
     if (this.itemInfo != null) {
       return true;
     }
-    if (strategy == null) {
+    if (metadataExtractionAttempted) {
       return false;
     }
+    metadataExtractionAttempted = true;
     GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
         GcsReadChannelMetadataExtractor.extract(strategy.getSdkReadChannel());
     if (metadata == null) {
@@ -414,4 +415,6 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     this.itemInfo = itemInfoBuilder.build();
     this.itemId = updatedItemId;
   }
+
+  private volatile boolean metadataExtractionAttempted = false;
 }

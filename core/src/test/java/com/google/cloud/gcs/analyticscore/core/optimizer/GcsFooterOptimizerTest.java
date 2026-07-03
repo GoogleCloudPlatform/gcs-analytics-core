@@ -332,4 +332,16 @@ class GcsFooterOptimizerTest {
     verify(telemetry, times(1)).recordMetric(eq(Metric.FOOTER_CACHE_MISS), eq(1L), any());
     verify(telemetry, times(1)).recordMetric(eq(Metric.FOOTER_PREFETCH_HIT), eq(1L), any());
   }
+
+  @Test
+  void read_fileSizeUninitialized_sourceGetItemInfoReturnsNull_returnsZero() throws IOException {
+    optimizer.onOpen(ITEM_ID, mockCacheManager);
+    VectoredSeekableByteChannel mockSource = mock(VectoredSeekableByteChannel.class);
+    when(mockSource.getItemInfo()).thenReturn(null);
+    ByteBuffer dst = ByteBuffer.allocate(10);
+
+    int bytesRead = optimizer.read(990, dst, mockSource);
+
+    assertThat(bytesRead).isEqualTo(0);
+  }
 }

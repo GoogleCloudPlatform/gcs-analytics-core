@@ -340,4 +340,12 @@ class GcsBidiReadChannelTest {
     // Verify that blobReadSession.close() was still called only once
     verify(blobReadSession, times(1)).close();
   }
+
+  @Test
+  void testDummyReadStrategy_getSdkReadChannel_returnsNull() {
+    ReadStrategy strategy =
+        reader.createReadStrategy(storage, itemId, GcsReadOptions.builder().build(), null);
+
+    assertThat(strategy.getSdkReadChannel()).isNull();
+  }
 }
