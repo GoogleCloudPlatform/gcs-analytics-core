@@ -42,7 +42,7 @@ class AdaptiveReadStrategy extends AbstractReadStrategy {
   @Override
   @Nullable
   public ReadChannel getSdkReadChannel() {
-    return currentStrategy != null ? currentStrategy.getSdkReadChannel() : null;
+    return currentStrategy.getSdkReadChannel();
   }
 
   @Override

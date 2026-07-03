@@ -380,12 +380,6 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   }
 
   private synchronized boolean extractMetadataAfterRead(ReadStrategy strategy) {
-    if (this.itemInfo != null) {
-      return true;
-    }
-    if (metadataExtractionAttempted) {
-      return false;
-    }
     metadataExtractionAttempted = true;
     GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
         GcsReadChannelMetadataExtractor.extract(strategy.getSdkReadChannel());

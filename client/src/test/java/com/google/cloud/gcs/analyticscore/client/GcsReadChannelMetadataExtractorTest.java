@@ -253,9 +253,139 @@ class GcsReadChannelMetadataExtractorTest {
     assertThat(metadata).isNull();
   }
 
+  @Test
+  void extract_fallbackGetterNegative_returnsNull() {
+    FallbackNegativeModel target = new FallbackNegativeModel();
+    ReflectiveGenericChannel channel = Mockito.mock(ReflectiveGenericChannel.class);
+    Mockito.when(channel.getResolvedObject()).thenReturn(target);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNull();
+  }
+
+  @Test
+  void extract_negativePrimaryPositiveFallback_returnsMetadata() {
+    NegativePrimaryPositiveFallbackModel target = new NegativePrimaryPositiveFallbackModel();
+    ReflectiveGenericChannel channel = Mockito.mock(ReflectiveGenericChannel.class);
+    Mockito.when(channel.getResolvedObject()).thenReturn(target);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNotNull();
+    assertThat(metadata.getSize()).isEqualTo(100L);
+    assertThat(metadata.getGeneration()).isEqualTo(-1L);
+  }
+
+  @Test
+  void extract_bothPrimaryAndFallbackNegative_returnsNull() {
+    BothNegativeModel target = new BothNegativeModel();
+    ReflectiveGenericChannel channel = Mockito.mock(ReflectiveGenericChannel.class);
+    Mockito.when(channel.getResolvedObject()).thenReturn(target);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNull();
+  }
+
+  @Test
+  void extract_fieldValueNull_fallsThroughToNextField() {
+    BlobInfo blobInfo = Mockito.mock(BlobInfo.class);
+    Mockito.when(blobInfo.getSize()).thenReturn(700L);
+    Mockito.when(blobInfo.getGeneration()).thenReturn(800L);
+    ReadChannel channel = new FakeChannelWithNullAndNonNullFields(blobInfo);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNotNull();
+    assertThat(metadata.getSize()).isEqualTo(700L);
+    assertThat(metadata.getGeneration()).isEqualTo(800L);
+  }
+
+  @Test
+  void extract_methodValueNull_fallsThroughToNextMethod() {
+    BlobInfo blobInfo = Mockito.mock(BlobInfo.class);
+    Mockito.when(blobInfo.getSize()).thenReturn(900L);
+    Mockito.when(blobInfo.getGeneration()).thenReturn(1000L);
+    ReflectiveNullAndNonNullMethodsChannel channel =
+        Mockito.mock(ReflectiveNullAndNonNullMethodsChannel.class);
+    Mockito.when(channel.getObject()).thenReturn(null);
+    Mockito.when(channel.getBlobInfo()).thenReturn(blobInfo);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNotNull();
+    assertThat(metadata.getSize()).isEqualTo(900L);
+    assertThat(metadata.getGeneration()).isEqualTo(1000L);
+  }
+
   static class ThrowingModel {
     public long getSize() {
       throw new RuntimeException("size retrieval failed");
+    }
+  }
+
+  static class FallbackNegativeModel {
+    public long size() {
+      return -5L;
+    }
+  }
+
+  static class NegativePrimaryPositiveFallbackModel {
+    public long getSize() {
+      return -10L;
+    }
+
+    public long size() {
+      return 100L;
+    }
+  }
+
+  static class BothNegativeModel {
+    public long getSize() {
+      return -10L;
+    }
+
+    public long size() {
+      return -5L;
+    }
+  }
+
+  static class FakeChannelWithNullAndNonNullFields implements ReadChannel {
+    private final Object storageObject = null;
+    private final BlobInfo result;
+
+    FakeChannelWithNullAndNonNullFields(BlobInfo result) {
+      this.result = result;
+    }
+
+    @Override
+    public void close() {}
+
+    @Override
+    public boolean isOpen() {
+      return true;
+    }
+
+    @Override
+    public int read(ByteBuffer dst) {
+      return -1;
+    }
+
+    @Override
+    public void seek(long position) {}
+
+    @Override
+    public void setChunkSize(int chunkSize) {}
+
+    @Override
+    public RestorableState<ReadChannel> capture() {
+      return null;
     }
   }
 
@@ -286,5 +416,15 @@ class GcsReadChannelMetadataExtractorTest {
 
   interface ReflectiveErrorChannel extends ReadChannel {
     ThrowingModel getResolvedObject();
+  }
+
+  interface ReflectiveGenericChannel extends ReadChannel {
+    Object getResolvedObject();
+  }
+
+  interface ReflectiveNullAndNonNullMethodsChannel extends ReadChannel {
+    Object getObject();
+
+    BlobInfo getBlobInfo();
   }
 }
