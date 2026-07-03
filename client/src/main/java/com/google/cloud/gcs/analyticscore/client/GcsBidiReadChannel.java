@@ -30,10 +30,12 @@ import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.ZeroCopySupport.DisposableByteString;
 import com.google.common.base.Supplier;
 import com.google.protobuf.ByteString;
+import java.io.EOFException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
+import java.nio.channels.SeekableByteChannel;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -51,6 +53,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
   private volatile BlobReadSession blobReadSession;
   private volatile boolean closed = false;
   private final ApiFuture<BlobReadSession> sessionFuture;
+  private long position = 0;
 
   GcsBidiReadChannel(
       Storage storage,
@@ -125,6 +128,84 @@ class GcsBidiReadChannel extends GcsReadChannel {
       @Override
       public void close() {}
     };
+  }
+
+  @Override
+  public int read(ByteBuffer dst) throws IOException {
+    if (!isOpen()) {
+      throw new ClosedChannelException();
+    }
+    if (!dst.hasRemaining()) {
+      return 0;
+    }
+    long objectSize = size();
+    if (position >= objectSize) {
+      return -1;
+    }
+    long bytesToRequest = Math.min((long) dst.remaining(), objectSize - position);
+    int bytesRead = readBytesFromSession(position, bytesToRequest, dst);
+    if (bytesRead > 0) {
+      position += bytesRead;
+    }
+    return bytesRead;
+  }
+
+  private int readBytesFromSession(long offset, long length, ByteBuffer dst) throws IOException {
+    BlobReadSession session = getBlobReadSession();
+    ApiFuture<DisposableByteString> futureBytes =
+        session.readAs(
+            ReadProjectionConfigs.asFutureByteString().withRangeSpec(RangeSpec.of(offset, length)));
+    long timeoutNanos = TimeUnit.SECONDS.toNanos(bidiClientTimeoutSeconds);
+    try (DisposableByteString dbs = futureBytes.get(timeoutNanos, TimeUnit.NANOSECONDS)) {
+      ByteString byteString = dbs.byteString();
+      int bytesRead = byteString.size();
+      if (bytesRead > 0) {
+        byteString.copyTo(dst);
+      }
+      return bytesRead;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("Thread interrupted while reading from stream", e);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof StorageException && ((StorageException) cause).getCode() == 404) {
+        throw new FileNotFoundException("Object not found during read: " + blobId);
+      }
+      throw new IOException("Failed to read bytes from bidirectional session", e);
+    } catch (TimeoutException e) {
+      throw new IOException("Timed out waiting for bytes from bidirectional stream", e);
+    }
+  }
+
+  @Override
+  public long position() throws IOException {
+    if (!isOpen()) {
+      throw new ClosedChannelException();
+    }
+    return position;
+  }
+
+  @Override
+  public SeekableByteChannel position(long newPosition) throws IOException {
+    if (!isOpen()) {
+      throw new ClosedChannelException();
+    }
+    if (newPosition < 0) {
+      throw new EOFException(
+          String.format(
+              "Invalid seek offset: position value (%d) must be >= 0 for '%s'",
+              newPosition, itemId));
+    }
+    this.position = newPosition;
+    return this;
+  }
+
+  @Override
+  public long size() throws IOException {
+    if (!isOpen()) {
+      throw new ClosedChannelException();
+    }
+    return super.size();
   }
 
   private BlobReadSession getBlobReadSession() throws IOException {
