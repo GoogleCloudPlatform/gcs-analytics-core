@@ -16,7 +16,9 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.storage.BlobId;
 import java.net.URI;
+import java.util.Collections;
 import java.util.Map;
 
 /**
@@ -45,6 +47,19 @@ public abstract class GcsFileInfo {
 
   public static Builder builder() {
     return new AutoValue_GcsFileInfo.Builder();
+  }
+
+  public static GcsFileInfo fromItemInfo(GcsItemInfo itemInfo) {
+    return builder()
+        .setItemInfo(itemInfo)
+        .setUri(
+            URI.create(
+                BlobId.of(
+                        itemInfo.getItemId().getBucketName(),
+                        itemInfo.getItemId().getObjectName().orElse(""))
+                    .toGsUtilUri()))
+        .setAttributes(Collections.emptyMap())
+        .build();
   }
 
   /** Builder for {@link GcsFileInfo}. */

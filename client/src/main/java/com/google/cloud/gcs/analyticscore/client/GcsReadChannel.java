@@ -36,6 +36,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.function.IntFunction;
+import javax.annotation.Nullable;
 
 class GcsReadChannel implements VectoredSeekableByteChannel {
   private Storage storage;
@@ -124,6 +125,9 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private int readNextChunk(ByteBuffer dst) throws IOException {
     ReadChannel sdkChannel = strategy.getReadChannel(gcsReadChannelPosition, dst.remaining());
     int bytesRead = sdkChannel.read(dst);
+    if (this.itemInfo == null) {
+      extractMetadataAfterRead();
+    }
     if (bytesRead >= 0) {
       gcsReadChannelPosition += bytesRead;
       strategy.position(gcsReadChannelPosition);
@@ -176,7 +180,16 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     if (null != itemInfo) {
       return itemInfo.getSize();
     }
+    if (extractMetadataAfterRead()) {
+      return itemInfo.getSize();
+    }
     throw new IOException("Object metadata not initialized");
+  }
+
+  @Override
+  @Nullable
+  public GcsItemInfo getItemInfo() {
+    return itemInfo;
   }
 
   @Override
@@ -247,6 +260,9 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             int numOfBytesRead = 0;
             while (dataBuffer.hasRemaining()) {
               int bytesRead = channel.read(dataBuffer);
+              if (GcsReadChannel.this.itemInfo == null) {
+                extractMetadataAfterRead(readStrategy);
+              }
               if (bytesRead < 0) {
                 // EOF reached.
                 break;
@@ -320,5 +336,45 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
           String.format(
               "Invalid seek offset: position value (%d) must be >= 0 for '%s'", position, itemId));
     }
+  }
+
+  private boolean extractMetadataAfterRead() {
+    return extractMetadataAfterRead(this.strategy);
+  }
+
+  private synchronized boolean extractMetadataAfterRead(@Nullable ReadStrategy strategy) {
+    if (this.itemInfo != null) {
+      return true;
+    }
+    if (strategy == null) {
+      return false;
+    }
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(strategy.getSdkReadChannel());
+    if (metadata == null) {
+      return false;
+    }
+    updateItemMetadata(metadata.getSize(), metadata.getGeneration());
+    return true;
+  }
+
+  private void updateItemMetadata(long extractedSize, long extractedGen) {
+    GcsItemId.Builder itemIdBuilder =
+        GcsItemId.builder().setBucketName(this.itemId.getBucketName());
+    this.itemId.getObjectName().ifPresent(itemIdBuilder::setObjectName);
+    long genToSet = extractedGen > 0 ? extractedGen : this.itemId.getContentGeneration().orElse(0L);
+    if (genToSet > 0) {
+      itemIdBuilder.setContentGeneration(genToSet);
+    }
+    GcsItemId updatedItemId = itemIdBuilder.build();
+    GcsItemInfo.Builder itemInfoBuilder =
+        GcsItemInfo.builder().setItemId(updatedItemId).setSize(extractedSize);
+    if (genToSet > 0) {
+      itemInfoBuilder.setContentGeneration(genToSet);
+    } else {
+      itemInfoBuilder.setContentGeneration(0L);
+    }
+    this.itemInfo = itemInfoBuilder.build();
+    this.itemId = updatedItemId;
   }
 }

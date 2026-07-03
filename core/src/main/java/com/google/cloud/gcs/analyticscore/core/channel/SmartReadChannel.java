@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.cloud.gcs.analyticscore.client.AnalyticsCacheManager;
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
+import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.cloud.gcs.analyticscore.core.optimizer.FormatOptimizer;
@@ -142,6 +143,12 @@ public class SmartReadChannel implements VectoredSeekableByteChannel {
   @Override
   public long size() throws IOException {
     return delegate.size();
+  }
+
+  @Override
+  @Nullable
+  public GcsItemInfo getItemInfo() {
+    return delegate.getItemInfo();
   }
 
   @Override

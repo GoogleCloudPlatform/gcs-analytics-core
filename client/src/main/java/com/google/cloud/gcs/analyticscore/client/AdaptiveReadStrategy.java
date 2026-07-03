@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.cloud.ReadChannel;
 import com.google.cloud.storage.Storage;
 import java.io.IOException;
+import javax.annotation.Nullable;
 
 class AdaptiveReadStrategy extends AbstractReadStrategy {
   private ReadStrategy currentStrategy;
@@ -36,6 +37,12 @@ class AdaptiveReadStrategy extends AbstractReadStrategy {
         isRandomMode
             ? new RandomReadStrategy(storage, itemId, options, itemInfo)
             : new SequentialReadStrategy(storage, itemId, options, itemInfo);
+  }
+
+  @Override
+  @Nullable
+  public ReadChannel getSdkReadChannel() {
+    return currentStrategy != null ? currentStrategy.getSdkReadChannel() : null;
   }
 
   @Override

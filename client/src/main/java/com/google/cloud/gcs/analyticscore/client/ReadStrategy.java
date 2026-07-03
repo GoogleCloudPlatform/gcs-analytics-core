@@ -17,6 +17,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.cloud.ReadChannel;
 import java.io.IOException;
+import javax.annotation.Nullable;
 
 /** Strategy for reading data from Google Cloud Storage. */
 interface ReadStrategy {
@@ -29,6 +30,9 @@ interface ReadStrategy {
    * @throws IOException if an I/O error occurs while acquiring the channel
    */
   ReadChannel getReadChannel(long requestedPosition, int bytesToRead) throws IOException;
+
+  @Nullable
+  ReadChannel getSdkReadChannel();
 
   /**
    * Updates the strategy's current read position.
