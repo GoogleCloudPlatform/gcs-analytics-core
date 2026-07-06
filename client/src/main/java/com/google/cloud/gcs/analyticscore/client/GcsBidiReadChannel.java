@@ -155,8 +155,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
     ApiFuture<DisposableByteString> futureBytes =
         session.readAs(
             ReadProjectionConfigs.asFutureByteString().withRangeSpec(RangeSpec.of(offset, length)));
-    long timeoutNanos = TimeUnit.SECONDS.toNanos(bidiClientTimeoutSeconds);
-    try (DisposableByteString dbs = futureBytes.get(timeoutNanos, TimeUnit.NANOSECONDS)) {
+    try (DisposableByteString dbs = futureBytes.get(bidiClientTimeoutSeconds, TimeUnit.SECONDS)) {
       ByteString byteString = dbs.byteString();
       int bytesRead = byteString.size();
       if (bytesRead > 0) {
@@ -164,6 +163,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
       }
       return bytesRead;
     } catch (InterruptedException e) {
+      futureBytes.cancel(true);
       Thread.currentThread().interrupt();
       throw new IOException("Thread interrupted while reading from stream", e);
     } catch (ExecutionException e) {
@@ -176,6 +176,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
       }
       throw new IOException("Failed to read bytes from bidirectional session", e);
     } catch (TimeoutException e) {
+      futureBytes.cancel(true);
       throw new IOException("Timed out waiting for bytes from bidirectional stream", e);
     }
   }
