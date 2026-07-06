@@ -55,6 +55,9 @@ class GcsBidiReadChannel extends GcsReadChannel {
   private volatile long position = 0;
   private final ApiFuture<BlobReadSession> sessionFuture;
 
+  private volatile long objectSize = -1;
+  private volatile boolean metadataInitialized = false;
+
   GcsBidiReadChannel(
       Storage storage,
       GcsItemInfo itemInfo,
@@ -204,12 +207,37 @@ class GcsBidiReadChannel extends GcsReadChannel {
     return this;
   }
 
+  private void ensureMetadataInitialized() throws IOException {
+    if (metadataInitialized) {
+      return;
+    }
+    synchronized (this) {
+      if (metadataInitialized) {
+        return;
+      }
+      try {
+        BlobReadSession session = getBlobReadSession();
+        com.google.cloud.storage.BlobInfo blobInfo =
+            (session != null) ? session.getBlobInfo() : null;
+        if (blobInfo != null) {
+          this.objectSize = blobInfo.getSize();
+        } else {
+          this.objectSize = super.size();
+        }
+      } catch (IOException e) {
+        this.objectSize = super.size();
+      }
+      this.metadataInitialized = true;
+    }
+  }
+
   @Override
   public long size() throws IOException {
     if (!isOpen()) {
       throw new ClosedChannelException();
     }
-    return super.size();
+    ensureMetadataInitialized();
+    return objectSize;
   }
 
   private BlobReadSession getBlobReadSession() throws IOException {

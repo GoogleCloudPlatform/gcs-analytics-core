@@ -592,4 +592,45 @@ class GcsBidiReadChannelTest {
 
     assertThat(seekableReader.size()).isEqualTo(42L);
   }
+
+  @Test
+  void testSize_LazilyFetchedFromSession_Success() throws Exception {
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(-1L).build(); // Simulate uninitialized size
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+
+    com.google.cloud.storage.BlobInfo mockBlobInfo = mock(com.google.cloud.storage.BlobInfo.class);
+    when(mockBlobInfo.getSize()).thenReturn(150L);
+    when(blobReadSession.getBlobInfo()).thenReturn(mockBlobInfo);
+
+    // Execute
+    long retrievedSize = seekableReader.size();
+
+    // Assert
+    assertThat(retrievedSize).isEqualTo(150L);
+    verify(blobReadSession, times(1)).getBlobInfo();
+  }
+
+  @Test
+  void testSize_CachedAfterFirstFetch() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(-1L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+
+    com.google.cloud.storage.BlobInfo mockBlobInfo = mock(com.google.cloud.storage.BlobInfo.class);
+    when(mockBlobInfo.getSize()).thenReturn(150L);
+    when(blobReadSession.getBlobInfo()).thenReturn(mockBlobInfo);
+
+    // Call size multiple times
+    long firstCall = seekableReader.size();
+    long secondCall = seekableReader.size();
+
+    // Assert size matches and is cached (only 1 invocation to getBlobInfo)
+    assertThat(firstCall).isEqualTo(150L);
+    assertThat(secondCall).isEqualTo(150L);
+    verify(blobReadSession, times(1)).getBlobInfo();
+  }
 }
