@@ -486,7 +486,7 @@ class GcsBidiReadChannelTest {
 
     ApiFuture<DisposableByteString> failedFuture = mock(ApiFuture.class);
     when(failedFuture.get(anyLong(), any()))
-        .thenThrow(new ExecutionException(new RuntimeException("gRPC Error")));
+        .thenThrow(new ExecutionException(new Exception("Generic Error")));
     when(blobReadSession.readAs(any())).thenReturn(failedFuture);
 
     ByteBuffer dst = ByteBuffer.allocate(10);
@@ -495,6 +495,26 @@ class GcsBidiReadChannelTest {
             IOException.class, () -> seekableReader.read(dst));
 
     assertThat(exception.getMessage()).contains("Failed to read bytes from bidirectional session");
+  }
+
+  @Test
+  void testStandardRead_ExecutionException_RuntimeException_Propagated() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+
+    ApiFuture<DisposableByteString> failedFuture = mock(ApiFuture.class);
+    when(failedFuture.get(anyLong(), any()))
+        .thenThrow(new ExecutionException(new RuntimeException("gRPC Error")));
+    when(blobReadSession.readAs(any())).thenReturn(failedFuture);
+
+    ByteBuffer dst = ByteBuffer.allocate(10);
+    RuntimeException exception =
+        org.junit.jupiter.api.Assertions.assertThrows(
+            RuntimeException.class, () -> seekableReader.read(dst));
+
+    assertThat(exception.getMessage()).contains("gRPC Error");
   }
 
   @Test
