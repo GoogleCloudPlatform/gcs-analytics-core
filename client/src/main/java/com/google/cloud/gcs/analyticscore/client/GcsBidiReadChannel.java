@@ -52,8 +52,8 @@ class GcsBidiReadChannel extends GcsReadChannel {
   private final BlobId blobId;
   private volatile BlobReadSession blobReadSession;
   private volatile boolean closed = false;
+  private volatile long position = 0;
   private final ApiFuture<BlobReadSession> sessionFuture;
-  private long position = 0;
 
   GcsBidiReadChannel(
       Storage storage,
@@ -170,6 +170,9 @@ class GcsBidiReadChannel extends GcsReadChannel {
       Throwable cause = e.getCause();
       if (cause instanceof StorageException && ((StorageException) cause).getCode() == 404) {
         throw new FileNotFoundException("Object not found during read: " + blobId);
+      }
+      if (cause instanceof RuntimeException) {
+        throw (RuntimeException) cause;
       }
       throw new IOException("Failed to read bytes from bidirectional session", e);
     } catch (TimeoutException e) {
