@@ -31,8 +31,7 @@ public class TestInputStreamInputFile implements InputFile {
     private Long size;
 
     public TestInputStreamInputFile(
-        URI filePath, boolean enableVectoredIO, GcsFileSystemOptions gcsFileSystemOptions)
-        throws IOException {
+            URI filePath, boolean enableVectoredIO, GcsFileSystemOptions gcsFileSystemOptions) throws IOException {
         this.fileUri = filePath;
         this.enableVectoredIO = enableVectoredIO;
         this.gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
