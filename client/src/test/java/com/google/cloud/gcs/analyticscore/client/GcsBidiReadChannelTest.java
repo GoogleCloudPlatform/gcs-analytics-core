@@ -556,4 +556,40 @@ class GcsBidiReadChannelTest {
     assertThat(exception.getMessage())
         .contains("Timed out waiting for bytes from bidirectional stream");
   }
+
+  @Test
+  void testStandardRead_BufferLargerThanRemainingBytes() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(15L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+
+    seekableReader.position(10L);
+
+    byte[] data = new byte[5];
+    Arrays.fill(data, (byte) 3);
+    ByteString byteString = ByteString.copyFrom(data);
+
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(byteString);
+
+    ByteBuffer dst = ByteBuffer.allocate(10);
+    int bytesRead = seekableReader.read(dst);
+
+    assertThat(bytesRead).isEqualTo(5);
+    assertThat(seekableReader.position()).isEqualTo(15L);
+    assertThat(dst.position()).isEqualTo(5);
+    assertThat(dst.limit()).isEqualTo(10);
+  }
+
+  @Test
+  void testStandardRead_SizeWhenOpen_ReturnsCorrectSize() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(42L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+
+    assertThat(seekableReader.size()).isEqualTo(42L);
+  }
 }
