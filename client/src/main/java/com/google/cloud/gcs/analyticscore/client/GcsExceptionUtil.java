@@ -59,14 +59,7 @@ class GcsExceptionUtil {
   static IOException translateException(
       StorageException e, String context, BlobId blobId, long position) {
     ErrorType errorType = getErrorType(e);
-    if (errorType == ErrorType.PRECONDITION_FAILED && blobId.getGeneration() != null) {
-      return new IOException(
-          String.format(
-              "Generation mismatch for object gs://%s/%s. Concurrent modification detected.",
-              blobId.getBucket(), blobId.getName()),
-          e);
-    }
-    if (errorType == ErrorType.PRECONDITION_FAILED) {
+    if (errorType == ErrorType.PRECONDITION_FAILED && blobId.getGeneration() == null) {
       return (FileAlreadyExistsException)
           new FileAlreadyExistsException(
                   String.format(
@@ -80,13 +73,6 @@ class GcsExceptionUtil {
   static IOException translateExceptionWithOverwrite(
       StorageException e, String context, BlobId blobId, long position) {
     ErrorType errorType = getErrorType(e);
-    if (errorType == ErrorType.PRECONDITION_FAILED && blobId.getGeneration() != null) {
-      return new IOException(
-          String.format(
-              "Generation mismatch for object gs://%s/%s. Concurrent modification detected.",
-              blobId.getBucket(), blobId.getName()),
-          e);
-    }
     return translateCommon(e, context, blobId, position, errorType);
   }
 
@@ -116,6 +102,16 @@ class GcsExceptionUtil {
                     String.format(
                         "Object gs://%s/%s already exists.", blobId.getBucket(), blobId.getName()))
                 .initCause(e);
+
+      case PRECONDITION_FAILED:
+        if (blobId.getGeneration() != null) {
+          return new IOException(
+              String.format(
+                  "Generation mismatch for object gs://%s/%s. Concurrent modification detected.",
+                  blobId.getBucket(), blobId.getName()),
+              e);
+        }
+        break;
 
       default:
         break;

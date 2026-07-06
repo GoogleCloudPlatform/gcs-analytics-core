@@ -43,5 +43,6 @@ public interface GcsClient {
    * @return a channel for writing data to the newly created object
    * @throws IOException if an I/O error occurs during channel initialization or translation
    */
-  WritableByteChannel create(GcsItemId itemId, GcsWriteOptions options) throws IOException;
+  WritableByteChannel createWriteChannel(GcsItemId itemId, GcsWriteOptions options)
+      throws IOException;
 }

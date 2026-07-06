@@ -186,7 +186,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     checkNotNull(itemId, "itemId should not be null");
 
     // Delegate the actual SDK interaction and exception handling to the internal client
-    return gcsClient.create(itemId, writeOptions);
+    return gcsClient.createWriteChannel(itemId, writeOptions);
   }
 
   @VisibleForTesting

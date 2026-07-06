@@ -544,11 +544,11 @@ class GcsFileSystemImplTest {
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
-    when(mockClient.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
+    when(mockClient.createWriteChannel(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
 
     WritableByteChannel resultChannel = gcsFileSystem.create(itemId, writeOptions);
 
-    verify(mockClient).create(itemId, writeOptions);
+    verify(mockClient).createWriteChannel(itemId, writeOptions);
     assertThat(resultChannel).isSameInstanceAs(mockChannel);
   }
 
@@ -568,11 +568,11 @@ class GcsFileSystemImplTest {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
-    when(mockClient.create(eq(itemId), eq(null))).thenReturn(mockChannel);
+    when(mockClient.createWriteChannel(eq(itemId), eq(null))).thenReturn(mockChannel);
 
     WritableByteChannel resultChannel = gcsFileSystem.create(itemId, null);
 
-    verify(mockClient).create(itemId, null);
+    verify(mockClient).createWriteChannel(itemId, null);
     assertThat(resultChannel).isSameInstanceAs(mockChannel);
   }
 
