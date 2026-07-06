@@ -22,6 +22,7 @@ import com.google.api.core.ApiFutureCallback;
 import com.google.api.core.ApiFutures;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobReadSession;
 import com.google.cloud.storage.RangeSpec;
 import com.google.cloud.storage.ReadProjectionConfigs;
@@ -217,8 +218,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
       }
       try {
         BlobReadSession session = getBlobReadSession();
-        com.google.cloud.storage.BlobInfo blobInfo =
-            (session != null) ? session.getBlobInfo() : null;
+        BlobInfo blobInfo = (session != null) ? session.getBlobInfo() : null;
         if (blobInfo != null) {
           this.objectSize = blobInfo.getSize();
         } else {

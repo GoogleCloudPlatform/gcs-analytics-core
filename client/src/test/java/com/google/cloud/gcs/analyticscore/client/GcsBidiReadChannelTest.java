@@ -28,6 +28,7 @@ import com.google.api.core.ApiFuture;
 import com.google.api.core.ApiFutures;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobReadSession;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageException;
@@ -41,9 +42,14 @@ import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLongArray;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntFunction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -601,7 +607,7 @@ class GcsBidiReadChannelTest {
     GcsBidiReadChannel seekableReader =
         new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
 
-    com.google.cloud.storage.BlobInfo mockBlobInfo = mock(com.google.cloud.storage.BlobInfo.class);
+    BlobInfo mockBlobInfo = mock(BlobInfo.class);
     when(mockBlobInfo.getSize()).thenReturn(150L);
     when(blobReadSession.getBlobInfo()).thenReturn(mockBlobInfo);
 
@@ -620,7 +626,7 @@ class GcsBidiReadChannelTest {
     GcsBidiReadChannel seekableReader =
         new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
 
-    com.google.cloud.storage.BlobInfo mockBlobInfo = mock(com.google.cloud.storage.BlobInfo.class);
+    BlobInfo mockBlobInfo = mock(BlobInfo.class);
     when(mockBlobInfo.getSize()).thenReturn(150L);
     when(blobReadSession.getBlobInfo()).thenReturn(mockBlobInfo);
 
@@ -632,5 +638,91 @@ class GcsBidiReadChannelTest {
     assertThat(firstCall).isEqualTo(150L);
     assertThat(secondCall).isEqualTo(150L);
     verify(blobReadSession, times(1)).getBlobInfo();
+  }
+
+  @Test
+  void testSize_GetBlobInfoReturnsNull_FallsBackToSuperSize() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+
+    when(blobReadSession.getBlobInfo()).thenReturn(null);
+
+    assertThat(seekableReader.size()).isEqualTo(100L);
+  }
+
+  @Test
+  void testSize_GetBlobReadSessionThrows_FallsBackToSuperSize() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.blobReadSession(any(BlobId.class)))
+        .thenReturn(ApiFutures.immediateFailedFuture(new IOException("Failed to get session")));
+
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(
+            mockStorage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+
+    assertThat(seekableReader.size()).isEqualTo(100L);
+  }
+
+  @Test
+  void testSize_ConcurrentCalls_InitializesOnce() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(-1L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+
+    BlobInfo mockBlobInfo = mock(BlobInfo.class);
+    when(mockBlobInfo.getSize()).thenReturn(150L);
+    when(blobReadSession.getBlobInfo()).thenReturn(mockBlobInfo);
+
+    int numThreads = 10;
+    ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+    CountDownLatch startLatch = new CountDownLatch(1);
+    CountDownLatch doneLatch = new CountDownLatch(numThreads);
+    AtomicLongArray results = new AtomicLongArray(numThreads);
+    AtomicReference<Throwable> exceptionRef = new AtomicReference<>();
+
+    for (int i = 0; i < numThreads; i++) {
+      final int index = i;
+      executor.submit(
+          () -> {
+            try {
+              startLatch.await();
+              results.set(index, seekableReader.size());
+            } catch (Throwable t) {
+              exceptionRef.set(t);
+            } finally {
+              doneLatch.countDown();
+            }
+          });
+    }
+
+    startLatch.countDown();
+    doneLatch.await(5, TimeUnit.SECONDS);
+    executor.shutdown();
+
+    assertThat(exceptionRef.get()).isNull();
+    for (int i = 0; i < numThreads; i++) {
+      assertThat(results.get(i)).isEqualTo(150L);
+    }
+    verify(blobReadSession, times(1)).getBlobInfo();
+  }
+
+  @Test
+  void testStandardRead_SeekBeyondSize_ReturnsEOF() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(10L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+
+    seekableReader.position(15L);
+    ByteBuffer dst = ByteBuffer.allocate(5);
+    int bytesRead = seekableReader.read(dst);
+
+    assertThat(bytesRead).isEqualTo(-1);
   }
 }
