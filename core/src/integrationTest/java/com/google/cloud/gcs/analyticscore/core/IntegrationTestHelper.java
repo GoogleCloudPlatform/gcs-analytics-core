@@ -124,7 +124,7 @@ public class IntegrationTestHelper {
         }
     }
 
-    private static String getFolderName() {
+    public static String getFolderName() {
         String folderName = System.getProperty("gcs.integration.test.bucket.folder");
         if (folderName == null) { return "test/"; }
         return folderName.endsWith("/") ? folderName : folderName + "/";
