@@ -96,16 +96,6 @@ class GcsBidiReadChannel extends GcsReadChannel {
     this.sessionFuture = storage.blobReadSession(blobId);
   }
 
-  private BlobId initBlobId() {
-    String bucketName = itemId.getBucketName();
-    checkArgument(itemId.getObjectName().isPresent(), "ObjectName cannot be empty");
-    String objectName = itemId.getObjectName().get();
-    return itemId
-        .getContentGeneration()
-        .map(gen -> BlobId.of(bucketName, objectName, gen))
-        .orElse(BlobId.of(bucketName, objectName));
-  }
-
   @Override
   protected ReadStrategy createReadStrategy(
       Storage storage, GcsItemId itemId, GcsReadOptions readOptions, GcsItemInfo itemInfo) {
@@ -147,14 +137,98 @@ class GcsBidiReadChannel extends GcsReadChannel {
       return -1;
     }
     long bytesToRequest = Math.min((long) dst.remaining(), objectSize - position);
-    int bytesRead = readBytesFromSession(position, bytesToRequest, dst);
+    int bytesRead = readBytesFromSession(dst, position, bytesToRequest);
     if (bytesRead > 0) {
       position += bytesRead;
     }
     return bytesRead;
   }
 
-  private int readBytesFromSession(long offset, long length, ByteBuffer dst) throws IOException {
+  @Override
+  public long position() throws IOException {
+    if (!isOpen()) {
+      throw new ClosedChannelException();
+    }
+    return position;
+  }
+
+  @Override
+  public SeekableByteChannel position(long newPosition) throws IOException {
+    if (!isOpen()) {
+      throw new ClosedChannelException();
+    }
+    if (newPosition < 0) {
+      throw new EOFException(
+          String.format(
+              "Invalid seek offset: position value (%d) must be >= 0 for '%s'",
+              newPosition, itemId));
+    }
+    this.position = newPosition;
+    return this;
+  }
+
+  @Override
+  public long size() throws IOException {
+    if (!isOpen()) {
+      throw new ClosedChannelException();
+    }
+    ensureMetadataInitialized();
+    return objectSize;
+  }
+
+  @Override
+  public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
+      throws IOException {
+    if (closed) {
+      ClosedChannelException e =
+          new ClosedChannelException() {
+            @Override
+            public String getMessage() {
+              return "Reader is closed.";
+            }
+          };
+      ranges.forEach(range -> range.getByteBufferFuture().completeExceptionally(e));
+      throw e;
+    }
+    BlobReadSession session;
+    try {
+      session = getBlobReadSession();
+    } catch (IOException | RuntimeException e) {
+      ranges.forEach(range -> range.getByteBufferFuture().completeExceptionally(e));
+      throw e;
+    }
+    ranges.forEach(range -> readAndAttachCallback(range, session, allocate));
+  }
+
+  @Override
+  public void close() throws IOException {
+    if (closed) {
+      return;
+    }
+    synchronized (this) {
+      closed = true;
+      try {
+        super.close();
+      } finally {
+        if (blobReadSession != null) {
+          blobReadSession.close();
+          blobReadSession = null;
+        }
+      }
+    }
+  }
+
+  private BlobId initBlobId() {
+    String bucketName = itemId.getBucketName();
+    checkArgument(itemId.getObjectName().isPresent(), "ObjectName cannot be empty");
+    String objectName = itemId.getObjectName().get();
+    return itemId
+        .getContentGeneration()
+        .map(gen -> BlobId.of(bucketName, objectName, gen))
+        .orElse(BlobId.of(bucketName, objectName));
+  }
+
+  private int readBytesFromSession(ByteBuffer dst, long offset, long length) throws IOException {
     BlobReadSession session = getBlobReadSession();
     ApiFuture<DisposableByteString> futureBytes =
         session.readAs(
@@ -185,29 +259,6 @@ class GcsBidiReadChannel extends GcsReadChannel {
     }
   }
 
-  @Override
-  public long position() throws IOException {
-    if (!isOpen()) {
-      throw new ClosedChannelException();
-    }
-    return position;
-  }
-
-  @Override
-  public SeekableByteChannel position(long newPosition) throws IOException {
-    if (!isOpen()) {
-      throw new ClosedChannelException();
-    }
-    if (newPosition < 0) {
-      throw new EOFException(
-          String.format(
-              "Invalid seek offset: position value (%d) must be >= 0 for '%s'",
-              newPosition, itemId));
-    }
-    this.position = newPosition;
-    return this;
-  }
-
   private void ensureMetadataInitialized() throws IOException {
     if (metadataInitialized) {
       return;
@@ -219,25 +270,13 @@ class GcsBidiReadChannel extends GcsReadChannel {
       try {
         BlobReadSession session = getBlobReadSession();
         BlobInfo blobInfo = (session != null) ? session.getBlobInfo() : null;
-        if (blobInfo != null) {
-          this.objectSize = blobInfo.getSize();
-        } else {
-          this.objectSize = super.size();
-        }
+
+        this.objectSize = blobInfo == null ? super.size() : blobInfo.getSize();
       } catch (IOException e) {
         this.objectSize = super.size();
       }
       this.metadataInitialized = true;
     }
-  }
-
-  @Override
-  public long size() throws IOException {
-    if (!isOpen()) {
-      throw new ClosedChannelException();
-    }
-    ensureMetadataInitialized();
-    return objectSize;
   }
 
   private BlobReadSession getBlobReadSession() throws IOException {
@@ -266,30 +305,6 @@ class GcsBidiReadChannel extends GcsReadChannel {
       }
     }
     return blobReadSession;
-  }
-
-  @Override
-  public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
-      throws IOException {
-    if (closed) {
-      ClosedChannelException e =
-          new ClosedChannelException() {
-            @Override
-            public String getMessage() {
-              return "Reader is closed.";
-            }
-          };
-      ranges.forEach(range -> range.getByteBufferFuture().completeExceptionally(e));
-      throw e;
-    }
-    BlobReadSession session;
-    try {
-      session = getBlobReadSession();
-    } catch (IOException | RuntimeException e) {
-      ranges.forEach(range -> range.getByteBufferFuture().completeExceptionally(e));
-      throw e;
-    }
-    ranges.forEach(range -> readAndAttachCallback(range, session, allocate));
   }
 
   private void readAndAttachCallback(
@@ -340,24 +355,6 @@ class GcsBidiReadChannel extends GcsReadChannel {
       }
       buf.flip();
       range.getByteBufferFuture().complete(buf);
-    }
-  }
-
-  @Override
-  public void close() throws IOException {
-    if (closed) {
-      return;
-    }
-    synchronized (this) {
-      closed = true;
-      try {
-        super.close();
-      } finally {
-        if (blobReadSession != null) {
-          blobReadSession.close();
-          blobReadSession = null;
-        }
-      }
     }
   }
 }

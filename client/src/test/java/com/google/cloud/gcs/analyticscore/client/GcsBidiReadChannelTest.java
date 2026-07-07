@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -53,6 +54,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntFunction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -85,7 +87,7 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testReadVectored_Success() throws Exception {
+  void readVectored_success_populatesByteBuffer() throws Exception {
     GcsObjectRange range =
         GcsObjectRange.builder()
             .setOffset(0)
@@ -112,7 +114,7 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testReadVectored_Failure() throws Exception {
+  void readVectored_failure_completesExceptionally() throws Exception {
     GcsObjectRange range =
         GcsObjectRange.builder()
             .setOffset(0)
@@ -132,17 +134,19 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testConstructor_nullItemId() {
+  void constructor_nullItemId_throwsNullPointerException() {
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
-    org.junit.jupiter.api.Assertions.assertThrows(
-        NullPointerException.class,
+
+    Executable action =
         () ->
             new GcsBidiReadChannel(
-                storage, (GcsItemId) null, readOptions, executorServiceSupplier, telemetry));
+                storage, (GcsItemId) null, readOptions, executorServiceSupplier, telemetry);
+
+    assertThrows(NullPointerException.class, action);
   }
 
   @Test
-  void testClose_closesBlobReadSession() throws Exception {
+  void close_validSession_closesBlobReadSession() throws Exception {
     GcsObjectRange range =
         GcsObjectRange.builder()
             .setOffset(0)
@@ -158,7 +162,6 @@ class GcsBidiReadChannelTest {
     when(disposableByteString.byteString()).thenReturn(byteString);
 
     IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
-
     reader.readVectored(Arrays.asList(range), allocate);
 
     reader.close();
@@ -167,7 +170,8 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testBlobReadSessionInterruptedException() throws Exception {
+  void readVectored_interruptedGettingSession_throwsIOExceptionAndSetsInterrupted()
+      throws Exception {
     reset(sessionFuture);
     when(sessionFuture.get(anyLong(), any())).thenThrow(new InterruptedException("Interrupted"));
 
@@ -179,22 +183,19 @@ class GcsBidiReadChannelTest {
             .build();
 
     IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
-
     Thread.interrupted();
 
-    java.io.IOException exception =
-        org.junit.jupiter.api.Assertions.assertThrows(
-            java.io.IOException.class, () -> reader.readVectored(Arrays.asList(range), allocate));
+    Executable action = () -> reader.readVectored(Arrays.asList(range), allocate);
 
+    IOException exception = assertThrows(IOException.class, action);
     assertThat(exception.getMessage())
         .contains("Failed to get BlobReadSession due to thread interruption");
     assertThat(Thread.currentThread().isInterrupted()).isTrue();
-
     Thread.interrupted();
   }
 
   @Test
-  void testBlobReadSessionFileNotFoundException() throws Exception {
+  void readVectored_sessionFileNotFound_throwsFileNotFoundException() throws Exception {
     reset(sessionFuture);
     when(sessionFuture.get(anyLong(), any()))
         .thenThrow(new ExecutionException(new StorageException(404, "Not found")));
@@ -208,17 +209,16 @@ class GcsBidiReadChannelTest {
 
     IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
 
-    FileNotFoundException exception =
-        org.junit.jupiter.api.Assertions.assertThrows(
-            FileNotFoundException.class, () -> reader.readVectored(Arrays.asList(range), allocate));
+    Executable action = () -> reader.readVectored(Arrays.asList(range), allocate);
 
+    FileNotFoundException exception = assertThrows(FileNotFoundException.class, action);
     assertThat(exception.getMessage()).contains("Object not found: ");
     assertThat(exception.getMessage()).contains("test-bucket");
     assertThat(exception.getMessage()).contains("test-object");
   }
 
   @Test
-  void testBlobReadSessionStorageExceptionOtherIOException() throws Exception {
+  void readVectored_sessionStorageExceptionOther_throwsIOException() throws Exception {
     reset(sessionFuture);
     when(sessionFuture.get(anyLong(), any()))
         .thenThrow(new ExecutionException(new StorageException(500, "Internal Server Error")));
@@ -232,16 +232,15 @@ class GcsBidiReadChannelTest {
 
     IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
 
-    java.io.IOException exception =
-        org.junit.jupiter.api.Assertions.assertThrows(
-            java.io.IOException.class, () -> reader.readVectored(Arrays.asList(range), allocate));
+    Executable action = () -> reader.readVectored(Arrays.asList(range), allocate);
 
+    IOException exception = assertThrows(IOException.class, action);
     assertThat(exception).isNotInstanceOf(FileNotFoundException.class);
     assertThat(exception.getMessage()).contains("Failed to get BlobReadSession");
   }
 
   @Test
-  void testBlobReadSessionTimeoutException() throws Exception {
+  void readVectored_sessionTimeoutException_throwsIOException() throws Exception {
     reset(sessionFuture);
     when(sessionFuture.get(anyLong(), any())).thenThrow(new TimeoutException("Timeout occurred"));
 
@@ -254,16 +253,15 @@ class GcsBidiReadChannelTest {
 
     IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
 
-    java.io.IOException exception =
-        org.junit.jupiter.api.Assertions.assertThrows(
-            java.io.IOException.class, () -> reader.readVectored(Arrays.asList(range), allocate));
+    Executable action = () -> reader.readVectored(Arrays.asList(range), allocate);
 
+    IOException exception = assertThrows(IOException.class, action);
     assertThat(exception.getMessage())
         .contains("Failed to get BlobReadSession due to client timeout limit");
   }
 
   @Test
-  void testReadVectored_afterClose_throwsClosedStateException() throws Exception {
+  void readVectored_afterClose_throwsIOExceptionAndCompletesExceptionally() throws Exception {
     reader.close();
 
     GcsObjectRange range =
@@ -275,22 +273,21 @@ class GcsBidiReadChannelTest {
 
     IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
 
-    IOException exception =
-        org.junit.jupiter.api.Assertions.assertThrows(
-            IOException.class, () -> reader.readVectored(Arrays.asList(range), allocate));
+    Executable action = () -> reader.readVectored(Arrays.asList(range), allocate);
 
+    IOException exception = assertThrows(IOException.class, action);
     assertThat(exception.getMessage()).contains("Reader is closed.");
     assertThat(range.getByteBufferFuture().isCompletedExceptionally()).isTrue();
 
     ExecutionException executionException =
-        org.junit.jupiter.api.Assertions.assertThrows(
-            ExecutionException.class, () -> range.getByteBufferFuture().get());
+        assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
     assertThat(executionException.getCause()).isInstanceOf(IOException.class);
     assertThat(executionException.getCause().getMessage()).contains("Reader is closed.");
   }
 
   @Test
-  void testReadVectored_nullAllocator_throwsNullPointerException() throws Exception {
+  void readVectored_nullAllocator_completesExceptionallyWithNullPointerException()
+      throws Exception {
     GcsObjectRange range =
         GcsObjectRange.builder()
             .setOffset(0)
@@ -314,14 +311,14 @@ class GcsBidiReadChannelTest {
     assertThat(future.isCompletedExceptionally()).isTrue();
 
     ExecutionException executionException =
-        org.junit.jupiter.api.Assertions.assertThrows(ExecutionException.class, () -> future.get());
+        assertThrows(ExecutionException.class, () -> future.get());
     assertThat(executionException.getCause()).isInstanceOf(NullPointerException.class);
     assertThat(executionException.getCause().getMessage())
         .contains("Allocator returned a null ByteBuffer!");
   }
 
   @Test
-  void testClose_isIdempotent() throws Exception {
+  void close_calledMultipleTimes_isIdempotent() throws Exception {
     GcsObjectRange range =
         GcsObjectRange.builder()
             .setOffset(0)
@@ -337,7 +334,6 @@ class GcsBidiReadChannelTest {
     when(disposableByteString.byteString()).thenReturn(byteString);
 
     IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
-
     reader.readVectored(Arrays.asList(range), allocate);
 
     // Call close() the first time
@@ -351,7 +347,7 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testStandardRead_Success() throws Exception {
+  void read_success_returnsBytesReadAndUpdatesPosition() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -366,6 +362,7 @@ class GcsBidiReadChannelTest {
     when(disposableByteString.byteString()).thenReturn(byteString);
 
     ByteBuffer dst = ByteBuffer.allocate(10);
+
     int bytesRead = seekableReader.read(dst);
 
     assertThat(bytesRead).isEqualTo(10);
@@ -375,7 +372,7 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testStandardRead_EOF() throws Exception {
+  void read_atEndOfFile_returnsMinusOne() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(10L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -383,34 +380,32 @@ class GcsBidiReadChannelTest {
 
     seekableReader.position(10L);
     ByteBuffer dst = ByteBuffer.allocate(5);
+
     int bytesRead = seekableReader.read(dst);
 
     assertThat(bytesRead).isEqualTo(-1);
   }
 
   @Test
-  void testStandardRead_NoRemaining() throws Exception {
+  void read_noRemainingSpaceInBuffer_returnsZero() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
         new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
 
     ByteBuffer dst = ByteBuffer.allocate(0);
+
     int bytesRead = seekableReader.read(dst);
 
     assertThat(bytesRead).isEqualTo(0);
   }
 
   @Test
-  void testStandardRead_PositionAndSeek() throws Exception {
+  void position_validSeekAndRead_returnsBytesReadAndUpdatesPosition() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
         new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
-
-    assertThat(seekableReader.position()).isEqualTo(0L);
-    seekableReader.position(5L);
-    assertThat(seekableReader.position()).isEqualTo(5L);
 
     byte[] data = new byte[5];
     Arrays.fill(data, (byte) 3);
@@ -421,48 +416,53 @@ class GcsBidiReadChannelTest {
     when(disposableByteString.byteString()).thenReturn(byteString);
 
     ByteBuffer dst = ByteBuffer.allocate(5);
+
+    long initialPosition = seekableReader.position();
+    seekableReader.position(5L);
+    long setPosition = seekableReader.position();
     int bytesRead = seekableReader.read(dst);
+    long finalPosition = seekableReader.position();
 
+    assertThat(initialPosition).isEqualTo(0L);
+    assertThat(setPosition).isEqualTo(5L);
     assertThat(bytesRead).isEqualTo(5);
-    assertThat(seekableReader.position()).isEqualTo(10L);
+    assertThat(finalPosition).isEqualTo(10L);
   }
 
   @Test
-  void testStandardRead_NegativeSeek_ThrowsEOFException() throws Exception {
+  void position_negativeSeek_throwsEOFException() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
         new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
 
-    org.junit.jupiter.api.Assertions.assertThrows(
-        EOFException.class, () -> seekableReader.position(-1L));
+    Executable action = () -> seekableReader.position(-1L);
+
+    assertThrows(EOFException.class, action);
   }
 
   @Test
-  void testStandardRead_ClosedChannel_ThrowsClosedChannelException() throws Exception {
+  void readAndPositionAndSize_closedChannel_throwsClosedChannelException() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
         new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
-
     seekableReader.close();
-
     ByteBuffer dst = ByteBuffer.allocate(10);
-    org.junit.jupiter.api.Assertions.assertThrows(
-        ClosedChannelException.class, () -> seekableReader.read(dst));
 
-    org.junit.jupiter.api.Assertions.assertThrows(
-        ClosedChannelException.class, () -> seekableReader.position());
+    Executable readAction = () -> seekableReader.read(dst);
+    Executable positionGetAction = () -> seekableReader.position();
+    Executable positionSetAction = () -> seekableReader.position(5L);
+    Executable sizeAction = () -> seekableReader.size();
 
-    org.junit.jupiter.api.Assertions.assertThrows(
-        ClosedChannelException.class, () -> seekableReader.position(5L));
-
-    org.junit.jupiter.api.Assertions.assertThrows(
-        ClosedChannelException.class, () -> seekableReader.size());
+    assertThrows(ClosedChannelException.class, readAction);
+    assertThrows(ClosedChannelException.class, positionGetAction);
+    assertThrows(ClosedChannelException.class, positionSetAction);
+    assertThrows(ClosedChannelException.class, sizeAction);
   }
 
   @Test
-  void testStandardRead_InterruptedException() throws Exception {
+  void read_interruptedDuringStreamRead_throwsIOExceptionAndSetsInterrupted() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -474,17 +474,17 @@ class GcsBidiReadChannelTest {
     when(blobReadSession.readAs(any())).thenReturn(interruptedFuture);
 
     ByteBuffer dst = ByteBuffer.allocate(10);
-    IOException exception =
-        org.junit.jupiter.api.Assertions.assertThrows(
-            IOException.class, () -> seekableReader.read(dst));
 
+    Executable action = () -> seekableReader.read(dst);
+
+    IOException exception = assertThrows(IOException.class, action);
     assertThat(exception.getMessage()).contains("Thread interrupted while reading from stream");
     assertThat(Thread.currentThread().isInterrupted()).isTrue();
     Thread.interrupted(); // clear status
   }
 
   @Test
-  void testStandardRead_ExecutionException() throws Exception {
+  void read_executionExceptionDuringStreamRead_throwsIOException() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -496,15 +496,15 @@ class GcsBidiReadChannelTest {
     when(blobReadSession.readAs(any())).thenReturn(failedFuture);
 
     ByteBuffer dst = ByteBuffer.allocate(10);
-    IOException exception =
-        org.junit.jupiter.api.Assertions.assertThrows(
-            IOException.class, () -> seekableReader.read(dst));
 
+    Executable action = () -> seekableReader.read(dst);
+
+    IOException exception = assertThrows(IOException.class, action);
     assertThat(exception.getMessage()).contains("Failed to read bytes from bidirectional session");
   }
 
   @Test
-  void testStandardRead_ExecutionException_RuntimeException_Propagated() throws Exception {
+  void read_runtimeExceptionDuringStreamRead_propagatesException() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -516,15 +516,15 @@ class GcsBidiReadChannelTest {
     when(blobReadSession.readAs(any())).thenReturn(failedFuture);
 
     ByteBuffer dst = ByteBuffer.allocate(10);
-    RuntimeException exception =
-        org.junit.jupiter.api.Assertions.assertThrows(
-            RuntimeException.class, () -> seekableReader.read(dst));
 
+    Executable action = () -> seekableReader.read(dst);
+
+    RuntimeException exception = assertThrows(RuntimeException.class, action);
     assertThat(exception.getMessage()).contains("gRPC Error");
   }
 
   @Test
-  void testStandardRead_ExecutionException_404_ThrowsFileNotFoundException() throws Exception {
+  void read_fileNotFoundDuringStreamRead_throwsFileNotFoundException() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -536,15 +536,15 @@ class GcsBidiReadChannelTest {
     when(blobReadSession.readAs(any())).thenReturn(failedFuture);
 
     ByteBuffer dst = ByteBuffer.allocate(10);
-    FileNotFoundException exception =
-        org.junit.jupiter.api.Assertions.assertThrows(
-            FileNotFoundException.class, () -> seekableReader.read(dst));
 
+    Executable action = () -> seekableReader.read(dst);
+
+    FileNotFoundException exception = assertThrows(FileNotFoundException.class, action);
     assertThat(exception.getMessage()).contains("Object not found during read:");
   }
 
   @Test
-  void testStandardRead_TimeoutException() throws Exception {
+  void read_timeoutDuringStreamRead_throwsIOException() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -555,16 +555,16 @@ class GcsBidiReadChannelTest {
     when(blobReadSession.readAs(any())).thenReturn(timeoutFuture);
 
     ByteBuffer dst = ByteBuffer.allocate(10);
-    IOException exception =
-        org.junit.jupiter.api.Assertions.assertThrows(
-            IOException.class, () -> seekableReader.read(dst));
 
+    Executable action = () -> seekableReader.read(dst);
+
+    IOException exception = assertThrows(IOException.class, action);
     assertThat(exception.getMessage())
         .contains("Timed out waiting for bytes from bidirectional stream");
   }
 
   @Test
-  void testStandardRead_BufferLargerThanRemainingBytes() throws Exception {
+  void read_bufferLargerThanRemainingBytes_readsOnlyRemainingBytes() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(15L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -581,6 +581,7 @@ class GcsBidiReadChannelTest {
     when(disposableByteString.byteString()).thenReturn(byteString);
 
     ByteBuffer dst = ByteBuffer.allocate(10);
+
     int bytesRead = seekableReader.read(dst);
 
     assertThat(bytesRead).isEqualTo(5);
@@ -590,7 +591,7 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testStandardRead_SizeWhenOpen_ReturnsCorrectSize() throws Exception {
+  void size_whenOpen_returnsCorrectSize() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(42L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -600,7 +601,7 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testSize_LazilyFetchedFromSession_Success() throws Exception {
+  void size_lazilyFetchedFromSession_returnsCorrectSize() throws Exception {
     GcsItemInfo itemInfo =
         GcsItemInfo.builder().setItemId(itemId).setSize(-1L).build(); // Simulate uninitialized size
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
@@ -620,7 +621,7 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testSize_CachedAfterFirstFetch() throws Exception {
+  void size_calledMultipleTimes_cachesMetadata() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(-1L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -641,7 +642,7 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testSize_GetBlobInfoReturnsNull_FallsBackToSuperSize() throws Exception {
+  void size_blobInfoReturnsNull_fallsBackToSuperSize() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -649,11 +650,13 @@ class GcsBidiReadChannelTest {
 
     when(blobReadSession.getBlobInfo()).thenReturn(null);
 
-    assertThat(seekableReader.size()).isEqualTo(100L);
+    long resultSize = seekableReader.size();
+
+    assertThat(resultSize).isEqualTo(100L);
   }
 
   @Test
-  void testSize_GetBlobReadSessionThrows_FallsBackToSuperSize() throws Exception {
+  void size_getBlobReadSessionThrows_fallsBackToSuperSize() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
 
@@ -665,11 +668,13 @@ class GcsBidiReadChannelTest {
         new GcsBidiReadChannel(
             mockStorage, itemInfo, readOptions, executorServiceSupplier, telemetry);
 
-    assertThat(seekableReader.size()).isEqualTo(100L);
+    long resultSize = seekableReader.size();
+
+    assertThat(resultSize).isEqualTo(100L);
   }
 
   @Test
-  void testSize_ConcurrentCalls_InitializesOnce() throws Exception {
+  void size_concurrentCalls_initializesOnce() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(-1L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -713,7 +718,7 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testStandardRead_SeekBeyondSize_ReturnsEOF() throws Exception {
+  void read_seekBeyondSize_returnsMinusOne() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(10L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
     GcsBidiReadChannel seekableReader =
@@ -721,6 +726,7 @@ class GcsBidiReadChannelTest {
 
     seekableReader.position(15L);
     ByteBuffer dst = ByteBuffer.allocate(5);
+
     int bytesRead = seekableReader.read(dst);
 
     assertThat(bytesRead).isEqualTo(-1);
