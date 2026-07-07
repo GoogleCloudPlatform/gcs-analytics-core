@@ -215,9 +215,12 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     readExecutorService.shutdown();
     listExecutorService.shutdown();
     try {
-      if (!readExecutorService.awaitTermination(10, TimeUnit.SECONDS)
-          || !listExecutorService.awaitTermination(10, TimeUnit.SECONDS)) {
+      boolean readTerminated = readExecutorService.awaitTermination(10, TimeUnit.SECONDS);
+      boolean listTerminated = listExecutorService.awaitTermination(10, TimeUnit.SECONDS);
+      if (!readTerminated) {
         readExecutorService.shutdownNow();
+      }
+      if (!listTerminated) {
         listExecutorService.shutdownNow();
       }
     } catch (InterruptedException e) {

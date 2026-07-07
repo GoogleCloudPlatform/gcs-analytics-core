@@ -178,4 +178,28 @@ public class LazyExecutorServiceTest {
     assertThat(executorService.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS))
         .isTrue();
   }
+
+  @Test
+  public void testExecuteThrowsRejectedExecutionException() {
+    assertThrows(
+        java.util.concurrent.RejectedExecutionException.class,
+        () -> executorService.execute(() -> {}));
+  }
+
+  @Test
+  public void testCompletedTaskReturnsResultAfterShutdown() throws Exception {
+    Callable<String> task = () -> "success";
+    Future<String> future = executorService.submit(task);
+
+    // Trigger execution
+    String result = future.get();
+    assertThat(result).isEqualTo("success");
+
+    // Shut down the executor
+    executorService.shutdown();
+
+    // Subsequent calls should still return the result, not throw CancellationException
+    assertThat(future.get()).isEqualTo("success");
+    assertThat(future.get(10, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo("success");
+  }
 }

@@ -22,7 +22,10 @@ import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -63,7 +66,26 @@ public class LazyExecutorService extends AbstractExecutorService {
 
   @Override
   public void execute(Runnable command) {
-    // Intentional no-op. Execution is deferred until get() is called on the Future.
+    throw new RejectedExecutionException("Use submit instead of execute.");
+  }
+
+  @Override
+  public Future<?> submit(Runnable task) {
+    return submit(Executors.callable(task));
+  }
+
+  @Override
+  public <T> Future<T> submit(Runnable task, T result) {
+    return submit(Executors.callable(task, result));
+  }
+
+  @Override
+  public <T> Future<T> submit(Callable<T> task) {
+    if (task == null) throw new NullPointerException();
+    if (isShutdown) {
+      throw new RejectedExecutionException("Executor is shut down");
+    }
+    return newTaskFor(task);
   }
 
   @Override
@@ -71,10 +93,10 @@ public class LazyExecutorService extends AbstractExecutorService {
     return new FutureTask<T>(callable) {
       @Override
       public T get() throws InterruptedException, ExecutionException {
-        if (isShutdown) {
-          throw new CancellationException("Executor is shut down");
-        }
         if (!isDone() && !isCancelled()) {
+          if (isShutdown) {
+            throw new CancellationException("Executor is shut down");
+          }
           run(); // Execute on the caller's thread when get() is called
         }
         return super.get();
@@ -83,10 +105,10 @@ public class LazyExecutorService extends AbstractExecutorService {
       @Override
       public T get(long timeout, TimeUnit unit)
           throws InterruptedException, ExecutionException, TimeoutException {
-        if (isShutdown) {
-          throw new CancellationException("Executor is shut down");
-        }
         if (!isDone() && !isCancelled()) {
+          if (isShutdown) {
+            throw new CancellationException("Executor is shut down");
+          }
           run();
         }
         return super.get(timeout, unit);
@@ -99,10 +121,10 @@ public class LazyExecutorService extends AbstractExecutorService {
     return new FutureTask<T>(runnable, value) {
       @Override
       public T get() throws InterruptedException, ExecutionException {
-        if (isShutdown) {
-          throw new CancellationException("Executor is shut down");
-        }
         if (!isDone() && !isCancelled()) {
+          if (isShutdown) {
+            throw new CancellationException("Executor is shut down");
+          }
           run();
         }
         return super.get();
@@ -111,10 +133,10 @@ public class LazyExecutorService extends AbstractExecutorService {
       @Override
       public T get(long timeout, TimeUnit unit)
           throws InterruptedException, ExecutionException, TimeoutException {
-        if (isShutdown) {
-          throw new CancellationException("Executor is shut down");
-        }
         if (!isDone() && !isCancelled()) {
+          if (isShutdown) {
+            throw new CancellationException("Executor is shut down");
+          }
           run();
         }
         return super.get(timeout, unit);
