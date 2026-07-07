@@ -150,7 +150,7 @@ class GcsFileSystemImplIntegrationTest {
 
         // Assert
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(uri);
-        assertThat(fileInfo.getItemInfo().getSize().get()).isEqualTo((long) content.length);
+        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) content.length);
     }
 
     @Test
@@ -183,7 +183,9 @@ class GcsFileSystemImplIntegrationTest {
 
         // Act & Assert
         assertThrows(FileAlreadyExistsException.class, () -> {
-            gcsFileSystem.create(itemId, noOverwriteOptions);
+            try (WritableByteChannel channel = gcsFileSystem.create(itemId, noOverwriteOptions)) {
+                channel.write(ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8)));
+            }
         });
     }
 
@@ -196,7 +198,9 @@ class GcsFileSystemImplIntegrationTest {
         URI uri = URI.create("gs://" + bucketName + "/" + objectName);
 
         GcsFileSystemOptions options = GcsFileSystemOptions.builder()
-                .setGcsClientOptions(GcsClientOptions.builder().build())
+                .setGcsClientOptions(GcsClientOptions.builder()
+                        .setUploadType(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
+                        .build())
                 .build();
         GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
@@ -205,9 +209,7 @@ class GcsFileSystemImplIntegrationTest {
                 .setObjectName(objectName)
                 .build();
 
-        GcsWriteOptions writeOptions = GcsWriteOptions.builder()
-                .setUploadStrategy(GcsWriteOptions.UploadStrategy.PARALLEL_COMPOSITE_UPLOAD)
-                .build();
+        GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         byte[] content = "test content".getBytes(StandardCharsets.UTF_8);
 
         // Act
@@ -217,7 +219,7 @@ class GcsFileSystemImplIntegrationTest {
 
         // Assert
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(uri);
-        assertThat(fileInfo.getItemInfo().getSize().get()).isEqualTo((long) content.length);
+        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) content.length);
     }
 
     @Test
