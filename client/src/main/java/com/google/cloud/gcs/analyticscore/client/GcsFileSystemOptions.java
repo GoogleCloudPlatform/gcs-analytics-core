@@ -26,6 +26,7 @@ public abstract class GcsFileSystemOptions {
   private static final String READ_THREAD_COUNT_KEY = "analytics-core.read.thread.count";
   private static final String CLIENT_TYPE_KEY = "client.type";
   private static final String HNS_API_ENABLED_KEY = "analytics-core.hierarchical.namespace.enable";
+  private static final String LIST_PARALLEL_ENABLED_KEY = "analytics-core.list.parallel.enabled";
 
   /** Cloud Storage client to use. */
   public enum ClientType {
@@ -46,6 +47,8 @@ public abstract class GcsFileSystemOptions {
 
   public abstract boolean isHnsApiEnabled();
 
+  public abstract boolean isListParallelEnabled();
+
   public abstract Builder toBuilder();
 
   public static Builder builder() {
@@ -53,6 +56,7 @@ public abstract class GcsFileSystemOptions {
         .setReadThreadCount(16)
         .setClientType(ClientType.HTTP_CLIENT)
         .setHnsApiEnabled(true)
+        .setListParallelEnabled(true)
         .setGcsClientOptions(GcsClientOptions.builder().build())
         .setGcsCacheOptions(GcsCacheOptions.builder().build())
         .setAnalyticsCoreTelemetryOptions(TelemetryOptions.builder().build());
@@ -72,6 +76,10 @@ public abstract class GcsFileSystemOptions {
     if (analyticsCoreOptions.containsKey(prefix + HNS_API_ENABLED_KEY)) {
       optionsBuilder.setHnsApiEnabled(
           Boolean.parseBoolean(analyticsCoreOptions.get(prefix + HNS_API_ENABLED_KEY)));
+    }
+    if (analyticsCoreOptions.containsKey(prefix + LIST_PARALLEL_ENABLED_KEY)) {
+      optionsBuilder.setListParallelEnabled(
+          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + LIST_PARALLEL_ENABLED_KEY)));
     }
 
     optionsBuilder.setGcsClientOptions(
@@ -94,6 +102,8 @@ public abstract class GcsFileSystemOptions {
     public abstract Builder setReadThreadCount(int readThreadCount);
 
     public abstract Builder setHnsApiEnabled(boolean isHnsApiEnabled);
+
+    public abstract Builder setListParallelEnabled(boolean isListParallelEnabled);
 
     public abstract Builder setGcsClientOptions(GcsClientOptions gcsClientOptions);
 
