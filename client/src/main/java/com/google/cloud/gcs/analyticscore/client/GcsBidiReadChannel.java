@@ -264,9 +264,6 @@ class GcsBidiReadChannel extends GcsReadChannel {
       return;
     }
     synchronized (this) {
-      if (metadataInitialized) {
-        return;
-      }
       try {
         BlobReadSession session = getBlobReadSession();
         BlobInfo blobInfo = (session != null) ? session.getBlobInfo() : null;
