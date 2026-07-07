@@ -17,9 +17,12 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mockStatic;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 class GcsFileSystemOptionsTest {
 
@@ -61,5 +64,29 @@ class GcsFileSystemOptionsTest {
     assertThat(cacheOptions.getFooterCacheMaxSizeBytes()).isEqualTo(500 * MB);
     assertThat(cacheOptions.isSmallObjectCacheEnabled()).isTrue();
     assertThat(cacheOptions.getSmallObjectCacheMaxSizeBytes()).isEqualTo(200 * MB);
+  }
+
+  @Test
+  void builder_withFewProcessors_setsDefaultThreadCountTo16() {
+    try (MockedStatic<GcsFileSystemOptions> mockedStatic =
+        mockStatic(GcsFileSystemOptions.class, CALLS_REAL_METHODS)) {
+      mockedStatic.when(GcsFileSystemOptions::getAvailableProcessors).thenReturn(2);
+
+      GcsFileSystemOptions options = GcsFileSystemOptions.builder().build();
+
+      assertThat(options.getReadThreadCount()).isEqualTo(16);
+    }
+  }
+
+  @Test
+  void builder_withManyProcessors_scalesDefaultThreadCount() {
+    try (MockedStatic<GcsFileSystemOptions> mockedStatic =
+        mockStatic(GcsFileSystemOptions.class, CALLS_REAL_METHODS)) {
+      mockedStatic.when(GcsFileSystemOptions::getAvailableProcessors).thenReturn(10);
+
+      GcsFileSystemOptions options = GcsFileSystemOptions.builder().build();
+
+      assertThat(options.getReadThreadCount()).isEqualTo(40);
+    }
   }
 }

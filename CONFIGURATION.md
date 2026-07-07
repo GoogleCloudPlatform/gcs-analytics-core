@@ -41,7 +41,7 @@ These parameters fine-tune the low-level data streaming behavior. They allow you
 | Property | Description | Default Value |
 | :--- | :--- | :--- |
 | `channel.read.chunk-size-bytes` | Chunk size for GCS channel reads. | - |
-| `analytics-core.read.thread.count` | Number of threads for parallel read operations like vectored IO. | `16` |
+| `analytics-core.read.thread.count` | Number of threads for parallel read operations like vectored IO. | `Max(16, 4 * Available Cores)` |
 | `analytics-core.read.vectored.range.merge-gap.max-bytes` | Maximum gap (in bytes) between ranges to merge in vectored reads. | `4096` (4 KB) |
 | `analytics-core.read.vectored.range.merged-size.max-bytes` | Maximum size (in bytes) of a merged range in vectored reads. | `8388608` (8 MB) |
 | `analytics-core.read.inplace-seek-limit-bytes` | In-place seek limit (in bytes). | `131072` (128 KB) |
