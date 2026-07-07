@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +37,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
@@ -50,6 +52,7 @@ import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 class GcsClientImplTest {
 
@@ -531,6 +534,24 @@ class GcsClientImplTest {
   }
 
   @Test
+  void createStorage_whenBufferToTempDirThrowsIOException_throwsUncheckedIOException() {
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setUploadType(GcsClientOptions.UploadType.WRITE_TO_DISK_THEN_UPLOAD)
+            .build();
+
+    try (MockedStatic<BlobWriteSessionConfigs> mocked = mockStatic(BlobWriteSessionConfigs.class)) {
+      mocked
+          .when(BlobWriteSessionConfigs::bufferToTempDirThenUpload)
+          .thenThrow(new IOException("mock error"));
+      UncheckedIOException e =
+          assertThrows(
+              UncheckedIOException.class, () -> createClientWithClientOptions(clientOptions));
+      assertThat(e).hasMessageThat().contains("Failed while initializing configs");
+    }
+  }
+
+  @Test
   void createStorage_withJournalingOnHttp_throwsUnsupportedOperationException() {
     GcsClientOptions clientOptions =
         GcsClientOptions.builder()
@@ -760,41 +781,6 @@ class GcsClientImplTest {
             "Field " + BLOB_WRITE_SESSION_CONFIG_FIELD + " not found in options hierarchy"));
   }
 
-  @Test
-  void generateSessionConfig_withJournalingAndNonHttpStorageOptions_returnsJournalingConfig()
-      throws Exception {
-    GcsClientOptions clientOptions =
-        GcsClientOptions.builder()
-            .setUploadType(GcsClientOptions.UploadType.JOURNALING)
-            .setTemporaryPaths(ImmutableList.of("/tmp/journal1", "/tmp/journal2"))
-            .build();
-
-    Object result = GcsWriteConfigurationUtil.generateSessionConfig(clientOptions, false);
-
-    assertThat(result).isNotNull();
-    assertThat(result.getClass().getSimpleName()).contains("Journaling");
-  }
-
-  @Test
-  void
-      getJournalingSessionConfig_withNonHttpStorageOptionsAndEmptyTemporaryPaths_throwsIllegalArgumentException()
-          throws Exception {
-    GcsClientOptions clientOptions =
-        GcsClientOptions.builder()
-            .setUploadType(GcsClientOptions.UploadType.JOURNALING)
-            .setTemporaryPaths(ImmutableList.of())
-            .build();
-
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> GcsWriteConfigurationUtil.generateSessionConfig(clientOptions, false));
-
-    assertThat(exception)
-        .hasMessageThat()
-        .contains("Temporary paths must be configured for JOURNALING upload type");
-  }
-
   private void assertPcuSessionConfig(GcsClientOptions clientOptions) throws Exception {
     GcsClientImpl client = createClientWithClientOptions(clientOptions);
 
@@ -802,15 +788,14 @@ class GcsClientImplTest {
         .isInstanceOf(ParallelCompositeUploadBlobWriteSessionConfig.class);
   }
 
-  private GcsClientImpl createClientWithMockStorage(Storage mockStorage) throws IOException {
+  private GcsClientImpl createClientWithMockStorage(Storage mockStorage) {
     GcsClientImpl client =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
     client.storage = mockStorage;
     return client;
   }
 
-  private GcsClientImpl createClientWithClientOptions(GcsClientOptions clientOptions)
-      throws IOException {
+  private GcsClientImpl createClientWithClientOptions(GcsClientOptions clientOptions) {
     return new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry);
   }
 

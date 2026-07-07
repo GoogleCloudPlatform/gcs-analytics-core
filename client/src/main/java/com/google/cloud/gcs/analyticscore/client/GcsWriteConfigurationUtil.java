@@ -16,13 +16,12 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import static com.google.common.base.Preconditions.checkArgument;
-
 import com.google.cloud.storage.BlobWriteSessionConfig;
 import com.google.cloud.storage.BlobWriteSessionConfigs;
 import com.google.cloud.storage.ParallelCompositeUploadBlobWriteSessionConfig;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -37,7 +36,7 @@ final class GcsWriteConfigurationUtil {
   }
 
   static BlobWriteSessionConfig generateSessionConfig(
-      GcsClientOptions clientOptions, boolean isHttpTransport) throws IOException {
+      GcsClientOptions clientOptions, boolean isHttpTransport) {
     switch (clientOptions.getUploadType()) {
       case PARALLEL_COMPOSITE_UPLOAD:
         return getParallelCompositeUploadSessionConfig(clientOptions);
@@ -65,28 +64,27 @@ final class GcsWriteConfigurationUtil {
                 clientOptions.getPcuPartFileNamePrefix()));
   }
 
-  private static BlobWriteSessionConfig getWriteToDiskSessionConfig(GcsClientOptions clientOptions)
-      throws IOException {
-    if (!clientOptions.getTemporaryPaths().isEmpty()) {
-      List<Path> paths = toPaths(clientOptions.getTemporaryPaths());
-      return BlobWriteSessionConfigs.bufferToDiskThenUpload(paths);
-    } else {
-      return BlobWriteSessionConfigs.bufferToTempDirThenUpload();
+  private static BlobWriteSessionConfig getWriteToDiskSessionConfig(
+      GcsClientOptions clientOptions) {
+    try {
+      if (!clientOptions.getTemporaryPaths().isEmpty()) {
+        List<Path> paths = toPaths(clientOptions.getTemporaryPaths());
+        return BlobWriteSessionConfigs.bufferToDiskThenUpload(paths);
+      } else {
+        return BlobWriteSessionConfigs.bufferToTempDirThenUpload();
+      }
+    } catch (IOException e) {
+      throw new UncheckedIOException(
+          "Failed while initializing configs for " + clientOptions.getUploadType(), e);
     }
   }
 
   private static BlobWriteSessionConfig getJournalingSessionConfig(
-      GcsClientOptions clientOptions, boolean isHttpTransport) throws IOException {
-    if (isHttpTransport) {
-      throw new UnsupportedOperationException(
-          "JOURNALING upload type is not supported because it requires the gRPC "
-              + "transport backend (HTTP transport is currently active).");
-    }
-    checkArgument(
-        !clientOptions.getTemporaryPaths().isEmpty(),
-        "Temporary paths must be configured for JOURNALING upload type");
-    List<Path> paths = toPaths(clientOptions.getTemporaryPaths());
-    return BlobWriteSessionConfigs.journaling(paths);
+      GcsClientOptions clientOptions, boolean isHttpTransport) {
+    // TODO: Add the isHttpTransport check and support for JOURNALING once gRPC support is added to
+    // gcs-analytics-core.
+    throw new UnsupportedOperationException(
+        "JOURNALING upload type is not supported since it requires gRPC transport.");
   }
 
   private static List<Path> toPaths(Collection<String> pathStrings) {

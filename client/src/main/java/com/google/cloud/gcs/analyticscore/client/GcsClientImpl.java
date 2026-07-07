@@ -58,16 +58,14 @@ class GcsClientImpl implements GcsClient {
       Credentials credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry)
-      throws IOException {
+      Telemetry telemetry) {
     this(Optional.of(credentials), clientOptions, executorServiceSupplier, telemetry);
   }
 
   GcsClientImpl(
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry)
-      throws IOException {
+      Telemetry telemetry) {
     this(Optional.empty(), clientOptions, executorServiceSupplier, telemetry);
   }
 
@@ -75,8 +73,7 @@ class GcsClientImpl implements GcsClient {
       Optional<Credentials> credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry)
-      throws IOException {
+      Telemetry telemetry) {
     this.clientOptions = clientOptions;
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
@@ -155,7 +152,7 @@ class GcsClientImpl implements GcsClient {
   }
 
   @VisibleForTesting
-  protected Storage createStorage(Optional<Credentials> credentials) throws IOException {
+  protected Storage createStorage(Optional<Credentials> credentials) {
     StorageOptions.Builder builder =
         clientOptions.getGcsReadOptions().isBidiReadEnabled()
             ? StorageOptions.grpc()

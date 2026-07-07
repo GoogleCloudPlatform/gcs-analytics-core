@@ -51,7 +51,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   private final Telemetry telemetry;
   private final AnalyticsCacheManager cacheManager;
 
-  public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) throws IOException {
+  public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
     this.telemetry = createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
@@ -66,8 +66,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
                     fileSystemOptions.getGcsClientOptions(), executorServiceSupplier, telemetry));
   }
 
-  public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions)
-      throws IOException {
+  public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
     this.telemetry = createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
