@@ -17,6 +17,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
+import com.google.common.annotations.VisibleForTesting;
 import java.util.Map;
 
 /** Configuration options for the GCS File System. */
@@ -45,9 +46,15 @@ public abstract class GcsFileSystemOptions {
 
   public abstract Builder toBuilder();
 
+  @VisibleForTesting
+  static int getAvailableProcessors() {
+    return Runtime.getRuntime().availableProcessors();
+  }
+
   public static Builder builder() {
+    int defaultThreadCount = Math.max(16, getAvailableProcessors() * 4);
     return new AutoValue_GcsFileSystemOptions.Builder()
-        .setReadThreadCount(16)
+        .setReadThreadCount(defaultThreadCount)
         .setClientType(ClientType.HTTP_CLIENT)
         .setGcsClientOptions(GcsClientOptions.builder().build())
         .setGcsCacheOptions(GcsCacheOptions.builder().build())
