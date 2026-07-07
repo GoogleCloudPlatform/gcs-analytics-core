@@ -33,150 +33,123 @@ import org.junit.runners.JUnit4;
 public class LazyExecutorServiceTest {
 
   private LazyExecutorService executorService;
+  private AtomicBoolean executed;
 
   @Before
   public void setUp() {
     executorService = new LazyExecutorService();
+    executed = new AtomicBoolean(false);
+  }
+
+  private Callable<String> createCallableTask() {
+    return () -> {
+      executed.set(true);
+      return "success";
+    };
+  }
+
+  private Runnable createRunnableTask() {
+    return () -> executed.set(true);
   }
 
   @Test
   public void testSubmitCallableIsLazyAndRunsOnCallerThread() throws Exception {
-    AtomicBoolean executed = new AtomicBoolean(false);
     AtomicReference<Thread> executionThread = new AtomicReference<>();
-
     Callable<String> task =
         () -> {
           executed.set(true);
           executionThread.set(Thread.currentThread());
           return "success";
         };
-
     Future<String> future = executorService.submit(task);
-
-    // Verify it has not executed yet
     assertThat(executed.get()).isFalse();
 
-    // Call get() to trigger execution
     String result = future.get();
 
-    // Verify execution happened and result is correct
-    assertThat(executed.get()).isTrue();
     assertThat(result).isEqualTo("success");
-
-    // Verify it ran on the caller's thread
+    assertThat(executed.get()).isTrue();
     assertThat(executionThread.get()).isEqualTo(Thread.currentThread());
   }
 
   @Test
   public void testSubmitRunnableIsLazy() throws Exception {
-    AtomicBoolean executed = new AtomicBoolean(false);
-
-    Runnable task = () -> executed.set(true);
-
-    Future<?> future = executorService.submit(task);
-
-    // Verify it has not executed yet
+    Future<?> future = executorService.submit(createRunnableTask());
     assertThat(executed.get()).isFalse();
 
-    // Call get() to trigger execution
     future.get();
 
-    // Verify execution happened
     assertThat(executed.get()).isTrue();
   }
 
   @Test
   public void testShutdownThrowsCancellationExceptionOnGet() {
-    AtomicBoolean executed = new AtomicBoolean(false);
-    Callable<String> task =
-        () -> {
-          executed.set(true);
-          return "success";
-        };
-
-    Future<String> future = executorService.submit(task);
-    assertThat(executed.get()).isFalse();
-
-    // Shutdown the executor
+    Future<String> future = executorService.submit(createCallableTask());
     executorService.shutdown();
+
     assertThat(executorService.isShutdown()).isTrue();
-
-    // Call get() and expect CancellationException
     assertThrows(CancellationException.class, future::get);
-
-    // Verify task was never executed
     assertThat(executed.get()).isFalse();
+    assertThat(future.isCancelled()).isTrue();
+    assertThat(future.isDone()).isTrue();
   }
 
   @Test
   public void testShutdownNowReturnsEmptyListAndCancelsFutureTaskExecution() {
-    AtomicBoolean executed = new AtomicBoolean(false);
-    Callable<String> task =
-        () -> {
-          executed.set(true);
-          return "success";
-        };
+    Future<String> future = executorService.submit(createCallableTask());
 
-    Future<String> future = executorService.submit(task);
+    java.util.List<Runnable> unexecutedTasks = executorService.shutdownNow();
 
-    // shutdownNow should return an empty list since we don't track tasks
-    assertThat(executorService.shutdownNow()).isEmpty();
+    assertThat(unexecutedTasks).isEmpty();
     assertThat(executorService.isShutdown()).isTrue();
-
     assertThrows(CancellationException.class, future::get);
     assertThat(executed.get()).isFalse();
+    assertThat(future.isCancelled()).isTrue();
+    assertThat(future.isDone()).isTrue();
   }
 
   @Test
   public void testSubmitCallableIsLazyWithTimeout() throws Exception {
-    AtomicBoolean executed = new AtomicBoolean(false);
-    Callable<String> task =
-        () -> {
-          executed.set(true);
-          return "success";
-        };
-    Future<String> future = executorService.submit(task);
+    Future<String> future = executorService.submit(createCallableTask());
     assertThat(executed.get()).isFalse();
 
     String result = future.get(10, java.util.concurrent.TimeUnit.SECONDS);
-    assertThat(executed.get()).isTrue();
+
     assertThat(result).isEqualTo("success");
+    assertThat(executed.get()).isTrue();
   }
 
   @Test
   public void testSubmitRunnableIsLazyWithTimeout() throws Exception {
-    AtomicBoolean executed = new AtomicBoolean(false);
-    Runnable task = () -> executed.set(true);
-    Future<?> future = executorService.submit(task);
+    Future<?> future = executorService.submit(createRunnableTask());
     assertThat(executed.get()).isFalse();
 
     future.get(10, java.util.concurrent.TimeUnit.SECONDS);
+
     assertThat(executed.get()).isTrue();
   }
 
   @Test
   public void testShutdownThrowsCancellationExceptionOnGetWithTimeout() {
-    AtomicBoolean executed = new AtomicBoolean(false);
-    Callable<String> task =
-        () -> {
-          executed.set(true);
-          return "success";
-        };
-    Future<String> future = executorService.submit(task);
+    Future<String> future = executorService.submit(createCallableTask());
     executorService.shutdown();
 
     assertThrows(
         CancellationException.class, () -> future.get(10, java.util.concurrent.TimeUnit.SECONDS));
     assertThat(executed.get()).isFalse();
+    assertThat(future.isCancelled()).isTrue();
+    assertThat(future.isDone()).isTrue();
   }
 
   @Test
   public void testAwaitTerminationAndIsTerminated() throws Exception {
     assertThat(executorService.isTerminated()).isFalse();
+
     executorService.shutdown();
+    boolean terminated =
+        executorService.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS);
+
     assertThat(executorService.isTerminated()).isTrue();
-    assertThat(executorService.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS))
-        .isTrue();
+    assertThat(terminated).isTrue();
   }
 
   @Test
@@ -188,18 +161,37 @@ public class LazyExecutorServiceTest {
 
   @Test
   public void testCompletedTaskReturnsResultAfterShutdown() throws Exception {
-    Callable<String> task = () -> "success";
-    Future<String> future = executorService.submit(task);
+    Future<String> future = executorService.submit(createCallableTask());
+    future.get();
 
-    // Trigger execution
-    String result = future.get();
-    assertThat(result).isEqualTo("success");
-
-    // Shut down the executor
     executorService.shutdown();
 
-    // Subsequent calls should still return the result, not throw CancellationException
     assertThat(future.get()).isEqualTo("success");
     assertThat(future.get(10, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo("success");
+  }
+
+  @Test
+  public void testSubmitRunnableWithResult() throws Exception {
+    Future<String> future = executorService.submit(createRunnableTask(), "success");
+    assertThat(executed.get()).isFalse();
+
+    String result = future.get();
+
+    assertThat(result).isEqualTo("success");
+    assertThat(executed.get()).isTrue();
+  }
+
+  @Test
+  public void testSubmitNullTaskThrowsNullPointerException() {
+    assertThrows(NullPointerException.class, () -> executorService.submit((Callable<String>) null));
+  }
+
+  @Test
+  public void testSubmitAfterShutdownThrowsRejectedExecutionException() {
+    executorService.shutdown();
+
+    assertThrows(
+        java.util.concurrent.RejectedExecutionException.class,
+        () -> executorService.submit(() -> "task"));
   }
 }

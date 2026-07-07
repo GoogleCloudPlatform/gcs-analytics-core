@@ -20,7 +20,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -88,59 +87,39 @@ public class LazyExecutorService extends AbstractExecutorService {
     return newTaskFor(task);
   }
 
-  @Override
-  protected <T> RunnableFuture<T> newTaskFor(Callable<T> callable) {
-    return new FutureTask<T>(callable) {
-      @Override
-      public T get() throws InterruptedException, ExecutionException {
-        if (!isDone() && !isCancelled()) {
-          if (isShutdown) {
-            throw new CancellationException("Executor is shut down");
-          }
+  private final class LazyFutureTask<V> extends FutureTask<V> {
+    LazyFutureTask(Callable<V> callable) {
+      super(callable);
+    }
+
+    @Override
+    public V get() throws InterruptedException, ExecutionException {
+      if (!isDone() && !isCancelled()) {
+        if (isShutdown) {
+          cancel(false);
+        } else {
           run(); // Execute on the caller's thread when get() is called
         }
-        return super.get();
       }
+      return super.get();
+    }
 
-      @Override
-      public T get(long timeout, TimeUnit unit)
-          throws InterruptedException, ExecutionException, TimeoutException {
-        if (!isDone() && !isCancelled()) {
-          if (isShutdown) {
-            throw new CancellationException("Executor is shut down");
-          }
+    @Override
+    public V get(long timeout, TimeUnit unit)
+        throws InterruptedException, ExecutionException, TimeoutException {
+      if (!isDone() && !isCancelled()) {
+        if (isShutdown) {
+          cancel(false);
+        } else {
           run();
         }
-        return super.get(timeout, unit);
       }
-    };
+      return super.get(timeout, unit);
+    }
   }
 
   @Override
-  protected <T> RunnableFuture<T> newTaskFor(Runnable runnable, T value) {
-    return new FutureTask<T>(runnable, value) {
-      @Override
-      public T get() throws InterruptedException, ExecutionException {
-        if (!isDone() && !isCancelled()) {
-          if (isShutdown) {
-            throw new CancellationException("Executor is shut down");
-          }
-          run();
-        }
-        return super.get();
-      }
-
-      @Override
-      public T get(long timeout, TimeUnit unit)
-          throws InterruptedException, ExecutionException, TimeoutException {
-        if (!isDone() && !isCancelled()) {
-          if (isShutdown) {
-            throw new CancellationException("Executor is shut down");
-          }
-          run();
-        }
-        return super.get(timeout, unit);
-      }
-    };
+  protected <T> RunnableFuture<T> newTaskFor(Callable<T> callable) {
+    return new LazyFutureTask<>(callable);
   }
 }
