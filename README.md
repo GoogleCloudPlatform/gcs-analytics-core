@@ -118,25 +118,10 @@ The library currently implements optimizations for read operations on columnar f
 
 -   Java Development Kit (JDK) 11 or later.
 
-### Adding gcs-analytics-core to your build
+### Documentation
 
-Maven group ID is `com.google.cloud.gcs.analytics` and artifact ID is `gcs-analytics-core`.
-
-To add a dependency on GCS Analytics Core using Maven, use the following:
-
-```xml
-<dependency>
-  <groupId>com.google.cloud.gcs.analytics</groupId>
-  <artifactId>gcs-analytics-core</artifactId>
-  <version>x.y.z</version> <!-- Replace with the latest version -->
-</dependency>
-```
-
-For other build systems like Gradle, please refer to Maven Central.
-
-### Developer Guide
-
-For detailed instructions on integrating `gcs-analytics-core` into your query engines or file system abstractions, including architecture deep-dives and performance tuning best practices, please read the [Developer Guide](DEVELOPER_GUIDE.md).
+*   **[Developer Guide](DEVELOPER_GUIDE.md)**: Detailed instructions on integrating `gcs-analytics-core` into your query engines or file system abstractions, including architecture deep-dives, installation instructions, and performance tuning best practices.
+*   **[Configuration Guide](CONFIGURATION.md)**: A comprehensive list of all supported properties for tuning thread pools, caching, adaptive reads, and telemetry.
 
 ## Development
 ### Building from Source
