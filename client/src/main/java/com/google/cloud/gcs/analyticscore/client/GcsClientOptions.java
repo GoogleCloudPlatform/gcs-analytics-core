@@ -16,9 +16,17 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.storage.BlobWriteSessionConfig;
+import com.google.cloud.storage.BlobWriteSessionConfigs;
+import com.google.cloud.storage.ParallelCompositeUploadBlobWriteSessionConfig;
 import com.google.common.collect.ImmutableSet;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -189,5 +197,69 @@ public abstract class GcsClientOptions {
     }
 
     public abstract GcsClientOptions build();
+  }
+
+  public BlobWriteSessionConfig generateSessionConfig() {
+    switch (this.getUploadType()) {
+      case PARALLEL_COMPOSITE_UPLOAD:
+        return getParallelCompositeUploadSessionConfig();
+      case WRITE_TO_DISK_THEN_UPLOAD:
+        return getWriteToDiskSessionConfig();
+      case JOURNALING:
+        return getJournalingSessionConfig();
+      case CHUNK_UPLOAD:
+        return BlobWriteSessionConfigs.getDefault().withChunkSize(this.getUploadChunkSize());
+      default:
+        return BlobWriteSessionConfigs.getDefault();
+    }
+  }
+
+  private BlobWriteSessionConfig getParallelCompositeUploadSessionConfig() {
+    return BlobWriteSessionConfigs.parallelCompositeUpload()
+        .withBufferAllocationStrategy(
+            ParallelCompositeUploadBlobWriteSessionConfig.BufferAllocationStrategy.fixedPool(
+                this.getPcuBufferCount(), this.getPcuBufferCapacity()))
+        .withPartCleanupStrategy(getSdkCleanupStrategy(this.getPcuPartFileCleanupType()))
+        .withPartNamingStrategy(
+            ParallelCompositeUploadBlobWriteSessionConfig.PartNamingStrategy.prefix(
+                this.getPcuPartFileNamePrefix()));
+  }
+
+  private BlobWriteSessionConfig getWriteToDiskSessionConfig() {
+    try {
+      if (!this.getTemporaryPaths().isEmpty()) {
+        List<Path> paths = toPaths(this.getTemporaryPaths());
+        return BlobWriteSessionConfigs.bufferToDiskThenUpload(paths);
+      } else {
+        return BlobWriteSessionConfigs.bufferToTempDirThenUpload();
+      }
+    } catch (IOException e) {
+      throw new UncheckedIOException(
+          "Failed while initializing configs for " + this.getUploadType(), e);
+    }
+  }
+
+  private BlobWriteSessionConfig getJournalingSessionConfig() {
+    // TODO: Add the isHttpTransport check and support for JOURNALING once gRPC support is added to
+    // gcs-analytics-core.
+    throw new UnsupportedOperationException(
+        "JOURNALING upload type is not supported since it requires gRPC transport.");
+  }
+
+  private static List<Path> toPaths(Collection<String> pathStrings) {
+    return pathStrings.stream().map(Paths::get).collect(Collectors.toList());
+  }
+
+  private static ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy
+      getSdkCleanupStrategy(PartFileCleanupType cleanupType) {
+    switch (cleanupType) {
+      case NEVER:
+        return ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy.never();
+      case ON_SUCCESS:
+        return ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy.onlyOnSuccess();
+      case ALWAYS:
+      default:
+        return ParallelCompositeUploadBlobWriteSessionConfig.PartCleanupStrategy.always();
+    }
   }
 }

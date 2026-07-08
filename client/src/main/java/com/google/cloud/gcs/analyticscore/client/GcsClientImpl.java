@@ -121,7 +121,9 @@ class GcsClientImpl implements GcsClient {
 
     try {
       BlobWriteOption[] sdkWriteOptions =
-          GcsWriteConfigurationUtil.generateWriteOptions(writeOptions, itemId);
+          Optional.ofNullable(writeOptions)
+              .orElseGet(() -> GcsWriteOptions.builder().build())
+              .generateWriteOptions(itemId);
       BlobWriteSession sdkWriteSession = storage.blobWriteSession(blobInfo, sdkWriteOptions);
       WritableByteChannel channel = sdkWriteSession.open();
       return new GcsWriteChannel(sdkWriteSession, channel, blobInfo, writeOptions);
@@ -162,8 +164,7 @@ class GcsClientImpl implements GcsClient {
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
     credentials.ifPresent(builder::setCredentials);
-    builder.setBlobWriteSessionConfig(
-        GcsWriteConfigurationUtil.generateSessionConfig(clientOptions));
+    builder.setBlobWriteSessionConfig(clientOptions.generateSessionConfig());
 
     return builder.build().getService();
   }
