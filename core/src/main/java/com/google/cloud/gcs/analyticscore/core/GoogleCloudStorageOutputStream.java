@@ -21,7 +21,6 @@ import static com.google.common.base.Preconditions.checkState;
 
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
-import com.google.cloud.gcs.analyticscore.client.GcsWriteChannel;
 import com.google.cloud.gcs.analyticscore.client.GcsWriteOptions;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -40,6 +39,7 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
 
   // Used for single-byte writes to avoid repeated allocation.
   private final ByteBuffer singleByteBuffer = ByteBuffer.allocate(1);
+  private long bytesWritten = 0;
 
   /**
    * Creates a new GoogleCloudStorageOutputStream by initializing a write session via the client
@@ -64,7 +64,7 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
     singleByteBuffer.put((byte) b);
     singleByteBuffer.flip();
     while (singleByteBuffer.hasRemaining()) {
-      channel.write(singleByteBuffer);
+      bytesWritten += channel.write(singleByteBuffer);
     }
   }
 
@@ -81,7 +81,7 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
     // Wrap the byte array and pass it to the GcsWriteChannel in the client module
     ByteBuffer buffer = ByteBuffer.wrap(b, off, len);
     while (buffer.hasRemaining()) {
-      channel.write(buffer);
+      bytesWritten += channel.write(buffer);
     }
   }
 
@@ -97,9 +97,6 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
    * require a PositionOutputStream.
    */
   public long getBytesWritten() {
-    if (channel instanceof GcsWriteChannel) {
-      return ((GcsWriteChannel) channel).getBytesWritten();
-    }
-    return 0; // Fallback if a different channel implementation is used
+    return bytesWritten;
   }
 }

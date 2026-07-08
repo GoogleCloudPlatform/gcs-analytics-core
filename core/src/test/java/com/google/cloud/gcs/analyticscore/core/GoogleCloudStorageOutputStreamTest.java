@@ -30,7 +30,6 @@ import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
-import com.google.cloud.gcs.analyticscore.client.GcsWriteChannel;
 import com.google.cloud.gcs.analyticscore.client.GcsWriteOptions;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -40,7 +39,6 @@ import java.util.Arrays;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -54,7 +52,6 @@ class GoogleCloudStorageOutputStreamTest {
 
   @Mock private GcsFileSystem mockFileSystem;
   @Mock private WritableByteChannel mockChannel;
-  @Mock private GcsWriteChannel mockGcsWriteChannel;
 
   @BeforeEach
   void setUp() {
@@ -62,7 +59,7 @@ class GoogleCloudStorageOutputStreamTest {
   }
 
   @Test
-  void create_initializesWriteSessionAndReturnsStream() throws IOException {
+  void create_initializesWriteSession_returnsStream() throws IOException {
     when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
 
     GoogleCloudStorageOutputStream stream =
@@ -104,29 +101,6 @@ class GoogleCloudStorageOutputStreamTest {
   }
 
   @Test
-  void write_singleByte_writesToChannel() throws IOException {
-    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
-    when(mockChannel.write(any(ByteBuffer.class)))
-        .thenAnswer(
-            invocation -> {
-              ByteBuffer buffer = invocation.getArgument(0);
-              int remaining = buffer.remaining();
-              buffer.position(buffer.position() + remaining);
-              return remaining;
-            });
-    GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
-
-    stream.write(65); // 'A'
-
-    ArgumentCaptor<ByteBuffer> bufferCaptor = ArgumentCaptor.forClass(ByteBuffer.class);
-    verify(mockChannel).write(bufferCaptor.capture());
-    ByteBuffer capturedBuffer = bufferCaptor.getValue();
-    assertThat(capturedBuffer.limit()).isEqualTo(1);
-    assertThat(capturedBuffer.get(0)).isEqualTo((byte) 65);
-  }
-
-  @Test
   void write_singleByte_partialWrites_loopsUntilFinished() throws IOException {
     when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
     int[] callCount = {0};
@@ -148,33 +122,6 @@ class GoogleCloudStorageOutputStreamTest {
     stream.write(65); // 'A'
 
     verify(mockChannel, org.mockito.Mockito.times(2)).write(any(ByteBuffer.class));
-  }
-
-  @Test
-  void write_byteArray_writesToChannel() throws IOException {
-    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
-    when(mockChannel.write(any(ByteBuffer.class)))
-        .thenAnswer(
-            invocation -> {
-              ByteBuffer buffer = invocation.getArgument(0);
-              int remaining = buffer.remaining();
-              buffer.position(buffer.position() + remaining);
-              return remaining;
-            });
-    GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
-
-    byte[] data = new byte[] {1, 2, 3, 4, 5};
-    stream.write(data, 1, 3); // Writes {2, 3, 4}
-
-    ArgumentCaptor<ByteBuffer> bufferCaptor = ArgumentCaptor.forClass(ByteBuffer.class);
-    verify(mockChannel).write(bufferCaptor.capture());
-    ByteBuffer capturedBuffer = bufferCaptor.getValue();
-    assertThat(capturedBuffer.position()).isEqualTo(4);
-    assertThat(capturedBuffer.limit()).isEqualTo(4);
-    assertThat(capturedBuffer.get(1)).isEqualTo((byte) 2);
-    assertThat(capturedBuffer.get(2)).isEqualTo((byte) 3);
-    assertThat(capturedBuffer.get(3)).isEqualTo((byte) 4);
   }
 
   @Test
@@ -263,25 +210,28 @@ class GoogleCloudStorageOutputStreamTest {
   }
 
   @Test
-  void getBytesWritten_delegatesToGcsWriteChannel() throws IOException {
-    when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockGcsWriteChannel);
-    when(mockGcsWriteChannel.getBytesWritten()).thenReturn(100L);
-
-    GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
-
-    assertThat(stream.getBytesWritten()).isEqualTo(100L);
-    verify(mockGcsWriteChannel).getBytesWritten();
-  }
-
-  @Test
-  void getBytesWritten_nonGcsWriteChannel_returnsZero() throws IOException {
+  void getBytesWritten_returnsAccumulatedBytes() throws IOException {
     when(mockFileSystem.create(eq(itemId), eq(writeOptions))).thenReturn(mockChannel);
+    when(mockChannel.write(any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buffer = invocation.getArgument(0);
+              int remaining = buffer.remaining();
+              buffer.position(buffer.position() + remaining);
+              return remaining;
+            });
 
     GoogleCloudStorageOutputStream stream =
         GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, writeOptions);
 
     assertThat(stream.getBytesWritten()).isEqualTo(0L);
+
+    stream.write(65); // 1 byte
+    assertThat(stream.getBytesWritten()).isEqualTo(1L);
+
+    byte[] data = new byte[] {1, 2, 3, 4, 5};
+    stream.write(data, 1, 3); // 3 bytes
+    assertThat(stream.getBytesWritten()).isEqualTo(4L);
   }
 
   @Test
@@ -322,7 +272,7 @@ class GoogleCloudStorageOutputStreamTest {
     byte[] chunk2 = "world".getBytes(UTF_8);
     int chunk2Offset = 0;
     int chunk2Length = 3; // "wor"
-
+    GcsFileInfo fileInfo = fakeGcsFileSystem.getFileInfo(testItemId);
     ByteArrayOutputStream expectedStream = new ByteArrayOutputStream();
     expectedStream.write(valA);
     expectedStream.write(chunk1, 0, chunk1.length);
@@ -339,10 +289,9 @@ class GoogleCloudStorageOutputStreamTest {
     }
 
     // Verify the data is present in the fake file system
-    GcsFileInfo fileInfo = fakeGcsFileSystem.getFileInfo(testItemId);
     assertThat(fileInfo).isNotNull();
     assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(expectedBytes.length);
-
+    // read the data back using GoogleCloudStorageInputStream to verify correctness
     try (GoogleCloudStorageInputStream inputStream =
         GoogleCloudStorageInputStream.create(fakeGcsFileSystem, testItemId)) {
       byte[] buffer = new byte[expectedBytes.length + 10];
