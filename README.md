@@ -30,42 +30,62 @@ the analytics frameworks and the underlying GCS Java library, intercepting calls
 
 ```mermaid
 graph TD
-    %% Top Layer: Analytics Engines
-    subgraph Clients ["Analytics Engines"]
+    %% Top Layer: Query Engines
+    subgraph Engines ["Query Engines"]
+        QE["Spark, Trino, Hive, etc."]
+    end
+
+    %% Abstraction Layer
+    subgraph Abstractions ["File System Abstractions"]
         direction LR
-        AE1["Analytics Engine<br>(e.g., Spark, Trino, Hive)"]
-        AE2["Analytics Engine<br>(e.g., Iceberg GCSFileIO)"]
+        FSA1["Hadoop GCS Connector<br>(GoogleHadoopFileSystem)"]
+        FSA2["Apache Iceberg<br>(GCSFileIO)"]
     end
 
     %% Middle Layer: GCS Analytics Core
-    subgraph Core ["GCS Analytics Core"]
+    subgraph Core ["GCS Analytics Core (Read-Optimized Layer)"]
         direction TB
-        %% Internal Components representing the features from the text
-        subgraph Features ["Core Features & Implementations"]
-            direction TB
-            subgraph GCSIS ["GoogleCloudStorageInputStream"]
-                VIO["VectoredRead"]
-                PFP["Parquet Footer Prefetch & Cache"]
-                SOP["Small Object Prefetch & Cache"]
-                ARR["Adaptive Range Read"]
-            end
-            subgraph GFS ["GcsFileSystem"]
-                GACO["GcsAnalyticsCoreOptions"]
-                ACM["AnalyticsCacheManager"]
-            end
-            direction LR
-            GCSIS -- "open()" -->  GFS
-            GCSIS -- "getCache()" --> ACM
+
+        GFS_NODE["GcsFileSystem"]
+        GCSIS_NODE["GoogleCloudStorageInputStream"]
+
+        subgraph GFS ["File System Components"]
+            GACO["GcsAnalyticsCoreOptions"]
+            ACM["AnalyticsCacheManager"]
         end
+
+        subgraph GCSIS ["Input Stream Features"]
+            direction TB
+            VIO["VectoredRead"]
+            PFP["Parquet Footer Prefetch"]
+            SOP["Small Object Prefetch"]
+            ARR["Adaptive Range Read"]
+
+            VIO ~~~ PFP ~~~ SOP ~~~ ARR
+        end
+
+        GFS_NODE -- "configures" --> GACO
+        GFS_NODE -- "holds" --> ACM
+
+        GCSIS_NODE -- "implements" --> VIO
+
+        GFS_NODE -- "creates via open()" --> GCSIS_NODE
+
+        PFP -. "reads/writes cache" .-> ACM
+        SOP -. "reads/writes cache" .-> ACM
+        VIO -. "reads cache" .-> ACM
     end
 
     %% Lower Layers
-    Lib["GCS SDK"]
+    Lib["Google Cloud Storage Java SDK"]
     GCS[("Google Cloud Storage (GCS)")]
 
     %% Relationships
-    AE1 -- "Hadoop GCS Connector" --> Core
-    AE2 --> Core
+    Engines --> Abstractions
+
+    %% Scope Clarification: Core is Read-Only
+    Abstractions -- "Read Path (open)" --> Core
+    Abstractions -- "Write Path & Namespace Ops<br>(e.g., delete, list, create)" --> Lib
 
     %% Flow downwards
     Core --> Lib
@@ -73,12 +93,14 @@ graph TD
 
     %% Styling for visual clarity
     classDef engine fill:#f9f9f9,stroke:#333,stroke-width:1px;
+    classDef abstraction fill:#e0f2f1,stroke:#2e7d32,stroke-width:1px;
     classDef core fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
     classDef feature fill:#ffffff,stroke:#1565c0,stroke-dasharray: 5 5;
     classDef lib fill:#fff3e0,stroke:#ef6c00,stroke-width:1px;
     classDef storage fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px;
 
-    class AE1,AE2 engine;
+    class QE engine;
+    class FSA1,FSA2 abstraction;
     class Core core;
     class VIO,PFP,SOP,ARR feature;
     class Lib lib;
@@ -110,6 +132,10 @@ To add a dependency on GCS Analytics Core using Maven, use the following:
 ```
 
 For other build systems like Gradle, please refer to Maven Central.
+
+### Developer Guide
+
+For detailed instructions on integrating `gcs-analytics-core` into your query engines or file system abstractions, including architecture deep-dives and performance tuning best practices, please read the [Developer Guide](DEVELOPER_GUIDE.md).
 
 ### Configuration
 
