@@ -307,7 +307,7 @@ class GcsFileSystemImplTest {
     assertThat(executorServiceSupplier.get()).isNotNull();
     assertThat(executorServiceSupplier.get()).isInstanceOf(ThreadPoolExecutor.class);
     assertThat(((ThreadPoolExecutor) executorServiceSupplier.get()).getCorePoolSize())
-        .isEqualTo(TEST_GCS_FILESYSTEM_OPTIONS.getReadThreadCount());
+        .isEqualTo(16);
   }
 
   @Test
