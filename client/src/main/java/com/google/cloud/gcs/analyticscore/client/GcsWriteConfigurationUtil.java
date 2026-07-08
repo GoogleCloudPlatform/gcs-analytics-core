@@ -35,15 +35,14 @@ final class GcsWriteConfigurationUtil {
     // Utility class
   }
 
-  static BlobWriteSessionConfig generateSessionConfig(
-      GcsClientOptions clientOptions, boolean isHttpTransport) {
+  static BlobWriteSessionConfig generateSessionConfig(GcsClientOptions clientOptions) {
     switch (clientOptions.getUploadType()) {
       case PARALLEL_COMPOSITE_UPLOAD:
         return getParallelCompositeUploadSessionConfig(clientOptions);
       case WRITE_TO_DISK_THEN_UPLOAD:
         return getWriteToDiskSessionConfig(clientOptions);
       case JOURNALING:
-        return getJournalingSessionConfig(clientOptions, isHttpTransport);
+        return getJournalingSessionConfig(clientOptions);
       case CHUNK_UPLOAD:
         return BlobWriteSessionConfigs.getDefault()
             .withChunkSize(clientOptions.getUploadChunkSize());
@@ -79,8 +78,7 @@ final class GcsWriteConfigurationUtil {
     }
   }
 
-  private static BlobWriteSessionConfig getJournalingSessionConfig(
-      GcsClientOptions clientOptions, boolean isHttpTransport) {
+  private static BlobWriteSessionConfig getJournalingSessionConfig(GcsClientOptions clientOptions) {
     // TODO: Add the isHttpTransport check and support for JOURNALING once gRPC support is added to
     // gcs-analytics-core.
     throw new UnsupportedOperationException(

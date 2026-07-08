@@ -26,7 +26,6 @@ import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobWriteSession;
-import com.google.cloud.storage.HttpStorageOptions;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.StorageException;
@@ -163,10 +162,8 @@ class GcsClientImpl implements GcsClient {
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
     credentials.ifPresent(builder::setCredentials);
-
-    boolean isHttp = builder instanceof HttpStorageOptions.Builder;
     builder.setBlobWriteSessionConfig(
-        GcsWriteConfigurationUtil.generateSessionConfig(clientOptions, isHttp));
+        GcsWriteConfigurationUtil.generateSessionConfig(clientOptions));
 
     return builder.build().getService();
   }
@@ -216,13 +213,15 @@ class GcsClientImpl implements GcsClient {
 
   private BlobInfo createBlobInfo(GcsItemId itemId) {
     checkNotNull(itemId, "itemId should not be null");
+    String objectName =
+        itemId
+            .getObjectName()
+            .orElseThrow(() -> new IllegalArgumentException("Object name must be present"));
     BlobId blobId =
         itemId
             .getContentGeneration()
-            .map(
-                generation ->
-                    BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), generation))
-            .orElseGet(() -> BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()));
+            .map(generation -> BlobId.of(itemId.getBucketName(), objectName, generation))
+            .orElseGet(() -> BlobId.of(itemId.getBucketName(), objectName));
     return BlobInfo.newBuilder(blobId).build();
   }
 }
