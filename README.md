@@ -83,9 +83,10 @@ graph TD
     %% Relationships
     Engines --> Abstractions
 
-    %% Scope Clarification: Core is Read-Only
+    %% Scope Clarification: Core is Read-Only currently
     Abstractions -- "Read Path (open)" --> Core
-    Abstractions -- "Write Path & Namespace Ops<br>(e.g., delete, list, create)" --> Lib
+    Abstractions -. "Future Write Path<br>(Under Development)" .-> Core
+    Abstractions -- "Current Write Path & Namespace Ops<br>(Bypass directly to SDK)" --> Lib
 
     %% Flow downwards
     Core --> Lib
