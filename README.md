@@ -64,7 +64,7 @@ graph TD
             VIO ~~~ PFP ~~~ SOP ~~~ ARR
         end
 
-        GFS_NODE -- "configures" --> GACO
+        GACO -- "configures" --> GFS_NODE
         GFS_NODE -- "holds" --> ACM
 
         GCSIS_NODE -- "implements" --> VIO
@@ -137,75 +137,6 @@ For other build systems like Gradle, please refer to Maven Central.
 ### Developer Guide
 
 For detailed instructions on integrating `gcs-analytics-core` into your query engines or file system abstractions, including architecture deep-dives and performance tuning best practices, please read the [Developer Guide](DEVELOPER_GUIDE.md).
-
-### Configuration
-
-Configuration options for the library are typically provided through the [`GcsAnalyticsCoreOptions`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GcsAnalyticsCoreOptions.java) class. Detailed configuration parameters can be found in the [CONFIGURATION.md](CONFIGURATION.md) file.
-
-### Usage Examples
-To leverage the read operation performance optimizations of this library, replace the InputStream implementation in your application with the [`GoogleCloudStorageInputStream`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java) provided by the library.
-
-Example steps to initialize the [`GoogleCloudStorageInputStream`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java) implementation:
-
-1. Create a configuration object
-
-    1. Create a configuration object from a map of flags (refer to [CONFIGURATION.md](CONFIGURATION.md) for supported flags):
-        ```java
-        ImmutableMap<String, String> flagsExample1 = ImmutableMap.of(
-                "gcs.project-id", "my-project-id",
-                "gcs.analytics-core.footer.prefetch.enabled", "true",
-                "gcs.analytics-core.footer.cache.enabled", "true");
-        GcsAnalyticsCoreOptions gcsAnalyticsCoreOptions = new GcsAnalyticsCoreOptions("gcs.", flagsExample1);
-
-        ImmutableMap<String, String> flagsExample2 = ImmutableMap.of(
-                "fs.gs.project-id", "my-project-id",
-                "fs.gs.analytics-core.footer.prefetch.enabled", "true");
-        GcsAnalyticsCoreOptions gcsAnalyticsCoreOptions2 = new GcsAnalyticsCoreOptions("fs.gs.", flagsExample2);
-        ```
-
-    2. Or create a configuration object by directly initializing `GcsFileSystemOptions`:
-        ```java
-        GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions
-                .builder()
-                .setGcsClientOptions(GcsClientOptions.builder().setProjectId("my-project-id").build())
-                .setGcsCacheOptions(GcsCacheOptions.builder().setFooterCacheEnabled(true).build())
-                .build();
-        ```
-
-2. Initialize [`GcsFileSystem`](client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsFileSystem.java) with the configuration:
-    ```java
-    GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsAnalyticsCoreOptions.getGcsFileSystemOptions());
-    // or
-    GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
-    ```
-
-3. Initialize GoogleCloudStorageInputStream for an object with GcsFileSystem:
-    1. Using [`GcsFileInfo`](client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsFileInfo.java)
-        (Recommended if object metadata already known) : Use this interface when object metadata like
-        length is already known as it avoid additional metadata API calls when required in methods like `readTail`.
-        ```java
-        GcsFileInfo fileInfo = GcsFileInfo.builder().setGcsItemInfo().build();
-        GoogleCloudStorageInputStream stream = new GoogleCloudStorageStream.create(gcsFileSystem, fileInfo);
-        ```
-    2. Using [`GcsItemId`](client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsItemId.java):
-       ```java
-        // Using GcsItemId
-        GcsItemId gcsItemId = GcsItemId.builder().setBucketName("example-bucket").setObjectName("file.parquet").build();
-        GoogleCloudStorageInputStream stream = new GoogleCloudStorageStream.create(gcsFileSystem, gcsItemId);
-        ```
-    3. Using GCS Object URI:
-        ```java
-        // Using GCS Object URI
-        URI path = URI.create("gs://my-bucket/my-object");
-        GoogleCloudStorageInputStream stream = new GoogleCloudStorageStream.create(gcsFileSystem, path);
-        ```
-4. Refer [`SeekableInputStream`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/SeekableInputStream.java)
-   interface or [`GoogleCloudStorageInputStream`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java)
-   implementation for the methods supported by the input stream.
-5. Ensure `close()` is called on the inputstream when the stream is no longer required to free the resources.
-
-
-
 
 ## Development
 ### Building from Source
