@@ -47,9 +47,12 @@ implementation 'com.google.cloud.gcs.analytics:gcs-analytics-core:1.4.1'
 Configuration is primarily maintained via [`GcsAnalyticsCoreOptions`](./core/src/main/java/com/google/cloud/gcs/analyticscore/core/GcsAnalyticsCoreOptions.java) which delegates file system settings to [`GcsFileSystemOptions`](./client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsFileSystemOptions.java). See [CONFIGURATION.md](./CONFIGURATION.md) for a full list of supported properties.
 
 Key areas of configuration include:
-*   **Concurrency**: Thread pool sizing (e.g., `analytics-core.read.thread.count`).
-*   **Caching**: [`GcsCacheOptions`](./client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsCacheOptions.java) for tuning small object and footer caches.
-*   **Telemetry**: [`TelemetryOptions`](./common/src/main/java/com/google/cloud/gcs/analyticscore/common/telemetry/TelemetryOptions.java) for wiring up OpenTelemetry metrics.
+
+*   **Concurrency & Client Connections**: Manage the size of the Vectored I/O thread pool (`analytics-core.read.thread.count`) and select the underlying transport client (`gcs.client-type` for HTTP vs. gRPC).
+*   **Adaptive Read Tuning**: Control how the stream predicts read behavior using `analytics-core.read.file-access-pattern` (e.g., `AUTO_SEQUENTIAL` or `AUTO_RANDOM`) and tune the in-place seek threshold (`analytics-core.read.inplace-seek-limit-bytes`) to avoid excessive connection drops.
+*   **Vectored I/O Merging**: Define the heuristics for merging adjacent byte-range requests, such as the maximum allowed gap between ranges (`analytics-core.read.vectored.range.merge-gap.max-bytes`).
+*   **Caching ([`GcsCacheOptions`](./client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsCacheOptions.java))**: Enable and size the in-memory caches for small objects (`analytics-core.small-file.cache.enabled`) and Parquet footers to eliminate redundant network calls across tasks.
+*   **Telemetry ([`TelemetryOptions`](./common/src/main/java/com/google/cloud/gcs/analyticscore/common/telemetry/TelemetryOptions.java))**: Wire up observability by enabling OpenTelemetry (`analytics-core.telemetry.opentelemetry.enabled`) to export deep internal metrics (like cache hit rates and stream durations) to backends like Google Cloud Monitoring or standard loggers.
 
 ## 5. Core Optimizations
 
