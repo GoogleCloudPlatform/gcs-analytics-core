@@ -32,7 +32,7 @@ class FakeGcsClientImplTest {
   private FakeGcsClientImpl fakeGcsClient;
 
   @BeforeEach
-  void setUp() throws Exception {
+  void setUp() {
     GcsFileSystemOptions options = GcsFileSystemOptions.builder().build();
     fakeGcsClient =
         new FakeGcsClientImpl(

@@ -216,16 +216,13 @@ class GcsClientImpl implements GcsClient {
 
   private BlobInfo createBlobInfo(GcsItemId itemId) {
     checkNotNull(itemId, "itemId should not be null");
-    BlobId blobId;
-    if (itemId.getContentGeneration().isPresent()) {
-      blobId =
-          BlobId.of(
-              itemId.getBucketName(),
-              itemId.getObjectName().get(),
-              itemId.getContentGeneration().get());
-    } else {
-      blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get());
-    }
+    BlobId blobId =
+        itemId
+            .getContentGeneration()
+            .map(
+                generation ->
+                    BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), generation))
+            .orElseGet(() -> BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()));
     return BlobInfo.newBuilder(blobId).build();
   }
 }

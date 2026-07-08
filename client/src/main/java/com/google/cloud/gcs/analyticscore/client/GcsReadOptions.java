@@ -124,15 +124,18 @@ public abstract class GcsReadOptions {
     }
     if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_FOOTER_PREFETCH_SIZE_KEY)) {
       optionsBuilder.setFooterPrefetchSizeSmallFile(
-          safeParseInteger(analyticsCoreOptions, prefix + SMALL_FILE_FOOTER_PREFETCH_SIZE_KEY));
+          ConfigurationUtil.safeParseInteger(
+              analyticsCoreOptions, prefix + SMALL_FILE_FOOTER_PREFETCH_SIZE_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + LARGE_FILE_FOOTER_PREFETCH_SIZE_KEY)) {
       optionsBuilder.setFooterPrefetchSizeLargeFile(
-          safeParseInteger(analyticsCoreOptions, prefix + LARGE_FILE_FOOTER_PREFETCH_SIZE_KEY));
+          ConfigurationUtil.safeParseInteger(
+              analyticsCoreOptions, prefix + LARGE_FILE_FOOTER_PREFETCH_SIZE_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_CACHE_THRESHOLD_KEY)) {
       optionsBuilder.setSmallObjectCacheThresholdBytes(
-          safeParseInteger(analyticsCoreOptions, prefix + SMALL_FILE_CACHE_THRESHOLD_KEY));
+          ConfigurationUtil.safeParseInteger(
+              analyticsCoreOptions, prefix + SMALL_FILE_CACHE_THRESHOLD_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + BIDI_READ_ENABLED_KEY)) {
       optionsBuilder.setBidiReadEnabled(
@@ -140,11 +143,12 @@ public abstract class GcsReadOptions {
     }
     if (analyticsCoreOptions.containsKey(prefix + BIDI_TIMEOUT_SECONDS)) {
       optionsBuilder.setBidiTimeout(
-          safeParseInteger(analyticsCoreOptions, prefix + BIDI_TIMEOUT_SECONDS));
+          ConfigurationUtil.safeParseInteger(analyticsCoreOptions, prefix + BIDI_TIMEOUT_SECONDS));
     }
     if (analyticsCoreOptions.containsKey(prefix + INPLACE_SEEK_LIMIT_KEY)) {
       optionsBuilder.setInplaceSeekLimit(
-          safeParseInteger(analyticsCoreOptions, prefix + INPLACE_SEEK_LIMIT_KEY));
+          ConfigurationUtil.safeParseInteger(
+              analyticsCoreOptions, prefix + INPLACE_SEEK_LIMIT_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + FILE_ACCESS_PATTERN_KEY)) {
       optionsBuilder.setFileAccessPattern(
@@ -153,29 +157,19 @@ public abstract class GcsReadOptions {
     }
     if (analyticsCoreOptions.containsKey(prefix + ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY)) {
       optionsBuilder.setAdaptiveReadSequentialReadThreshold(
-          safeParseInteger(
+          ConfigurationUtil.safeParseInteger(
               analyticsCoreOptions, prefix + ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + RANDOM_READ_MIN_REQUEST_SIZE_KEY)) {
       optionsBuilder.setRandomReadMinRequestSize(
-          safeParseInteger(analyticsCoreOptions, prefix + RANDOM_READ_MIN_REQUEST_SIZE_KEY));
+          ConfigurationUtil.safeParseInteger(
+              analyticsCoreOptions, prefix + RANDOM_READ_MIN_REQUEST_SIZE_KEY));
     }
 
     optionsBuilder.setGcsVectoredReadOptions(
         GcsVectoredReadOptions.createFromOptions(analyticsCoreOptions, prefix));
 
     return optionsBuilder.build();
-  }
-
-  private static int safeParseInteger(Map<String, String> analyticsCoreOptions, String key) {
-    long value = Long.parseLong(analyticsCoreOptions.get(key));
-    if (value > Integer.MAX_VALUE) {
-      throw new IllegalArgumentException(
-          String.format(
-              "%s=%d cannot be greater than Integer.MAX_VALUE (%d)",
-              key, value, Integer.MAX_VALUE));
-    }
-    return (int) value;
   }
 
   /** Builder for {@link GcsReadOptions}. */

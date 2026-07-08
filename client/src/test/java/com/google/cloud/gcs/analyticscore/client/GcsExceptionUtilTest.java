@@ -106,18 +106,6 @@ class GcsExceptionUtilTest {
   }
 
   @Test
-  void translateException_when409_throwsFileAlreadyExists() {
-    StorageException se = new StorageException(409, "Conflict");
-
-    IOException exception =
-        GcsExceptionUtil.translateException(se, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
-
-    assertThat(exception).isInstanceOf(FileAlreadyExistsException.class);
-    assertThat(exception.getMessage())
-        .contains(String.format("Object gs://%s/%s already exists", BUCKET, NAME));
-  }
-
-  @Test
   void translateException_when412WithoutOverwrite_throwsFileAlreadyExists() {
     StorageException se = new StorageException(412, "Precondition Failed");
 

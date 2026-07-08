@@ -103,17 +103,6 @@ public abstract class GcsClientOptions {
         .setTemporaryPaths(ImmutableSet.of());
   }
 
-  private static int safeParseInteger(String key, String valueStr) {
-    long value = Long.parseLong(valueStr);
-    if (value > Integer.MAX_VALUE) {
-      throw new IllegalArgumentException(
-          String.format(
-              "%s=%d cannot be greater than Integer.MAX_VALUE (%d)",
-              key, value, Integer.MAX_VALUE));
-    }
-    return (int) value;
-  }
-
   public static GcsClientOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
     GcsClientOptions.Builder optionsBuilder = builder();
@@ -131,16 +120,16 @@ public abstract class GcsClientOptions {
     }
 
     Optional.ofNullable(analyticsCoreOptions.get(prefix + UPLOAD_CHUNK_SIZE_KEY))
-        .map(val -> safeParseInteger(prefix + UPLOAD_CHUNK_SIZE_KEY, val))
+        .map(val -> ConfigurationUtil.safeParseInteger(prefix + UPLOAD_CHUNK_SIZE_KEY, val))
         .ifPresent(optionsBuilder::setUploadChunkSize);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + UPLOAD_TYPE_KEY))
         .map(s -> UploadType.valueOf(s.replace('-', '_').toUpperCase()))
         .ifPresent(optionsBuilder::setUploadType);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_BUFFER_COUNT_KEY))
-        .map(val -> safeParseInteger(prefix + PCU_BUFFER_COUNT_KEY, val))
+        .map(val -> ConfigurationUtil.safeParseInteger(prefix + PCU_BUFFER_COUNT_KEY, val))
         .ifPresent(optionsBuilder::setPcuBufferCount);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_BUFFER_CAPACITY_KEY))
-        .map(val -> safeParseInteger(prefix + PCU_BUFFER_CAPACITY_KEY, val))
+        .map(val -> ConfigurationUtil.safeParseInteger(prefix + PCU_BUFFER_CAPACITY_KEY, val))
         .ifPresent(optionsBuilder::setPcuBufferCapacity);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_PART_FILE_CLEANUP_TYPE_KEY))
         .map(s -> PartFileCleanupType.valueOf(s.replace('-', '_').toUpperCase()))

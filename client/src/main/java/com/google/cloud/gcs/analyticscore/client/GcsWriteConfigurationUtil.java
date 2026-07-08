@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Google LLC
+ * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -107,28 +107,27 @@ final class GcsWriteConfigurationUtil {
   static BlobWriteOption[] generateWriteOptions(GcsWriteOptions writeOptions, GcsItemId itemId) {
     List<BlobWriteOption> sdkWriteOptions = new ArrayList<>();
 
-    if (writeOptions != null) {
-      if (writeOptions.isDisableGzipContent()) {
-        sdkWriteOptions.add(BlobWriteOption.disableGzipContent());
-      }
-      if (writeOptions.isChecksumValidationEnabled()) {
-        sdkWriteOptions.add(BlobWriteOption.crc32cMatch());
-      }
-      writeOptions.getKmsKeyName().map(BlobWriteOption::kmsKeyName).ifPresent(sdkWriteOptions::add);
-      writeOptions
-          .getEncryptionKey()
-          .map(BlobWriteOption::encryptionKey)
-          .ifPresent(sdkWriteOptions::add);
-      writeOptions
-          .getUserProject()
-          .map(BlobWriteOption::userProject)
-          .ifPresent(sdkWriteOptions::add);
+    itemId
+        .getContentGeneration()
+        .ifPresent(generation -> sdkWriteOptions.add(BlobWriteOption.generationMatch(generation)));
+
+    if (writeOptions == null) {
+      return sdkWriteOptions.toArray(new BlobWriteOption[0]);
     }
 
-    // Determine overwrite semantics based on exact generation ID or 'doesNotExist' flag
-    if (itemId.getContentGeneration().isPresent()) {
-      sdkWriteOptions.add(BlobWriteOption.generationMatch());
-    } else if (writeOptions != null && !writeOptions.isOverwriteExisting()) {
+    if (writeOptions.isDisableGzipContent()) {
+      sdkWriteOptions.add(BlobWriteOption.disableGzipContent());
+    }
+    if (writeOptions.isChecksumValidationEnabled()) {
+      sdkWriteOptions.add(BlobWriteOption.crc32cMatch());
+    }
+    writeOptions.getKmsKeyName().map(BlobWriteOption::kmsKeyName).ifPresent(sdkWriteOptions::add);
+    writeOptions
+        .getEncryptionKey()
+        .map(BlobWriteOption::encryptionKey)
+        .ifPresent(sdkWriteOptions::add);
+    writeOptions.getUserProject().map(BlobWriteOption::userProject).ifPresent(sdkWriteOptions::add);
+    if (!itemId.getContentGeneration().isPresent() && !writeOptions.isOverwriteExisting()) {
       sdkWriteOptions.add(BlobWriteOption.doesNotExist());
     }
 

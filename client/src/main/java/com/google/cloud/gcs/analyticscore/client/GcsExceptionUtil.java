@@ -96,13 +96,6 @@ class GcsExceptionUtil {
                     String.format("Access denied to object during %s: %s", context, e.getMessage()))
                 .initCause(e);
 
-      case ALREADY_EXISTS:
-        return (FileAlreadyExistsException)
-            new FileAlreadyExistsException(
-                    String.format(
-                        "Object gs://%s/%s already exists.", blobId.getBucket(), blobId.getName()))
-                .initCause(e);
-
       case PRECONDITION_FAILED:
         if (blobId.getGeneration() != null) {
           return new IOException(

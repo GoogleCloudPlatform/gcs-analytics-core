@@ -316,7 +316,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void create_whenFileExists_throwsFileAlreadyExistsException() throws Exception {
+  void create_whenFileExists_throwsIOException() throws Exception {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
     StorageException e409 = new StorageException(409, "Conflict");
@@ -324,7 +324,7 @@ class GcsClientImplTest {
         .thenThrow(e409);
 
     assertThrows(
-        FileAlreadyExistsException.class,
+        IOException.class,
         () -> clientWithMock.createWriteChannel(TEST_ITEM_ID, DEFAULT_WRITE_OPTIONS));
   }
 
@@ -502,7 +502,8 @@ class GcsClientImplTest {
     clientWithMock.createWriteChannel(itemIdWithGen, DEFAULT_WRITE_OPTIONS);
 
     String capturedOptionsString = captureBlobWriteOptions(mockStorage, blobInfoWithGen);
-    assertThat(capturedOptionsString).contains("GenerationMatchExtractor");
+    assertThat(capturedOptionsString)
+        .contains("GenerationMatch{key=IF_GENERATION_MATCH, val=12345}");
   }
 
   @Test
