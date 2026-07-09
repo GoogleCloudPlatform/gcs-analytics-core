@@ -138,6 +138,24 @@ class GcsExceptionUtilTest {
 
   @Test
   void
+      translateWriteException_when412WithoutOverwriteAndNoGeneration_throwsFileAlreadyExistsException() {
+    StorageException se = new StorageException(412, "Precondition Failed");
+
+    IOException exception =
+        GcsExceptionUtil.translateWriteException(
+            se,
+            CONTEXT,
+            BlobId.of(BUCKET, NAME),
+            POSITION,
+            GcsWriteOptions.builder().setOverwriteExisting(false).build());
+
+    assertThat(exception).isInstanceOf(FileAlreadyExistsException.class);
+    assertThat(exception.getMessage())
+        .isEqualTo(String.format("Object gs://%s/%s already exists.", BUCKET, NAME));
+  }
+
+  @Test
+  void
       translateWriteException_when412WithOverwriteAndGeneration_throwsIOExceptionWithGenerationMismatch() {
     StorageException se = new StorageException(412, "Precondition Failed");
 
