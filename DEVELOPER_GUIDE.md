@@ -22,7 +22,7 @@ To use `gcs-analytics-core` in your project, add the following dependency to you
 <dependency>
     <groupId>com.google.cloud.gcs.analytics</groupId>
     <artifactId>gcs-analytics-core</artifactId>
-    <version>1.4.1</version> <!-- Replace with the latest version -->
+    <version>1.4.1</version> <!-- Find the latest version at https://mvnrepository.com/artifact/com.google.cloud.gcs.analytics/gcs-analytics-core -->
 </dependency>
 ```
 
@@ -37,8 +37,8 @@ implementation 'com.google.cloud.gcs.analytics:gcs-analytics-core:1.4.1'
 
 ## 3. Key Public Components
 
-*   **[`GcsAnalyticsCoreOptions`](./core/src/main/java/com/google/cloud/gcs/analyticscore/core/GcsAnalyticsCoreOptions.java)**: The primary configuration object used to parse and manage library properties.
 *   **[`GcsFileSystem`](./client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsFileSystem.java)**: The primary entry point. Manages the connection to GCS and holds all configuration and thread pools.
+*   **[`GcsAnalyticsCoreOptions`](./core/src/main/java/com/google/cloud/gcs/analyticscore/core/GcsAnalyticsCoreOptions.java)**: The primary configuration object used to parse and manage library properties.
 *   **[`GoogleCloudStorageInputStream`](./core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java)**: The analytics-optimized input stream returned when opening a file.
 *   *(Future)* **Write Path Components**: Future releases will introduce dedicated public components (e.g., optimized output streams) to accelerate data writes to GCS.
 
@@ -48,7 +48,7 @@ Configuration is primarily maintained via [`GcsAnalyticsCoreOptions`](./core/src
 
 Key areas of configuration include:
 
-*   **Concurrency & Client Connections**: Manage the size of the Vectored I/O thread pool (`analytics-core.read.thread.count`) and select the underlying transport client (`gcs.client-type` for HTTP vs. gRPC).
+*   **Concurrency & Client Connections**: Manage the size of the Vectored I/O thread pool (`analytics-core.read.thread.count`).
 *   **Adaptive Read Tuning**: Control how the stream predicts read behavior using `analytics-core.read.file-access-pattern` (e.g., `AUTO_SEQUENTIAL` or `AUTO_RANDOM`) and tune the in-place seek threshold (`analytics-core.read.inplace-seek-limit-bytes`) to avoid excessive connection drops.
 *   **Vectored I/O Merging**: Define the heuristics for merging adjacent byte-range requests, such as the maximum allowed gap between ranges (`analytics-core.read.vectored.range.merge-gap.max-bytes`).
 *   **Caching ([`GcsCacheOptions`](./client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsCacheOptions.java))**: Enable and size the in-memory caches for small objects (`analytics-core.small-file.cache.enabled`) and Parquet footers to eliminate redundant network calls across tasks.

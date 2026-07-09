@@ -53,7 +53,7 @@ sequenceDiagram
 ```
 
 ## Trigger Conditions
-Footer prefetching is specifically optimized for Parquet files. By default, it is enabled and triggers during the initialization of the [`GoogleCloudStorageInputStream`](../../core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java). The amount of data fetched depends on the total size of the file, as smaller files generally have smaller footers.
+Footer prefetching is specifically optimized for columnar file formats like Parquet (`.parquet`) and ORC (`.orc`). By default, it is enabled and triggers during the initialization of the [`GoogleCloudStorageInputStream`](../../core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java). The amount of data fetched depends on the total size of the file, as smaller files generally have smaller footers.
 
 *   **Small Files (<= 1 GB)**: Fetches a smaller chunk (default 50 KB).
 *   **Large Files (> 1 GB)**: Fetches a larger chunk (default 1 MB) to accommodate potentially large schemas and row group indexes.
