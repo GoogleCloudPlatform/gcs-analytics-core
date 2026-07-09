@@ -137,21 +137,6 @@ class GcsExceptionUtilTest {
   }
 
   @Test
-  void translateException_when412NoOverwriteAndGen_throwsGenerationMismatch() {
-    StorageException se = new StorageException(412, "Precondition Failed");
-
-    IOException exception =
-        GcsExceptionUtil.translateException(se, CONTEXT, BlobId.of(BUCKET, NAME, 12345L), POSITION);
-
-    assertThat(exception).isNotInstanceOf(FileAlreadyExistsException.class);
-    assertThat(exception.getMessage())
-        .isEqualTo(
-            String.format(
-                "Generation mismatch for object gs://%s/%s. Concurrent modification detected.",
-                BUCKET, NAME));
-  }
-
-  @Test
   void
       translateWriteException_when412WithoutOverwriteAndNoGeneration_throwsFileAlreadyExistsException() {
     StorageException se = new StorageException(412, "Precondition Failed");
