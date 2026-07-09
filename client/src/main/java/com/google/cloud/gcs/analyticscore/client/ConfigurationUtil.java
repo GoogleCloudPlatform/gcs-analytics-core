@@ -24,14 +24,15 @@ final class ConfigurationUtil {
   private ConfigurationUtil() {}
 
   static int safeParseInteger(String key, String valueStr) {
-    long value = Long.parseLong(valueStr);
-    if (value > Integer.MAX_VALUE) {
+    try {
+      return Math.toIntExact(Long.parseLong(valueStr));
+    } catch (ArithmeticException e) {
       throw new IllegalArgumentException(
           String.format(
-              "%s=%d cannot be greater than Integer.MAX_VALUE (%d)",
-              key, value, Integer.MAX_VALUE));
+              "%s=%s cannot be greater than Integer.MAX_VALUE (%d)",
+              key, valueStr, Integer.MAX_VALUE),
+          e);
     }
-    return (int) value;
   }
 
   static int safeParseInteger(Map<String, String> options, String key) {

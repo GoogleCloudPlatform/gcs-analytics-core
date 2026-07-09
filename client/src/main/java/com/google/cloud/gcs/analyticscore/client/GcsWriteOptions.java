@@ -16,6 +16,9 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.storage.Storage.BlobWriteOption;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -97,5 +100,29 @@ public abstract class GcsWriteOptions {
     public abstract Builder setEncryptionKey(String key);
 
     public abstract GcsWriteOptions build();
+  }
+
+  public BlobWriteOption[] generateWriteOptions(GcsItemId itemId) {
+    List<BlobWriteOption> sdkWriteOptions = new ArrayList<>();
+
+    itemId
+        .getContentGeneration()
+        .ifPresent(generation -> sdkWriteOptions.add(BlobWriteOption.generationMatch(generation)));
+
+    if (this.isDisableGzipContent()) {
+      sdkWriteOptions.add(BlobWriteOption.disableGzipContent());
+    }
+    if (this.isChecksumValidationEnabled()) {
+      sdkWriteOptions.add(BlobWriteOption.crc32cMatch());
+    }
+    this.getKmsKeyName().map(BlobWriteOption::kmsKeyName).ifPresent(sdkWriteOptions::add);
+    this.getEncryptionKey().map(BlobWriteOption::encryptionKey).ifPresent(sdkWriteOptions::add);
+    this.getUserProject().map(BlobWriteOption::userProject).ifPresent(sdkWriteOptions::add);
+
+    if (!itemId.getContentGeneration().isPresent() && !this.isOverwriteExisting()) {
+      sdkWriteOptions.add(BlobWriteOption.doesNotExist());
+    }
+
+    return sdkWriteOptions.toArray(new BlobWriteOption[0]);
   }
 }
