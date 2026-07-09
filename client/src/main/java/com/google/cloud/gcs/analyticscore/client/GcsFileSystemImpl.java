@@ -44,6 +44,25 @@ import java.util.concurrent.TimeUnit;
 
 public class GcsFileSystemImpl implements GcsFileSystem {
 
+  /**
+   * Status calls (e.g., getting file info) are lightweight. A core pool size of 2 allows basic
+   * concurrency without significant resource overhead.
+   */
+  private static final int DEFAULT_STATUS_CORE_POOL_SIZE = 2;
+
+  /**
+   * Using a 30-second keep-alive enables efficient thread reuse during intermittent spikes in
+   * status requests, while ensuring rapid resource cleanup during periods of inactivity.
+   */
+  private static final int DEFAULT_STATUS_KEEP_ALIVE_SECONDS = 30;
+
+  /**
+   * Status calls are lightweight and block on I/O. An unbounded maximum pool size, combined with a
+   * zero-capacity SynchronousQueue, ensures tasks are never queued and new threads are immediately
+   * allocated to handle concurrent operations.
+   */
+  private static final int DEFAULT_STATUS_MAX_POOL_SIZE = Integer.MAX_VALUE;
+
   private final GcsClient gcsClient;
   private final GcsFileSystemOptions fileSystemOptions;
   private final Supplier<ExecutorService> readExecutorServiceSupplier;
@@ -288,9 +307,9 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   private static ExecutorService createCachedExecutor() {
     ThreadPoolExecutor service =
         new ThreadPoolExecutor(
-            /* corePoolSize= */ 2,
-            /* maximumPoolSize= */ Integer.MAX_VALUE,
-            /* keepAliveTime= */ 30,
+            /* corePoolSize= */ DEFAULT_STATUS_CORE_POOL_SIZE,
+            /* maximumPoolSize= */ DEFAULT_STATUS_MAX_POOL_SIZE,
+            /* keepAliveTime= */ DEFAULT_STATUS_KEEP_ALIVE_SECONDS,
             TimeUnit.SECONDS,
             new java.util.concurrent.SynchronousQueue<>(),
             new ThreadFactoryBuilder()

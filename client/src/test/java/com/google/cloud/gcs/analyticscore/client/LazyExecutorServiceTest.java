@@ -17,26 +17,23 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.junit.Assert.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-@RunWith(JUnit4.class)
-public class LazyExecutorServiceTest {
+class LazyExecutorServiceTest {
 
   private LazyExecutorService executorService;
   private AtomicBoolean executed;
 
-  @Before
-  public void setUp() {
+  @BeforeEach
+  void setUp() {
     executorService = new LazyExecutorService();
     executed = new AtomicBoolean(false);
   }
@@ -53,7 +50,7 @@ public class LazyExecutorServiceTest {
   }
 
   @Test
-  public void testSubmitCallableIsLazyAndRunsOnCallerThread() throws Exception {
+  void submitCallable_isLazyAndRunsOnCallerThread() throws Exception {
     AtomicReference<Thread> executionThread = new AtomicReference<>();
     Callable<String> task =
         () -> {
@@ -61,9 +58,9 @@ public class LazyExecutorServiceTest {
           executionThread.set(Thread.currentThread());
           return "success";
         };
+
     Future<String> future = executorService.submit(task);
     assertThat(executed.get()).isFalse();
-
     String result = future.get();
 
     assertThat(result).isEqualTo("success");
@@ -72,18 +69,19 @@ public class LazyExecutorServiceTest {
   }
 
   @Test
-  public void testSubmitRunnableIsLazy() throws Exception {
+  void submitRunnable_isLazy() throws Exception {
     Future<?> future = executorService.submit(createRunnableTask());
-    assertThat(executed.get()).isFalse();
 
+    assertThat(executed.get()).isFalse();
     future.get();
 
     assertThat(executed.get()).isTrue();
   }
 
   @Test
-  public void testShutdownThrowsCancellationExceptionOnGet() {
+  void shutdown_throwsCancellationExceptionOnGet() {
     Future<String> future = executorService.submit(createCallableTask());
+
     executorService.shutdown();
 
     assertThat(executorService.isShutdown()).isTrue();
@@ -94,7 +92,7 @@ public class LazyExecutorServiceTest {
   }
 
   @Test
-  public void testShutdownNowReturnsEmptyListAndCancelsFutureTaskExecution() {
+  void shutdownNow_returnsEmptyListAndCancelsFutureTaskExecution() {
     Future<String> future = executorService.submit(createCallableTask());
 
     java.util.List<Runnable> unexecutedTasks = executorService.shutdownNow();
@@ -108,10 +106,10 @@ public class LazyExecutorServiceTest {
   }
 
   @Test
-  public void testSubmitCallableIsLazyWithTimeout() throws Exception {
+  void submitCallable_isLazyWithTimeout() throws Exception {
     Future<String> future = executorService.submit(createCallableTask());
-    assertThat(executed.get()).isFalse();
 
+    assertThat(executed.get()).isFalse();
     String result = future.get(10, java.util.concurrent.TimeUnit.SECONDS);
 
     assertThat(result).isEqualTo("success");
@@ -119,18 +117,19 @@ public class LazyExecutorServiceTest {
   }
 
   @Test
-  public void testSubmitRunnableIsLazyWithTimeout() throws Exception {
+  void submitRunnable_isLazyWithTimeout() throws Exception {
     Future<?> future = executorService.submit(createRunnableTask());
-    assertThat(executed.get()).isFalse();
 
+    assertThat(executed.get()).isFalse();
     future.get(10, java.util.concurrent.TimeUnit.SECONDS);
 
     assertThat(executed.get()).isTrue();
   }
 
   @Test
-  public void testShutdownThrowsCancellationExceptionOnGetWithTimeout() {
+  void shutdown_throwsCancellationExceptionOnGetWithTimeout() {
     Future<String> future = executorService.submit(createCallableTask());
+
     executorService.shutdown();
 
     assertThrows(
@@ -141,10 +140,10 @@ public class LazyExecutorServiceTest {
   }
 
   @Test
-  public void testAwaitTerminationAndIsTerminated() throws Exception {
+  void awaitTermination_andIsTerminated() throws Exception {
     assertThat(executorService.isTerminated()).isFalse();
-
     executorService.shutdown();
+
     boolean terminated =
         executorService.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS);
 
@@ -153,14 +152,14 @@ public class LazyExecutorServiceTest {
   }
 
   @Test
-  public void testExecuteThrowsRejectedExecutionException() {
+  void execute_throwsRejectedExecutionException() {
     assertThrows(
         java.util.concurrent.RejectedExecutionException.class,
         () -> executorService.execute(() -> {}));
   }
 
   @Test
-  public void testCompletedTaskReturnsResultAfterShutdown() throws Exception {
+  void completedTask_returnsResultAfterShutdown() throws Exception {
     Future<String> future = executorService.submit(createCallableTask());
     future.get();
 
@@ -171,10 +170,10 @@ public class LazyExecutorServiceTest {
   }
 
   @Test
-  public void testSubmitRunnableWithResult() throws Exception {
+  void submitRunnable_withResult() throws Exception {
     Future<String> future = executorService.submit(createRunnableTask(), "success");
-    assertThat(executed.get()).isFalse();
 
+    assertThat(executed.get()).isFalse();
     String result = future.get();
 
     assertThat(result).isEqualTo("success");
@@ -182,12 +181,12 @@ public class LazyExecutorServiceTest {
   }
 
   @Test
-  public void testSubmitNullTaskThrowsNullPointerException() {
+  void submitNullTask_throwsNullPointerException() {
     assertThrows(NullPointerException.class, () -> executorService.submit((Callable<String>) null));
   }
 
   @Test
-  public void testSubmitAfterShutdownThrowsRejectedExecutionException() {
+  void submitAfterShutdown_throwsRejectedExecutionException() {
     executorService.shutdown();
 
     assertThrows(

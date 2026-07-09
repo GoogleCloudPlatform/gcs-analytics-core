@@ -30,10 +30,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * A lightweight, lazy ExecutorService that defers task execution until Future.get() is called.
- * Execution happens synchronously on the thread that calls get().
+ * A lightweight, lazy ExecutorService that defers task execution until {@code Future.get()} is
+ * called. Execution happens synchronously on the thread that invokes {@code get()}.
+ *
+ * <p>A returned Future represents a pending task. Upon the first invocation of its {@code get()}
+ * method, the task executes and its result is permanently cached.
+ *
+ * <p>Both this class and the returned Future are thread-safe.
  */
-public class LazyExecutorService extends AbstractExecutorService {
+final class LazyExecutorService extends AbstractExecutorService {
 
   private volatile boolean isShutdown = false;
 
@@ -66,6 +71,28 @@ public class LazyExecutorService extends AbstractExecutorService {
   @Override
   public void execute(Runnable command) {
     throw new RejectedExecutionException("Use submit instead of execute.");
+  }
+
+  @Override
+  public <T> List<Future<T>> invokeAll(java.util.Collection<? extends Callable<T>> tasks) {
+    throw new UnsupportedOperationException("LazyExecutorService does not support invokeAll");
+  }
+
+  @Override
+  public <T> List<Future<T>> invokeAll(
+      java.util.Collection<? extends Callable<T>> tasks, long timeout, TimeUnit unit) {
+    throw new UnsupportedOperationException("LazyExecutorService does not support invokeAll");
+  }
+
+  @Override
+  public <T> T invokeAny(java.util.Collection<? extends Callable<T>> tasks) {
+    throw new UnsupportedOperationException("LazyExecutorService does not support invokeAny");
+  }
+
+  @Override
+  public <T> T invokeAny(
+      java.util.Collection<? extends Callable<T>> tasks, long timeout, TimeUnit unit) {
+    throw new UnsupportedOperationException("LazyExecutorService does not support invokeAny");
   }
 
   @Override
@@ -104,6 +131,12 @@ public class LazyExecutorService extends AbstractExecutorService {
       return super.get();
     }
 
+    /**
+     * Note: Because this implementation executes the task synchronously on the calling thread,
+     * the provided timeout is inherently ignored during the actual execution of the task. The calling
+     * thread will remain blocked until {@code run()} completes, at which point the timeout
+     * logic evaluates. True preemptive timeouts are not supported.
+     */
     @Override
     public V get(long timeout, TimeUnit unit)
         throws InterruptedException, ExecutionException, TimeoutException {
