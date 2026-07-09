@@ -82,14 +82,11 @@ class GcsExceptionUtil {
    */
   static IOException translateWriteException(
       Exception e, String context, BlobId blobId, long position, GcsWriteOptions writeOptions) {
+    boolean overwrite =
+        Optional.ofNullable(writeOptions).map(GcsWriteOptions::isOverwriteExisting).orElse(true);
     return getStorageException(e)
         .map(
             se -> {
-              boolean overwrite =
-                  Optional.ofNullable(writeOptions)
-                      .map(GcsWriteOptions::isOverwriteExisting)
-                      .orElse(true);
-
               if (!overwrite) {
                 ErrorType errorType = getErrorType(se);
                 if (errorType == ErrorType.PRECONDITION_FAILED && blobId.getGeneration() == null) {
