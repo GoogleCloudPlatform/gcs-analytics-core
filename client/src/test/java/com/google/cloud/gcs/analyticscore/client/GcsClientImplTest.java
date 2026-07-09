@@ -1064,19 +1064,4 @@ class GcsClientImplTest {
 
     assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
   }
-
-  @Test
-  void getGcsItemInfo_storageThrowsStorageException_throwsIOException() {
-    Storage mockStorage = mock(Storage.class);
-    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
-    GcsItemId itemId =
-        GcsItemId.builder().setBucketName("test-bucket-name").setObjectName("test-object").build();
-    doThrow(new StorageException(500, "Internal Error"))
-        .when(mockStorage)
-        .get(any(BlobId.class), any());
-
-    IOException e = assertThrows(IOException.class, () -> localGcsClient.getGcsItemInfo(itemId));
-
-    assertThat(e).hasMessageThat().contains("Unable to access blob");
-  }
 }

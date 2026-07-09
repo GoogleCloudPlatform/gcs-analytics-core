@@ -17,12 +17,17 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,102 +43,91 @@ class LazyExecutorServiceTest {
     executed = new AtomicBoolean(false);
   }
 
-  private Callable<String> createCallableTask() {
-    return () -> {
-      executed.set(true);
-      return "success";
-    };
+  private String createCallableTask() {
+    executed.set(true);
+    return "success";
   }
 
-  private Runnable createRunnableTask() {
-    return () -> executed.set(true);
+  private void createRunnableTask() {
+    executed.set(true);
   }
 
+  /**
+   * Tests that submitting a Callable is lazy (does not execute on submit), executes on the caller's
+   * thread when get() is invoked, and multiple get() calls only execute the task once (verifying
+   * the !isDone() check).
+   */
   @Test
-  void submitCallable_isLazyAndRunsOnCallerThread() throws Exception {
+  void submitCallable_isLazyAndExecutesOnceOnCallerThread() throws Exception {
     AtomicReference<Thread> executionThread = new AtomicReference<>();
+    AtomicInteger executionCount = new AtomicInteger(0);
     Callable<String> task =
         () -> {
-          executed.set(true);
+          executionCount.incrementAndGet();
           executionThread.set(Thread.currentThread());
           return "success";
         };
-
     Future<String> future = executorService.submit(task);
-    assertThat(executed.get()).isFalse();
-    String result = future.get();
+    boolean executedBeforeGet = executionCount.get() > 0;
 
-    assertThat(result).isEqualTo("success");
-    assertThat(executed.get()).isTrue();
+    String result1 = future.get(10, SECONDS);
+    String result2 = future.get();
+
+    assertThat(executedBeforeGet).isFalse();
+    assertThat(result1).isEqualTo("success");
+    assertThat(result2).isEqualTo("success");
+    assertThat(executionCount.get()).isEqualTo(1);
     assertThat(executionThread.get()).isEqualTo(Thread.currentThread());
   }
 
+  /**
+   * Tests that submitting a Runnable is lazy, and multiple get() calls execute the task exactly
+   * once.
+   */
   @Test
-  void submitRunnable_isLazy() throws Exception {
-    Future<?> future = executorService.submit(createRunnableTask());
+  void submitRunnable_isLazyAndExecutesOnce() throws Exception {
+    Future<?> future = executorService.submit(this::createRunnableTask);
+    boolean executedBeforeGet = executed.get();
 
-    assertThat(executed.get()).isFalse();
     future.get();
+    future.get(10, SECONDS);
 
+    assertThat(executedBeforeGet).isFalse();
     assertThat(executed.get()).isTrue();
   }
 
+  /**
+   * Tests that if the executor is shut down before a task's get() is called, the task is implicitly
+   * cancelled and get() throws CancellationException.
+   */
   @Test
   void shutdown_throwsCancellationExceptionOnGet() {
-    Future<String> future = executorService.submit(createCallableTask());
+    Future<String> future = executorService.submit(this::createCallableTask);
 
     executorService.shutdown();
 
     assertThat(executorService.isShutdown()).isTrue();
+    assertThrows(CancellationException.class, () -> future.get(10, SECONDS));
     assertThrows(CancellationException.class, future::get);
     assertThat(executed.get()).isFalse();
     assertThat(future.isCancelled()).isTrue();
     assertThat(future.isDone()).isTrue();
   }
 
+  /**
+   * Tests that shutdownNow cancels pending futures similarly to shutdown, and returns an empty list
+   * since tasks are not queued internally.
+   */
   @Test
-  void shutdownNow_returnsEmptyListAndCancelsFutureTaskExecution() {
-    Future<String> future = executorService.submit(createCallableTask());
+  void shutdownNow_cancelsTasksAndReturnsEmptyList() {
+    Future<String> future = executorService.submit(this::createCallableTask);
 
-    java.util.List<Runnable> unexecutedTasks = executorService.shutdownNow();
+    List<Runnable> unexecutedTasks = executorService.shutdownNow();
 
     assertThat(unexecutedTasks).isEmpty();
     assertThat(executorService.isShutdown()).isTrue();
     assertThrows(CancellationException.class, future::get);
-    assertThat(executed.get()).isFalse();
-    assertThat(future.isCancelled()).isTrue();
-    assertThat(future.isDone()).isTrue();
-  }
-
-  @Test
-  void submitCallable_isLazyWithTimeout() throws Exception {
-    Future<String> future = executorService.submit(createCallableTask());
-
-    assertThat(executed.get()).isFalse();
-    String result = future.get(10, java.util.concurrent.TimeUnit.SECONDS);
-
-    assertThat(result).isEqualTo("success");
-    assertThat(executed.get()).isTrue();
-  }
-
-  @Test
-  void submitRunnable_isLazyWithTimeout() throws Exception {
-    Future<?> future = executorService.submit(createRunnableTask());
-
-    assertThat(executed.get()).isFalse();
-    future.get(10, java.util.concurrent.TimeUnit.SECONDS);
-
-    assertThat(executed.get()).isTrue();
-  }
-
-  @Test
-  void shutdown_throwsCancellationExceptionOnGetWithTimeout() {
-    Future<String> future = executorService.submit(createCallableTask());
-
-    executorService.shutdown();
-
-    assertThrows(
-        CancellationException.class, () -> future.get(10, java.util.concurrent.TimeUnit.SECONDS));
+    assertThrows(CancellationException.class, () -> future.get(10, SECONDS));
     assertThat(executed.get()).isFalse();
     assertThat(future.isCancelled()).isTrue();
     assertThat(future.isDone()).isTrue();
@@ -144,8 +138,7 @@ class LazyExecutorServiceTest {
     assertThat(executorService.isTerminated()).isFalse();
     executorService.shutdown();
 
-    boolean terminated =
-        executorService.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS);
+    boolean terminated = executorService.awaitTermination(10, SECONDS);
 
     assertThat(executorService.isTerminated()).isTrue();
     assertThat(terminated).isTrue();
@@ -153,44 +146,81 @@ class LazyExecutorServiceTest {
 
   @Test
   void execute_throwsRejectedExecutionException() {
-    assertThrows(
-        java.util.concurrent.RejectedExecutionException.class,
-        () -> executorService.execute(() -> {}));
+    assertThrows(RejectedExecutionException.class, () -> executorService.execute(() -> {}));
   }
 
+  /**
+   * Tests that if a task completes before shutdown, subsequent get() calls still return the
+   * successful result instead of throwing CancellationException.
+   */
   @Test
   void completedTask_returnsResultAfterShutdown() throws Exception {
-    Future<String> future = executorService.submit(createCallableTask());
+    Future<String> future = executorService.submit(this::createCallableTask);
     future.get();
 
     executorService.shutdown();
 
     assertThat(future.get()).isEqualTo("success");
-    assertThat(future.get(10, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo("success");
+    assertThat(future.get(10, SECONDS)).isEqualTo("success");
   }
 
   @Test
   void submitRunnable_withResult() throws Exception {
-    Future<String> future = executorService.submit(createRunnableTask(), "success");
+    Future<String> future = executorService.submit(this::createRunnableTask, "success");
+    boolean executedBeforeGet = executed.get();
 
-    assertThat(executed.get()).isFalse();
-    String result = future.get();
+    String result1 = future.get();
+    String result2 = future.get(10, SECONDS);
 
-    assertThat(result).isEqualTo("success");
+    assertThat(executedBeforeGet).isFalse();
+    assertThat(result1).isEqualTo("success");
+    assertThat(result2).isEqualTo("success");
     assertThat(executed.get()).isTrue();
   }
 
   @Test
   void submitNullTask_throwsNullPointerException() {
     assertThrows(NullPointerException.class, () -> executorService.submit((Callable<String>) null));
+    assertThrows(NullPointerException.class, () -> executorService.submit((Runnable) null));
+    assertThrows(NullPointerException.class, () -> executorService.submit((Runnable) null, "res"));
   }
 
   @Test
   void submitAfterShutdown_throwsRejectedExecutionException() {
     executorService.shutdown();
 
+    assertThrows(RejectedExecutionException.class, () -> executorService.submit(() -> "task"));
+    assertThrows(RejectedExecutionException.class, () -> executorService.submit(() -> {}));
+  }
+
+  /**
+   * Tests that explicitly cancelling a future prevents it from executing, verifying the
+   * !isCancelled() check inside the get() execution logic.
+   */
+  @Test
+  void cancel_preventsTaskExecution() {
+    Future<String> future = executorService.submit(this::createCallableTask);
+
+    future.cancel(true);
+
+    assertThrows(CancellationException.class, future::get);
+    assertThrows(CancellationException.class, () -> future.get(10, SECONDS));
+    assertThat(executed.get()).isFalse();
+  }
+
+  @Test
+  void invokeMethods_throwUnsupportedOperationException() {
     assertThrows(
-        java.util.concurrent.RejectedExecutionException.class,
-        () -> executorService.submit(() -> "task"));
+        UnsupportedOperationException.class,
+        () -> executorService.invokeAll(Collections.emptyList()));
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> executorService.invokeAll(Collections.emptyList(), 10, SECONDS));
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> executorService.invokeAny(Collections.emptyList()));
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> executorService.invokeAny(Collections.emptyList(), 10, SECONDS));
   }
 }

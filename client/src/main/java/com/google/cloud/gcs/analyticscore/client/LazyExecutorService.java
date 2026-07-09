@@ -58,11 +58,13 @@ final class LazyExecutorService extends AbstractExecutorService {
     return isShutdown;
   }
 
+  /** Returns true if the executor has been shut down, since there are no asynchronous tasks. */
   @Override
   public boolean isTerminated() {
     return isShutdown;
   }
 
+  /** Returns true immediately, since there are no asynchronous tasks or threads to await. */
   @Override
   public boolean awaitTermination(long timeout, TimeUnit unit) {
     return true;
@@ -73,6 +75,10 @@ final class LazyExecutorService extends AbstractExecutorService {
     throw new RejectedExecutionException("Use submit instead of execute.");
   }
 
+  /**
+   * Bulk execution operations (invokeAll, invokeAny) are not supported by this lazy executor. Tasks
+   * must be explicitly submitted and resolved individually via their returned Futures.
+   */
   @Override
   public <T> List<Future<T>> invokeAll(java.util.Collection<? extends Callable<T>> tasks) {
     throw new UnsupportedOperationException("LazyExecutorService does not support invokeAll");
@@ -132,10 +138,10 @@ final class LazyExecutorService extends AbstractExecutorService {
     }
 
     /**
-     * Note: Because this implementation executes the task synchronously on the calling thread,
-     * the provided timeout is inherently ignored during the actual execution of the task. The calling
-     * thread will remain blocked until {@code run()} completes, at which point the timeout
-     * logic evaluates. True preemptive timeouts are not supported.
+     * Note: Because this implementation executes the task synchronously on the calling thread, the
+     * provided timeout is inherently ignored during the actual execution of the task. The calling
+     * thread will remain blocked until {@code run()} completes, at which point the timeout logic
+     * evaluates. True preemptive timeouts are not supported.
      */
     @Override
     public V get(long timeout, TimeUnit unit)
@@ -151,6 +157,7 @@ final class LazyExecutorService extends AbstractExecutorService {
     }
   }
 
+  /** Wraps the given callable into a LazyFutureTask that overrides get() to execute the task. */
   @Override
   protected <T> RunnableFuture<T> newTaskFor(Callable<T> callable) {
     return new LazyFutureTask<>(callable);

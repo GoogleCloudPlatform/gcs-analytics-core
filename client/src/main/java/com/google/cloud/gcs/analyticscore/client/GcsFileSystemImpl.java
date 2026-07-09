@@ -57,6 +57,12 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   private static final int DEFAULT_STATUS_KEEP_ALIVE_SECONDS = 30;
 
   /**
+   * The maximum amount of time in seconds to wait for background thread pools to gracefully
+   * terminate upon file system closure.
+   */
+  private static final int SHUTDOWN_TIMEOUT_SECONDS = 10;
+
+  /**
    * Status calls are lightweight and block on I/O. An unbounded maximum pool size, combined with a
    * zero-capacity SynchronousQueue, ensures tasks are never queued and new threads are immediately
    * allocated to handle concurrent operations.
@@ -234,12 +240,15 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     readExecutorService.shutdown();
     listExecutorService.shutdown();
     try {
-      boolean readTerminated = readExecutorService.awaitTermination(10, TimeUnit.SECONDS);
-      boolean listTerminated = listExecutorService.awaitTermination(10, TimeUnit.SECONDS);
-      if (!readTerminated) {
+      // Wait a total of SHUTDOWN_TIMEOUT_SECONDS for both thread pools to terminate.
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(SHUTDOWN_TIMEOUT_SECONDS);
+      // First, wait for the read executor service to terminate.
+      if (!readExecutorService.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
         readExecutorService.shutdownNow();
       }
-      if (!listTerminated) {
+      // Then, wait for the status executor service to terminate, with the remaining time.
+      if (!listExecutorService.awaitTermination(
+          Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS)) {
         listExecutorService.shutdownNow();
       }
     } catch (InterruptedException e) {

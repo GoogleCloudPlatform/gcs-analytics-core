@@ -396,6 +396,8 @@ class GcsFileSystemImplTest {
     ExecutorService mockListExecutorService = mock(ExecutorService.class);
     when(mockReadExecutorService.awaitTermination(anyLong(), any(TimeUnit.class)))
         .thenReturn(false);
+    when(mockListExecutorService.awaitTermination(anyLong(), any(TimeUnit.class)))
+        .thenReturn(false);
     GcsFileSystemImpl fileSystemWithMockExecutor =
         new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS) {
           @Override
@@ -416,6 +418,7 @@ class GcsFileSystemImplTest {
     inOrder.verify(mockListExecutorService).shutdown();
     inOrder.verify(mockReadExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
     inOrder.verify(mockReadExecutorService).shutdownNow();
+    inOrder.verify(mockListExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
     inOrder.verify(mockListExecutorService).shutdownNow();
     inOrder.verify(mockClient).close();
   }
