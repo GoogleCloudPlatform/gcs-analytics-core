@@ -98,6 +98,7 @@ public abstract class GcsClientOptions {
 
   public abstract Builder toBuilder();
 
+  // TODO: Benchmark and determine the optimal default values for write options.
   public static Builder builder() {
     return new AutoValue_GcsClientOptions.Builder()
         .setGcsReadOptions(GcsReadOptions.builder().build())

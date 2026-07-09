@@ -29,12 +29,6 @@ public interface GcsClient {
   VectoredSeekableByteChannel openReadChannel(GcsItemId itemId, GcsReadOptions readOptions)
       throws IOException;
 
-  /** Fetches object metadata. */
-  GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException;
-
-  /** Close the client. */
-  void close();
-
   /**
    * Creates a new GCS object and returns a WritableByteChannel for writing to it.
    *
@@ -45,4 +39,10 @@ public interface GcsClient {
    */
   WritableByteChannel createWriteChannel(GcsItemId itemId, GcsWriteOptions options)
       throws IOException;
+
+  /** Fetches object metadata. */
+  GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException;
+
+  /** Close the client. */
+  void close();
 }

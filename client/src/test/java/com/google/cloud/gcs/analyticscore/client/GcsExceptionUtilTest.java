@@ -112,7 +112,13 @@ class GcsExceptionUtilTest {
     IOException exception =
         GcsExceptionUtil.translateException(se, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
 
-    assertThat(exception).isInstanceOf(FileAlreadyExistsException.class);
+    assertThat(exception).isInstanceOf(IOException.class);
+    assertThat(exception.getCause()).isInstanceOf(StorageException.class);
+    assertThat(exception.getMessage())
+        .contains(
+            String.format(
+                "Error during %s to GCS for gs://%s/%s at position %d",
+                CONTEXT, BUCKET, NAME, POSITION));
   }
 
   @Test
@@ -132,12 +138,16 @@ class GcsExceptionUtilTest {
 
   @Test
   void
-      translateException_when412WithOverwriteAndGeneration_throwsIOExceptionWithGenerationMismatch() {
+      translateWriteException_when412WithOverwriteAndGeneration_throwsIOExceptionWithGenerationMismatch() {
     StorageException se = new StorageException(412, "Precondition Failed");
 
     IOException exception =
-        GcsExceptionUtil.translateExceptionWithOverwrite(
-            se, CONTEXT, BlobId.of(BUCKET, NAME, 12345L), POSITION);
+        GcsExceptionUtil.translateWriteException(
+            se,
+            CONTEXT,
+            BlobId.of(BUCKET, NAME, 12345L),
+            POSITION,
+            GcsWriteOptions.builder().build());
 
     assertThat(exception).isNotInstanceOf(FileAlreadyExistsException.class);
     assertThat(exception.getMessage())
@@ -234,23 +244,31 @@ class GcsExceptionUtilTest {
   }
 
   @Test
-  void translateExceptionWithOverwrite_withGenericIOException_returnsSameIOException() {
+  void translateWriteException_withGenericIOException_returnsSameIOException() {
     Exception genericIoe = new IOException("Generic Connection Error");
 
     IOException exception =
-        GcsExceptionUtil.translateExceptionWithOverwrite(
-            genericIoe, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
+        GcsExceptionUtil.translateWriteException(
+            genericIoe,
+            CONTEXT,
+            BlobId.of(BUCKET, NAME),
+            POSITION,
+            GcsWriteOptions.builder().build());
 
     assertThat(exception).isSameInstanceAs(genericIoe);
   }
 
   @Test
-  void translateExceptionWithOverwrite_withGenericException_returnsWrappedIOException() {
+  void translateWriteException_withGenericException_returnsWrappedIOException() {
     Exception genericException = new RuntimeException("Something went wrong");
 
     IOException exception =
-        GcsExceptionUtil.translateExceptionWithOverwrite(
-            genericException, CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
+        GcsExceptionUtil.translateWriteException(
+            genericException,
+            CONTEXT,
+            BlobId.of(BUCKET, NAME),
+            POSITION,
+            GcsWriteOptions.builder().build());
 
     assertThat(exception).hasCauseThat().isSameInstanceAs(genericException);
     assertThat(exception.getMessage())
