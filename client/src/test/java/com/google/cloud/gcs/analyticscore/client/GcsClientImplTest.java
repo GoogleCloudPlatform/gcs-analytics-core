@@ -20,6 +20,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -30,7 +31,23 @@ import com.google.api.core.ApiFuture;
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
-import com.google.cloud.storage.*;
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.BlobReadSession;
+import com.google.cloud.storage.BlobWriteSession;
+import com.google.cloud.storage.BlobWriteSessionConfig;
+import com.google.cloud.storage.BlobWriteSessionConfigs;
+import com.google.cloud.storage.Bucket;
+import com.google.cloud.storage.BucketInfo.HierarchicalNamespace;
+import com.google.cloud.storage.BufferToDiskThenUpload;
+import com.google.cloud.storage.DefaultBlobWriteSessionConfig;
+import com.google.cloud.storage.GrpcStorageOptions;
+import com.google.cloud.storage.HttpStorageOptions;
+import com.google.cloud.storage.ParallelCompositeUploadBlobWriteSessionConfig;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.Storage.BucketGetOption;
+import com.google.cloud.storage.StorageException;
+import com.google.cloud.storage.StorageOptions;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -251,7 +268,9 @@ class GcsClientImplTest {
   void getUserAgent_noOptionalUserAgent() throws Exception {
     GcsClientImpl client =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+
     String userAgent = client.getUserAgent();
+
     assertThat(userAgent).isEqualTo("gcs-analytics-core/" + VersionHelper.VERSION);
   }
 
@@ -263,20 +282,126 @@ class GcsClientImplTest {
             .setUserAgent("custom-app/1.0")
             .build();
     GcsClientImpl client = new GcsClientImpl(options, executorServiceSupplier, telemetry);
+
     String userAgent = client.getUserAgent();
+
     assertThat(userAgent)
         .isEqualTo("gcs-analytics-core/" + VersionHelper.VERSION + " custom-app/1.0");
   }
 
   @Test
-  void createStore_withCredentials_usesProvidedCredentials() throws IOException {
+  void createStorage_withCredentials_usesProvidedCredentials() throws IOException {
+    Credentials credentials = NoCredentials.getInstance();
+
     GcsClientImpl client =
-        new GcsClientImpl(
-            NoCredentials.getInstance(),
-            TEST_GCS_CLIENT_OPTIONS,
-            executorServiceSupplier,
-            telemetry);
-    assertThat(client.storage.getOptions().getCredentials()).isEqualTo(NoCredentials.getInstance());
+        new GcsClientImpl(credentials, TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+
+    assertThat(client.storage.getOptions().getCredentials()).isEqualTo(credentials);
+  }
+
+  @Test
+  void getBucketProperties_nullBucketName_throwsNullPointerException() {
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mock(Storage.class));
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> localGcsClient.getBucketProperties(null));
+    assertThat(e).hasMessageThat().isEqualTo("bucketName cannot be null");
+  }
+
+  @Test
+  void getBucketProperties_hnsEnabled_returnsTrue() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
+    Bucket mockBucket = mockBucketWithHns(true);
+    doReturn(mockBucket).when(mockStorage).get(eq("hns-bucket"), any(BucketGetOption.class));
+
+    BucketProperties bucketProperties = localGcsClient.getBucketProperties("hns-bucket");
+
+    assertThat(bucketProperties.isHnsEnabled()).isTrue();
+  }
+
+  @Test
+  void getBucketProperties_hnsDisabled_returnsFalse() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
+    Bucket mockBucket = mockBucketWithHns(false);
+    doReturn(mockBucket).when(mockStorage).get(eq("flat-bucket"), any(BucketGetOption.class));
+
+    BucketProperties bucketProperties = localGcsClient.getBucketProperties("flat-bucket");
+
+    assertThat(bucketProperties.isHnsEnabled()).isFalse();
+  }
+
+  @Test
+  void getBucketProperties_hnsNull_returnsFalse() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
+    Bucket mockBucket = mockBucketWithHns(null);
+    doReturn(mockBucket)
+        .when(mockStorage)
+        .get(eq("flat-bucket-null-hns"), any(BucketGetOption.class));
+
+    BucketProperties bucketProperties = localGcsClient.getBucketProperties("flat-bucket-null-hns");
+
+    assertThat(bucketProperties.isHnsEnabled()).isFalse();
+  }
+
+  @Test
+  void getBucketProperties_bucketNotFound_returnsDisabledHns() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
+    doReturn(null).when(mockStorage).get(eq("non-existent-bucket"), any(BucketGetOption.class));
+
+    BucketProperties properties = localGcsClient.getBucketProperties("non-existent-bucket");
+
+    assertThat(properties.isHnsEnabled()).isFalse();
+  }
+
+  @Test
+  void getBucketProperties_forbiddenAccess_returnsDisabledHns() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
+    doThrow(new StorageException(403, "Forbidden"))
+        .when(mockStorage)
+        .get(eq("forbidden-bucket"), any(BucketGetOption.class));
+
+    BucketProperties properties = localGcsClient.getBucketProperties("forbidden-bucket");
+
+    assertThat(properties.isHnsEnabled()).isFalse();
+  }
+
+  @Test
+  void getBucketProperties_storageException_throwsIOException() {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
+    doThrow(new StorageException(500, "Internal Error"))
+        .when(mockStorage)
+        .get(eq("error-bucket"), any(BucketGetOption.class));
+
+    IOException e =
+        assertThrows(IOException.class, () -> localGcsClient.getBucketProperties("error-bucket"));
+
+    assertThat(e).hasMessageThat().contains("Unable to access bucket: error-bucket");
+  }
+
+  private GcsClientImpl createClientWithMockStorage(Storage mockStorage) {
+    return new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+      @Override
+      protected Storage createStorage(Optional<Credentials> credentials) {
+        return mockStorage;
+      }
+    };
+  }
+
+  private Bucket mockBucketWithHns(Boolean hnsEnabled) {
+    Bucket mockBucket = mock(Bucket.class);
+    if (hnsEnabled != null) {
+      HierarchicalNamespace hns = mock(HierarchicalNamespace.class);
+      when(hns.getEnabled()).thenReturn(hnsEnabled);
+      when(mockBucket.getHierarchicalNamespace()).thenReturn(hns);
+    } else {
+      when(mockBucket.getHierarchicalNamespace()).thenReturn(null);
+    }
+    return mockBucket;
   }
 
   @Test
@@ -789,13 +914,6 @@ class GcsClientImplTest {
         .isInstanceOf(ParallelCompositeUploadBlobWriteSessionConfig.class);
   }
 
-  private GcsClientImpl createClientWithMockStorage(Storage mockStorage) {
-    GcsClientImpl client =
-        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
-    client.storage = mockStorage;
-    return client;
-  }
-
   private GcsClientImpl createClientWithClientOptions(GcsClientOptions clientOptions) {
     return new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry);
   }
@@ -815,7 +933,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createStore_bidiDisabled_usesHttpTransport() throws IOException {
+  void createStorage_bidiDisabled_usesHttpTransport() throws IOException {
     GcsClientImpl client =
         new GcsClientImpl(
             NoCredentials.getInstance(),
@@ -826,7 +944,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createStore_bidiEnabled_usesGrpcTransport() throws IOException {
+  void createStorage_bidiEnabled_usesGrpcTransport() throws IOException {
     GcsClientOptions options =
         GcsClientOptions.builder()
             .setProjectId("test-project")

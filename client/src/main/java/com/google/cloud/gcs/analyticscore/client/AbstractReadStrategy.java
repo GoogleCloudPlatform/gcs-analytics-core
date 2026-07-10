@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import com.google.cloud.ReadChannel;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.Storage.BlobSourceOption;
 import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -76,15 +77,13 @@ abstract class AbstractReadStrategy implements ReadStrategy {
             .getContentGeneration()
             .map(gen -> BlobId.of(bucketName, objectName, gen))
             .orElse(BlobId.of(bucketName, objectName));
-    List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
-    options
-        .getUserProjectId()
-        .ifPresent(id -> sourceOptions.add(Storage.BlobSourceOption.userProject(id)));
+    List<BlobSourceOption> sourceOptions = Lists.newArrayList();
+    options.getUserProjectId().ifPresent(id -> sourceOptions.add(BlobSourceOption.userProject(id)));
     options
         .getDecryptionKey()
-        .ifPresent(key -> sourceOptions.add(Storage.BlobSourceOption.decryptionKey(key)));
+        .ifPresent(key -> sourceOptions.add(BlobSourceOption.decryptionKey(key)));
     ReadChannel sdkReadChannel =
-        storage.reader(blobId, sourceOptions.toArray(new Storage.BlobSourceOption[0]));
+        storage.reader(blobId, sourceOptions.toArray(new BlobSourceOption[0]));
     options.getChunkSize().ifPresent(sdkReadChannel::setChunkSize);
 
     return sdkReadChannel;

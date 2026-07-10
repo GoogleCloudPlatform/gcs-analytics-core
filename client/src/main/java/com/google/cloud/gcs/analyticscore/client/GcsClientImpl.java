@@ -26,6 +26,8 @@ import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobWriteSession;
+import com.google.cloud.storage.BucketInfo;
+import com.google.cloud.storage.BucketInfo.HierarchicalNamespace;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.StorageException;
@@ -141,6 +143,31 @@ class GcsClientImpl implements GcsClient {
     }
     throw new UnsupportedOperationException(
         String.format("Expected gcs object but got %s", itemId));
+  }
+
+  BucketProperties getBucketProperties(String bucketName) throws IOException {
+    checkNotNull(bucketName, "bucketName cannot be null");
+    try {
+      BucketInfo bucketInfo =
+          storage.get(
+              bucketName,
+              Storage.BucketGetOption.fields(Storage.BucketField.HIERARCHICAL_NAMESPACE));
+      if (bucketInfo == null) {
+        LOG.warn("Bucket {} not found, HNS API will be disabled", bucketName);
+        return BucketProperties.create(false);
+      }
+      boolean hnsEnabled =
+          Optional.ofNullable(bucketInfo.getHierarchicalNamespace())
+              .map(HierarchicalNamespace::getEnabled)
+              .orElse(false);
+      return BucketProperties.create(hnsEnabled);
+    } catch (StorageException storageException) {
+      if (storageException.getCode() == 403) {
+        LOG.warn("Access to bucket {} is forbidden (403), HNS API will be disabled", bucketName);
+        return BucketProperties.create(false);
+      }
+      throw new IOException("Unable to access bucket: " + bucketName, storageException);
+    }
   }
 
   @Override
