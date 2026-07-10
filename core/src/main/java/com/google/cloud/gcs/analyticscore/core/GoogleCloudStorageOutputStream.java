@@ -19,11 +19,14 @@ package com.google.cloud.gcs.analyticscore.core;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
+import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsWriteOptions;
+import com.google.cloud.storage.BlobId;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
 
@@ -41,15 +44,31 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
   private final ByteBuffer singleByteBuffer = ByteBuffer.allocate(1);
   private long bytesWritten = 0;
 
-  /**
-   * Creates a new GoogleCloudStorageOutputStream by initializing a write session via the client
-   * layer.
-   */
   public static GoogleCloudStorageOutputStream create(
-      GcsFileSystem gcsFileSystem, GcsItemId itemId, GcsWriteOptions writeOptions)
+      GcsFileSystem gcsFileSystem, GcsFileInfo gcsFileInfo) throws IOException {
+    checkState(gcsFileSystem != null, "GcsFileSystem shouldn't be null");
+    checkState(gcsFileInfo != null, "GcsFileInfo shouldn't be null");
+    return create(gcsFileSystem, gcsFileInfo.getItemInfo().getItemId());
+  }
+
+  public static GoogleCloudStorageOutputStream create(GcsFileSystem gcsFileSystem, URI path)
+      throws IOException {
+    checkState(gcsFileSystem != null, "GcsFileSystem shouldn't be null");
+    BlobId blobId = BlobId.fromGsUtilUri(path.toString());
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName(blobId.getBucket())
+            .setObjectName(blobId.getName())
+            .build();
+    return create(gcsFileSystem, itemId);
+  }
+
+  public static GoogleCloudStorageOutputStream create(GcsFileSystem gcsFileSystem, GcsItemId itemId)
       throws IOException {
     checkState(gcsFileSystem != null, "GcsFileSystem shouldn't be null");
     checkState(itemId != null, "GcsItemId shouldn't be null");
+    GcsWriteOptions writeOptions =
+        gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsWriteOptions();
     WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions);
     return new GoogleCloudStorageOutputStream(channel);
   }
