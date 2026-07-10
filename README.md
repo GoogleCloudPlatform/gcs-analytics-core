@@ -30,42 +30,63 @@ the analytics frameworks and the underlying GCS Java library, intercepting calls
 
 ```mermaid
 graph TD
-    %% Top Layer: Analytics Engines
-    subgraph Clients ["Analytics Engines"]
+    %% Top Layer: Query Engines
+    subgraph Engines ["Query Engines"]
+        QE["Spark, Trino, Hive, etc."]
+    end
+
+    %% Abstraction Layer
+    subgraph Abstractions ["File System Abstractions"]
         direction LR
-        AE1["Analytics Engine<br>(e.g., Spark, Trino, Hive)"]
-        AE2["Analytics Engine<br>(e.g., Iceberg GCSFileIO)"]
+        FSA1["Hadoop GCS Connector<br>(GoogleHadoopFileSystem)"]
+        FSA2["Apache Iceberg<br>(GCSFileIO)"]
     end
 
     %% Middle Layer: GCS Analytics Core
-    subgraph Core ["GCS Analytics Core"]
+    subgraph Core ["GCS Analytics Core (Read-Optimized Layer)"]
         direction TB
-        %% Internal Components representing the features from the text
-        subgraph Features ["Core Features & Implementations"]
-            direction TB
-            subgraph GCSIS ["GoogleCloudStorageInputStream"]
-                VIO["VectoredRead"]
-                PFP["Parquet Footer Prefetch & Cache"]
-                SOP["Small Object Prefetch & Cache"]
-                ARR["Adaptive Range Read"]
-            end
-            subgraph GFS ["GcsFileSystem"]
-                GACO["GcsAnalyticsCoreOptions"]
-                ACM["AnalyticsCacheManager"]
-            end
-            direction LR
-            GCSIS -- "open()" -->  GFS
-            GCSIS -- "getCache()" --> ACM
+
+        GFS_NODE["GcsFileSystem"]
+        GCSIS_NODE["GoogleCloudStorageInputStream"]
+
+        subgraph GFS ["File System Components"]
+            GACO["GcsAnalyticsCoreOptions"]
+            ACM["AnalyticsCacheManager"]
         end
+
+        subgraph GCSIS ["Input Stream Features"]
+            direction TB
+            VIO["VectoredRead"]
+            PFP["Parquet Footer Prefetch"]
+            SOP["Small Object Prefetch"]
+            ARR["Adaptive Range Read"]
+
+            VIO ~~~ PFP ~~~ SOP ~~~ ARR
+        end
+
+        GACO -- "configures" --> GFS_NODE
+        GFS_NODE -- "holds" --> ACM
+
+        GCSIS_NODE -- "implements" --> VIO
+
+        GFS_NODE -- "creates via open()" --> GCSIS_NODE
+
+        PFP -. "reads/writes cache" .-> ACM
+        SOP -. "reads/writes cache" .-> ACM
+        VIO -. "reads cache" .-> ACM
     end
 
     %% Lower Layers
-    Lib["GCS SDK"]
+    Lib["Google Cloud Storage Java SDK"]
     GCS[("Google Cloud Storage (GCS)")]
 
     %% Relationships
-    AE1 -- "Hadoop GCS Connector" --> Core
-    AE2 --> Core
+    Engines --> Abstractions
+
+    %% Scope Clarification: Core is Read-Only currently
+    Abstractions -- "Read Path (open)" --> Core
+    Abstractions -. "Future Write Path<br>(Under Development)" .-> Core
+    Abstractions -- "Current Write Path & Namespace Ops<br>(Bypass directly to SDK)" --> Lib
 
     %% Flow downwards
     Core --> Lib
@@ -73,12 +94,14 @@ graph TD
 
     %% Styling for visual clarity
     classDef engine fill:#f9f9f9,stroke:#333,stroke-width:1px;
+    classDef abstraction fill:#e0f2f1,stroke:#2e7d32,stroke-width:1px;
     classDef core fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
     classDef feature fill:#ffffff,stroke:#1565c0,stroke-dasharray: 5 5;
     classDef lib fill:#fff3e0,stroke:#ef6c00,stroke-width:1px;
     classDef storage fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px;
 
-    class AE1,AE2 engine;
+    class QE engine;
+    class FSA1,FSA2 abstraction;
     class Core core;
     class VIO,PFP,SOP,ARR feature;
     class Lib lib;
@@ -95,90 +118,10 @@ The library currently implements optimizations for read operations on columnar f
 
 -   Java Development Kit (JDK) 11 or later.
 
-### Adding gcs-analytics-core to your build
+### Documentation
 
-Maven group ID is `com.google.cloud.gcs.analytics` and artifact ID is `gcs-analytics-core`.
-
-To add a dependency on GCS Analytics Core using Maven, use the following:
-
-```xml
-<dependency>
-  <groupId>com.google.cloud.gcs.analytics</groupId>
-  <artifactId>gcs-analytics-core</artifactId>
-  <version>x.y.z</version> <!-- Replace with the latest version -->
-</dependency>
-```
-
-For other build systems like Gradle, please refer to Maven Central.
-
-### Configuration
-
-Configuration options for the library are typically provided through the [`GcsAnalyticsCoreOptions`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GcsAnalyticsCoreOptions.java) class. Detailed configuration parameters can be found in the [CONFIGURATION.md](CONFIGURATION.md) file.
-
-### Usage Examples
-To leverage the read operation performance optimizations of this library, replace the InputStream implementation in your application with the [`GoogleCloudStorageInputStream`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java) provided by the library.
-
-Example steps to initialize the [`GoogleCloudStorageInputStream`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java) implementation:
-
-1. Create a configuration object
-
-    1. Create a configuration object from a map of flags (refer to [CONFIGURATION.md](CONFIGURATION.md) for supported flags):
-        ```java
-        ImmutableMap<String, String> flagsExample1 = ImmutableMap.of(
-                "gcs.project-id", "my-project-id",
-                "gcs.analytics-core.footer.prefetch.enabled", "true",
-                "gcs.analytics-core.footer.cache.enabled", "true");
-        GcsAnalyticsCoreOptions gcsAnalyticsCoreOptions = new GcsAnalyticsCoreOptions("gcs.", flagsExample1);
-
-        ImmutableMap<String, String> flagsExample2 = ImmutableMap.of(
-                "fs.gs.project-id", "my-project-id",
-                "fs.gs.analytics-core.footer.prefetch.enabled", "true");
-        GcsAnalyticsCoreOptions gcsAnalyticsCoreOptions2 = new GcsAnalyticsCoreOptions("fs.gs.", flagsExample2);
-        ```
-
-    2. Or create a configuration object by directly initializing `GcsFileSystemOptions`:
-        ```java
-        GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions
-                .builder()
-                .setGcsClientOptions(GcsClientOptions.builder().setProjectId("my-project-id").build())
-                .setGcsCacheOptions(GcsCacheOptions.builder().setFooterCacheEnabled(true).build())
-                .build();
-        ```
-
-2. Initialize [`GcsFileSystem`](client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsFileSystem.java) with the configuration:
-    ```java
-    GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsAnalyticsCoreOptions.getGcsFileSystemOptions());
-    // or
-    GcsFileSystem gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
-    ```
-
-3. Initialize GoogleCloudStorageInputStream for an object with GcsFileSystem:
-    1. Using [`GcsFileInfo`](client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsFileInfo.java)
-        (Recommended if object metadata already known) : Use this interface when object metadata like
-        length is already known as it avoid additional metadata API calls when required in methods like `readTail`.
-        ```java
-        GcsFileInfo fileInfo = GcsFileInfo.builder().setGcsItemInfo().build();
-        GoogleCloudStorageInputStream stream = new GoogleCloudStorageStream.create(gcsFileSystem, fileInfo);
-        ```
-    2. Using [`GcsItemId`](client/src/main/java/com/google/cloud/gcs/analyticscore/client/GcsItemId.java):
-       ```java
-        // Using GcsItemId
-        GcsItemId gcsItemId = GcsItemId.builder().setBucketName("example-bucket").setObjectName("file.parquet").build();
-        GoogleCloudStorageInputStream stream = new GoogleCloudStorageStream.create(gcsFileSystem, gcsItemId);
-        ```
-    3. Using GCS Object URI:
-        ```java
-        // Using GCS Object URI
-        URI path = URI.create("gs://my-bucket/my-object");
-        GoogleCloudStorageInputStream stream = new GoogleCloudStorageStream.create(gcsFileSystem, path);
-        ```
-4. Refer [`SeekableInputStream`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/SeekableInputStream.java)
-   interface or [`GoogleCloudStorageInputStream`](core/src/main/java/com/google/cloud/gcs/analyticscore/core/GoogleCloudStorageInputStream.java)
-   implementation for the methods supported by the input stream.
-5. Ensure `close()` is called on the inputstream when the stream is no longer required to free the resources.
-
-
-
+*   **[Developer Guide](DEVELOPER_GUIDE.md)**: Detailed instructions on integrating `gcs-analytics-core` into your query engines or file system abstractions, including architecture deep-dives, installation instructions, and performance tuning best practices.
+*   **[Configuration Guide](CONFIGURATION.md)**: A comprehensive list of all supported properties for tuning thread pools, caching, adaptive reads, and telemetry.
 
 ## Development
 ### Building from Source

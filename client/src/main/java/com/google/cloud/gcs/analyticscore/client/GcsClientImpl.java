@@ -20,10 +20,16 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.client.GcsReadChannel.ItemInfoProvider;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.BlobWriteSession;
+import com.google.cloud.storage.BucketInfo;
+import com.google.cloud.storage.BucketInfo.HierarchicalNamespace;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 import com.google.common.annotations.VisibleForTesting;
@@ -31,6 +37,7 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
+import java.nio.channels.WritableByteChannel;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -83,6 +90,11 @@ class GcsClientImpl implements GcsClient {
         gcsItemInfo.getItemId().isGcsObject(),
         "Expected GCS object to be provided. But got: " + gcsItemInfo.getItemId());
 
+    if (readOptions.isBidiReadEnabled()) {
+      return new GcsBidiReadChannel(
+          storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
+    }
+
     return new GcsReadChannel(
         storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
   }
@@ -92,16 +104,35 @@ class GcsClientImpl implements GcsClient {
       GcsItemId gcsItemId, GcsReadOptions readOptions) throws IOException {
     checkNotNull(gcsItemId, "gcsItemId should not be null");
     checkNotNull(readOptions, "readOptions should not be null");
-    return new GcsReadChannel(storage, gcsItemId, readOptions, executorServiceSupplier, telemetry) {
-      @Override
-      public long size() throws IOException {
-        if (itemInfo == null) {
-          itemInfo = getGcsItemInfo(itemId);
-          itemId = itemInfo.getItemId();
-        }
-        return itemInfo.getSize();
-      }
-    };
+    ItemInfoProvider itemInfoProvider = this::getGcsItemInfo;
+    if (readOptions.isBidiReadEnabled()) {
+      return new GcsBidiReadChannel(
+          storage, gcsItemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider);
+    } else {
+      return new GcsReadChannel(
+          storage, gcsItemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider);
+    }
+  }
+
+  @Override
+  public WritableByteChannel createWriteChannel(GcsItemId itemId, GcsWriteOptions writeOptions)
+      throws IOException {
+    checkNotNull(itemId, "itemId should not be null");
+
+    BlobInfo blobInfo = createBlobInfo(itemId);
+
+    try {
+      BlobWriteOption[] sdkWriteOptions =
+          Optional.ofNullable(writeOptions)
+              .orElseGet(() -> GcsWriteOptions.builder().build())
+              .generateWriteOptions(itemId);
+      BlobWriteSession sdkWriteSession = storage.blobWriteSession(blobInfo, sdkWriteOptions);
+      WritableByteChannel channel = sdkWriteSession.open();
+      return new GcsWriteChannel(sdkWriteSession, channel, blobInfo, writeOptions);
+    } catch (StorageException | IOException e) {
+      throw GcsExceptionUtil.translateWriteException(
+          e, "initialization", blobInfo.getBlobId(), 0L, writeOptions);
+    }
   }
 
   @Override
@@ -112,6 +143,31 @@ class GcsClientImpl implements GcsClient {
     }
     throw new UnsupportedOperationException(
         String.format("Expected gcs object but got %s", itemId));
+  }
+
+  BucketProperties getBucketProperties(String bucketName) throws IOException {
+    checkNotNull(bucketName, "bucketName cannot be null");
+    try {
+      BucketInfo bucketInfo =
+          storage.get(
+              bucketName,
+              Storage.BucketGetOption.fields(Storage.BucketField.HIERARCHICAL_NAMESPACE));
+      if (bucketInfo == null) {
+        LOG.warn("Bucket {} not found, HNS API will be disabled", bucketName);
+        return BucketProperties.create(false);
+      }
+      boolean hnsEnabled =
+          Optional.ofNullable(bucketInfo.getHierarchicalNamespace())
+              .map(HierarchicalNamespace::getEnabled)
+              .orElse(false);
+      return BucketProperties.create(hnsEnabled);
+    } catch (StorageException storageException) {
+      if (storageException.getCode() == 403) {
+        LOG.warn("Access to bucket {} is forbidden (403), HNS API will be disabled", bucketName);
+        return BucketProperties.create(false);
+      }
+      throw new IOException("Unable to access bucket: " + bucketName, storageException);
+    }
   }
 
   @Override
@@ -125,13 +181,17 @@ class GcsClientImpl implements GcsClient {
 
   @VisibleForTesting
   protected Storage createStorage(Optional<Credentials> credentials) {
-    StorageOptions.Builder builder = StorageOptions.newBuilder();
+    StorageOptions.Builder builder =
+        clientOptions.getGcsReadOptions().isBidiReadEnabled()
+            ? StorageOptions.grpc()
+            : StorageOptions.newBuilder();
     String userAgent = getUserAgent();
     builder.setHeaderProvider(FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
     credentials.ifPresent(builder::setCredentials);
+    builder.setBlobWriteSessionConfig(clientOptions.generateSessionConfig());
 
     return builder.build().getService();
   }
@@ -177,5 +237,19 @@ class GcsClientImpl implements GcsClient {
     } catch (StorageException storageException) {
       throw new IOException("Unable to access blob :" + blobId, storageException);
     }
+  }
+
+  private BlobInfo createBlobInfo(GcsItemId itemId) {
+    checkNotNull(itemId, "itemId should not be null");
+    String objectName =
+        itemId
+            .getObjectName()
+            .orElseThrow(() -> new IllegalArgumentException("Object name must be present"));
+    BlobId blobId =
+        itemId
+            .getContentGeneration()
+            .map(generation -> BlobId.of(itemId.getBucketName(), objectName, generation))
+            .orElseGet(() -> BlobId.of(itemId.getBucketName(), objectName));
+    return BlobInfo.newBuilder(blobId).build();
   }
 }

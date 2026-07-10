@@ -55,32 +55,52 @@ class GcsExceptionUtil {
     }
   }
 
-  /** Translates a StorageException for standard (no-overwrite) scenarios. */
-  static IOException translateException(
-      StorageException e, String context, BlobId blobId, long position) {
-    ErrorType errorType = getErrorType(e);
-    if (errorType == ErrorType.PRECONDITION_FAILED) {
-      return (FileAlreadyExistsException)
-          new FileAlreadyExistsException(
-                  String.format(
-                      "Object gs://%s/%s already exists.", blobId.getBucket(), blobId.getName()))
-              .initCause(e);
+  /** Extracts a StorageException from a Throwable if present directly or as a cause. */
+  static Optional<StorageException> getStorageException(Throwable t) {
+    if (t instanceof StorageException) {
+      return Optional.of((StorageException) t);
     }
-    return translateCommon(e, context, blobId, position, errorType);
+    if (t instanceof IOException && t.getCause() instanceof StorageException) {
+      return Optional.of((StorageException) t.getCause());
+    }
+    return Optional.empty();
   }
 
-  /** Translates a StorageException for overwrite scenarios. */
-  static IOException translateExceptionWithOverwrite(
-      StorageException e, String context, BlobId blobId, long position) {
-    ErrorType errorType = getErrorType(e);
-    if (errorType == ErrorType.PRECONDITION_FAILED && blobId.getGeneration() != null) {
-      return new IOException(
-          String.format(
-              "Generation mismatch for object gs://%s/%s. Concurrent modification detected.",
-              blobId.getBucket(), blobId.getName()),
-          e);
-    }
-    return translateCommon(e, context, blobId, position, errorType);
+  /**
+   * Translates a generic Exception, handling unwrapped StorageExceptions for no-overwrite
+   * scenarios.
+   */
+  static IOException translateException(Exception e, String context, BlobId blobId, long position) {
+    return getStorageException(e)
+        .map(se -> translateCommon(se, context, blobId, position, getErrorType(se)))
+        .orElseGet(() -> translateGenericException(e, context, blobId, position));
+  }
+
+  /**
+   * Translates a generic Exception, deciding between overwrite and no-overwrite scenarios based on
+   * the provided GcsWriteOptions.
+   */
+  static IOException translateWriteException(
+      Exception e, String context, BlobId blobId, long position, GcsWriteOptions writeOptions) {
+    boolean overwrite =
+        Optional.ofNullable(writeOptions).map(GcsWriteOptions::isOverwriteExisting).orElse(true);
+    return getStorageException(e)
+        .map(
+            se -> {
+              if (!overwrite) {
+                ErrorType errorType = getErrorType(se);
+                if (errorType == ErrorType.PRECONDITION_FAILED && blobId.getGeneration() == null) {
+                  return (FileAlreadyExistsException)
+                      new FileAlreadyExistsException(
+                              String.format(
+                                  "Object gs://%s/%s already exists.",
+                                  blobId.getBucket(), blobId.getName()))
+                          .initCause(se);
+                }
+              }
+              return translateCommon(se, context, blobId, position, getErrorType(se));
+            })
+        .orElseGet(() -> translateGenericException(e, context, blobId, position));
   }
 
   /** Core helper containing shared translation logic. */
@@ -103,12 +123,15 @@ class GcsExceptionUtil {
                     String.format("Access denied to object during %s: %s", context, e.getMessage()))
                 .initCause(e);
 
-      case ALREADY_EXISTS:
-        return (FileAlreadyExistsException)
-            new FileAlreadyExistsException(
-                    String.format(
-                        "Object gs://%s/%s already exists.", blobId.getBucket(), blobId.getName()))
-                .initCause(e);
+      case PRECONDITION_FAILED:
+        if (blobId.getGeneration() != null) {
+          return new IOException(
+              String.format(
+                  "Generation mismatch for object gs://%s/%s. Concurrent modification detected.",
+                  blobId.getBucket(), blobId.getName()),
+              e);
+        }
+        break;
 
       default:
         break;
@@ -119,37 +142,6 @@ class GcsExceptionUtil {
             "Error during %s to GCS for gs://%s/%s at position %d",
             context, blobId.getBucket(), blobId.getName(), position),
         e);
-  }
-
-  /** Extracts a StorageException from a Throwable if present directly or as a cause. */
-  static Optional<StorageException> getStorageException(Throwable t) {
-    if (t instanceof StorageException) {
-      return Optional.of((StorageException) t);
-    }
-    if (t instanceof IOException && t.getCause() instanceof StorageException) {
-      return Optional.of((StorageException) t.getCause());
-    }
-    return Optional.empty();
-  }
-
-  /**
-   * Translates a generic Exception, handling unwrapped StorageExceptions for no-overwrite
-   * scenarios.
-   */
-  static IOException translateException(Exception e, String context, BlobId blobId, long position) {
-    return getStorageException(e)
-        .map(se -> translateException(se, context, blobId, position))
-        .orElseGet(() -> translateGenericException(e, context, blobId, position));
-  }
-
-  /**
-   * Translates a generic Exception, handling unwrapped StorageExceptions for overwrite scenarios.
-   */
-  static IOException translateExceptionWithOverwrite(
-      Exception e, String context, BlobId blobId, long position) {
-    return getStorageException(e)
-        .map(se -> translateExceptionWithOverwrite(se, context, blobId, position))
-        .orElseGet(() -> translateGenericException(e, context, blobId, position));
   }
 
   private static IOException translateGenericException(

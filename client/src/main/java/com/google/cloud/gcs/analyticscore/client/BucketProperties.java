@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Google LLC
+ * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,20 +14,19 @@
  * limitations under the License.
  */
 
-package com.google.cloud.gcs.analyticscore.core;
+package com.google.cloud.gcs.analyticscore.client;
 
-import org.openjdk.jmh.annotations.Param;
-import org.openjdk.jmh.annotations.Scope;
-import org.openjdk.jmh.annotations.State;
+import com.google.auto.value.AutoValue;
 
-@State(Scope.Benchmark)
-public class ParquetRecordReadState {
-    @Param({"true", "false"})
-    public boolean enableVectoredRead;
+/**
+ * Describes GCS bucket metadata properties, such as whether Hierarchical Namespace (HNS) is
+ * enabled. These properties influence query routing and optimization strategies.
+ */
+@AutoValue
+public abstract class BucketProperties {
+  public abstract boolean isHnsEnabled();
 
-    @Param({ "0", "102400" })
-    public String footerPrefetchSize;
-
-    @Param({"true", "false"})
-    public boolean enableBidiRead;
+  public static BucketProperties create(boolean hnsEnabled) {
+    return new AutoValue_BucketProperties(hnsEnabled);
+  }
 }
