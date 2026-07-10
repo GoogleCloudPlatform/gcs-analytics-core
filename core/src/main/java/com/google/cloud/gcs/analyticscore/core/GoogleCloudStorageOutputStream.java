@@ -17,7 +17,6 @@
 package com.google.cloud.gcs.analyticscore.core;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
 
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
@@ -46,14 +45,14 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
 
   public static GoogleCloudStorageOutputStream create(
       GcsFileSystem gcsFileSystem, GcsFileInfo gcsFileInfo) throws IOException {
-    checkState(gcsFileSystem != null, "GcsFileSystem shouldn't be null");
-    checkState(gcsFileInfo != null, "GcsFileInfo shouldn't be null");
+    checkNotNull(gcsFileSystem, "GcsFileSystem shouldn't be null");
+    checkNotNull(gcsFileInfo, "GcsFileInfo shouldn't be null");
     return create(gcsFileSystem, gcsFileInfo.getItemInfo().getItemId());
   }
 
   public static GoogleCloudStorageOutputStream create(GcsFileSystem gcsFileSystem, URI path)
       throws IOException {
-    checkState(gcsFileSystem != null, "GcsFileSystem shouldn't be null");
+    checkNotNull(gcsFileSystem, "GcsFileSystem shouldn't be null");
     BlobId blobId = BlobId.fromGsUtilUri(path.toString());
     GcsItemId itemId =
         GcsItemId.builder()
@@ -65,8 +64,8 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
 
   public static GoogleCloudStorageOutputStream create(GcsFileSystem gcsFileSystem, GcsItemId itemId)
       throws IOException {
-    checkState(gcsFileSystem != null, "GcsFileSystem shouldn't be null");
-    checkState(itemId != null, "GcsItemId shouldn't be null");
+    checkNotNull(gcsFileSystem, "GcsFileSystem shouldn't be null");
+    checkNotNull(itemId, "GcsItemId shouldn't be null");
     GcsWriteOptions writeOptions =
         gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsWriteOptions();
     WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions);
@@ -106,7 +105,7 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
 
   @Override
   public void close() throws IOException {
-    if (channel != null && channel.isOpen()) {
+    if (channel != null) {
       channel.close();
     }
   }

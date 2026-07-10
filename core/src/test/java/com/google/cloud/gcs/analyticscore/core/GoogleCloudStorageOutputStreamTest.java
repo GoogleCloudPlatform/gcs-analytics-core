@@ -18,10 +18,12 @@ package com.google.cloud.gcs.analyticscore.core;
 
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -96,26 +98,26 @@ class GoogleCloudStorageOutputStreamTest {
   }
 
   @Test
-  void create_nullFileSystem_throwsIllegalStateException() {
+  void create_nullFileSystem_throwsNullPointerException() {
     var exception =
         assertThrows(
-            IllegalStateException.class, () -> GoogleCloudStorageOutputStream.create(null, itemId));
+            NullPointerException.class, () -> GoogleCloudStorageOutputStream.create(null, itemId));
 
     assertThat(exception).hasMessageThat().isEqualTo("GcsFileSystem shouldn't be null");
   }
 
   @Test
-  void createWithUri_nullFileSystem_throwsIllegalStateException() {
+  void createWithUri_nullFileSystem_throwsNullPointerException() {
     var exception =
         assertThrows(
-            IllegalStateException.class,
+            NullPointerException.class,
             () -> GoogleCloudStorageOutputStream.create(null, URI.create("gs://bucket/object")));
 
     assertThat(exception).hasMessageThat().isEqualTo("GcsFileSystem shouldn't be null");
   }
 
   @Test
-  void createWithGcsFileInfo_nullFileSystem_throwsIllegalStateException() {
+  void createWithGcsFileInfo_nullFileSystem_throwsNullPointerException() {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100).build();
     GcsFileInfo fileInfo =
         GcsFileInfo.builder()
@@ -123,31 +125,29 @@ class GoogleCloudStorageOutputStreamTest {
             .setUri(URI.create("gs://" + TEST_BUCKET + "/" + TEST_OBJECT))
             .setAttributes(Collections.emptyMap())
             .build();
+
     var exception =
         assertThrows(
-            IllegalStateException.class,
+            NullPointerException.class,
             () -> GoogleCloudStorageOutputStream.create(null, fileInfo));
-
     assertThat(exception).hasMessageThat().isEqualTo("GcsFileSystem shouldn't be null");
   }
 
   @Test
-  void createWithGcsFileInfo_nullFileInfo_throwsIllegalStateException() {
+  void createWithGcsFileInfo_nullFileInfo_throwsNullPointerException() {
     var exception =
         assertThrows(
-            IllegalStateException.class,
+            NullPointerException.class,
             () -> GoogleCloudStorageOutputStream.create(fakeFileSystem, (GcsFileInfo) null));
-
     assertThat(exception).hasMessageThat().isEqualTo("GcsFileInfo shouldn't be null");
   }
 
   @Test
-  void create_nullBlobInfo_throwsIllegalStateException() {
+  void create_nullBlobInfo_throwsNullPointerException() {
     var exception =
         assertThrows(
-            IllegalStateException.class,
+            NullPointerException.class,
             () -> GoogleCloudStorageOutputStream.create(fakeFileSystem, (GcsItemId) null));
-
     assertThat(exception).hasMessageThat().isEqualTo("GcsItemId shouldn't be null");
   }
 
@@ -167,7 +167,6 @@ class GoogleCloudStorageOutputStreamTest {
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
     when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
     when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
-
     int[] callCount = {0};
     when(mockChannel.write(any(ByteBuffer.class)))
         .thenAnswer(
@@ -186,7 +185,7 @@ class GoogleCloudStorageOutputStreamTest {
 
     stream.write(65); // 'A'
 
-    verify(mockChannel, org.mockito.Mockito.times(2)).write(any(ByteBuffer.class));
+    verify(mockChannel, times(2)).write(any(ByteBuffer.class));
   }
 
   @Test
@@ -195,7 +194,6 @@ class GoogleCloudStorageOutputStreamTest {
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
     when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
     when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
-
     int[] callCount = {0};
     when(mockChannel.write(any(ByteBuffer.class)))
         .thenAnswer(
@@ -212,12 +210,11 @@ class GoogleCloudStorageOutputStreamTest {
             });
     GoogleCloudStorageOutputStream stream =
         GoogleCloudStorageOutputStream.create(mockFileSystem, itemId);
-
     byte[] data = new byte[] {1, 2, 3};
-    stream.write(data, 0, 3); // Writes {1, 2, 3}
 
-    // Should take 2 loop iterations: 1st writes 1 byte, 2nd writes remaining 2 bytes
-    verify(mockChannel, org.mockito.Mockito.times(2)).write(any(ByteBuffer.class));
+    stream.write(data, 0, 3);
+
+    verify(mockChannel, times(2)).write(any(ByteBuffer.class));
   }
 
   @Test
@@ -238,7 +235,6 @@ class GoogleCloudStorageOutputStreamTest {
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
     when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
     when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
-
     GoogleCloudStorageOutputStream stream =
         GoogleCloudStorageOutputStream.create(mockFileSystem, itemId);
     byte[] data = new byte[] {1, 2, 3};
@@ -265,29 +261,13 @@ class GoogleCloudStorageOutputStreamTest {
   }
 
   @Test
-  void close_whenChannelAlreadyClosed_isIdempotent() throws IOException {
-    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
-    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
-    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
-    when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
-    when(mockChannel.isOpen()).thenReturn(false);
-
-    GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId);
-    stream.close();
-
-    verify(mockChannel, never()).close();
-  }
-
-  @Test
-  void close_whenChannelIsNull_succeedsSilently() throws IOException {
+  void close_whenChannelIsNull_doesNotThrowException() throws IOException {
     GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
     when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
     when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(null);
-
     GoogleCloudStorageOutputStream stream =
         GoogleCloudStorageOutputStream.create(mockFileSystem, itemId);
-    stream.close();
+    assertDoesNotThrow(() -> stream.close());
   }
 
   @Test
@@ -316,7 +296,6 @@ class GoogleCloudStorageOutputStreamTest {
     GcsFileInfo fileInfo = fakeFileSystem.getFileInfo(itemId);
     assertThat(fileInfo).isNotNull();
     assertThat(fileInfo.getItemInfo().getSize()).isEqualTo("hello fake world".length());
-
     // Read the data back using GoogleCloudStorageInputStream to verify
     try (GoogleCloudStorageInputStream inputStream =
         GoogleCloudStorageInputStream.create(fakeFileSystem, itemId)) {
