@@ -19,6 +19,8 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class GcsCacheOptionsTest {
@@ -66,5 +68,52 @@ class GcsCacheOptionsTest {
         GcsCacheOptions.builder().setFooterCacheEnabled(true).setFooterCacheMaxSizeBytes(-1);
 
     assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  @Test
+  void createFromOptions_withAllOptions_succeeds() {
+    boolean footerCacheEnabled = false;
+    long footerCacheMaxSizeBytes = 50 * MB;
+    boolean smallObjectCacheEnabled = true;
+    long smallObjectCacheMaxSizeBytes = 100 * MB;
+
+    Map<String, String> map = new HashMap<>();
+    map.put("gcs." + GcsCacheOptions.FOOTER_CACHE_ENABLED_KEY, String.valueOf(footerCacheEnabled));
+    map.put(
+        "gcs." + GcsCacheOptions.FOOTER_CACHE_MAX_SIZE_BYTES_KEY,
+        String.valueOf(footerCacheMaxSizeBytes));
+    map.put(
+        "gcs." + GcsCacheOptions.SMALL_FILE_CACHE_ENABLED_KEY,
+        String.valueOf(smallObjectCacheEnabled));
+    map.put(
+        "gcs." + GcsCacheOptions.SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY,
+        String.valueOf(smallObjectCacheMaxSizeBytes));
+
+    GcsCacheOptions options = GcsCacheOptions.createFromOptions(map, "gcs.");
+
+    assertThat(options.isFooterCacheEnabled()).isEqualTo(footerCacheEnabled);
+    assertThat(options.getFooterCacheMaxSizeBytes()).isEqualTo(footerCacheMaxSizeBytes);
+    assertThat(options.isSmallObjectCacheEnabled()).isEqualTo(smallObjectCacheEnabled);
+    assertThat(options.getSmallObjectCacheMaxSizeBytes()).isEqualTo(smallObjectCacheMaxSizeBytes);
+  }
+
+  @Test
+  void createFromOptions_withEmptyOptions_returnsDefaults() {
+    Map<String, String> map = new HashMap<>();
+
+    GcsCacheOptions options = GcsCacheOptions.createFromOptions(map, "gcs.");
+
+    assertThat(options.isFooterCacheEnabled()).isFalse();
+    assertThat(options.getFooterCacheMaxSizeBytes()).isEqualTo(100 * MB);
+    assertThat(options.isSmallObjectCacheEnabled()).isFalse();
+    assertThat(options.getSmallObjectCacheMaxSizeBytes()).isEqualTo(200 * MB);
+  }
+
+  @Test
+  void createFromOptions_malformedInteger_throwsNumberFormatException() {
+    Map<String, String> map = new HashMap<>();
+    map.put("gcs." + GcsCacheOptions.FOOTER_CACHE_MAX_SIZE_BYTES_KEY, "not-a-number");
+
+    assertThrows(NumberFormatException.class, () -> GcsCacheOptions.createFromOptions(map, "gcs."));
   }
 }

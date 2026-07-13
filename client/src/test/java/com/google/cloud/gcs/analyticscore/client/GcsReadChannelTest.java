@@ -27,6 +27,7 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.Storage.BlobSourceOption;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -175,8 +176,7 @@ class GcsReadChannelTest {
     Storage mockStorage = Mockito.mock(Storage.class);
     ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
     Mockito.when(
-            mockStorage.reader(
-                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+            mockStorage.reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class)))
         .thenReturn(mockReadChannel);
     Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
 
@@ -523,7 +523,7 @@ class GcsReadChannelTest {
         TEST_GCS_READ_OPTIONS.toBuilder().setGcsVectoredReadOptions(vectoredReadOptions).build();
     GcsReadChannel gcsReadChannel =
         new GcsReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
-    List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
+    List<BlobSourceOption> sourceOptions = Lists.newArrayList();
     BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get());
     // "hello", "this", "test string"
     ImmutableList<GcsObjectRange> ranges = createRanges(ImmutableMap.of(0L, 5, 12L, 4, 22L, 11));
@@ -533,9 +533,9 @@ class GcsReadChannelTest {
     assertThat(getGcsObjectRangeData(ranges.get(0))).isEqualTo("hello");
     assertThat(getGcsObjectRangeData(ranges.get(1))).isEqualTo("this");
     assertThat(getGcsObjectRangeData(ranges.get(2))).isEqualTo("test string");
-    sourceOptions.add(Storage.BlobSourceOption.userProject(TEST_PROJECT_ID));
+    sourceOptions.add(BlobSourceOption.userProject(TEST_PROJECT_ID));
     Mockito.verify(storage, Mockito.times(4))
-        .reader(blobId, sourceOptions.toArray(new Storage.BlobSourceOption[0]));
+        .reader(blobId, sourceOptions.toArray(new BlobSourceOption[0]));
   }
 
   @Test
@@ -545,8 +545,8 @@ class GcsReadChannelTest {
     AtomicLong totalBytesReadFromMetrics = new AtomicLong(0L);
     GcsVectoredReadOptions vectoredReadOptions =
         GcsVectoredReadOptions.builder().setMaxMergeGap(10).build();
-    List<Storage.BlobSourceOption> sourceOptions = Lists.newArrayList();
-    sourceOptions.add(Storage.BlobSourceOption.userProject(TEST_PROJECT_ID));
+    List<BlobSourceOption> sourceOptions = Lists.newArrayList();
+    sourceOptions.add(BlobSourceOption.userProject(TEST_PROJECT_ID));
     GcsReadOptions readOptions =
         TEST_GCS_READ_OPTIONS.toBuilder().setGcsVectoredReadOptions(vectoredReadOptions).build();
     GcsItemId itemId =
@@ -597,7 +597,7 @@ class GcsReadChannelTest {
 
     assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
     Mockito.verify(storage, Mockito.times(3))
-        .reader(blobId, sourceOptions.toArray(new Storage.BlobSourceOption[0]));
+        .reader(blobId, sourceOptions.toArray(new BlobSourceOption[0]));
     assertThat(totalBytesReadFromMetrics.get()).isEqualTo(35L);
 
     // Clean up.
@@ -654,8 +654,7 @@ class GcsReadChannelTest {
     Storage mockStorage = Mockito.mock(Storage.class);
     ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
     Mockito.when(
-            mockStorage.reader(
-                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+            mockStorage.reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class)))
         .thenReturn(mockReadChannel);
     Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
 
@@ -708,8 +707,7 @@ class GcsReadChannelTest {
     Storage mockStorage = Mockito.mock(Storage.class);
     ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
     Mockito.when(
-            mockStorage.reader(
-                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+            mockStorage.reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class)))
         .thenReturn(mockReadChannel);
     Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
     byte[] dataBytes = objectData.getBytes(StandardCharsets.UTF_8);
@@ -754,8 +752,7 @@ class GcsReadChannelTest {
     Storage mockStorage = Mockito.mock(Storage.class);
     ReadChannel mockSdkReadChannel = Mockito.mock(ReadChannel.class);
     Mockito.when(
-            mockStorage.reader(
-                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+            mockStorage.reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class)))
         .thenReturn(mockSdkReadChannel);
     Mockito.when(mockSdkReadChannel.isOpen()).thenReturn(true);
 

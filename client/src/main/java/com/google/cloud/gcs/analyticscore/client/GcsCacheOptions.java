@@ -25,12 +25,11 @@ import java.util.Map;
 @AutoValue
 public abstract class GcsCacheOptions {
 
-  private static final String FOOTER_CACHE_ENABLED_KEY = "analytics-core.footer.cache.enabled";
-  private static final String FOOTER_CACHE_MAX_SIZE_BYTES_KEY =
+  static final String FOOTER_CACHE_ENABLED_KEY = "analytics-core.footer.cache.enabled";
+  static final String FOOTER_CACHE_MAX_SIZE_BYTES_KEY =
       "analytics-core.footer.cache.max-size-bytes";
-  private static final String SMALL_FILE_CACHE_ENABLED_KEY =
-      "analytics-core.small-file.cache.enabled";
-  private static final String SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY =
+  static final String SMALL_FILE_CACHE_ENABLED_KEY = "analytics-core.small-file.cache.enabled";
+  static final String SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY =
       "analytics-core.small-file.cache.max-size-bytes";
 
   private static final long KB = 1024L;
@@ -88,6 +87,7 @@ public abstract class GcsCacheOptions {
       optionsBuilder.setSmallObjectCacheMaxSizeBytes(
           Long.parseLong(analyticsCoreOptions.get(prefix + SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY)));
     }
+
     return optionsBuilder.build();
   }
 
@@ -127,6 +127,7 @@ public abstract class GcsCacheOptions {
             options.getSmallObjectCacheMaxSizeBytes() > 0,
             "smallObjectCacheMaxSizeBytes must be positive when smallObjectCacheEnabled is true");
       }
+
       return options;
     }
   }

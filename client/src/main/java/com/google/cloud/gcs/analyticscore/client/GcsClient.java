@@ -17,6 +17,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
+import java.nio.channels.WritableByteChannel;
 
 @VisibleForTesting
 public interface GcsClient {
@@ -26,6 +27,17 @@ public interface GcsClient {
 
   /** Opens a new read channel. */
   VectoredSeekableByteChannel openReadChannel(GcsItemId itemId, GcsReadOptions readOptions)
+      throws IOException;
+
+  /**
+   * Creates a new GCS object and returns a WritableByteChannel for writing to it.
+   *
+   * @param itemId the identity of the GCS object to be created
+   * @param options configuration options for controlling upload strategies and integrity checks
+   * @return a channel for writing data to the newly created object
+   * @throws IOException if an I/O error occurs during channel initialization or translation
+   */
+  WritableByteChannel createWriteChannel(GcsItemId itemId, GcsWriteOptions options)
       throws IOException;
 
   /** Fetches object metadata. */

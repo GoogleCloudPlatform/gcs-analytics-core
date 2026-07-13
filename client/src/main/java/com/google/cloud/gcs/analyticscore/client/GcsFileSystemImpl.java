@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.channels.WritableByteChannel;
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -176,6 +177,15 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     }
     gcsClient.close();
     telemetry.close();
+  }
+
+  @Override
+  public WritableByteChannel create(GcsItemId itemId, GcsWriteOptions writeOptions)
+      throws IOException {
+    checkNotNull(itemId, "itemId should not be null");
+
+    // Delegate the actual SDK interaction and exception handling to the internal client
+    return gcsClient.createWriteChannel(itemId, writeOptions);
   }
 
   @VisibleForTesting

@@ -291,14 +291,13 @@ class GcsWriteChannelTest {
   }
 
   @Test
-  void write_onAlreadyExistsStorageException_translatesToFileAlreadyExistsException()
-      throws Exception {
+  void write_onAlreadyExistsStorageException_translatesToIOException() throws Exception {
     GcsWriteChannel channel = createChannel(mockChannel, blobInfo, writeOptions);
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2});
     StorageException e409 = new StorageException(409, "Conflict");
     when(mockChannel.write(any(ByteBuffer.class))).thenThrow(e409);
 
-    assertThrows(FileAlreadyExistsException.class, () -> channel.write(buffer));
+    assertThrows(IOException.class, () -> channel.write(buffer));
   }
 
   @Test
