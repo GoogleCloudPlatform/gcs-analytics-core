@@ -22,10 +22,10 @@ import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-class TelemetryOptionsTest {
+public class TelemetryOptionsTest {
 
   @Test
-  void builderWithCustomTelemetryOptions() {
+  public void testBuilderWithCustomTelemetryOptions() {
     OperationListener listener =
         new OperationListener() {
           @Override
@@ -44,7 +44,7 @@ class TelemetryOptionsTest {
   }
 
   @Test
-  void createFromOptions_Empty() {
+  public void testCreateFromOptions_Empty() {
     Map<String, String> optionsMap = new HashMap<>();
     TelemetryOptions options = TelemetryOptions.createFromOptions(optionsMap, "prefix.");
 
@@ -53,7 +53,7 @@ class TelemetryOptionsTest {
   }
 
   @Test
-  void createFromOptions_WithLogging() {
+  public void testCreateFromOptions_WithLogging() {
     Map<String, String> optionsMap = new HashMap<>();
     optionsMap.put("prefix.telemetry.logging.enabled", "true");
     optionsMap.put("prefix.telemetry.logging.level", "INFO");
@@ -68,7 +68,7 @@ class TelemetryOptionsTest {
   }
 
   @Test
-  void createFromOptions_WithOpenTelemetry() {
+  public void testCreateFromOptions_WithOpenTelemetry() {
     Map<String, String> optionsMap = new HashMap<>();
     optionsMap.put("prefix.telemetry.opentelemetry.enabled", "true");
     optionsMap.put("prefix.telemetry.opentelemetry.provider-type", "LOGGING");
@@ -83,7 +83,7 @@ class TelemetryOptionsTest {
   }
 
   @Test
-  void createFromOptions_WithAll() {
+  public void testCreateFromOptions_WithAll() {
     Map<String, String> optionsMap = new HashMap<>();
     optionsMap.put("prefix.telemetry.logging.enabled", "true");
     optionsMap.put("prefix.telemetry.opentelemetry.enabled", "false");

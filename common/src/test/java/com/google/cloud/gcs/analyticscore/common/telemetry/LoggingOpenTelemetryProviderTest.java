@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 class LoggingOpenTelemetryProviderTest {
 
   @Test
-  void get_returnsNonNullInstance() {
+  void testGet_returnsNonNullInstance() {
     try (LoggingOpenTelemetryProvider provider =
         new LoggingOpenTelemetryProvider(OpenTelemetryOptions.builder().build())) {
       OpenTelemetry openTelemetry = provider.getOpenTelemetry();
@@ -33,7 +33,7 @@ class LoggingOpenTelemetryProviderTest {
   }
 
   @Test
-  void get_returnsSameInstanceOnMultipleCalls() {
+  void testGet_returnsSameInstanceOnMultipleCalls() {
     try (LoggingOpenTelemetryProvider provider =
         new LoggingOpenTelemetryProvider(OpenTelemetryOptions.builder().build())) {
       OpenTelemetry firstCall = provider.getOpenTelemetry();
@@ -44,7 +44,7 @@ class LoggingOpenTelemetryProviderTest {
   }
 
   @Test
-  void constructor_withDuration_createsSuccessfully() {
+  void testConstructor_withDuration_createsSuccessfully() {
     try (LoggingOpenTelemetryProvider provider =
         new LoggingOpenTelemetryProvider(
             OpenTelemetryOptions.builder().setExportIntervalSeconds(30).build())) {
