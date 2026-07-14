@@ -342,11 +342,11 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testDummyReadStrategy_getSdkReadChannel_returnsNull() {
+  void testDummyReadStrategy_getSdkReadChannel_throwsUnsupported() {
     ReadStrategy strategy =
         reader.createReadStrategy(storage, itemId, GcsReadOptions.builder().build(), null);
 
-    assertThat(strategy.getSdkReadChannel()).isNull();
+    assertThrows(UnsupportedOperationException.class, strategy::getSdkReadChannel);
   }
 
   @Test

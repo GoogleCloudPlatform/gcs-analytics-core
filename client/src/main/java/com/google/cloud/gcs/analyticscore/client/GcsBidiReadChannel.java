@@ -122,7 +122,8 @@ class GcsBidiReadChannel extends GcsReadChannel {
 
       @Override
       public ReadChannel getSdkReadChannel() {
-        return null;
+        throw new UnsupportedOperationException(
+            "Standard read is not supported on Bidi channel yet.");
       }
 
       @Override
