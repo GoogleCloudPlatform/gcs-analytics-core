@@ -43,6 +43,14 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
   private final ByteBuffer singleByteBuffer = ByteBuffer.allocate(1);
   private long bytesWritten = 0;
 
+  /**
+   * Creates a new instance of {@link GoogleCloudStorageOutputStream} for the given file info.
+   *
+   * @param gcsFileSystem the file system client to use
+   * @param gcsFileInfo the file info identifying the object to write to
+   * @return a new output stream
+   * @throws IOException if an I/O error occurs
+   */
   public static GoogleCloudStorageOutputStream create(
       GcsFileSystem gcsFileSystem, GcsFileInfo gcsFileInfo) throws IOException {
     checkNotNull(gcsFileSystem, "GcsFileSystem shouldn't be null");
@@ -50,6 +58,14 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
     return create(gcsFileSystem, gcsFileInfo.getItemInfo().getItemId());
   }
 
+  /**
+   * Creates a new instance of {@link GoogleCloudStorageOutputStream} for the given URI path.
+   *
+   * @param gcsFileSystem the file system client to use
+   * @param path the GCS URI path (e.g., gs://bucket/object) identifying the object to write to
+   * @return a new output stream
+   * @throws IOException if an I/O error occurs
+   */
   public static GoogleCloudStorageOutputStream create(GcsFileSystem gcsFileSystem, URI path)
       throws IOException {
     checkNotNull(gcsFileSystem, "GcsFileSystem shouldn't be null");
@@ -62,6 +78,14 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
     return create(gcsFileSystem, itemId);
   }
 
+  /**
+   * Creates a new instance of {@link GoogleCloudStorageOutputStream} for the given item ID.
+   *
+   * @param gcsFileSystem the file system client to use
+   * @param itemId the item ID identifying the object to write to
+   * @return a new output stream
+   * @throws IOException if an I/O error occurs
+   */
   public static GoogleCloudStorageOutputStream create(GcsFileSystem gcsFileSystem, GcsItemId itemId)
       throws IOException {
     checkNotNull(gcsFileSystem, "GcsFileSystem shouldn't be null");
@@ -113,6 +137,8 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
   /**
    * Returns the number of bytes written to this stream. Useful for systems like Apache Iceberg that
    * require a PositionOutputStream.
+   *
+   * @return the number of bytes written to this stream
    */
   public long getBytesWritten() {
     return bytesWritten;
