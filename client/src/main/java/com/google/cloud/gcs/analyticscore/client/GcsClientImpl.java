@@ -36,11 +36,14 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.io.BaseEncoding;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -119,7 +122,7 @@ class GcsClientImpl implements GcsClient {
       throws IOException {
     checkNotNull(itemId, "itemId should not be null");
 
-    BlobInfo blobInfo = createBlobInfo(itemId);
+    BlobInfo blobInfo = createBlobInfo(itemId, writeOptions);
 
     try {
       BlobWriteOption[] sdkWriteOptions =
@@ -239,7 +242,15 @@ class GcsClientImpl implements GcsClient {
     }
   }
 
-  private BlobInfo createBlobInfo(GcsItemId itemId) {
+  private static Map<String, String> encodeMetadata(Map<String, byte[]> metadata) {
+    return metadata.entrySet().stream()
+        .collect(
+            Collectors.toMap(
+                Map.Entry::getKey,
+                e -> e.getValue() == null ? null : BaseEncoding.base64().encode(e.getValue())));
+  }
+
+  private BlobInfo createBlobInfo(GcsItemId itemId, GcsWriteOptions writeOptions) {
     checkNotNull(itemId, "itemId should not be null");
     String objectName =
         itemId
@@ -250,6 +261,17 @@ class GcsClientImpl implements GcsClient {
             .getContentGeneration()
             .map(generation -> BlobId.of(itemId.getBucketName(), objectName, generation))
             .orElseGet(() -> BlobId.of(itemId.getBucketName(), objectName));
-    return BlobInfo.newBuilder(blobId).build();
+
+    BlobInfo.Builder blobInfoBuilder = BlobInfo.newBuilder(blobId);
+
+    if (writeOptions != null) {
+      writeOptions.getContentType().ifPresent(blobInfoBuilder::setContentType);
+      writeOptions.getContentEncoding().ifPresent(blobInfoBuilder::setContentEncoding);
+      if (writeOptions.getMetadata() != null && !writeOptions.getMetadata().isEmpty()) {
+        blobInfoBuilder.setMetadata(encodeMetadata(writeOptions.getMetadata()));
+      }
+    }
+
+    return blobInfoBuilder.build();
   }
 }

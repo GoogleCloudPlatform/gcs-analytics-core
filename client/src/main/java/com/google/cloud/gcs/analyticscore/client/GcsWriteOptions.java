@@ -17,6 +17,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
 import com.google.cloud.storage.Storage.BlobWriteOption;
+import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +54,12 @@ public abstract class GcsWriteOptions {
 
   public abstract Optional<String> getEncryptionKey();
 
+  public abstract Optional<String> getContentType();
+
+  public abstract Optional<String> getContentEncoding();
+
+  public abstract ImmutableMap<String, byte[]> getMetadata();
+
   public abstract Builder toBuilder();
 
   public static GcsWriteOptions createFromOptions(
@@ -80,7 +87,9 @@ public abstract class GcsWriteOptions {
     return new AutoValue_GcsWriteOptions.Builder()
         .setChecksumValidationEnabled(false)
         .setDisableGzipContent(true)
-        .setOverwriteExisting(true);
+        .setOverwriteExisting(true)
+        .setContentType("application/octet-stream")
+        .setMetadata(ImmutableMap.of());
   }
 
   /** Builder for {@link GcsWriteOptions}. */
@@ -99,16 +108,43 @@ public abstract class GcsWriteOptions {
 
     public abstract Builder setEncryptionKey(String key);
 
-    public abstract GcsWriteOptions build();
+    public abstract Builder setContentType(String contentType);
+
+    public abstract Builder setContentEncoding(String contentEncoding);
+
+    public abstract Builder setMetadata(Map<String, byte[]> metadata);
+
+    abstract GcsWriteOptions autoBuild();
+
+    public GcsWriteOptions build() {
+      GcsWriteOptions options = autoBuild();
+      com.google.common.base.Preconditions.checkArgument(
+          !options.getMetadata().containsKey("Content-Encoding"),
+          "The Content-Encoding must be provided explicitly via the 'contentEncoding' parameter");
+      com.google.common.base.Preconditions.checkArgument(
+          !options.getMetadata().containsKey("Content-Type"),
+          "The Content-Type must be provided explicitly via the 'contentType' parameter");
+      return options;
+    }
   }
 
   public BlobWriteOption[] generateWriteOptions(GcsItemId itemId) {
     List<BlobWriteOption> sdkWriteOptions = new ArrayList<>();
 
-    itemId
-        .getContentGeneration()
-        .ifPresent(generation -> sdkWriteOptions.add(BlobWriteOption.generationMatch(generation)));
+    // 1. Transactional Precondition Check (Safety First)
+    if (!this.isOverwriteExisting()) {
+      // If overwrite is disabled, the target MUST NOT exist over the wire.
+      // This maps to an over-the-wire ifGenerationMatch = 0L.
+      sdkWriteOptions.add(BlobWriteOption.doesNotExist());
+    } else {
+      // Only if overwrite is enabled do we conditionally match a targeted generation.
+      itemId
+          .getContentGeneration()
+          .ifPresent(
+              generation -> sdkWriteOptions.add(BlobWriteOption.generationMatch(generation)));
+    }
 
+    // 2. Secondary configuration mappings
     if (this.isDisableGzipContent()) {
       sdkWriteOptions.add(BlobWriteOption.disableGzipContent());
     }
@@ -118,10 +154,6 @@ public abstract class GcsWriteOptions {
     this.getKmsKeyName().map(BlobWriteOption::kmsKeyName).ifPresent(sdkWriteOptions::add);
     this.getEncryptionKey().map(BlobWriteOption::encryptionKey).ifPresent(sdkWriteOptions::add);
     this.getUserProject().map(BlobWriteOption::userProject).ifPresent(sdkWriteOptions::add);
-
-    if (!itemId.getContentGeneration().isPresent() && !this.isOverwriteExisting()) {
-      sdkWriteOptions.add(BlobWriteOption.doesNotExist());
-    }
 
     return sdkWriteOptions.toArray(new BlobWriteOption[0]);
   }

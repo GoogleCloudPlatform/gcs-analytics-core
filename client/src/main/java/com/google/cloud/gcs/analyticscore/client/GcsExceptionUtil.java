@@ -87,18 +87,22 @@ class GcsExceptionUtil {
     return getStorageException(e)
         .map(
             se -> {
-              if (!overwrite) {
-                ErrorType errorType = getErrorType(se);
-                if (errorType == ErrorType.PRECONDITION_FAILED && blobId.getGeneration() == null) {
-                  return (FileAlreadyExistsException)
+              ErrorType errorType = getErrorType(se);
+              if (!overwrite && errorType == ErrorType.PRECONDITION_FAILED) {
+                // If overwrite is disabled, a PRECONDITION_FAILED occurs because we enforced
+                // a doesNotExist() (generation = 0L) constraint and the object already exists on
+                // GCS.
+                if (blobId.getGeneration() == null || blobId.getGeneration() <= 0L) {
+                  FileAlreadyExistsException faee =
                       new FileAlreadyExistsException(
-                              String.format(
-                                  "Object gs://%s/%s already exists.",
-                                  blobId.getBucket(), blobId.getName()))
-                          .initCause(se);
+                          String.format(
+                              "Object gs://%s/%s already exists.",
+                              blobId.getBucket(), blobId.getName()));
+                  faee.initCause(se);
+                  return faee;
                 }
               }
-              return translateCommon(se, context, blobId, position, getErrorType(se));
+              return translateCommon(se, context, blobId, position, errorType);
             })
         .orElseGet(() -> translateGenericException(e, context, blobId, position));
   }
@@ -108,23 +112,27 @@ class GcsExceptionUtil {
       StorageException e, String context, BlobId blobId, long position, ErrorType errorType) {
     switch (errorType) {
       case NOT_FOUND:
-        return (FileNotFoundException)
+        FileNotFoundException fnfe =
             new FileNotFoundException(
-                    String.format(
-                        "Location does not exist or generation not found: gs://%s/%s",
-                        blobId.getBucket(), blobId.getName()))
-                .initCause(e);
+                String.format(
+                    "Location does not exist or generation not found: gs://%s/%s",
+                    blobId.getBucket(), blobId.getName()));
+        fnfe.initCause(e);
+        return fnfe;
 
       case ACCESS_DENIED:
-        return (AccessDeniedException)
+        AccessDeniedException ade =
             new AccessDeniedException(
-                    String.format("gs://%s/%s", blobId.getBucket(), blobId.getName()),
-                    null,
-                    String.format("Access denied to object during %s: %s", context, e.getMessage()))
-                .initCause(e);
+                String.format("gs://%s/%s", blobId.getBucket(), blobId.getName()),
+                null,
+                String.format("Access denied to object during %s: %s", context, e.getMessage()));
+        ade.initCause(e);
+        return ade;
 
       case PRECONDITION_FAILED:
-        if (blobId.getGeneration() != null) {
+        // A generation mismatch represents a concurrent modification ONLY if a specific,
+        // positive target version (generation > 0L) was targeted and failed to match.
+        if (blobId.getGeneration() != null && blobId.getGeneration() > 0L) {
           return new IOException(
               String.format(
                   "Generation mismatch for object gs://%s/%s. Concurrent modification detected.",
