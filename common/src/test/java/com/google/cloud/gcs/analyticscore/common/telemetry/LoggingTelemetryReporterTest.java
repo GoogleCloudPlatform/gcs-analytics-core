@@ -26,26 +26,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class LoggingTelemetryReporterTest {
 
   @Test
-  void loggingOptionsDefaultValues() {
-    LoggingTelemetryOptions options = LoggingTelemetryOptions.builder().build();
-
-    assertThat(options.isEnabled()).isFalse();
-    assertThat(options.getLogLevel()).isEqualTo(LoggingTelemetryOptions.LogLevel.DEBUG);
-  }
-
-  @Test
-  void loggingOptionsCustomValues() {
-    LoggingTelemetryOptions options =
-        LoggingTelemetryOptions.builder()
-            .setEnabled(true)
-            .setLogLevel(LoggingTelemetryOptions.LogLevel.INFO)
-            .build();
-
-    assertThat(options.isEnabled()).isTrue();
-    assertThat(options.getLogLevel()).isEqualTo(LoggingTelemetryOptions.LogLevel.INFO);
-  }
-
-  @Test
   void formatMetrics_singleMetricWithoutAttributes() {
     try (LoggingTelemetryReporter reporter =
         new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build())) {

@@ -57,7 +57,7 @@ class LoggingTelemetryOptionsTest {
   }
 
   @Test
-  void createFromOptions_WithInvalidLevel_fallsbackToDefaults() {
+  void createFromOptions_WithInvalidLevel_fallsBackToDefaults() {
     Map<String, String> options = new HashMap<>();
     options.put("prefix.telemetry.logging.enabled", "true");
     options.put("prefix.telemetry.logging.level", "INVALID_LEVEL");

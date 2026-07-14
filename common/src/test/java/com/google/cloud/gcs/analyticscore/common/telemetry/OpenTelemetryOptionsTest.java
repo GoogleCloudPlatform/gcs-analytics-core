@@ -90,7 +90,7 @@ class OpenTelemetryOptionsTest {
   }
 
   @Test
-  void createFromOptions_WithInvalidValues_fallsbackToDefaults() {
+  void createFromOptions_WithInvalidValues_fallsBackToDefaults() {
     Map<String, String> options = new HashMap<>();
     options.put("prefix.telemetry.opentelemetry.enabled", "true");
     options.put("prefix.telemetry.opentelemetry.provider-type", "INVALID_PROVIDER");
