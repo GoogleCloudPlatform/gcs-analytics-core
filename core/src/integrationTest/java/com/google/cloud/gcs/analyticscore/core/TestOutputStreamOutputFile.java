@@ -36,6 +36,7 @@ public class TestOutputStreamOutputFile implements OutputFile {
   @Override
   public PositionOutputStream create(long blockSizeHint) throws IOException {
     return new PositionOutputStream() {
+      private final ByteBuffer singleByteBuffer = ByteBuffer.allocate(1);
       private long position = 0;
 
       @Override
@@ -45,10 +46,10 @@ public class TestOutputStreamOutputFile implements OutputFile {
 
       @Override
       public void write(int b) throws IOException {
-        ByteBuffer buffer = ByteBuffer.allocate(1);
-        buffer.put((byte) b).flip();
-        while (buffer.hasRemaining()) {
-          int written = channel.write(buffer);
+        singleByteBuffer.clear();
+        singleByteBuffer.put((byte) b).flip();
+        while (singleByteBuffer.hasRemaining()) {
+          int written = channel.write(singleByteBuffer);
           if (written < 0) throw new EOFException("Channel closed unexpectedly");
           position += written;
         }

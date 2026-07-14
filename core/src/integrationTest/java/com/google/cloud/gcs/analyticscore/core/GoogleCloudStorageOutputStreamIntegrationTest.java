@@ -66,6 +66,9 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 @EnabledIfSystemProperty(named = IntegrationTestHelper.GCS_INTEGRATION_TEST_PROJECT_ID_PROPERTY, matches = ".+")
 class GoogleCloudStorageOutputStreamIntegrationTest {
 
+  private static final int KB = 1024;
+  private static final int MB = 1024 * KB;
+
   // File prefixes and extensions
   private static final String FILE_PREFIX_TXT = "test-file-txt-";
   private static final String FILE_PREFIX_CSV = "test-file-csv-";
@@ -272,12 +275,12 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     GcsItemId itemId = GcsItemId.builder().setBucketName(blobId.getBucket()).setObjectName(blobId.getName()).build();
 
     GcsClientOptions clientOptions = GcsClientOptions.builder()
-        .setUploadChunkSize(256 * 1024)
+        .setUploadChunkSize(256 * KB)
         .build();
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
 
-    int totalSize = 1024 * 1024; // 1 MB total size
-    byte[] chunk = new byte[1024]; // 1 KB chunks written locally
+    int totalSize = 1 * MB;
+    byte[] chunk = new byte[1 * KB];
 
     GcsFileSystem customFs = createFileSystemWithClientOptions(clientOptions);
     try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(customFs, itemId)) {
@@ -301,7 +304,7 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     GcsClientOptions clientOptions = GcsClientOptions.builder()
         .setUploadType(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
         .setPcuBufferCount(2)
-        .setPcuBufferCapacity(16 * 1024 * 1024) // 16MB
+        .setPcuBufferCapacity(16 * MB)
         .setPcuPartFileCleanupType(GcsClientOptions.PartFileCleanupType.ALWAYS)
         .setPcuPartFileNamePrefix("pcu-part-")
         .build();
@@ -366,7 +369,18 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
         assertThat(customFs.getFileInfo(uri).getItemInfo().getSize()).isEqualTo((long) TEST_CONTENT.length);
       }
     } finally {
-      Files.deleteIfExists(tempDir);
+      if (Files.exists(tempDir)) {
+        try (java.util.stream.Stream<Path> walk = Files.walk(tempDir)) {
+          walk.sorted(java.util.Comparator.reverseOrder())
+              .forEach(path -> {
+                try {
+                  Files.deleteIfExists(path);
+                } catch (IOException e) {
+                  // Ignore cleanup exceptions to avoid masking the main test failure
+                }
+              });
+        }
+      }
     }
   }
 

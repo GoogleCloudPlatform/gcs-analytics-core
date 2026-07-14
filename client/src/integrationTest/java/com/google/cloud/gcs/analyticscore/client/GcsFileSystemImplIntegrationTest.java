@@ -124,7 +124,6 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
     public void create_object_canWriteContent() throws IOException {
-        // Arrange
         String bucketName = System.getProperty("gcs.integration.test.bucket");
         String objectName = "test-folder/test-file-" + UUID.randomUUID() + ".txt";
         URI uri = URI.create("gs://" + bucketName + "/" + objectName);
@@ -142,12 +141,10 @@ class GcsFileSystemImplIntegrationTest {
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         byte[] content = "test content".getBytes(StandardCharsets.UTF_8);
 
-        // Act
         try (WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions)) {
             channel.write(ByteBuffer.wrap(content));
         }
 
-        // Assert
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(uri);
         assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) content.length);
     }
@@ -155,7 +152,6 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
     public void create_overwriteDisabled_throwsFileAlreadyExistsException() throws IOException {
-        // Arrange
         String bucketName = System.getProperty("gcs.integration.test.bucket");
         String objectName = "test-folder/test-file-" + UUID.randomUUID() + ".txt";
 
@@ -169,8 +165,7 @@ class GcsFileSystemImplIntegrationTest {
                 .setObjectName(objectName)
                 .build();
 
-        // Act & Assert
-        // We do a preliminary setup write (Arrange)
+        // We do a preliminary setup write
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         try (WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions)) {
             channel.write(ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8)));
@@ -180,7 +175,6 @@ class GcsFileSystemImplIntegrationTest {
                 .setOverwriteExisting(false)
                 .build();
 
-        // Act & Assert
         assertThrows(FileAlreadyExistsException.class, () -> {
             try (WritableByteChannel channel = gcsFileSystem.create(itemId, noOverwriteOptions)) {
                 channel.write(ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8)));
@@ -191,7 +185,6 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
     public void create_withParallelCompositeUpload_success() throws IOException {
-        // Arrange
         String bucketName = System.getProperty("gcs.integration.test.bucket");
         String objectName = "test-folder/test-file-" + UUID.randomUUID() + ".txt";
         URI uri = URI.create("gs://" + bucketName + "/" + objectName);
@@ -211,19 +204,16 @@ class GcsFileSystemImplIntegrationTest {
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         byte[] content = "test content".getBytes(StandardCharsets.UTF_8);
 
-        // Act
         try (WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions)) {
             channel.write(ByteBuffer.wrap(content));
         }
 
-        // Assert
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(uri);
         assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) content.length);
     }
 
     @Test
     public void create_nonExistentBucket_throwsFileNotFoundException() throws IOException {
-        // Arrange
         String bucketName = "non-existent-bucket-" + UUID.randomUUID();
         String objectName = "test-folder/test-file-" + UUID.randomUUID() + ".txt";
 
@@ -239,7 +229,6 @@ class GcsFileSystemImplIntegrationTest {
 
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
 
-        // Act & Assert
         assertThrows(FileNotFoundException.class, () -> {
             try (WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions)) {
                 channel.write(ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8)));
