@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.cloud.ReadChannel;
+import com.google.common.collect.ImmutableList;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collection;
@@ -32,6 +33,13 @@ import org.slf4j.LoggerFactory;
  */
 final class GcsReadChannelMetadataExtractor {
   private static final Logger LOG = LoggerFactory.getLogger(GcsReadChannelMetadataExtractor.class);
+
+  private static final ImmutableList<String> METADATA_METHOD_NAMES =
+      ImmutableList.of(
+          "getObject", "getResolvedObject", "getBlobInfo", "getBlob", "getStorageObject");
+
+  private static final ImmutableList<String> METADATA_FIELD_NAMES =
+      ImmutableList.of("storageObject", "blobInfo", "object", "result");
 
   private GcsReadChannelMetadataExtractor() {}
 
@@ -74,10 +82,7 @@ final class GcsReadChannelMetadataExtractor {
   private static Object resolveMetadataObject(ReadChannel sdkChannel) {
     Class<?> clazz = sdkChannel.getClass();
     while (clazz != null) {
-      for (String methodName :
-          new String[] {
-            "getObject", "getResolvedObject", "getBlobInfo", "getBlob", "getStorageObject"
-          }) {
+      for (String methodName : METADATA_METHOD_NAMES) {
         try {
           Method method = clazz.getDeclaredMethod(methodName);
           method.setAccessible(true);
@@ -85,11 +90,12 @@ final class GcsReadChannelMetadataExtractor {
           if (res != null) {
             return res;
           }
-        } catch (ReflectiveOperationException ignored) {
-          LOG.debug("Method {} not present on class {}", methodName, clazz.getName());
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+          LOG.debug(
+              "Method {} not present or inaccessible on class {}", methodName, clazz.getName());
         }
       }
-      for (String fieldName : new String[] {"storageObject", "blobInfo", "object", "result"}) {
+      for (String fieldName : METADATA_FIELD_NAMES) {
         try {
           Field field = clazz.getDeclaredField(fieldName);
           field.setAccessible(true);
@@ -97,8 +103,8 @@ final class GcsReadChannelMetadataExtractor {
           if (val != null) {
             return val;
           }
-        } catch (ReflectiveOperationException ignored) {
-          LOG.debug("Field {} not present on class {}", fieldName, clazz.getName());
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+          LOG.debug("Field {} not present or inaccessible on class {}", fieldName, clazz.getName());
         }
       }
       clazz = clazz.getSuperclass();
@@ -158,8 +164,11 @@ final class GcsReadChannelMetadataExtractor {
       if (val instanceof Number) {
         return ((Number) val).longValue();
       }
-    } catch (ReflectiveOperationException ignored) {
-      LOG.debug("Getter invocation failed for method {} on target {}", method.getName(), target);
+    } catch (ReflectiveOperationException | RuntimeException ignored) {
+      LOG.debug(
+          "Getter invocation failed or inaccessible for method {} on target {}",
+          method.getName(),
+          target);
     }
     return -1L;
   }

@@ -21,7 +21,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.cloud.gcs.analyticscore.client.AnalyticsCacheManager;
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
-import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
@@ -82,11 +81,7 @@ public class GcsFooterOptimizer implements FormatOptimizer {
   public int read(long position, ByteBuffer dst, VectoredSeekableByteChannel source)
       throws IOException {
     if (fileSize == -1) {
-      GcsItemInfo info = source.getItemInfo();
-      if (info == null) {
-        return 0;
-      }
-      fileSize = info.getSize();
+      fileSize = source.size();
       prefetchSize = calculatePrefetchSize(fileSize, readOptions);
     }
 

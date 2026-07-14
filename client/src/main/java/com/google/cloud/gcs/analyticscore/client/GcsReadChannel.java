@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.cloud.ReadChannel;
+import com.google.cloud.gcs.analyticscore.client.GcsReadChannelMetadataExtractor.ExtractedMetadata;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Attribute;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
@@ -55,6 +56,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   protected final Telemetry telemetry;
   private final ReadStrategy strategy;
   private volatile boolean isGcsReadChannelOpen = true;
+  private volatile boolean metadataExtractionAttempted = false;
   protected final ItemInfoProvider itemInfoProvider;
 
   GcsReadChannel(
@@ -153,9 +155,6 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private int readNextChunk(ByteBuffer dst) throws IOException {
     ReadChannel sdkChannel = strategy.getReadChannel(gcsReadChannelPosition, dst.remaining());
     int bytesRead = sdkChannel.read(dst);
-    if (this.itemInfo == null && !metadataExtractionAttempted) {
-      extractMetadataAfterRead();
-    }
     if (bytesRead >= 0) {
       gcsReadChannelPosition += bytesRead;
       strategy.position(gcsReadChannelPosition);
@@ -297,7 +296,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             int numOfBytesRead = 0;
             while (dataBuffer.hasRemaining()) {
               int bytesRead = channel.read(dataBuffer);
-              if (GcsReadChannel.this.itemInfo == null && !metadataExtractionAttempted) {
+              if (itemInfo == null && !metadataExtractionAttempted) {
                 extractMetadataAfterRead(readStrategy);
               }
               if (bytesRead < 0) {
@@ -381,7 +380,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   private synchronized boolean extractMetadataAfterRead(ReadStrategy strategy) {
     metadataExtractionAttempted = true;
-    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+    ExtractedMetadata metadata =
         GcsReadChannelMetadataExtractor.extract(strategy.getSdkReadChannel());
     if (metadata == null) {
       return false;
@@ -391,24 +390,19 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   }
 
   private void updateItemMetadata(long extractedSize, long extractedGen) {
-    GcsItemId.Builder itemIdBuilder =
-        GcsItemId.builder().setBucketName(this.itemId.getBucketName());
-    this.itemId.getObjectName().ifPresent(itemIdBuilder::setObjectName);
-    long genToSet = extractedGen > 0 ? extractedGen : this.itemId.getContentGeneration().orElse(0L);
-    if (genToSet > 0) {
-      itemIdBuilder.setContentGeneration(genToSet);
-    }
-    GcsItemId updatedItemId = itemIdBuilder.build();
-    GcsItemInfo.Builder itemInfoBuilder =
-        GcsItemInfo.builder().setItemId(updatedItemId).setSize(extractedSize);
-    if (genToSet > 0) {
-      itemInfoBuilder.setContentGeneration(genToSet);
-    } else {
-      itemInfoBuilder.setContentGeneration(0L);
-    }
-    this.itemInfo = itemInfoBuilder.build();
-    this.itemId = updatedItemId;
-  }
+    long genToSet = extractedGen >= 0 ? extractedGen : itemId.getContentGeneration().orElse(-1L);
 
-  private volatile boolean metadataExtractionAttempted = false;
+    GcsItemId.Builder itemIdBuilder = GcsItemId.builder().setBucketName(itemId.getBucketName());
+    itemId.getObjectName().ifPresent(itemIdBuilder::setObjectName);
+
+    GcsItemInfo.Builder itemInfoBuilder = GcsItemInfo.builder().setSize(extractedSize);
+
+    if (genToSet >= 0) {
+      itemIdBuilder.setContentGeneration(genToSet);
+      itemInfoBuilder.setContentGeneration(genToSet);
+    }
+
+    itemId = itemIdBuilder.build();
+    itemInfo = itemInfoBuilder.setItemId(itemId).build();
+  }
 }
