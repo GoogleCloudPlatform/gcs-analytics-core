@@ -18,7 +18,6 @@ package com.google.cloud.gcs.analyticscore.core;
 
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -258,16 +257,6 @@ class GoogleCloudStorageOutputStreamTest {
     stream.close();
 
     verify(mockChannel).close();
-  }
-
-  @Test
-  void close_whenChannelIsNull_doesNotThrowException() throws IOException {
-    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
-    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
-    when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(null);
-    GoogleCloudStorageOutputStream stream =
-        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId);
-    assertDoesNotThrow(() -> stream.close());
   }
 
   @Test

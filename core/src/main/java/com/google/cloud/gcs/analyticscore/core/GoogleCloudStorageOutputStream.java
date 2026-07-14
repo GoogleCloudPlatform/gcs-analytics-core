@@ -35,8 +35,9 @@ import java.nio.channels.WritableByteChannel;
  * <p>This class wraps a WritableByteChannel (specifically GcsWriteChannel) to provide standard
  * java.io.OutputStream semantics.
  *
- * <p>Note: The {@code write} methods in this class are not thread-safe. It is the responsibility
- * of the calling layer (e.g., Iceberg's FileIO or Hadoop's HDFS implementations) to ensure thread safety.
+ * <p>Note: The {@code write} methods in this class are not thread-safe. It is the responsibility of
+ * the calling layer (e.g., Iceberg's FileIO or Hadoop's HDFS implementations) to ensure thread
+ * safety.
  */
 public class GoogleCloudStorageOutputStream extends OutputStream {
 
