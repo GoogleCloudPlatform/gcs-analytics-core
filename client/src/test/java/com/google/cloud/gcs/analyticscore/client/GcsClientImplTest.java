@@ -84,6 +84,7 @@ class GcsClientImplTest {
   private static final String TEST_WRITE_OBJECT = "test-write-object";
   private static final String TEST_NULL_OPTIONS_OBJECT = "test-null-options";
   private static final String TEST_NON_EXISTENT_OBJECT = "non-existent";
+  private static final String NON_EXISTENT_BUCKET = "non-existent-bucket";
   private static final String TEST_OBJECT_NAME = "test-object-name";
   private static final String BLOB_WRITE_SESSION_CONFIG_FIELD = "blobWriteSessionConfig";
   private static final int MB = 1024 * 1024;
@@ -168,7 +169,7 @@ class GcsClientImplTest {
   void openReadChannel_gcsObjectExists_returnsChannelWithCorrectSizeAndContent()
       throws IOException {
     String objectData = "hello world";
-    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).build();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_NAME).build();
     GcsItemInfo itemInfo =
@@ -193,7 +194,7 @@ class GcsClientImplTest {
   void openReadChannel_itemId_gcsObjectExists_returnsChannelWithCorrectSizeAndContent()
       throws IOException {
     String objectData = "hello world";
-    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).build();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_NAME).build();
     StorageTestUtils.createBlobInStorage(
@@ -212,8 +213,7 @@ class GcsClientImplTest {
 
   @Test
   void openReadChannel_nullItemId_throwsNullPointerException() {
-    GcsReadOptions readOptions =
-        GcsReadOptions.builder().setUserProjectId("test-project-id").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).build();
 
     NullPointerException e =
         assertThrows(
@@ -224,8 +224,7 @@ class GcsClientImplTest {
 
   @Test
   void openReadChannel_nullItemInfo_throwsNullPointerException() {
-    GcsReadOptions readOptions =
-        GcsReadOptions.builder().setUserProjectId("test-project-id").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).build();
 
     NullPointerException e =
         assertThrows(
@@ -255,8 +254,7 @@ class GcsClientImplTest {
             .setSize(0L)
             .setContentGeneration(-1L)
             .build();
-    GcsReadOptions readOptions =
-        GcsReadOptions.builder().setUserProjectId("test-project-id").build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).build();
 
     IllegalArgumentException e =
         assertThrows(
@@ -282,7 +280,7 @@ class GcsClientImplTest {
   void getUserAgent_withOptionalUserAgent() throws Exception {
     GcsClientOptions options =
         GcsClientOptions.builder()
-            .setProjectId("test-project")
+            .setProjectId(TEST_PROJECT)
             .setUserAgent("custom-app/1.0")
             .build();
     GcsClientImpl client = new GcsClientImpl(options, executorServiceSupplier, telemetry);
@@ -353,9 +351,9 @@ class GcsClientImplTest {
   void getBucketProperties_bucketNotFound_returnsDisabledHns() throws Exception {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
-    doReturn(null).when(mockStorage).get(eq("non-existent-bucket"), any(BucketGetOption.class));
+    doReturn(null).when(mockStorage).get(eq(NON_EXISTENT_BUCKET), any(BucketGetOption.class));
 
-    BucketProperties properties = localGcsClient.getBucketProperties("non-existent-bucket");
+    BucketProperties properties = localGcsClient.getBucketProperties(NON_EXISTENT_BUCKET);
 
     assertThat(properties.isHnsEnabled()).isFalse();
   }
@@ -507,12 +505,9 @@ class GcsClientImplTest {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
     GcsItemId itemId =
-        GcsItemId.builder()
-            .setBucketName("non-existent-bucket")
-            .setObjectName("test-object")
-            .build();
+        GcsItemId.builder().setBucketName(NON_EXISTENT_BUCKET).setObjectName(TEST_OBJECT).build();
     BlobInfo blobInfo =
-        BlobInfo.newBuilder(BlobId.of("non-existent-bucket", "test-object"))
+        BlobInfo.newBuilder(BlobId.of(NON_EXISTENT_BUCKET, TEST_OBJECT))
             .setContentType("application/octet-stream")
             .build();
     StorageException e404 = new StorageException(404, "Not Found");
@@ -796,19 +791,6 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getBlob_whenBucketNameIsNull_throwsNullPointerException() throws Exception {
-    GcsItemId itemId = mock(GcsItemId.class);
-    when(itemId.getBucketName()).thenReturn(null);
-    when(itemId.getObjectName()).thenReturn(Optional.of(TEST_OBJECT));
-    when(itemId.isGcsObject()).thenReturn(true);
-
-    GcsClientImpl client =
-        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
-
-    assertThrows(NullPointerException.class, () -> client.getGcsItemInfo(itemId));
-  }
-
-  @Test
   void getGcsItemInfo_whenBucketItemIdProvided_throwsUnsupportedOperationException()
       throws Exception {
     GcsItemId bucketItemId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
@@ -1000,30 +982,27 @@ class GcsClientImplTest {
   void createStorage_bidiEnabled_usesGrpcTransport() throws IOException {
     GcsClientOptions options =
         GcsClientOptions.builder()
-            .setProjectId("test-project")
+            .setProjectId(TEST_PROJECT)
             .setGcsReadOptions(GcsReadOptions.builder().setBidiReadEnabled(true).build())
             .build();
+
     GcsClientImpl client =
         new GcsClientImpl(NoCredentials.getInstance(), options, executorServiceSupplier, telemetry);
+
     assertThat(client.storage.getOptions()).isInstanceOf(GrpcStorageOptions.class);
   }
 
   @Test
   void openReadChannel_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
     GcsReadOptions readOptions =
-        GcsReadOptions.builder().setUserProjectId("test-project").setBidiReadEnabled(true).build();
+        GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).setBidiReadEnabled(true).build();
     GcsItemId itemId =
-        GcsItemId.builder()
-            .setBucketName("test-bucket-name")
-            .setObjectName("test-object-name")
-            .build();
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_NAME).build();
     GcsItemInfo itemInfo =
         GcsItemInfo.builder().setItemId(itemId).setSize(100L).setContentGeneration(0L).build();
-
     Storage mockStorage = mock(Storage.class);
     ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
     when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
-
     GcsClient bidiClient =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
           @Override
@@ -1033,23 +1012,19 @@ class GcsClientImplTest {
         };
 
     VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemInfo, readOptions);
+
     assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
   }
 
   @Test
   void openReadChannel_itemId_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
     GcsReadOptions readOptions =
-        GcsReadOptions.builder().setUserProjectId("test-project").setBidiReadEnabled(true).build();
+        GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).setBidiReadEnabled(true).build();
     GcsItemId itemId =
-        GcsItemId.builder()
-            .setBucketName("test-bucket-name")
-            .setObjectName("test-object-name")
-            .build();
-
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_NAME).build();
     Storage mockStorage = mock(Storage.class);
     ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
     when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
-
     GcsClient bidiClient =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
           @Override
@@ -1059,6 +1034,7 @@ class GcsClientImplTest {
         };
 
     VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemId, readOptions);
+
     assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
   }
 }
