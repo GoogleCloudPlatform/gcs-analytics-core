@@ -27,14 +27,14 @@ import org.junit.jupiter.api.Test;
 class OpenTelemetryOptionsTest {
 
   @Test
-  void testOpenTelemetryOptionsDefaultValues() {
+  void openTelemetryOptionsDefaultValues() {
     OpenTelemetryOptions options = OpenTelemetryOptions.builder().build();
     assertThat(options.isEnabled()).isFalse();
     assertThat(options.getProviderType()).isEqualTo(OpenTelemetryOptions.ProviderType.GLOBAL);
   }
 
   @Test
-  void testOpenTelemetryOptionsCustomValues() {
+  void openTelemetryOptionsCustomValues() {
     OpenTelemetry customTelemetry = GlobalOpenTelemetry.get();
     OpenTelemetryOptions options =
         OpenTelemetryOptions.builder()
@@ -52,7 +52,7 @@ class OpenTelemetryOptionsTest {
   }
 
   @Test
-  void testOpenTelemetryOptionsLoggingProvider() {
+  void openTelemetryOptionsLoggingProvider() {
     OpenTelemetryOptions options =
         OpenTelemetryOptions.builder()
             .setEnabled(true)
@@ -64,7 +64,7 @@ class OpenTelemetryOptionsTest {
   }
 
   @Test
-  void testCreateFromOptions_NoOptions() {
+  void createFromOptions_NoOptions() {
     Map<String, String> options = new HashMap<>();
     Optional<OpenTelemetryOptions> telemetryOptions =
         OpenTelemetryOptions.createFromOptions(options, "prefix.");
@@ -73,7 +73,7 @@ class OpenTelemetryOptionsTest {
   }
 
   @Test
-  void testCreateFromOptions_WithAllOptions() {
+  void createFromOptions_WithAllOptions() {
     Map<String, String> options = new HashMap<>();
     options.put("prefix.telemetry.opentelemetry.enabled", "true");
     options.put("prefix.telemetry.opentelemetry.provider-type", "PRE_CONFIGURED");
@@ -90,7 +90,7 @@ class OpenTelemetryOptionsTest {
   }
 
   @Test
-  void testCreateFromOptions_WithInvalidValues_fallsbackToDefaults() {
+  void createFromOptions_WithInvalidValues_fallsbackToDefaults() {
     Map<String, String> options = new HashMap<>();
     options.put("prefix.telemetry.opentelemetry.enabled", "true");
     options.put("prefix.telemetry.opentelemetry.provider-type", "INVALID_PROVIDER");
