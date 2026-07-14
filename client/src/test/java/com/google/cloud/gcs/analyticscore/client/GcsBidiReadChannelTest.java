@@ -348,7 +348,7 @@ class GcsBidiReadChannelTest {
 
     assertThat(strategy.getSdkReadChannel()).isNull();
   }
-    
+
   @Test
   void read_success_returnsBytesReadAndUpdatesPosition() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
