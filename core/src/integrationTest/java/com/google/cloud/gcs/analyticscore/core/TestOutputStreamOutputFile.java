@@ -24,50 +24,36 @@ import org.apache.parquet.io.OutputFile;
 import org.apache.parquet.io.PositionOutputStream;
 
 /**
- * Adapts our WritableByteChannel to the Parquet OutputFile interface.
+ * Adapts GoogleCloudStorageOutputStream to the Parquet OutputFile interface.
  */
 public class TestOutputStreamOutputFile implements OutputFile {
-  private final WritableByteChannel channel;
+  private final GoogleCloudStorageOutputStream gcsos;
 
-  public TestOutputStreamOutputFile(WritableByteChannel channel) {
-    this.channel = channel;
+  public TestOutputStreamOutputFile(GoogleCloudStorageOutputStream gcsos) {
+    this.gcsos = gcsos;
   }
 
   @Override
   public PositionOutputStream create(long blockSizeHint) throws IOException {
     return new PositionOutputStream() {
-      private final ByteBuffer singleByteBuffer = ByteBuffer.allocate(1);
-      private long position = 0;
-
       @Override
       public long getPos() {
-        return position;
+        return gcsos.getBytesWritten();
       }
 
       @Override
       public void write(int b) throws IOException {
-        singleByteBuffer.clear();
-        singleByteBuffer.put((byte) b).flip();
-        while (singleByteBuffer.hasRemaining()) {
-          int written = channel.write(singleByteBuffer);
-          if (written < 0) throw new EOFException("Channel closed unexpectedly");
-          position += written;
-        }
+        gcsos.write(b);
       }
 
       @Override
       public void write(byte[] b, int off, int len) throws IOException {
-        ByteBuffer buffer = ByteBuffer.wrap(b, off, len);
-        while (buffer.hasRemaining()) {
-          int written = channel.write(buffer);
-          if (written < 0) throw new EOFException("Channel closed unexpectedly");
-          position += written;
-        }
+        gcsos.write(b, off, len);
       }
 
       @Override
       public void close() throws IOException {
-        channel.close();
+        gcsos.close();
       }
     };
   }

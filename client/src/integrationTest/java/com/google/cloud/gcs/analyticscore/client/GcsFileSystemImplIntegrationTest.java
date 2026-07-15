@@ -124,54 +124,32 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
     public void create_object_canWriteContent() throws IOException {
-        String bucketName = System.getProperty("gcs.integration.test.bucket");
-        String objectName = "test-folder/test-file-" + UUID.randomUUID() + ".txt";
-        URI uri = URI.create("gs://" + bucketName + "/" + objectName);
-
-        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
-                .setGcsClientOptions(GcsClientOptions.builder().build())
-                .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
-
-        GcsItemId itemId = GcsItemId.builder()
-                .setBucketName(bucketName)
-                .setObjectName(objectName)
-                .build();
-
+        TestWriteContext ctx = new TestWriteContext(System.getProperty("gcs.integration.test.bucket"));
+        GcsFileSystemImpl gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         byte[] content = "test content".getBytes(StandardCharsets.UTF_8);
 
-        try (WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions)) {
+        try (WritableByteChannel channel = gcsFileSystem.create(ctx.itemId, writeOptions)) {
             ByteBuffer buffer = ByteBuffer.wrap(content);
             while (buffer.hasRemaining()) {
                 channel.write(buffer);
             }
         }
 
-        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(uri);
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(ctx.uri);
         assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) content.length);
     }
 
     @Test
     @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
     public void create_overwriteDisabled_throwsFileAlreadyExistsException() throws IOException {
-        String bucketName = System.getProperty("gcs.integration.test.bucket");
-        String objectName = "test-folder/test-file-" + UUID.randomUUID() + ".txt";
-
-        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
-                .setGcsClientOptions(GcsClientOptions.builder().build())
-                .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
-
-        GcsItemId itemId = GcsItemId.builder()
-                .setBucketName(bucketName)
-                .setObjectName(objectName)
-                .build();
-
+        TestWriteContext ctx = new TestWriteContext(System.getProperty("gcs.integration.test.bucket"));
+        GcsFileSystemImpl gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
+        byte[] content = "test".getBytes(StandardCharsets.UTF_8);
         // We do a preliminary setup write
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
-        try (WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions)) {
-            ByteBuffer buffer = ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8));
+        try (WritableByteChannel channel = gcsFileSystem.create(ctx.itemId, writeOptions)) {
+            ByteBuffer buffer = ByteBuffer.wrap(content);
             while (buffer.hasRemaining()) {
                 channel.write(buffer);
             }
@@ -182,8 +160,8 @@ class GcsFileSystemImplIntegrationTest {
                 .build();
 
         assertThrows(FileAlreadyExistsException.class, () -> {
-            try (WritableByteChannel channel = gcsFileSystem.create(itemId, noOverwriteOptions)) {
-                ByteBuffer buffer = ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8));
+            try (WritableByteChannel channel = gcsFileSystem.create(ctx.itemId, noOverwriteOptions)) {
+                ByteBuffer buffer = ByteBuffer.wrap(content);
                 while (buffer.hasRemaining()) {
                     channel.write(buffer);
                 }
@@ -194,60 +172,59 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
     public void create_withParallelCompositeUpload_success() throws IOException {
-        String bucketName = System.getProperty("gcs.integration.test.bucket");
-        String objectName = "test-folder/test-file-" + UUID.randomUUID() + ".txt";
-        URI uri = URI.create("gs://" + bucketName + "/" + objectName);
-
-        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
-                .setGcsClientOptions(GcsClientOptions.builder()
-                        .setUploadType(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
-                        .build())
+        TestWriteContext ctx = new TestWriteContext(System.getProperty("gcs.integration.test.bucket"));
+        GcsClientOptions clientOptions = GcsClientOptions.builder()
+                .setUploadType(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
                 .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
-
-        GcsItemId itemId = GcsItemId.builder()
-                .setBucketName(bucketName)
-                .setObjectName(objectName)
-                .build();
-
+        GcsFileSystemImpl gcsFileSystem = createFileSystem(clientOptions);
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         byte[] content = "test content".getBytes(StandardCharsets.UTF_8);
 
-        try (WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions)) {
+        try (WritableByteChannel channel = gcsFileSystem.create(ctx.itemId, writeOptions)) {
             ByteBuffer buffer = ByteBuffer.wrap(content);
             while (buffer.hasRemaining()) {
                 channel.write(buffer);
             }
         }
 
-        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(uri);
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(ctx.uri);
         assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) content.length);
     }
 
     @Test
     public void create_nonExistentBucket_throwsFileNotFoundException() throws IOException {
-        String bucketName = "non-existent-bucket-" + UUID.randomUUID();
-        String objectName = "test-folder/test-file-" + UUID.randomUUID() + ".txt";
-
-        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
-                .setGcsClientOptions(GcsClientOptions.builder().build())
-                .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
-
-        GcsItemId itemId = GcsItemId.builder()
-                .setBucketName(bucketName)
-                .setObjectName(objectName)
-                .build();
-
+        TestWriteContext ctx = new TestWriteContext("non-existent-bucket-" + UUID.randomUUID());
+        GcsFileSystemImpl gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+        byte[] content = "test".getBytes(StandardCharsets.UTF_8);
 
         assertThrows(FileNotFoundException.class, () -> {
-            try (WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions)) {
-                ByteBuffer buffer = ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8));
+            try (WritableByteChannel channel = gcsFileSystem.create(ctx.itemId, writeOptions)) {
+                ByteBuffer buffer = ByteBuffer.wrap(content);
                 while (buffer.hasRemaining()) {
                     channel.write(buffer);
                 }
             }
         });
+    }
+
+    private static class TestWriteContext {
+        final URI uri;
+        final GcsItemId itemId;
+        TestWriteContext(String bucketName) {
+            String objectName = "test-folder/test-file-" + UUID.randomUUID() + ".txt";
+            this.uri = URI.create("gs://" + bucketName + "/" + objectName);
+            this.itemId = GcsItemId.builder()
+                    .setBucketName(bucketName)
+                    .setObjectName(objectName)
+                    .build();
+        }
+    }
+
+    private GcsFileSystemImpl createFileSystem(GcsClientOptions clientOptions) {
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+                .setGcsClientOptions(clientOptions)
+                .build();
+        return new GcsFileSystemImpl(options);
     }
 }
