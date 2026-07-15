@@ -142,7 +142,10 @@ class GcsFileSystemImplIntegrationTest {
         byte[] content = "test content".getBytes(StandardCharsets.UTF_8);
 
         try (WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions)) {
-            channel.write(ByteBuffer.wrap(content));
+            ByteBuffer buffer = ByteBuffer.wrap(content);
+            while (buffer.hasRemaining()) {
+                channel.write(buffer);
+            }
         }
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(uri);
@@ -168,7 +171,10 @@ class GcsFileSystemImplIntegrationTest {
         // We do a preliminary setup write
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         try (WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions)) {
-            channel.write(ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8)));
+            ByteBuffer buffer = ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8));
+            while (buffer.hasRemaining()) {
+                channel.write(buffer);
+            }
         }
 
         GcsWriteOptions noOverwriteOptions = GcsWriteOptions.builder()
@@ -177,7 +183,10 @@ class GcsFileSystemImplIntegrationTest {
 
         assertThrows(FileAlreadyExistsException.class, () -> {
             try (WritableByteChannel channel = gcsFileSystem.create(itemId, noOverwriteOptions)) {
-                channel.write(ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8)));
+                ByteBuffer buffer = ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8));
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer);
+                }
             }
         });
     }
@@ -205,7 +214,10 @@ class GcsFileSystemImplIntegrationTest {
         byte[] content = "test content".getBytes(StandardCharsets.UTF_8);
 
         try (WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions)) {
-            channel.write(ByteBuffer.wrap(content));
+            ByteBuffer buffer = ByteBuffer.wrap(content);
+            while (buffer.hasRemaining()) {
+                channel.write(buffer);
+            }
         }
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(uri);
@@ -231,7 +243,10 @@ class GcsFileSystemImplIntegrationTest {
 
         assertThrows(FileNotFoundException.class, () -> {
             try (WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions)) {
-                channel.write(ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8)));
+                ByteBuffer buffer = ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8));
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer);
+                }
             }
         });
     }

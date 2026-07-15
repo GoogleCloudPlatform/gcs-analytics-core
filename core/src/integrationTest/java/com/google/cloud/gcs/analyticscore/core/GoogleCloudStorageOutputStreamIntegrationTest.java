@@ -37,14 +37,17 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.parquet.example.data.Group;
 import org.apache.parquet.example.data.simple.SimpleGroupFactory;
@@ -279,8 +282,8 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
         .build();
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
 
-    int totalSize = 1 * MB;
-    byte[] chunk = new byte[1 * KB];
+    int totalSize = MB;
+    byte[] chunk = new byte[KB];
 
     GcsFileSystem customFs = createFileSystemWithClientOptions(clientOptions);
     try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(customFs, itemId)) {
@@ -370,8 +373,8 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
       }
     } finally {
       if (Files.exists(tempDir)) {
-        try (java.util.stream.Stream<Path> walk = Files.walk(tempDir)) {
-          walk.sorted(java.util.Comparator.reverseOrder())
+        try (Stream<Path> walk = Files.walk(tempDir)) {
+          walk.sorted(Comparator.reverseOrder())
               .forEach(path -> {
                 try {
                   Files.deleteIfExists(path);
@@ -379,6 +382,8 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
                   // Ignore cleanup exceptions to avoid masking the main test failure
                 }
               });
+        } catch (IOException e) {
+          // Ignore walk exception to avoid masking the main test failure
         }
       }
     }
@@ -390,7 +395,7 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     GcsItemId itemId = GcsItemId.builder().setBucketName(blobId.getBucket()).setObjectName(blobId.getName()).build();
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
 
-    assertThrows(java.nio.file.AccessDeniedException.class, () -> {
+    assertThrows(AccessDeniedException.class, () -> {
       try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(createFileSystemWithWriteOptions(writeOptions), itemId)) {
         outputStream.write(TEST_CONTENT);
       }
@@ -405,18 +410,19 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     blobsToDelete.add(blobId);
     GcsItemId itemId = GcsItemId.builder().setBucketName(blobId.getBucket()).setObjectName(blobId.getName()).build();
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
-    WritableByteChannel writeChannel = gcsFileSystem.create(itemId, writeOptions);
-    OutputFile outputFile = new TestOutputStreamOutputFile(writeChannel);
-    MessageType schema = MessageTypeParser.parseMessageType(PARQUET_SCHEMA_STRING);
-    Configuration conf = new Configuration();
-    GroupWriteSupport.setSchema(schema, conf);
-
-    try (ParquetWriter<Group> writer = ExampleParquetWriter.builder(outputFile)
-        .withConf(conf)
-        .build()) {
-      SimpleGroupFactory groupFactory = new SimpleGroupFactory(schema);
-      writer.write(groupFactory.newGroup().append(PARQUET_FIELD_NAME, PARQUET_VAL_ALICE));
-      writer.write(groupFactory.newGroup().append(PARQUET_FIELD_NAME, PARQUET_VAL_BOB));
+    try (WritableByteChannel writeChannel = gcsFileSystem.create(itemId, writeOptions)) {
+      OutputFile outputFile = new TestOutputStreamOutputFile(writeChannel);
+      MessageType schema = MessageTypeParser.parseMessageType(PARQUET_SCHEMA_STRING);
+      Configuration conf = new Configuration();
+      GroupWriteSupport.setSchema(schema, conf);
+  
+      try (ParquetWriter<Group> writer = ExampleParquetWriter.builder(outputFile)
+          .withConf(conf)
+          .build()) {
+        SimpleGroupFactory groupFactory = new SimpleGroupFactory(schema);
+        writer.write(groupFactory.newGroup().append(PARQUET_FIELD_NAME, PARQUET_VAL_ALICE));
+        writer.write(groupFactory.newGroup().append(PARQUET_FIELD_NAME, PARQUET_VAL_BOB));
+      }
     }
     
     // Read the writtten content for verifying the correctness of the data written.
@@ -449,21 +455,22 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     blobsToDelete.add(destBlobId);
     GcsItemId destItemId = GcsItemId.builder().setBucketName(destBlobId.getBucket()).setObjectName(destBlobId.getName()).build();
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
-    WritableByteChannel writeChannel = gcsFileSystem.create(destItemId, writeOptions);
-    OutputFile outputFile = new TestOutputStreamOutputFile(writeChannel);
-    int recordsCopied = 0;
-    Configuration conf = new Configuration();
-    GroupWriteSupport.setSchema(schema, conf);
-    List<String> sourceRecordSignatures = new ArrayList<>();
-
-    try (ParquetReader<Group> reader = new GroupParquetReaderBuilder(inputFile).withConf(conf).build();
-        ParquetWriter<Group> writer = ExampleParquetWriter.builder(outputFile).withConf(conf).build()) {
-      Group group;
-      while ((group = reader.read()) != null) {
-        writer.write(group);
-        sourceRecordSignatures.add(group.toString());
-        recordsCopied++;
-        if (recordsCopied >= 100) break;
+    try (WritableByteChannel writeChannel = gcsFileSystem.create(destItemId, writeOptions)) {
+      OutputFile outputFile = new TestOutputStreamOutputFile(writeChannel);
+      int recordsCopied = 0;
+      Configuration conf = new Configuration();
+      GroupWriteSupport.setSchema(schema, conf);
+      List<String> sourceRecordSignatures = new ArrayList<>();
+  
+      try (ParquetReader<Group> reader = new GroupParquetReaderBuilder(inputFile).withConf(conf).build();
+          ParquetWriter<Group> writer = ExampleParquetWriter.builder(outputFile).withConf(conf).build()) {
+        Group group;
+        while ((group = reader.read()) != null) {
+          writer.write(group);
+          sourceRecordSignatures.add(group.toString());
+          recordsCopied++;
+          if (recordsCopied >= 100) break;
+        }
       }
     }
     // Read the writtten content for verifying the correctness of the data written.
