@@ -37,7 +37,7 @@ public class GcsAnalyticsCoreTelemetryConstants {
     READ_CLOSE_DURATION("gcs.analytics-core.client.read.close.duration", MetricType.DURATION),
     WRITE_BYTES("gcs.analytics-core.client.write.size", MetricType.COUNTER),
     WRITE_DURATION("gcs.analytics-core.client.write.duration", MetricType.DURATION),
-    WRITE_CREATE_DURATION("gcs.analytics-core.client.write.create.duration", MetricType.DURATION),
+    CREATE_DURATION("gcs.analytics-core.client.write.create.duration", MetricType.DURATION),
     WRITE_CLOSE_DURATION("gcs.analytics-core.client.write.close.duration", MetricType.DURATION),
     GCS_CLIENT_CREATE_DURATION("gcs.analytics-core.client.create.duration", MetricType.DURATION);
 

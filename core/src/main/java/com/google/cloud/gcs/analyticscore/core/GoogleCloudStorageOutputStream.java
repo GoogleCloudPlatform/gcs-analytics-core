@@ -106,7 +106,7 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
         .getTelemetry()
         .measure(
             Operation.CREATE.name(),
-            Metric.WRITE_CREATE_DURATION,
+            Metric.CREATE_DURATION,
             COMMON_ATTRIBUTES,
             recorder -> {
               GcsWriteOptions writeOptions =

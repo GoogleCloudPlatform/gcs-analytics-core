@@ -67,7 +67,7 @@ class GoogleCloudStorageOutputStreamTest {
   }
 
   @Test
-  void write_recordsTelemetry() throws IOException {
+  void write_validData_recordsTelemetryMetrics() throws IOException {
     GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
     when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
@@ -101,7 +101,7 @@ class GoogleCloudStorageOutputStreamTest {
     stream.close();
 
     verify(mockTelemetry)
-        .measure(eq(Operation.CREATE.name()), eq(Metric.WRITE_CREATE_DURATION), any(), any());
+        .measure(eq(Operation.CREATE.name()), eq(Metric.CREATE_DURATION), any(), any());
     verify(mockTelemetry)
         .measure(eq(Operation.WRITE.name()), eq(Metric.WRITE_DURATION), any(), any());
     verify(mockTelemetry)
