@@ -171,8 +171,8 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
     gcsFileSystem
         .getTelemetry()
         .measure(
-            Operation.CLOSE.name(),
-            Metric.CLOSE_DURATION,
+            Operation.READ_CLOSE.name(),
+            Metric.READ_CLOSE_DURATION,
             commonAttributes,
             recorder -> {
               if (!closed) {
