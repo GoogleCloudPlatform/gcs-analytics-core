@@ -107,8 +107,7 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
         .measure(
             Operation.CREATE.name(),
             Metric.WRITE_CREATE_DURATION,
-            ImmutableMap.of(
-                Attribute.CLASS_NAME.name(), GoogleCloudStorageOutputStream.class.getName()),
+            COMMON_ATTRIBUTES,
             recorder -> {
               GcsWriteOptions writeOptions =
                   gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsWriteOptions();
@@ -142,9 +141,7 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
                 bytesWritten += written;
                 totalBytesWritten += written;
               }
-              if (totalBytesWritten > 0) {
-                recorder.record(Metric.WRITE_BYTES, totalBytesWritten, Collections.emptyMap());
-              }
+              recorder.record(Metric.WRITE_BYTES, totalBytesWritten, Collections.emptyMap());
               return null;
             });
   }
@@ -173,27 +170,23 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
                 bytesWritten += written;
                 totalBytesWritten += written;
               }
-              if (totalBytesWritten > 0) {
-                recorder.record(Metric.WRITE_BYTES, totalBytesWritten, Collections.emptyMap());
-              }
+              recorder.record(Metric.WRITE_BYTES, totalBytesWritten, Collections.emptyMap());
               return null;
             });
   }
 
   @Override
   public void close() throws IOException {
-    if (channel != null) {
-      gcsFileSystem
-          .getTelemetry()
-          .measure(
-              Operation.WRITE_CLOSE.name(),
-              Metric.WRITE_CLOSE_DURATION,
-              COMMON_ATTRIBUTES,
-              recorder -> {
-                channel.close();
-                return null;
-              });
-    }
+    gcsFileSystem
+        .getTelemetry()
+        .measure(
+            Operation.WRITE_CLOSE.name(),
+            Metric.WRITE_CLOSE_DURATION,
+            COMMON_ATTRIBUTES,
+            recorder -> {
+              channel.close();
+              return null;
+            });
   }
 
   /**
