@@ -63,6 +63,22 @@ public interface FormatOptimizer {
     return ranges;
   }
 
+  /**
+   * Intercepts vectored read operations with a release callback.
+   *
+   * @param ranges The list of ranges requested.
+   * @param allocate Function to allocate ByteBuffers for satisfied ranges.
+   * @param release The function to release allocated ByteBuffer instances on failure.
+   * @return The list of ranges that were NOT satisfied and still need to be read from source.
+   */
+  default List<GcsObjectRange> readVectored(
+      List<GcsObjectRange> ranges,
+      IntFunction<ByteBuffer> allocate,
+      java.util.function.Consumer<ByteBuffer> release)
+      throws IOException {
+    return readVectored(ranges, allocate);
+  }
+
   /** Invoked when the channel is closed. */
   default void onClose() throws IOException {}
 }

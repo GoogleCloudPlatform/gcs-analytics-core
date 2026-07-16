@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.IntFunction;
 import javax.annotation.Nullable;
 
@@ -121,6 +122,20 @@ public class SmartReadChannel implements VectoredSeekableByteChannel {
       }
     }
     delegate.readVectored(remainingRanges, allocate);
+  }
+
+  @Override
+  public void readVectored(
+      List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate, Consumer<ByteBuffer> release)
+      throws IOException {
+    List<GcsObjectRange> remainingRanges = ranges;
+    for (FormatOptimizer optimizer : optimizers) {
+      remainingRanges = optimizer.readVectored(remainingRanges, allocate, release);
+      if (remainingRanges.isEmpty()) {
+        return;
+      }
+    }
+    delegate.readVectored(remainingRanges, allocate, release);
   }
 
   @Override

@@ -32,6 +32,7 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.IntFunction;
 import javax.annotation.Nonnull;
 
@@ -244,6 +245,14 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   public void readVectored(List<GcsObjectRange> fileRanges, IntFunction<ByteBuffer> alloc)
       throws IOException {
     channel.readVectored(fileRanges, alloc);
+  }
+
+  @Override
+  public void readVectored(
+      List<GcsObjectRange> fileRanges, IntFunction<ByteBuffer> alloc, Consumer<ByteBuffer> release)
+      throws IOException {
+    checkNotNull(release, "Buffer release function must not be null");
+    channel.readVectored(fileRanges, alloc, release);
   }
 
   private static VectoredSeekableByteChannel openReadChannel(
