@@ -204,7 +204,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public long size() throws IOException {
-    if (itemInfo != null || extractMetadataAfterRead(this.strategy, true)) {
+    if (itemInfo != null || extractMetadataAfterRead(this.strategy)) {
       return itemInfo.getSize();
     }
     if (itemInfoProvider == null) {
@@ -293,7 +293,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             int numOfBytesRead = 0;
             while (dataBuffer.hasRemaining()) {
               int bytesRead = channel.read(dataBuffer);
-              extractMetadataAfterRead(readStrategy, false);
+              extractMetadataAfterRead(readStrategy);
               if (bytesRead < 0) {
                 // EOF reached.
                 break;
@@ -369,25 +369,21 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
-  private boolean extractMetadataAfterRead(ReadStrategy strategy, boolean blockIfInProgress) {
-    if (itemInfo != null) {
-      return true;
-    }
-    if (metadataExtractionAttempted && !blockIfInProgress) {
-      return false;
+  private boolean extractMetadataAfterRead(ReadStrategy strategy) {
+    if (itemInfo != null || metadataExtractionAttempted) {
+      return itemInfo != null;
     }
     synchronized (this) {
       if (itemInfo != null || metadataExtractionAttempted) {
         return itemInfo != null;
       }
-      metadataExtractionAttempted = true;
       ExtractedMetadata metadata =
           GcsReadChannelMetadataExtractor.extract(strategy.getSdkReadChannel());
-      if (metadata == null) {
-        return false;
+      if (metadata != null) {
+        updateGcsItemMetadata(metadata);
       }
-      updateGcsItemMetadata(metadata);
-      return true;
+      metadataExtractionAttempted = true;
+      return metadata != null;
     }
   }
 
