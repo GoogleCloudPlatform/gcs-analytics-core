@@ -19,6 +19,7 @@ import com.google.cloud.ReadChannel;
 import com.google.common.collect.ImmutableList;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
@@ -137,26 +138,25 @@ final class GcsReadChannelMetadataExtractor {
 
   private static long extractLongProperty(
       Object target, String primaryGetter, String fallbackGetter) {
-    for (Method m : target.getClass().getMethods()) {
-      if (m.getParameterCount() == 0 && m.getName().equals(primaryGetter)) {
-        long value = invokeLongGetter(target, m);
-        if (value >= 0) {
-          return value;
-        }
-      }
+    long value =
+        Arrays.stream(target.getClass().getMethods())
+            .filter(m -> m.getParameterCount() == 0 && m.getName().equals(primaryGetter))
+            .mapToLong(m -> invokeLongGetter(target, m))
+            .filter(v -> v >= 0)
+            .findFirst()
+            .orElse(-1L);
+    if (value >= 0) {
+      return value;
     }
     if (target instanceof Map || target instanceof Collection) {
       return -1L;
     }
-    for (Method m : target.getClass().getMethods()) {
-      if (m.getParameterCount() == 0 && m.getName().equals(fallbackGetter)) {
-        long value = invokeLongGetter(target, m);
-        if (value >= 0) {
-          return value;
-        }
-      }
-    }
-    return -1L;
+    return Arrays.stream(target.getClass().getMethods())
+        .filter(m -> m.getParameterCount() == 0 && m.getName().equals(fallbackGetter))
+        .mapToLong(m -> invokeLongGetter(target, m))
+        .filter(v -> v >= 0)
+        .findFirst()
+        .orElse(-1L);
   }
 
   private static long invokeLongGetter(Object target, Method method) {

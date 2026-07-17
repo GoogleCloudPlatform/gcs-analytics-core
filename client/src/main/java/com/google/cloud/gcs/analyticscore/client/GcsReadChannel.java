@@ -204,10 +204,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public long size() throws IOException {
-    if (itemInfo != null) {
-      return itemInfo.getSize();
-    }
-    if (extractMetadataAfterRead()) {
+    if (itemInfo != null || extractMetadataAfterRead(this.strategy, true)) {
       return itemInfo.getSize();
     }
     if (itemInfoProvider == null) {
@@ -296,9 +293,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             int numOfBytesRead = 0;
             while (dataBuffer.hasRemaining()) {
               int bytesRead = channel.read(dataBuffer);
-              if (itemInfo == null && !metadataExtractionAttempted) {
-                extractMetadataAfterRead(readStrategy);
-              }
+              extractMetadataAfterRead(readStrategy, false);
               if (bytesRead < 0) {
                 // EOF reached.
                 break;
@@ -374,31 +369,38 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
-  private boolean extractMetadataAfterRead() {
-    return extractMetadataAfterRead(this.strategy);
-  }
-
-  private synchronized boolean extractMetadataAfterRead(ReadStrategy strategy) {
-    if (itemInfo != null || metadataExtractionAttempted) {
-      return itemInfo != null;
+  private boolean extractMetadataAfterRead(ReadStrategy strategy, boolean blockIfInProgress) {
+    if (itemInfo != null) {
+      return true;
     }
-    metadataExtractionAttempted = true;
-    ExtractedMetadata metadata =
-        GcsReadChannelMetadataExtractor.extract(strategy.getSdkReadChannel());
-    if (metadata == null) {
+    if (metadataExtractionAttempted && !blockIfInProgress) {
       return false;
     }
-    updateItemMetadata(metadata.getSize(), metadata.getGeneration());
-    return true;
+    synchronized (this) {
+      if (itemInfo != null || metadataExtractionAttempted) {
+        return itemInfo != null;
+      }
+      metadataExtractionAttempted = true;
+      ExtractedMetadata metadata =
+          GcsReadChannelMetadataExtractor.extract(strategy.getSdkReadChannel());
+      if (metadata == null) {
+        return false;
+      }
+      updateGcsItemMetadata(metadata);
+      return true;
+    }
   }
 
-  private void updateItemMetadata(long extractedSize, long extractedGen) {
-    long genToSet = extractedGen >= 0 ? extractedGen : itemId.getContentGeneration().orElse(-1L);
+  private void updateGcsItemMetadata(ExtractedMetadata metadata) {
+    long genToSet =
+        metadata.getGeneration() >= 0
+            ? metadata.getGeneration()
+            : itemId.getContentGeneration().orElse(-1L);
 
     GcsItemId.Builder itemIdBuilder = GcsItemId.builder().setBucketName(itemId.getBucketName());
     itemId.getObjectName().ifPresent(itemIdBuilder::setObjectName);
 
-    GcsItemInfo.Builder itemInfoBuilder = GcsItemInfo.builder().setSize(extractedSize);
+    GcsItemInfo.Builder itemInfoBuilder = GcsItemInfo.builder().setSize(metadata.getSize());
 
     if (genToSet >= 0) {
       itemIdBuilder.setContentGeneration(genToSet);
