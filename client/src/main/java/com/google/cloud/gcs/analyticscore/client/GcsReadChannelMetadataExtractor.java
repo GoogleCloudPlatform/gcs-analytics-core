@@ -74,8 +74,8 @@ final class GcsReadChannelMetadataExtractor {
     if (extractedSize < 0) {
       return null;
     }
-    long extractedGen = extractLongProperty(resolvedMetadata, "getGeneration", "generation");
-    return new ExtractedMetadata(extractedSize, extractedGen);
+    long extractedGeneration = extractLongProperty(resolvedMetadata, "getGeneration", "generation");
+    return new ExtractedMetadata(extractedSize, extractedGeneration);
   }
 
   @Nullable
@@ -86,9 +86,9 @@ final class GcsReadChannelMetadataExtractor {
         try {
           Method method = clazz.getDeclaredMethod(methodName);
           method.setAccessible(true);
-          Object res = resolveFutureIfNeeded(method.invoke(sdkChannel));
-          if (res != null) {
-            return res;
+          Object resolvedMetadata = resolveFutureIfNeeded(method.invoke(sdkChannel));
+          if (resolvedMetadata != null) {
+            return resolvedMetadata;
           }
         } catch (ReflectiveOperationException | RuntimeException ignored) {
           LOG.debug(
@@ -99,9 +99,9 @@ final class GcsReadChannelMetadataExtractor {
         try {
           Field field = clazz.getDeclaredField(fieldName);
           field.setAccessible(true);
-          Object val = resolveFutureIfNeeded(field.get(sdkChannel));
-          if (val != null) {
-            return val;
+          Object resolvedMetadata = resolveFutureIfNeeded(field.get(sdkChannel));
+          if (resolvedMetadata != null) {
+            return resolvedMetadata;
           }
         } catch (ReflectiveOperationException | RuntimeException ignored) {
           LOG.debug("Field {} not present or inaccessible on class {}", fieldName, clazz.getName());
@@ -125,6 +125,8 @@ final class GcsReadChannelMetadataExtractor {
     try {
       return future.get();
     } catch (CancellationException | ExecutionException ignored) {
+      // If the future failed or was cancelled, it is safe to fallback to null and attempt
+      // field-based metadata extraction instead.
       LOG.debug("Future execution failed or was cancelled", ignored);
       return null;
     } catch (InterruptedException e) {
@@ -137,9 +139,9 @@ final class GcsReadChannelMetadataExtractor {
       Object target, String primaryGetter, String fallbackGetter) {
     for (Method m : target.getClass().getMethods()) {
       if (m.getParameterCount() == 0 && m.getName().equals(primaryGetter)) {
-        long val = invokeLongGetter(target, m);
-        if (val >= 0) {
-          return val;
+        long value = invokeLongGetter(target, m);
+        if (value >= 0) {
+          return value;
         }
       }
     }
@@ -148,9 +150,9 @@ final class GcsReadChannelMetadataExtractor {
     }
     for (Method m : target.getClass().getMethods()) {
       if (m.getParameterCount() == 0 && m.getName().equals(fallbackGetter)) {
-        long val = invokeLongGetter(target, m);
-        if (val >= 0) {
-          return val;
+        long value = invokeLongGetter(target, m);
+        if (value >= 0) {
+          return value;
         }
       }
     }
@@ -160,9 +162,9 @@ final class GcsReadChannelMetadataExtractor {
   private static long invokeLongGetter(Object target, Method method) {
     try {
       method.setAccessible(true);
-      Object val = method.invoke(target);
-      if (val instanceof Number) {
-        return ((Number) val).longValue();
+      Object value = method.invoke(target);
+      if (value instanceof Number) {
+        return ((Number) value).longValue();
       }
     } catch (ReflectiveOperationException | RuntimeException ignored) {
       LOG.debug(
