@@ -53,7 +53,7 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
 
   // Used for single-byte writes to avoid repeated allocation.
   private final ByteBuffer singleByteBuffer = ByteBuffer.allocate(1);
-  private long bytesWritten = 0;
+  private long totalBytesWritten = 0;
 
   /**
    * Creates a new instance of {@link GoogleCloudStorageOutputStream} for the given file info.
@@ -135,13 +135,13 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
               singleByteBuffer.clear();
               singleByteBuffer.put((byte) b);
               singleByteBuffer.flip();
-              int totalBytesWritten = 0;
+              int bytesWrittenThisCall = 0;
               while (singleByteBuffer.hasRemaining()) {
                 int written = channel.write(singleByteBuffer);
-                bytesWritten += written;
                 totalBytesWritten += written;
+                bytesWrittenThisCall += written;
               }
-              recorder.record(Metric.WRITE_BYTES, totalBytesWritten, Collections.emptyMap());
+              recorder.record(Metric.WRITE_BYTES, bytesWrittenThisCall, Collections.emptyMap());
               return null;
             });
   }
@@ -164,13 +164,13 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
             COMMON_ATTRIBUTES,
             recorder -> {
               ByteBuffer buffer = ByteBuffer.wrap(b, off, len);
-              int totalBytesWritten = 0;
+              int bytesWrittenThisCall = 0;
               while (buffer.hasRemaining()) {
                 int written = channel.write(buffer);
-                bytesWritten += written;
                 totalBytesWritten += written;
+                bytesWrittenThisCall += written;
               }
-              recorder.record(Metric.WRITE_BYTES, totalBytesWritten, Collections.emptyMap());
+              recorder.record(Metric.WRITE_BYTES, bytesWrittenThisCall, Collections.emptyMap());
               return null;
             });
   }
@@ -196,6 +196,6 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
    * @return the number of bytes written to this stream
    */
   public long getBytesWritten() {
-    return bytesWritten;
+    return totalBytesWritten;
   }
 }
