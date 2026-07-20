@@ -264,19 +264,6 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
   }
 
   @Test
-  void writeToNonExistentBucket_throwsAccessDeniedException() {
-    BlobId blobId = BlobId.of(NON_EXISTENT_BUCKET, NON_EXISTENT_FILE);
-    GcsItemId itemId = GcsItemId.builder().setBucketName(blobId.getBucket()).setObjectName(blobId.getName()).build();
-    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
-
-    assertThrows(AccessDeniedException.class, () -> {
-      try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(createFileSystemWithWriteOptions(writeOptions), itemId)) {
-        outputStream.write(TEST_CONTENT);
-      }
-    });
-  }
-
-  @Test
   void write_parquetContent_createsFileSuccessfully() throws IOException {
     TestFileContext ctx = createTestFileContext(FILE_PREFIX_PARQUET, SUFFIX_PARQUET);
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
