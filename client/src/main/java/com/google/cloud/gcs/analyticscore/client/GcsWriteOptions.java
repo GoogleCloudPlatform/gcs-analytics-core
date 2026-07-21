@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Configuration options for writing objects to Google Cloud Storage.
@@ -62,6 +63,7 @@ public abstract class GcsWriteOptions {
 
   public abstract Optional<String> getContentEncoding();
 
+  @Nullable
   public abstract Map<String, byte[]> getMetadata();
 
   public abstract Builder toBuilder();
@@ -116,8 +118,9 @@ public abstract class GcsWriteOptions {
 
     public abstract Builder setContentEncoding(String contentEncoding);
 
-    public abstract Builder setMetadata(Map<String, byte[]> metadata);
+    public abstract Builder setMetadata(@Nullable Map<String, byte[]> metadata);
 
+    @Nullable
     abstract Map<String, byte[]> getMetadata();
 
     abstract GcsWriteOptions autoBuild();
@@ -127,18 +130,20 @@ public abstract class GcsWriteOptions {
       setMetadata(metadata == null ? null : Collections.unmodifiableMap(new HashMap<>(metadata)));
 
       GcsWriteOptions options = autoBuild();
-      boolean hasContentEncoding =
-          options.getMetadata().keySet().stream()
-              .anyMatch(key -> key.equalsIgnoreCase("Content-Encoding"));
-      checkArgument(
-          !hasContentEncoding,
-          "The Content-Encoding must be provided explicitly via the 'contentEncoding' parameter");
-      boolean hasContentType =
-          options.getMetadata().keySet().stream()
-              .anyMatch(key -> key.equalsIgnoreCase("Content-Type"));
-      checkArgument(
-          !hasContentType,
-          "The Content-Type must be provided explicitly via the 'contentType' parameter");
+      if (options.getMetadata() != null) {
+        boolean hasContentEncoding =
+            options.getMetadata().keySet().stream()
+                .anyMatch(key -> key.equalsIgnoreCase("Content-Encoding"));
+        checkArgument(
+            !hasContentEncoding,
+            "The Content-Encoding must be provided explicitly via the 'contentEncoding' parameter");
+        boolean hasContentType =
+            options.getMetadata().keySet().stream()
+                .anyMatch(key -> key.equalsIgnoreCase("Content-Type"));
+        checkArgument(
+            !hasContentType,
+            "The Content-Type must be provided explicitly via the 'contentType' parameter");
+      }
       return options;
     }
   }

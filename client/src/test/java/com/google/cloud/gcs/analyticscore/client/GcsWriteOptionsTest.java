@@ -44,6 +44,13 @@ class GcsWriteOptionsTest {
   }
 
   @Test
+  void builder_withNullMetadata_buildsSuccessfully() {
+    GcsWriteOptions options = GcsWriteOptions.builder().setMetadata(null).build();
+
+    assertThat(options.getMetadata()).isNull();
+  }
+
+  @Test
   void builder_withCustomValues_setsAllProperties() {
     GcsWriteOptions options =
         GcsWriteOptions.builder()
