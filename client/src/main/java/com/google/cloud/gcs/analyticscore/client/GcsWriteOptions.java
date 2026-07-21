@@ -15,6 +15,8 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.auto.value.AutoValue;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.common.collect.ImmutableMap;
@@ -118,11 +120,17 @@ public abstract class GcsWriteOptions {
 
     public GcsWriteOptions build() {
       GcsWriteOptions options = autoBuild();
-      com.google.common.base.Preconditions.checkArgument(
-          !options.getMetadata().containsKey("Content-Encoding"),
+      boolean hasContentEncoding =
+          options.getMetadata().keySet().stream()
+              .anyMatch(key -> key.equalsIgnoreCase("Content-Encoding"));
+      checkArgument(
+          !hasContentEncoding,
           "The Content-Encoding must be provided explicitly via the 'contentEncoding' parameter");
-      com.google.common.base.Preconditions.checkArgument(
-          !options.getMetadata().containsKey("Content-Type"),
+      boolean hasContentType =
+          options.getMetadata().keySet().stream()
+              .anyMatch(key -> key.equalsIgnoreCase("Content-Type"));
+      checkArgument(
+          !hasContentType,
           "The Content-Type must be provided explicitly via the 'contentType' parameter");
       return options;
     }
@@ -131,20 +139,14 @@ public abstract class GcsWriteOptions {
   public BlobWriteOption[] generateWriteOptions(GcsItemId itemId) {
     List<BlobWriteOption> sdkWriteOptions = new ArrayList<>();
 
-    // 1. Transactional Precondition Check (Safety First)
-    if (!this.isOverwriteExisting()) {
-      // If overwrite is disabled, the target MUST NOT exist over the wire.
-      // This maps to an over-the-wire ifGenerationMatch = 0L.
-      sdkWriteOptions.add(BlobWriteOption.doesNotExist());
-    } else {
-      // Only if overwrite is enabled do we conditionally match a targeted generation.
-      itemId
-          .getContentGeneration()
-          .ifPresent(
-              generation -> sdkWriteOptions.add(BlobWriteOption.generationMatch(generation)));
-    }
+    // If overwrite is disabled, the target MUST NOT exist over the wire (ifGenerationMatch = 0L).
+    // Otherwise, we conditionally match a targeted generation if present.
+    Optional<BlobWriteOption> preconditionOption =
+        !this.isOverwriteExisting()
+            ? Optional.of(BlobWriteOption.doesNotExist())
+            : itemId.getContentGeneration().map(BlobWriteOption::generationMatch);
+    preconditionOption.ifPresent(sdkWriteOptions::add);
 
-    // 2. Secondary configuration mappings
     if (this.isDisableGzipContent()) {
       sdkWriteOptions.add(BlobWriteOption.disableGzipContent());
     }

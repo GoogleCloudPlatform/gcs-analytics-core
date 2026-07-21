@@ -93,13 +93,12 @@ class GcsExceptionUtil {
                 // a doesNotExist() (generation = 0L) constraint and the object already exists on
                 // GCS.
                 if (blobId.getGeneration() == null || blobId.getGeneration() <= 0L) {
-                  FileAlreadyExistsException faee =
+                  return (FileAlreadyExistsException)
                       new FileAlreadyExistsException(
-                          String.format(
-                              "Object gs://%s/%s already exists.",
-                              blobId.getBucket(), blobId.getName()));
-                  faee.initCause(se);
-                  return faee;
+                              String.format(
+                                  "Object gs://%s/%s already exists.",
+                                  blobId.getBucket(), blobId.getName()))
+                          .initCause(se);
                 }
               }
               return translateCommon(se, context, blobId, position, errorType);
@@ -112,22 +111,20 @@ class GcsExceptionUtil {
       StorageException e, String context, BlobId blobId, long position, ErrorType errorType) {
     switch (errorType) {
       case NOT_FOUND:
-        FileNotFoundException fnfe =
+        return (FileNotFoundException)
             new FileNotFoundException(
-                String.format(
-                    "Location does not exist or generation not found: gs://%s/%s",
-                    blobId.getBucket(), blobId.getName()));
-        fnfe.initCause(e);
-        return fnfe;
+                    String.format(
+                        "Location does not exist or generation not found: gs://%s/%s",
+                        blobId.getBucket(), blobId.getName()))
+                .initCause(e);
 
       case ACCESS_DENIED:
-        AccessDeniedException ade =
+        return (AccessDeniedException)
             new AccessDeniedException(
-                String.format("gs://%s/%s", blobId.getBucket(), blobId.getName()),
-                null,
-                String.format("Access denied to object during %s: %s", context, e.getMessage()));
-        ade.initCause(e);
-        return ade;
+                    String.format("gs://%s/%s", blobId.getBucket(), blobId.getName()),
+                    null,
+                    String.format("Access denied to object during %s: %s", context, e.getMessage()))
+                .initCause(e);
 
       case PRECONDITION_FAILED:
         // A generation mismatch represents a concurrent modification ONLY if a specific,

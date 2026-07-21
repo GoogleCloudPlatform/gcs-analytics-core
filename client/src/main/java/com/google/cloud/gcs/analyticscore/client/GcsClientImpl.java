@@ -39,11 +39,11 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.io.BaseEncoding;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -243,11 +243,9 @@ class GcsClientImpl implements GcsClient {
   }
 
   private static Map<String, String> encodeMetadata(Map<String, byte[]> metadata) {
-    return metadata.entrySet().stream()
-        .collect(
-            Collectors.toMap(
-                Map.Entry::getKey,
-                e -> e.getValue() == null ? null : BaseEncoding.base64().encode(e.getValue())));
+    Map<String, String> encoded = new HashMap<>();
+    metadata.forEach((k, v) -> encoded.put(k, v == null ? null : BaseEncoding.base64().encode(v)));
+    return encoded;
   }
 
   private BlobInfo createBlobInfo(GcsItemId itemId, GcsWriteOptions writeOptions) {
@@ -264,13 +262,17 @@ class GcsClientImpl implements GcsClient {
 
     BlobInfo.Builder blobInfoBuilder = BlobInfo.newBuilder(blobId);
 
-    if (writeOptions != null) {
-      writeOptions.getContentType().ifPresent(blobInfoBuilder::setContentType);
-      writeOptions.getContentEncoding().ifPresent(blobInfoBuilder::setContentEncoding);
-      if (writeOptions.getMetadata() != null && !writeOptions.getMetadata().isEmpty()) {
-        blobInfoBuilder.setMetadata(encodeMetadata(writeOptions.getMetadata()));
-      }
-    }
+    Optional.ofNullable(writeOptions)
+        .ifPresent(
+            options -> {
+              options.getContentType().ifPresent(blobInfoBuilder::setContentType);
+              options.getContentEncoding().ifPresent(blobInfoBuilder::setContentEncoding);
+
+              Optional.ofNullable(options.getMetadata())
+                  .filter(metadata -> !metadata.isEmpty())
+                  .map(metadata -> encodeMetadata(metadata))
+                  .ifPresent(blobInfoBuilder::setMetadata);
+            });
 
     return blobInfoBuilder.build();
   }
