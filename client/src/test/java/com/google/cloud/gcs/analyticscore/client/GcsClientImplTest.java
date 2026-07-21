@@ -585,6 +585,7 @@ class GcsClientImplTest {
 
     java.util.Map<String, byte[]> customMetadata = new java.util.HashMap<>();
     customMetadata.put("key1", "value1".getBytes(StandardCharsets.UTF_8));
+    customMetadata.put("key2", null);
 
     GcsWriteOptions options = GcsWriteOptions.builder().setMetadata(customMetadata).build();
 
@@ -595,6 +596,7 @@ class GcsClientImplTest {
 
     BlobInfo capturedBlobInfo = blobInfoCaptor.getValue();
     assertThat(capturedBlobInfo.getMetadata()).containsEntry("key1", "dmFsdWUx");
+    assertThat(capturedBlobInfo.getMetadata()).containsEntry("key2", null);
   }
 
   @Test

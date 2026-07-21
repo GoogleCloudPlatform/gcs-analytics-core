@@ -21,6 +21,8 @@ import com.google.auto.value.AutoValue;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -60,7 +62,7 @@ public abstract class GcsWriteOptions {
 
   public abstract Optional<String> getContentEncoding();
 
-  public abstract ImmutableMap<String, byte[]> getMetadata();
+  public abstract Map<String, byte[]> getMetadata();
 
   public abstract Builder toBuilder();
 
@@ -116,9 +118,14 @@ public abstract class GcsWriteOptions {
 
     public abstract Builder setMetadata(Map<String, byte[]> metadata);
 
+    abstract Map<String, byte[]> getMetadata();
+
     abstract GcsWriteOptions autoBuild();
 
     public GcsWriteOptions build() {
+      Map<String, byte[]> metadata = getMetadata();
+      setMetadata(metadata == null ? null : Collections.unmodifiableMap(new HashMap<>(metadata)));
+
       GcsWriteOptions options = autoBuild();
       boolean hasContentEncoding =
           options.getMetadata().keySet().stream()

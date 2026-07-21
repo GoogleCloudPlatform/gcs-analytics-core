@@ -330,6 +330,58 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void translateWriteException_when404WithoutOverwrite_throwsFileNotFoundException() {
+    StorageException se = new StorageException(404, "Not Found");
+
+    IOException exception =
+        GcsExceptionUtil.translateWriteException(
+            se,
+            CONTEXT,
+            BlobId.of(BUCKET, NAME),
+            POSITION,
+            GcsWriteOptions.builder().setOverwriteExisting(false).build());
+
+    assertThat(exception).isInstanceOf(FileNotFoundException.class);
+  }
+
+  @Test
+  void
+      translateWriteException_when412WithoutOverwriteAndPositiveGeneration_throwsGenerationMismatch() {
+    StorageException se = new StorageException(412, "Precondition Failed");
+
+    IOException exception =
+        GcsExceptionUtil.translateWriteException(
+            se,
+            CONTEXT,
+            BlobId.of(BUCKET, NAME, 12345L),
+            POSITION,
+            GcsWriteOptions.builder().setOverwriteExisting(false).build());
+
+    assertThat(exception).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(exception.getMessage())
+        .isEqualTo(
+            String.format(
+                "Generation mismatch for object gs://%s/%s. Concurrent modification detected.",
+                BUCKET, NAME));
+  }
+
+  @Test
+  void translateWriteException_whenWriteOptionsIsNullAnd412_returnsGenericError() {
+    StorageException se = new StorageException(412, "Precondition Failed");
+
+    IOException exception =
+        GcsExceptionUtil.translateWriteException(
+            se, CONTEXT, BlobId.of(BUCKET, NAME), POSITION, null);
+
+    assertThat(exception).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(exception.getMessage())
+        .contains(
+            String.format(
+                "Error during %s to GCS for gs://%s/%s at position %d",
+                CONTEXT, BUCKET, NAME, POSITION));
+  }
+
+  @Test
   void constructor_isPrivate() throws Exception {
     Constructor<GcsExceptionUtil> constructor = GcsExceptionUtil.class.getDeclaredConstructor();
 
