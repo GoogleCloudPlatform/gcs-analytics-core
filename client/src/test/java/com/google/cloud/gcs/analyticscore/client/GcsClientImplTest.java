@@ -1084,7 +1084,9 @@ class GcsClientImplTest {
                     .class);
 
     when(mockStorage.blobAppendableUpload(
-            any(BlobInfo.class), any(com.google.cloud.storage.BlobAppendableUploadConfig.class)))
+            any(BlobInfo.class),
+            any(com.google.cloud.storage.BlobAppendableUploadConfig.class),
+            any(Storage.BlobWriteOption[].class)))
         .thenReturn(mockSession);
     when(mockSession.open()).thenReturn(mockAppendChannel);
     when(mockAppendChannel.isOpen()).thenReturn(true);

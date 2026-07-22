@@ -126,11 +126,12 @@ class GcsClientImpl implements GcsClient {
       GcsWriteOptions resolvedWriteOptions =
           Optional.ofNullable(writeOptions).orElseGet(() -> GcsWriteOptions.builder().build());
 
+      BlobWriteOption[] sdkWriteOptions = resolvedWriteOptions.generateWriteOptions(itemId);
+
       if (resolvedWriteOptions.isBidiWriteEnabled()) {
-        return new GcsBidiWriteChannel(storage, blobInfo, resolvedWriteOptions);
+        return new GcsBidiWriteChannel(storage, blobInfo, resolvedWriteOptions, sdkWriteOptions);
       }
 
-      BlobWriteOption[] sdkWriteOptions = resolvedWriteOptions.generateWriteOptions(itemId);
       BlobWriteSession sdkWriteSession = storage.blobWriteSession(blobInfo, sdkWriteOptions);
       WritableByteChannel channel = sdkWriteSession.open();
       return new GcsWriteChannel(sdkWriteSession, channel, blobInfo, resolvedWriteOptions);
