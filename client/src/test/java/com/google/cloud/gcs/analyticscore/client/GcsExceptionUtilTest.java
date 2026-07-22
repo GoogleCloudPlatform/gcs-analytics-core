@@ -358,6 +358,7 @@ class GcsExceptionUtilTest {
             GcsWriteOptions.builder().setOverwriteExisting(false).build());
 
     assertThat(exception).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(exception).isInstanceOf(IOException.class);
     assertThat(exception.getMessage())
         .isEqualTo(
             String.format(
@@ -374,6 +375,7 @@ class GcsExceptionUtilTest {
             se, CONTEXT, BlobId.of(BUCKET, NAME), POSITION, null);
 
     assertThat(exception).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(exception).isInstanceOf(IOException.class);
     assertThat(exception.getMessage())
         .contains(
             String.format(

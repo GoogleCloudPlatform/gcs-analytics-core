@@ -63,6 +63,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -582,21 +584,26 @@ class GcsClientImplTest {
     BlobWriteSession mockSession = mockBlobWriteSession(mockStorage);
     when(mockSession.open()).thenReturn(mock(WritableByteChannel.class));
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
-
-    java.util.Map<String, byte[]> customMetadata = new java.util.HashMap<>();
+    Map<String, byte[]> customMetadata = new HashMap<>();
     customMetadata.put("key1", "value1".getBytes(StandardCharsets.UTF_8));
-    customMetadata.put("key2", null);
+    customMetadata.put("key2", new byte[] {0, 1, 2, 3});
 
-    GcsWriteOptions options = GcsWriteOptions.builder().setMetadata(customMetadata).build();
+    GcsWriteOptions options =
+        GcsWriteOptions.builder()
+            .setMetadata(customMetadata)
+            .setContentType("text/plain")
+            .setContentEncoding("gzip")
+            .build();
+    ArgumentCaptor<BlobInfo> blobInfoCaptor = ArgumentCaptor.forClass(BlobInfo.class);
 
     clientWithMock.createWriteChannel(TEST_ITEM_ID, options);
 
-    ArgumentCaptor<BlobInfo> blobInfoCaptor = ArgumentCaptor.forClass(BlobInfo.class);
     verify(mockStorage).blobWriteSession(blobInfoCaptor.capture(), any());
-
     BlobInfo capturedBlobInfo = blobInfoCaptor.getValue();
     assertThat(capturedBlobInfo.getMetadata()).containsEntry("key1", "dmFsdWUx");
-    assertThat(capturedBlobInfo.getMetadata()).containsEntry("key2", null);
+    assertThat(capturedBlobInfo.getMetadata()).containsEntry("key2", "AAECAw==");
+    assertThat(capturedBlobInfo.getContentType()).isEqualTo("text/plain");
+    assertThat(capturedBlobInfo.getContentEncoding()).isEqualTo("gzip");
   }
 
   @Test

@@ -39,9 +39,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.io.BaseEncoding;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
@@ -242,10 +240,11 @@ class GcsClientImpl implements GcsClient {
     }
   }
 
-  private static Map<String, String> encodeMetadata(Map<String, byte[]> metadata) {
-    Map<String, String> encoded = new HashMap<>();
-    metadata.forEach((k, v) -> encoded.put(k, v == null ? null : BaseEncoding.base64().encode(v)));
-    return encoded;
+  private static ImmutableMap<String, String> encodeMetadata(
+      ImmutableMap<String, byte[]> metadata) {
+    ImmutableMap.Builder<String, String> encoded = ImmutableMap.builder();
+    metadata.forEach((k, v) -> encoded.put(k, BaseEncoding.base64().encode(v)));
+    return encoded.build();
   }
 
   private BlobInfo createBlobInfo(GcsItemId itemId, GcsWriteOptions writeOptions) {
@@ -267,11 +266,10 @@ class GcsClientImpl implements GcsClient {
             options -> {
               options.getContentType().ifPresent(blobInfoBuilder::setContentType);
               options.getContentEncoding().ifPresent(blobInfoBuilder::setContentEncoding);
-
-              Optional.ofNullable(options.getMetadata())
-                  .filter(metadata -> !metadata.isEmpty())
-                  .map(metadata -> encodeMetadata(metadata))
-                  .ifPresent(blobInfoBuilder::setMetadata);
+              ImmutableMap<String, byte[]> metadata = options.getMetadata();
+              if (!metadata.isEmpty()) {
+                blobInfoBuilder.setMetadata(encodeMetadata(metadata));
+              }
             });
 
     return blobInfoBuilder.build();
