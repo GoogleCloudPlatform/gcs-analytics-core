@@ -38,6 +38,15 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
 
   public GcsBidiWriteChannel(Storage storage, BlobInfo blobInfo, GcsWriteOptions writeOptions)
       throws IOException {
+    this(storage, blobInfo, writeOptions, new Storage.BlobWriteOption[0]);
+  }
+
+  public GcsBidiWriteChannel(
+      Storage storage,
+      BlobInfo blobInfo,
+      GcsWriteOptions writeOptions,
+      Storage.BlobWriteOption[] sdkWriteOptions)
+      throws IOException {
     super(null, null, blobInfo, writeOptions);
 
     BlobAppendableUploadConfig.CloseAction closeAction =
@@ -48,7 +57,9 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
     try {
       BlobAppendableUpload session =
           storage.blobAppendableUpload(
-              blobInfo, BlobAppendableUploadConfig.of().withCloseAction(closeAction));
+              blobInfo,
+              BlobAppendableUploadConfig.of().withCloseAction(closeAction),
+              sdkWriteOptions);
       this.gcsAppendChannel = session.open();
     } catch (StorageException e) {
       throw handleException(e, "init");

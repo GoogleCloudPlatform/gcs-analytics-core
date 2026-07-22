@@ -54,7 +54,10 @@ class GcsBidiWriteChannelTest {
   void setUp() throws Exception {
     MockitoAnnotations.openMocks(this);
     blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
-    when(storage.blobAppendableUpload(any(BlobInfo.class), any(BlobAppendableUploadConfig.class)))
+    when(storage.blobAppendableUpload(
+            any(BlobInfo.class),
+            any(BlobAppendableUploadConfig.class),
+            any(Storage.BlobWriteOption[].class)))
         .thenReturn(mockSession);
     when(mockSession.open()).thenReturn(mockAppendChannel);
     when(mockAppendChannel.isOpen()).thenReturn(true);
@@ -69,7 +72,9 @@ class GcsBidiWriteChannelTest {
 
     GcsBidiWriteChannel channelTrue = new GcsBidiWriteChannel(storage, blobInfo, optionsTrue);
 
-    verify(storage).blobAppendableUpload(eq(blobInfo), configCaptor.capture());
+    verify(storage)
+        .blobAppendableUpload(
+            eq(blobInfo), configCaptor.capture(), any(Storage.BlobWriteOption[].class));
     assertThat(configCaptor.getValue().getCloseAction())
         .isEqualTo(BlobAppendableUploadConfig.CloseAction.FINALIZE_WHEN_CLOSING);
     assertThat(channelTrue.isOpen()).isTrue();
@@ -84,7 +89,9 @@ class GcsBidiWriteChannelTest {
 
     GcsBidiWriteChannel channelFalse = new GcsBidiWriteChannel(storage, blobInfo, optionsFalse);
 
-    verify(storage).blobAppendableUpload(eq(blobInfo), configCaptorFalse.capture());
+    verify(storage)
+        .blobAppendableUpload(
+            eq(blobInfo), configCaptorFalse.capture(), any(Storage.BlobWriteOption[].class));
     assertThat(configCaptorFalse.getValue().getCloseAction())
         .isEqualTo(BlobAppendableUploadConfig.CloseAction.CLOSE_WITHOUT_FINALIZING);
     assertThat(channelFalse.isOpen()).isTrue();
@@ -93,7 +100,10 @@ class GcsBidiWriteChannelTest {
   @Test
   void testConstructor_initializationThrowsStorageException_translated() throws Exception {
     StorageException se = new StorageException(403, "Forbidden");
-    when(storage.blobAppendableUpload(any(BlobInfo.class), any(BlobAppendableUploadConfig.class)))
+    when(storage.blobAppendableUpload(
+            any(BlobInfo.class),
+            any(BlobAppendableUploadConfig.class),
+            any(Storage.BlobWriteOption[].class)))
         .thenThrow(se);
 
     GcsWriteOptions options = GcsWriteOptions.builder().build();
