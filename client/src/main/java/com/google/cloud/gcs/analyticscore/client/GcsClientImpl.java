@@ -123,13 +123,17 @@ class GcsClientImpl implements GcsClient {
     BlobInfo blobInfo = createBlobInfo(itemId, writeOptions);
 
     try {
-      BlobWriteOption[] sdkWriteOptions =
-          Optional.ofNullable(writeOptions)
-              .orElseGet(() -> GcsWriteOptions.builder().build())
-              .generateWriteOptions(itemId);
+      GcsWriteOptions resolvedWriteOptions =
+          Optional.ofNullable(writeOptions).orElseGet(() -> GcsWriteOptions.builder().build());
+
+      if (resolvedWriteOptions.isBidiWriteEnabled()) {
+        return new GcsBidiWriteChannel(storage, blobInfo, resolvedWriteOptions);
+      }
+
+      BlobWriteOption[] sdkWriteOptions = resolvedWriteOptions.generateWriteOptions(itemId);
       BlobWriteSession sdkWriteSession = storage.blobWriteSession(blobInfo, sdkWriteOptions);
       WritableByteChannel channel = sdkWriteSession.open();
-      return new GcsWriteChannel(sdkWriteSession, channel, blobInfo, writeOptions);
+      return new GcsWriteChannel(sdkWriteSession, channel, blobInfo, resolvedWriteOptions);
     } catch (StorageException | IOException e) {
       throw GcsExceptionUtil.translateWriteException(
           e, "initialization", blobInfo.getBlobId(), 0L, writeOptions);

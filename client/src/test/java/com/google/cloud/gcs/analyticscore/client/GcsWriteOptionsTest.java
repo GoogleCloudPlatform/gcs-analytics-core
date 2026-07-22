@@ -41,6 +41,8 @@ class GcsWriteOptionsTest {
     assertThat(options.getContentType()).hasValue("application/octet-stream");
     assertThat(options.getContentEncoding().isPresent()).isFalse();
     assertThat(options.getMetadata()).isEmpty();
+    assertThat(options.isBidiWriteEnabled()).isFalse();
+    assertThat(options.isFinalizeOnClose()).isFalse();
   }
 
   @Test
@@ -63,6 +65,8 @@ class GcsWriteOptionsTest {
             .setContentType("text/plain")
             .setContentEncoding("gzip")
             .setMetadata(ImmutableMap.of("custom-key", new byte[] {1, 2, 3}))
+            .setBidiWriteEnabled(true)
+            .setFinalizeOnClose(true)
             .build();
 
     assertThat(options.isChecksumValidationEnabled()).isTrue();
@@ -75,6 +79,8 @@ class GcsWriteOptionsTest {
     assertThat(options.getContentEncoding()).hasValue("gzip");
     assertThat(options.getMetadata()).containsKey("custom-key");
     assertThat(options.getMetadata().get("custom-key")).isEqualTo(new byte[] {1, 2, 3});
+    assertThat(options.isBidiWriteEnabled()).isTrue();
+    assertThat(options.isFinalizeOnClose()).isTrue();
   }
 
   @Test
@@ -87,6 +93,8 @@ class GcsWriteOptionsTest {
             .put("gcs.kms-key-name", "kms-key")
             .put("gcs.user-project", "project-123")
             .put("gcs.encryption-key", "enc-key")
+            .put("gcs.channel.write.bidi-write.enabled", "true")
+            .put("gcs.channel.write.finalize-on-close", "true")
             .build();
 
     GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");
@@ -97,6 +105,8 @@ class GcsWriteOptionsTest {
     assertThat(options.getKmsKeyName()).hasValue("kms-key");
     assertThat(options.getUserProject()).hasValue("project-123");
     assertThat(options.getEncryptionKey()).hasValue("enc-key");
+    assertThat(options.isBidiWriteEnabled()).isTrue();
+    assertThat(options.isFinalizeOnClose()).isTrue();
   }
 
   @Test
