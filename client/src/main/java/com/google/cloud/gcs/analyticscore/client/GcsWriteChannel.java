@@ -34,13 +34,13 @@ public class GcsWriteChannel implements WritableByteChannel {
 
   private static final Logger LOG = LoggerFactory.getLogger(GcsWriteChannel.class);
 
-  private final BlobInfo blobInfo;
+  protected final BlobInfo blobInfo;
   private final BlobWriteSession blobWriteSession;
   private volatile WritableByteChannel sdkWriteChannel;
-  private final GcsWriteOptions writeOptions;
+  protected final GcsWriteOptions writeOptions;
 
-  private volatile long bytesWritten = 0;
-  private volatile boolean closed = false;
+  protected volatile long bytesWritten = 0;
+  protected volatile boolean closed = false;
 
   GcsWriteChannel(
       BlobWriteSession blobWriteSession,
@@ -115,7 +115,7 @@ public class GcsWriteChannel implements WritableByteChannel {
     }
   }
 
-  private IOException handleException(Exception e, String context) {
+  protected IOException handleException(Exception e, String context) {
     return GcsExceptionUtil.translateWriteException(
         e, context, blobInfo.getBlobId(), bytesWritten, writeOptions);
   }
