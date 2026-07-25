@@ -36,6 +36,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.io.BaseEncoding;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
 import java.util.List;
@@ -119,7 +120,7 @@ class GcsClientImpl implements GcsClient {
       throws IOException {
     checkNotNull(itemId, "itemId should not be null");
 
-    BlobInfo blobInfo = createBlobInfo(itemId);
+    BlobInfo blobInfo = createBlobInfo(itemId, writeOptions);
 
     try {
       BlobWriteOption[] sdkWriteOptions =
@@ -239,7 +240,14 @@ class GcsClientImpl implements GcsClient {
     }
   }
 
-  private BlobInfo createBlobInfo(GcsItemId itemId) {
+  private static ImmutableMap<String, String> encodeMetadata(
+      ImmutableMap<String, byte[]> metadata) {
+    ImmutableMap.Builder<String, String> encoded = ImmutableMap.builder();
+    metadata.forEach((k, v) -> encoded.put(k, BaseEncoding.base64().encode(v)));
+    return encoded.build();
+  }
+
+  private BlobInfo createBlobInfo(GcsItemId itemId, GcsWriteOptions writeOptions) {
     checkNotNull(itemId, "itemId should not be null");
     String objectName =
         itemId
@@ -250,6 +258,20 @@ class GcsClientImpl implements GcsClient {
             .getContentGeneration()
             .map(generation -> BlobId.of(itemId.getBucketName(), objectName, generation))
             .orElseGet(() -> BlobId.of(itemId.getBucketName(), objectName));
-    return BlobInfo.newBuilder(blobId).build();
+
+    BlobInfo.Builder blobInfoBuilder = BlobInfo.newBuilder(blobId);
+
+    Optional.ofNullable(writeOptions)
+        .ifPresent(
+            options -> {
+              options.getContentType().ifPresent(blobInfoBuilder::setContentType);
+              options.getContentEncoding().ifPresent(blobInfoBuilder::setContentEncoding);
+              ImmutableMap<String, byte[]> metadata = options.getMetadata();
+              if (!metadata.isEmpty()) {
+                blobInfoBuilder.setMetadata(encodeMetadata(metadata));
+              }
+            });
+
+    return blobInfoBuilder.build();
   }
 }

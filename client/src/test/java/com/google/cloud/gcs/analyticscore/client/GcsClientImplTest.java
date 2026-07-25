@@ -63,6 +63,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -91,7 +93,9 @@ class GcsClientImplTest {
   private static final GcsItemId TEST_ITEM_ID =
       GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
   private static final BlobInfo TEST_BLOB_INFO =
-      BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+      BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT))
+          .setContentType("application/octet-stream")
+          .build();
   private static final GcsWriteOptions DEFAULT_WRITE_OPTIONS = GcsWriteOptions.builder().build();
 
   private final Storage storage = LocalStorageHelper.getOptions().getService();
@@ -482,7 +486,9 @@ class GcsClientImplTest {
             .setContentGeneration(12345L)
             .build();
     BlobInfo blobInfoWithGen =
-        BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT, 12345L)).build();
+        BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT, 12345L))
+            .setContentType("application/octet-stream")
+            .build();
     StorageException e412 = new StorageException(412, "Precondition Failed");
     when(mockStorage.blobWriteSession(eq(blobInfoWithGen), any(Storage.BlobWriteOption[].class)))
         .thenThrow(e412);
@@ -506,7 +512,9 @@ class GcsClientImplTest {
             .setObjectName("test-object")
             .build();
     BlobInfo blobInfo =
-        BlobInfo.newBuilder(BlobId.of("non-existent-bucket", "test-object")).build();
+        BlobInfo.newBuilder(BlobId.of("non-existent-bucket", "test-object"))
+            .setContentType("application/octet-stream")
+            .build();
     StorageException e404 = new StorageException(404, "Not Found");
     when(mockStorage.blobWriteSession(eq(blobInfo), any(Storage.BlobWriteOption[].class)))
         .thenThrow(e404);
@@ -571,6 +579,47 @@ class GcsClientImplTest {
   }
 
   @Test
+  void create_withMetadata_base64EncodesMetadata() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mockBlobWriteSession(mockStorage);
+    when(mockSession.open()).thenReturn(mock(WritableByteChannel.class));
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+    Map<String, byte[]> customMetadata = new HashMap<>();
+    customMetadata.put("key1", "value1".getBytes(StandardCharsets.UTF_8));
+    customMetadata.put("key2", new byte[] {0, 1, 2, 3});
+
+    GcsWriteOptions options =
+        GcsWriteOptions.builder()
+            .setMetadata(customMetadata)
+            .setContentType("text/plain")
+            .setContentEncoding("gzip")
+            .build();
+    ArgumentCaptor<BlobInfo> blobInfoCaptor = ArgumentCaptor.forClass(BlobInfo.class);
+
+    clientWithMock.createWriteChannel(TEST_ITEM_ID, options);
+
+    verify(mockStorage).blobWriteSession(blobInfoCaptor.capture(), any());
+    BlobInfo capturedBlobInfo = blobInfoCaptor.getValue();
+    assertThat(capturedBlobInfo.getMetadata()).containsEntry("key1", "dmFsdWUx");
+    assertThat(capturedBlobInfo.getMetadata()).containsEntry("key2", "AAECAw==");
+    assertThat(capturedBlobInfo.getContentType()).isEqualTo("text/plain");
+    assertThat(capturedBlobInfo.getContentEncoding()).isEqualTo("gzip");
+  }
+
+  @Test
+  void create_withoutObjectName_throwsIllegalArgumentException() {
+    GcsClientImpl client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
+    GcsItemId itemIdWithoutName = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> client.createWriteChannel(itemIdWithoutName, DEFAULT_WRITE_OPTIONS));
+    assertThat(e).hasMessageThat().contains("Object name must be present");
+  }
+
+  @Test
   void create_allWriteOptionsEnabled_generatesCorrectBlobWriteOptions() throws Exception {
     Storage mockStorage = mock(Storage.class);
     BlobWriteSession mockSession = mockBlobWriteSession(mockStorage);
@@ -622,7 +671,9 @@ class GcsClientImplTest {
             .setContentGeneration(12345L)
             .build();
     BlobInfo blobInfoWithGen =
-        BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT, 12345L)).build();
+        BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT, 12345L))
+            .setContentType("application/octet-stream")
+            .build();
 
     clientWithMock.createWriteChannel(itemIdWithGen, DEFAULT_WRITE_OPTIONS);
 
@@ -847,7 +898,9 @@ class GcsClientImplTest {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
     StorageException e412 = new StorageException(412, "Precondition Failed");
-    when(mockStorage.blobWriteSession(eq(TEST_BLOB_INFO), any(Storage.BlobWriteOption[].class)))
+    BlobInfo nullOptionsBlobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    when(mockStorage.blobWriteSession(
+            eq(nullOptionsBlobInfo), any(Storage.BlobWriteOption[].class)))
         .thenThrow(e412);
 
     IOException exception =

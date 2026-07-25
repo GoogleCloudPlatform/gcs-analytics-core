@@ -87,9 +87,12 @@ class GcsExceptionUtil {
     return getStorageException(e)
         .map(
             se -> {
-              if (!overwrite) {
-                ErrorType errorType = getErrorType(se);
-                if (errorType == ErrorType.PRECONDITION_FAILED && blobId.getGeneration() == null) {
+              ErrorType errorType = getErrorType(se);
+              if (!overwrite && errorType == ErrorType.PRECONDITION_FAILED) {
+                // If overwrite is disabled, a PRECONDITION_FAILED occurs because we enforced
+                // a doesNotExist() (generation = 0L) constraint and the object already exists on
+                // GCS.
+                if (blobId.getGeneration() == null || blobId.getGeneration() <= 0L) {
                   return (FileAlreadyExistsException)
                       new FileAlreadyExistsException(
                               String.format(
@@ -98,7 +101,7 @@ class GcsExceptionUtil {
                           .initCause(se);
                 }
               }
-              return translateCommon(se, context, blobId, position, getErrorType(se));
+              return translateCommon(se, context, blobId, position, errorType);
             })
         .orElseGet(() -> translateGenericException(e, context, blobId, position));
   }
@@ -124,7 +127,9 @@ class GcsExceptionUtil {
                 .initCause(e);
 
       case PRECONDITION_FAILED:
-        if (blobId.getGeneration() != null) {
+        // A generation mismatch represents a concurrent modification ONLY if a specific,
+        // positive target version (generation > 0L) was targeted and failed to match.
+        if (blobId.getGeneration() != null && blobId.getGeneration() > 0L) {
           return new IOException(
               String.format(
                   "Generation mismatch for object gs://%s/%s. Concurrent modification detected.",
