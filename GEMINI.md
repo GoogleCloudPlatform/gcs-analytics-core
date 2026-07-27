@@ -2,8 +2,6 @@
 
 @.gemini/styleguide.md
 
-# GCS Analytics Core — Agent Instructions
-
 Project conventions, architecture, and coding patterns for the `gcs-analytics-core` library.
 
 ## Architecture
