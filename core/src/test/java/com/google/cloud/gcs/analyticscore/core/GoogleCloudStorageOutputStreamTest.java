@@ -33,6 +33,7 @@ import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
+import com.google.cloud.gcs.analyticscore.client.GcsWriteOptions;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.MetricsRecorder;
@@ -146,6 +147,31 @@ class GoogleCloudStorageOutputStreamTest {
   }
 
   @Test
+  void create_withExplicitWriteOptions_usesProvidedOptions() throws IOException {
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    GcsWriteOptions expectedOptions =
+        GcsWriteOptions.builder().setChecksumValidationEnabled(true).build();
+    when(mockFileSystem.create(eq(itemId), eq(expectedOptions))).thenReturn(mockChannel);
+    Telemetry mockTelemetry = mock(Telemetry.class);
+    when(mockFileSystem.getTelemetry()).thenReturn(mockTelemetry);
+    when(mockTelemetry.measure(any(), any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              MetricsRecorder recorder = mock(MetricsRecorder.class);
+              OperationSupplier closure = invocation.getArgument(3);
+              return closure.get(recorder);
+            });
+
+    GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId, expectedOptions);
+
+    assertThat(stream).isNotNull();
+    verify(mockFileSystem).create(eq(itemId), eq(expectedOptions));
+  }
+
+  @Test
   void create_nullFileSystem_throwsNullPointerException() {
     var exception =
         assertThrows(
@@ -197,6 +223,15 @@ class GoogleCloudStorageOutputStreamTest {
             NullPointerException.class,
             () -> GoogleCloudStorageOutputStream.create(fakeFileSystem, (GcsItemId) null));
     assertThat(exception).hasMessageThat().isEqualTo("GcsItemId shouldn't be null");
+  }
+
+  @Test
+  void create_nullWriteOptions_throwsNullPointerException() {
+    var exception =
+        assertThrows(
+            NullPointerException.class,
+            () -> GoogleCloudStorageOutputStream.create(fakeFileSystem, itemId, null));
+    assertThat(exception).hasMessageThat().isEqualTo("GcsWriteOptions shouldn't be null");
   }
 
   @Test

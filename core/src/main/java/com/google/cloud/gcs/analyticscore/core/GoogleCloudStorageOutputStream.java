@@ -102,6 +102,27 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
       throws IOException {
     checkNotNull(gcsFileSystem, "GcsFileSystem shouldn't be null");
     checkNotNull(itemId, "GcsItemId shouldn't be null");
+    GcsWriteOptions writeOptions =
+        gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsWriteOptions();
+    return create(gcsFileSystem, itemId, writeOptions);
+  }
+
+  /**
+   * Creates a new instance of {@link GoogleCloudStorageOutputStream} for the given item ID using
+   * explicit write options.
+   *
+   * @param gcsFileSystem the file system client to use
+   * @param itemId the item ID identifying the object to write to
+   * @param writeOptions the specific write options to use for this stream
+   * @return a new output stream
+   * @throws IOException if an I/O error occurs
+   */
+  public static GoogleCloudStorageOutputStream create(
+      GcsFileSystem gcsFileSystem, GcsItemId itemId, GcsWriteOptions writeOptions)
+      throws IOException {
+    checkNotNull(gcsFileSystem, "GcsFileSystem shouldn't be null");
+    checkNotNull(itemId, "GcsItemId shouldn't be null");
+    checkNotNull(writeOptions, "GcsWriteOptions shouldn't be null");
     return gcsFileSystem
         .getTelemetry()
         .measure(
@@ -109,8 +130,6 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
             Metric.CREATE_DURATION,
             COMMON_ATTRIBUTES,
             recorder -> {
-              GcsWriteOptions writeOptions =
-                  gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsWriteOptions();
               WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions);
               return new GoogleCloudStorageOutputStream(gcsFileSystem, channel);
             });
