@@ -25,6 +25,7 @@ import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
+import javax.annotation.Nullable;
 
 abstract class AbstractReadStrategy implements ReadStrategy {
   protected final GcsItemId itemId;
@@ -44,6 +45,12 @@ abstract class AbstractReadStrategy implements ReadStrategy {
     this.itemId = itemId;
     this.options = options;
     this.itemInfo = itemInfo;
+  }
+
+  @Override
+  @Nullable
+  public ReadChannel getSdkReadChannel() {
+    return channel;
   }
 
   @Override

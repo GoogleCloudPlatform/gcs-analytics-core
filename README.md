@@ -157,6 +157,23 @@ gcloud auth application-default login
 
 Replace `$BUCKET`, `$PROJECT_ID`, and `$FOLDER_NAME` with your specific GCS bucket details.
 
+### Pre-commit Hooks
+
+This project uses `pre-commit` to ensure code quality and style consistency (e.g., license headers, trailing whitespace). To set up the hooks locally:
+
+1. Install `pre-commit` (if not already installed):
+   ```shell
+   pip install pre-commit
+   ```
+2. Install the hooks in your local repository:
+   ```shell
+   pre-commit install
+   ```
+
+The hooks will now run automatically on every `git commit`. You can also run them manually on all files:
+```shell
+pre-commit run --all-files
+```
 
 ## Micro Benchmarks
 

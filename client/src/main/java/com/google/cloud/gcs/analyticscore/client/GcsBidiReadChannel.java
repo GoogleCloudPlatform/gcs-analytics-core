@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import com.google.api.core.ApiFuture;
 import com.google.api.core.ApiFutureCallback;
 import com.google.api.core.ApiFutures;
+import com.google.cloud.ReadChannel;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
@@ -101,7 +102,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
       Storage storage, GcsItemId itemId, GcsReadOptions readOptions, GcsItemInfo itemInfo) {
     return new ReadStrategy() {
       @Override
-      public com.google.cloud.ReadChannel getReadChannel(long requestedPosition, int bytesToRead) {
+      public ReadChannel getReadChannel(long requestedPosition, int bytesToRead) {
         throw new UnsupportedOperationException(
             "Standard read is not supported on Bidi channel yet.");
       }
@@ -117,6 +118,12 @@ class GcsBidiReadChannel extends GcsReadChannel {
       @Override
       public boolean isEof(long position) {
         return true;
+      }
+
+      @Override
+      public ReadChannel getSdkReadChannel() {
+        throw new UnsupportedOperationException(
+            "Standard read is not supported on Bidi channel yet.");
       }
 
       @Override

@@ -22,12 +22,17 @@ import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsWriteOptions;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Attribute;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Operation;
 import com.google.cloud.storage.BlobId;
+import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
+import java.util.Collections;
 
 /**
  * A unified OutputStream for writing objects to Google Cloud Storage.
@@ -41,11 +46,14 @@ import java.nio.channels.WritableByteChannel;
  */
 public class GoogleCloudStorageOutputStream extends OutputStream {
 
+  private static final ImmutableMap<String, String> COMMON_ATTRIBUTES =
+      ImmutableMap.of(Attribute.CLASS_NAME.name(), GoogleCloudStorageOutputStream.class.getName());
+  private final GcsFileSystem gcsFileSystem;
   private final WritableByteChannel channel;
 
   // Used for single-byte writes to avoid repeated allocation.
   private final ByteBuffer singleByteBuffer = ByteBuffer.allocate(1);
-  private long bytesWritten = 0;
+  private long totalBytesWritten = 0;
 
   /**
    * Creates a new instance of {@link GoogleCloudStorageOutputStream} for the given file info.
@@ -94,25 +102,48 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
       throws IOException {
     checkNotNull(gcsFileSystem, "GcsFileSystem shouldn't be null");
     checkNotNull(itemId, "GcsItemId shouldn't be null");
-    GcsWriteOptions writeOptions =
-        gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsWriteOptions();
-    WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions);
-    return new GoogleCloudStorageOutputStream(channel);
+    return gcsFileSystem
+        .getTelemetry()
+        .measure(
+            Operation.CREATE.name(),
+            Metric.CREATE_DURATION,
+            COMMON_ATTRIBUTES,
+            recorder -> {
+              GcsWriteOptions writeOptions =
+                  gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsWriteOptions();
+              WritableByteChannel channel = gcsFileSystem.create(itemId, writeOptions);
+              return new GoogleCloudStorageOutputStream(gcsFileSystem, channel);
+            });
   }
 
-  private GoogleCloudStorageOutputStream(WritableByteChannel channel) {
+  private GoogleCloudStorageOutputStream(GcsFileSystem gcsFileSystem, WritableByteChannel channel) {
+    checkNotNull(gcsFileSystem, "GcsFileSystem shouldn't be null");
     checkNotNull(channel, "WritableByteChannel shouldn't be null");
+    this.gcsFileSystem = gcsFileSystem;
     this.channel = channel;
   }
 
   @Override
   public void write(int b) throws IOException {
-    singleByteBuffer.clear();
-    singleByteBuffer.put((byte) b);
-    singleByteBuffer.flip();
-    while (singleByteBuffer.hasRemaining()) {
-      bytesWritten += channel.write(singleByteBuffer);
-    }
+    gcsFileSystem
+        .getTelemetry()
+        .measure(
+            Operation.WRITE.name(),
+            Metric.WRITE_DURATION,
+            COMMON_ATTRIBUTES,
+            recorder -> {
+              singleByteBuffer.clear();
+              singleByteBuffer.put((byte) b);
+              singleByteBuffer.flip();
+              int bytesWrittenThisCall = 0;
+              while (singleByteBuffer.hasRemaining()) {
+                int written = channel.write(singleByteBuffer);
+                totalBytesWritten += written;
+                bytesWrittenThisCall += written;
+              }
+              recorder.record(Metric.WRITE_BYTES, bytesWrittenThisCall, Collections.emptyMap());
+              return null;
+            });
   }
 
   @Override
@@ -125,18 +156,37 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
       return;
     }
 
-    // Wrap the byte array and pass it to the GcsWriteChannel in the client module
-    ByteBuffer buffer = ByteBuffer.wrap(b, off, len);
-    while (buffer.hasRemaining()) {
-      bytesWritten += channel.write(buffer);
-    }
+    gcsFileSystem
+        .getTelemetry()
+        .measure(
+            Operation.WRITE.name(),
+            Metric.WRITE_DURATION,
+            COMMON_ATTRIBUTES,
+            recorder -> {
+              ByteBuffer buffer = ByteBuffer.wrap(b, off, len);
+              int bytesWrittenThisCall = 0;
+              while (buffer.hasRemaining()) {
+                int written = channel.write(buffer);
+                totalBytesWritten += written;
+                bytesWrittenThisCall += written;
+              }
+              recorder.record(Metric.WRITE_BYTES, bytesWrittenThisCall, Collections.emptyMap());
+              return null;
+            });
   }
 
   @Override
   public void close() throws IOException {
-    if (channel != null) {
-      channel.close();
-    }
+    gcsFileSystem
+        .getTelemetry()
+        .measure(
+            Operation.WRITE_CLOSE.name(),
+            Metric.WRITE_CLOSE_DURATION,
+            COMMON_ATTRIBUTES,
+            recorder -> {
+              channel.close();
+              return null;
+            });
   }
 
   /**
@@ -146,6 +196,6 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
    * @return the number of bytes written to this stream
    */
   public long getBytesWritten() {
-    return bytesWritten;
+    return totalBytesWritten;
   }
 }

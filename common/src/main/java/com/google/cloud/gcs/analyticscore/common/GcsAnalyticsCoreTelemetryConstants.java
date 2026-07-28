@@ -34,7 +34,11 @@ public class GcsAnalyticsCoreTelemetryConstants {
     SMALL_OBJECT_CACHE_HIT("gcs.analytics-core.client.small.object.cache.hits", MetricType.COUNTER),
     SMALL_OBJECT_CACHE_MISS(
         "gcs.analytics-core.client.small.object.cache.misses", MetricType.COUNTER),
-    CLOSE_DURATION("gcs.analytics-core.client.close.duration", MetricType.DURATION),
+    READ_CLOSE_DURATION("gcs.analytics-core.client.read.close.duration", MetricType.DURATION),
+    WRITE_BYTES("gcs.analytics-core.client.write.size", MetricType.COUNTER),
+    WRITE_DURATION("gcs.analytics-core.client.write.duration", MetricType.DURATION),
+    CREATE_DURATION("gcs.analytics-core.client.write.create.duration", MetricType.DURATION),
+    WRITE_CLOSE_DURATION("gcs.analytics-core.client.write.close.duration", MetricType.DURATION),
     GCS_CLIENT_CREATE_DURATION("gcs.analytics-core.client.create.duration", MetricType.DURATION);
 
     private final String name;
@@ -59,11 +63,14 @@ public class GcsAnalyticsCoreTelemetryConstants {
   public enum Operation {
     SEEK,
     READ,
-    CLOSE,
+    READ_CLOSE,
     READ_FULLY,
     READ_TAIL,
     OPEN,
     VECTORED_READ,
+    WRITE,
+    CREATE,
+    WRITE_CLOSE,
     GCS_CLIENT_CREATE;
   }
 }

@@ -696,4 +696,21 @@ class SmartReadChannelTest {
 
     assertThat(exception).hasMessageThat().isEqualTo("Error close failed");
   }
+
+  @Test
+  void getItemInfo_delegatesToDelegate() throws IOException {
+    SmartReadChannel channel =
+        SmartReadChannel.builder()
+            .setDelegate(mockDelegate)
+            .setItemId(ITEM_ID)
+            .setCacheManager(mockCacheManager)
+            .build();
+    GcsItemInfo expectedInfo = GcsItemInfo.builder().setItemId(ITEM_ID).build();
+    when(mockDelegate.getItemInfo()).thenReturn(expectedInfo);
+
+    GcsItemInfo actualInfo = channel.getItemInfo();
+
+    assertThat(actualInfo).isEqualTo(expectedInfo);
+    verify(mockDelegate).getItemInfo();
+  }
 }

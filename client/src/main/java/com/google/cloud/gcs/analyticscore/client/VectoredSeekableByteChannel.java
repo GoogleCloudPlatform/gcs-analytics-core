@@ -20,6 +20,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.util.List;
 import java.util.function.IntFunction;
+import javax.annotation.Nullable;
 
 public interface VectoredSeekableByteChannel extends SeekableByteChannel {
   /**
@@ -31,4 +32,10 @@ public interface VectoredSeekableByteChannel extends SeekableByteChannel {
    */
   void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException;
+
+  /** Returns the item metadata info if available, or null. */
+  @Nullable
+  default GcsItemInfo getItemInfo() {
+    return null;
+  }
 }

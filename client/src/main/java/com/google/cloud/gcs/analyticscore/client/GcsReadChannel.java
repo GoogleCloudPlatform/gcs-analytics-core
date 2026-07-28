@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.cloud.ReadChannel;
+import com.google.cloud.gcs.analyticscore.client.GcsReadChannelMetadataExtractor.ExtractedMetadata;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Attribute;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
@@ -36,6 +37,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.function.IntFunction;
+import javax.annotation.Nullable;
 
 class GcsReadChannel implements VectoredSeekableByteChannel {
   @FunctionalInterface
@@ -45,8 +47,8 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   protected Storage storage;
   protected GcsReadOptions readOptions;
-  protected GcsItemInfo itemInfo;
-  protected GcsItemId itemId;
+  protected volatile GcsItemInfo itemInfo;
+  protected volatile GcsItemId itemId;
   private long gcsReadChannelPosition = 0;
   protected Supplier<ExecutorService> executorServiceSupplier;
   private static final ImmutableMap<String, String> COMMON_ATTRIBUTES =
@@ -54,6 +56,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   protected final Telemetry telemetry;
   private final ReadStrategy strategy;
   private volatile boolean isGcsReadChannelOpen = true;
+  private volatile boolean metadataExtractionAttempted = false;
   protected final ItemInfoProvider itemInfoProvider;
 
   GcsReadChannel(
@@ -201,7 +204,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public long size() throws IOException {
-    if (itemInfo != null) {
+    if (itemInfo != null || extractMetadataAfterRead(this.strategy)) {
       return itemInfo.getSize();
     }
     if (itemInfoProvider == null) {
@@ -211,6 +214,12 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     itemInfo = itemInfoProvider.getItemInfo(itemId);
     itemId = itemInfo.getItemId();
     return itemInfo.getSize();
+  }
+
+  @Override
+  @Nullable
+  public GcsItemInfo getItemInfo() {
+    return itemInfo;
   }
 
   @Override
@@ -284,6 +293,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             int numOfBytesRead = 0;
             while (dataBuffer.hasRemaining()) {
               int bytesRead = channel.read(dataBuffer);
+              extractMetadataAfterRead(readStrategy);
               if (bytesRead < 0) {
                 // EOF reached.
                 break;
@@ -357,5 +367,43 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
           String.format(
               "Invalid seek offset: position value (%d) must be >= 0 for '%s'", position, itemId));
     }
+  }
+
+  private boolean extractMetadataAfterRead(ReadStrategy strategy) {
+    if (itemInfo != null || metadataExtractionAttempted) {
+      return itemInfo != null;
+    }
+    synchronized (this) {
+      if (itemInfo != null || metadataExtractionAttempted) {
+        return itemInfo != null;
+      }
+      ExtractedMetadata metadata =
+          GcsReadChannelMetadataExtractor.extract(strategy.getSdkReadChannel());
+      if (metadata != null) {
+        updateGcsItemMetadata(metadata);
+      }
+      metadataExtractionAttempted = true;
+      return metadata != null;
+    }
+  }
+
+  private void updateGcsItemMetadata(ExtractedMetadata metadata) {
+    long genToSet =
+        metadata.getGeneration() >= 0
+            ? metadata.getGeneration()
+            : itemId.getContentGeneration().orElse(-1L);
+
+    GcsItemId.Builder itemIdBuilder = GcsItemId.builder().setBucketName(itemId.getBucketName());
+    itemId.getObjectName().ifPresent(itemIdBuilder::setObjectName);
+
+    GcsItemInfo.Builder itemInfoBuilder = GcsItemInfo.builder().setSize(metadata.getSize());
+
+    if (genToSet >= 0) {
+      itemIdBuilder.setContentGeneration(genToSet);
+      itemInfoBuilder.setContentGeneration(genToSet);
+    }
+
+    itemId = itemIdBuilder.build();
+    itemInfo = itemInfoBuilder.setItemId(itemId).build();
   }
 }

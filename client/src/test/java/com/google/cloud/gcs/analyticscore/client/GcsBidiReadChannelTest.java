@@ -342,6 +342,14 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
+  void testDummyReadStrategy_getSdkReadChannel_throwsUnsupported() {
+    ReadStrategy strategy =
+        reader.createReadStrategy(storage, itemId, GcsReadOptions.builder().build(), null);
+
+    assertThrows(UnsupportedOperationException.class, strategy::getSdkReadChannel);
+  }
+
+  @Test
   void read_success_returnsBytesReadAndUpdatesPosition() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();

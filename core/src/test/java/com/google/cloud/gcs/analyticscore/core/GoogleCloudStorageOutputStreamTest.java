@@ -20,6 +20,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -32,6 +33,12 @@ import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Operation;
+import com.google.cloud.gcs.analyticscore.common.telemetry.MetricsRecorder;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OperationSupplier;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.common.collect.ImmutableList;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -57,6 +64,48 @@ class GoogleCloudStorageOutputStreamTest {
   void setUp() {
     fileSystemOptions = GcsFileSystemOptions.createFromOptions(Map.of(), "");
     fakeFileSystem = new FakeGcsFileSystemImpl(fileSystemOptions);
+  }
+
+  @Test
+  void write_validData_recordsTelemetryMetrics() throws IOException {
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
+
+    Telemetry mockTelemetry = mock(Telemetry.class);
+    when(mockFileSystem.getTelemetry()).thenReturn(mockTelemetry);
+
+    when(mockChannel.write(any(ByteBuffer.class)))
+        .thenAnswer(
+            i -> {
+              ByteBuffer buf = i.getArgument(0);
+              int rem = buf.remaining();
+              buf.position(buf.position() + rem);
+              return rem;
+            });
+
+    // Stub measure to just execute the lambda and return its result
+    when(mockTelemetry.measure(any(), any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              MetricsRecorder recorder = mock(MetricsRecorder.class);
+              OperationSupplier closure = invocation.getArgument(3);
+              return closure.get(recorder);
+            });
+
+    GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId);
+
+    stream.write(65);
+    stream.close();
+
+    verify(mockTelemetry)
+        .measure(eq(Operation.CREATE.name()), eq(Metric.CREATE_DURATION), any(), any());
+    verify(mockTelemetry)
+        .measure(eq(Operation.WRITE.name()), eq(Metric.WRITE_DURATION), any(), any());
+    verify(mockTelemetry)
+        .measure(eq(Operation.WRITE_CLOSE.name()), eq(Metric.WRITE_CLOSE_DURATION), any(), any());
   }
 
   @Test
@@ -153,6 +202,7 @@ class GoogleCloudStorageOutputStreamTest {
   @Test
   void create_nullFileSystemOptions_throwsNullPointerException() {
     GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
     when(mockFileSystem.getFileSystemOptions()).thenReturn(null);
 
     assertThrows(
@@ -163,6 +213,7 @@ class GoogleCloudStorageOutputStreamTest {
   @Test
   void write_singleByte_partialWrites_loopsUntilFinished() throws IOException {
     GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
     when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
     when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
@@ -190,6 +241,7 @@ class GoogleCloudStorageOutputStreamTest {
   @Test
   void write_byteArray_partialWrites_loopsUntilFinished() throws IOException {
     GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
     when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
     when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
@@ -231,6 +283,7 @@ class GoogleCloudStorageOutputStreamTest {
   @Test
   void write_byteArray_zeroLength_doesNothing() throws IOException {
     GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
     when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
     when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
@@ -246,6 +299,7 @@ class GoogleCloudStorageOutputStreamTest {
   @Test
   void close_closesChannel() throws IOException {
     GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
     when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
     when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);

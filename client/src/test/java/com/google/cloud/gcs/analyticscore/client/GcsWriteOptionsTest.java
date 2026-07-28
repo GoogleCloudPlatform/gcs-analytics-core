@@ -17,8 +17,12 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.common.collect.ImmutableMap;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -34,6 +38,16 @@ class GcsWriteOptionsTest {
     assertThat(options.getKmsKeyName().isPresent()).isFalse();
     assertThat(options.getUserProject().isPresent()).isFalse();
     assertThat(options.getEncryptionKey().isPresent()).isFalse();
+    assertThat(options.getContentType()).hasValue("application/octet-stream");
+    assertThat(options.getContentEncoding().isPresent()).isFalse();
+    assertThat(options.getMetadata()).isEmpty();
+  }
+
+  @Test
+  void builder_withNullMetadata_buildsSuccessfully() {
+    GcsWriteOptions options = GcsWriteOptions.builder().setMetadata(null).build();
+
+    assertThat(options.getMetadata()).isEmpty();
   }
 
   @Test
@@ -46,6 +60,9 @@ class GcsWriteOptionsTest {
             .setKmsKeyName("kms-key")
             .setUserProject("project-123")
             .setEncryptionKey("enc-key")
+            .setContentType("text/plain")
+            .setContentEncoding("gzip")
+            .setMetadata(ImmutableMap.of("custom-key", new byte[] {1, 2, 3}))
             .build();
 
     assertThat(options.isChecksumValidationEnabled()).isTrue();
@@ -54,6 +71,10 @@ class GcsWriteOptionsTest {
     assertThat(options.getKmsKeyName()).hasValue("kms-key");
     assertThat(options.getUserProject()).hasValue("project-123");
     assertThat(options.getEncryptionKey()).hasValue("enc-key");
+    assertThat(options.getContentType()).hasValue("text/plain");
+    assertThat(options.getContentEncoding()).hasValue("gzip");
+    assertThat(options.getMetadata()).containsKey("custom-key");
+    assertThat(options.getMetadata().get("custom-key")).isEqualTo(new byte[] {1, 2, 3});
   }
 
   @Test
@@ -76,5 +97,77 @@ class GcsWriteOptionsTest {
     assertThat(options.getKmsKeyName()).hasValue("kms-key");
     assertThat(options.getUserProject()).hasValue("project-123");
     assertThat(options.getEncryptionKey()).hasValue("enc-key");
+  }
+
+  @Test
+  void builder_withContentTypeInMetadata_throwsIllegalArgumentException() {
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                GcsWriteOptions.builder()
+                    .setMetadata(ImmutableMap.of("Content-Type", new byte[] {}))
+                    .build());
+    assertThat(exception).hasMessageThat().contains("explicitly via the 'contentType' parameter");
+  }
+
+  @Test
+  void builder_withContentEncodingInMetadata_throwsIllegalArgumentException() {
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                GcsWriteOptions.builder()
+                    .setMetadata(ImmutableMap.of("Content-Encoding", new byte[] {}))
+                    .build());
+    assertThat(exception)
+        .hasMessageThat()
+        .contains("explicitly via the 'contentEncoding' parameter");
+  }
+
+  @Test
+  void generateWriteOptions_whenOverwriteExistingIsFalse_addsDoesNotExistOption() {
+    GcsWriteOptions options = GcsWriteOptions.builder().setOverwriteExisting(false).build();
+    GcsItemId itemId = GcsItemId.builder().setBucketName("bucket").setObjectName("object").build();
+
+    BlobWriteOption[] sdkOptions = options.generateWriteOptions(itemId);
+
+    List<BlobWriteOption> optionList = Arrays.asList(sdkOptions);
+    assertThat(optionList).contains(BlobWriteOption.doesNotExist());
+  }
+
+  @Test
+  void
+      generateWriteOptions_whenOverwriteExistingIsFalseWithGeneration_addsDoesNotExistOptionAndIgnoresGeneration() {
+    GcsWriteOptions options = GcsWriteOptions.builder().setOverwriteExisting(false).build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("bucket")
+            .setObjectName("object")
+            .setContentGeneration(12345L)
+            .build();
+
+    BlobWriteOption[] sdkOptions = options.generateWriteOptions(itemId);
+
+    List<BlobWriteOption> optionList = Arrays.asList(sdkOptions);
+    assertThat(optionList).contains(BlobWriteOption.doesNotExist());
+    assertThat(optionList).doesNotContain(BlobWriteOption.generationMatch(12345L));
+  }
+
+  @Test
+  void generateWriteOptions_whenOverwriteExistingIsTrueWithGeneration_addsGenerationMatchOption() {
+    GcsWriteOptions options = GcsWriteOptions.builder().setOverwriteExisting(true).build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("bucket")
+            .setObjectName("object")
+            .setContentGeneration(12345L)
+            .build();
+
+    BlobWriteOption[] sdkOptions = options.generateWriteOptions(itemId);
+
+    List<BlobWriteOption> optionList = Arrays.asList(sdkOptions);
+    assertThat(optionList).contains(BlobWriteOption.generationMatch(12345L));
+    assertThat(optionList).doesNotContain(BlobWriteOption.doesNotExist());
   }
 }

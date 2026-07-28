@@ -15,12 +15,16 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.auto.value.AutoValue;
 import com.google.cloud.storage.Storage.BlobWriteOption;
+import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * Configuration options for writing objects to Google Cloud Storage.
@@ -53,6 +57,17 @@ public abstract class GcsWriteOptions {
 
   public abstract Optional<String> getEncryptionKey();
 
+  public abstract Optional<String> getContentType();
+
+  public abstract Optional<String> getContentEncoding();
+
+  @Nullable
+  abstract ImmutableMap<String, byte[]> getNullableMetadata();
+
+  public ImmutableMap<String, byte[]> getMetadata() {
+    return getNullableMetadata() == null ? ImmutableMap.of() : getNullableMetadata();
+  }
+
   public abstract Builder toBuilder();
 
   public static GcsWriteOptions createFromOptions(
@@ -80,7 +95,9 @@ public abstract class GcsWriteOptions {
     return new AutoValue_GcsWriteOptions.Builder()
         .setChecksumValidationEnabled(false)
         .setDisableGzipContent(true)
-        .setOverwriteExisting(true);
+        .setOverwriteExisting(true)
+        .setContentType("application/octet-stream")
+        .setMetadata(ImmutableMap.of());
   }
 
   /** Builder for {@link GcsWriteOptions}. */
@@ -99,15 +116,48 @@ public abstract class GcsWriteOptions {
 
     public abstract Builder setEncryptionKey(String key);
 
-    public abstract GcsWriteOptions build();
+    public abstract Builder setContentType(String contentType);
+
+    public abstract Builder setContentEncoding(String contentEncoding);
+
+    abstract Builder setNullableMetadata(@Nullable ImmutableMap<String, byte[]> metadata);
+
+    public Builder setMetadata(@Nullable Map<String, byte[]> metadata) {
+      return setNullableMetadata(metadata == null ? null : ImmutableMap.copyOf(metadata));
+    }
+
+    abstract GcsWriteOptions autoBuild();
+
+    public GcsWriteOptions build() {
+      GcsWriteOptions options = autoBuild();
+      if (!options.getMetadata().isEmpty()) {
+        boolean hasContentEncoding =
+            options.getMetadata().keySet().stream()
+                .anyMatch(key -> key.equalsIgnoreCase("Content-Encoding"));
+        checkArgument(
+            !hasContentEncoding,
+            "The Content-Encoding must be provided explicitly via the 'contentEncoding' parameter");
+        boolean hasContentType =
+            options.getMetadata().keySet().stream()
+                .anyMatch(key -> key.equalsIgnoreCase("Content-Type"));
+        checkArgument(
+            !hasContentType,
+            "The Content-Type must be provided explicitly via the 'contentType' parameter");
+      }
+      return options;
+    }
   }
 
   public BlobWriteOption[] generateWriteOptions(GcsItemId itemId) {
     List<BlobWriteOption> sdkWriteOptions = new ArrayList<>();
 
-    itemId
-        .getContentGeneration()
-        .ifPresent(generation -> sdkWriteOptions.add(BlobWriteOption.generationMatch(generation)));
+    // If overwrite is disabled, the target MUST NOT exist over the wire (ifGenerationMatch = 0L).
+    // Otherwise, we conditionally match a targeted generation if present.
+    Optional<BlobWriteOption> preconditionOption =
+        !this.isOverwriteExisting()
+            ? Optional.of(BlobWriteOption.doesNotExist())
+            : itemId.getContentGeneration().map(BlobWriteOption::generationMatch);
+    preconditionOption.ifPresent(sdkWriteOptions::add);
 
     if (this.isDisableGzipContent()) {
       sdkWriteOptions.add(BlobWriteOption.disableGzipContent());
@@ -118,10 +168,6 @@ public abstract class GcsWriteOptions {
     this.getKmsKeyName().map(BlobWriteOption::kmsKeyName).ifPresent(sdkWriteOptions::add);
     this.getEncryptionKey().map(BlobWriteOption::encryptionKey).ifPresent(sdkWriteOptions::add);
     this.getUserProject().map(BlobWriteOption::userProject).ifPresent(sdkWriteOptions::add);
-
-    if (!itemId.getContentGeneration().isPresent() && !this.isOverwriteExisting()) {
-      sdkWriteOptions.add(BlobWriteOption.doesNotExist());
-    }
 
     return sdkWriteOptions.toArray(new BlobWriteOption[0]);
   }
