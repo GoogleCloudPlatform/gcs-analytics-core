@@ -151,12 +151,9 @@ class GoogleCloudStorageOutputStreamTest {
     GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
     WritableByteChannel mockChannel = mock(WritableByteChannel.class);
     when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
-
     GcsWriteOptions expectedOptions =
         GcsWriteOptions.builder().setChecksumValidationEnabled(true).build();
-
     when(mockFileSystem.create(eq(itemId), eq(expectedOptions))).thenReturn(mockChannel);
-
     Telemetry mockTelemetry = mock(Telemetry.class);
     when(mockFileSystem.getTelemetry()).thenReturn(mockTelemetry);
     when(mockTelemetry.measure(any(), any(), any(), any()))
