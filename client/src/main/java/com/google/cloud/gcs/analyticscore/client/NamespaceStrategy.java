@@ -23,10 +23,11 @@ package com.google.cloud.gcs.analyticscore.client;
  *
  * <ul>
  *   <li>{@code GcsItemInfo getFileInfo(GcsItemId id, PathType pathType) throws IOException;}
- *   <li>{@code void mkdirs(GcsItemId id) throws IOException;}
- *   <li>{@code void delete(GcsItemId id, boolean recursive) throws IOException;}
- *   <li>{@code void rename(GcsItemId src, GcsItemId dst) throws IOException;}
- *   <li>{@code java.util.List<GcsItemInfo> listStatus(GcsItemId id) throws IOException;}
+ *   <li>{@code void createDirectory(GcsItemId id) throws IOException;}
+ *   <li>{@code boolean isDirectoryEmpty(GcsItemId id) throws IOException;}
+ *   <li>{@code void renameDirectory(GcsItemId src, GcsItemId dst) throws IOException;}
+ *   <li>{@code java.util.List<GcsItemInfo> listObjectInfo(GcsItemId id) throws IOException;}
+ *   <li>{@code java.util.List<GcsItemInfo> listRecursive(GcsItemId id) throws IOException;}
  * </ul>
  */
 interface NamespaceStrategy {}
