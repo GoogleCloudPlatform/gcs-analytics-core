@@ -172,6 +172,11 @@ class GcsClientImpl implements GcsClient {
   }
 
   @Override
+  public boolean isHnsBucket(String bucketName) throws IOException {
+    return getBucketProperties(bucketName).isHnsEnabled();
+  }
+
+  @Override
   public void close() {
     try {
       storage.close();

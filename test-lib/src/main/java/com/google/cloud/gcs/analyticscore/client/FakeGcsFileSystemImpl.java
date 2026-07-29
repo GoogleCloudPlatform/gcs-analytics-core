@@ -38,8 +38,7 @@ public class FakeGcsFileSystemImpl extends GcsFileSystemImpl {
         fakeClient,
         fileSystemOptions,
         telemetry,
-        new AnalyticsCacheManager(fileSystemOptions.getGcsCacheOptions()),
-        fakeClient::getBucketProperties);
+        new AnalyticsCacheManager(fileSystemOptions.getGcsCacheOptions()));
   }
 
   private static FakeGcsClientImpl initializeGcsClient(
