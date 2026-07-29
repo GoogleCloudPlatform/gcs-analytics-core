@@ -324,6 +324,18 @@ class GcsClientImplTest {
   }
 
   @Test
+  void isHnsBucket_hnsEnabled_returnsTrue() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
+    Bucket mockBucket = mockBucketWithHns(true);
+    doReturn(mockBucket).when(mockStorage).get(eq("hns-bucket"), any(BucketGetOption.class));
+
+    boolean isHns = localGcsClient.isHnsBucket("hns-bucket");
+
+    assertThat(isHns).isTrue();
+  }
+
+  @Test
   void getBucketProperties_hnsDisabled_returnsFalse() throws IOException {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
@@ -333,6 +345,18 @@ class GcsClientImplTest {
     BucketProperties bucketProperties = localGcsClient.getBucketProperties("flat-bucket");
 
     assertThat(bucketProperties.isHnsEnabled()).isFalse();
+  }
+
+  @Test
+  void isHnsBucket_hnsDisabled_returnsFalse() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
+    Bucket mockBucket = mockBucketWithHns(false);
+    doReturn(mockBucket).when(mockStorage).get(eq("flat-bucket"), any(BucketGetOption.class));
+
+    boolean isHns = localGcsClient.isHnsBucket("flat-bucket");
+
+    assertThat(isHns).isFalse();
   }
 
   @Test
