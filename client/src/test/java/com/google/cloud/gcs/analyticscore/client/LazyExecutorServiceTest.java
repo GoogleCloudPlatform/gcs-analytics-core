@@ -136,6 +136,8 @@ class LazyExecutorServiceTest {
   @Test
   void awaitTermination_andIsTerminated() throws Exception {
     assertThat(executorService.isTerminated()).isFalse();
+    assertThat(executorService.awaitTermination(10, SECONDS)).isFalse();
+
     executorService.shutdown();
 
     boolean terminated = executorService.awaitTermination(10, SECONDS);

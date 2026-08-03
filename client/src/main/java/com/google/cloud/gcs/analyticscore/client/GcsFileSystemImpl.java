@@ -45,38 +45,36 @@ import java.util.concurrent.TimeUnit;
 public class GcsFileSystemImpl implements GcsFileSystem {
 
   /**
-   * Status calls (e.g., getting file info) are lightweight. A core pool size of 2 allows basic
-   * concurrency without significant resource overhead.
+   * Status or list calls (e.g., getting file info or listing a directory) block on I/O. A core pool
+   * size of 2 allows basic concurrency without significant resource overhead.
    */
-  private static final int DEFAULT_STATUS_CORE_POOL_SIZE = 2;
+  private static final int CACHED_EXECUTOR_CORE_POOL_SIZE = 2;
 
   /**
    * Using a 30-second keep-alive enables efficient thread reuse during intermittent spikes in
-   * status requests, while ensuring rapid resource cleanup during periods of inactivity.
+   * status and list requests, while ensuring rapid resource cleanup during periods of inactivity.
    */
-  private static final int DEFAULT_STATUS_KEEP_ALIVE_SECONDS = 30;
+  private static final int CACHED_EXECUTOR_KEEP_ALIVE_SECONDS = 30;
+
+  /**
+   * Status and list calls block on I/O. An unbounded maximum pool size, combined with a
+   * zero-capacity SynchronousQueue, ensures tasks are never queued and new threads are immediately
+   * allocated to handle concurrent operations.
+   */
+  private static final int CACHED_EXECUTOR_MAX_POOL_SIZE = Integer.MAX_VALUE;
 
   /**
    * The maximum amount of time in seconds to wait for background thread pools to gracefully
    * terminate upon file system closure.
    */
-  private static final int SHUTDOWN_TIMEOUT_SECONDS = 10;
-
-  /**
-   * Status calls are lightweight and block on I/O. An unbounded maximum pool size, combined with a
-   * zero-capacity SynchronousQueue, ensures tasks are never queued and new threads are immediately
-   * allocated to handle concurrent operations.
-   */
-  private static final int DEFAULT_STATUS_MAX_POOL_SIZE = Integer.MAX_VALUE;
+  private static final int LIST_EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 10;
 
   private final GcsClient gcsClient;
   private final GcsFileSystemOptions fileSystemOptions;
   private final Supplier<ExecutorService> readExecutorServiceSupplier;
   private final Supplier<ExecutorService> listExecutorServiceSupplier;
-
   private final Telemetry telemetry;
   private final AnalyticsCacheManager cacheManager;
-
   private final FlatNamespaceStrategyImpl flatStrategy;
   private final HierarchicalNamespaceStrategyImpl hnsStrategy;
 
@@ -96,8 +94,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
                     fileSystemOptions.getGcsClientOptions(),
                     readExecutorServiceSupplier,
                     telemetry));
-    this.flatStrategy =
-        new FlatNamespaceStrategyImpl(this.gcsClient, this.listExecutorServiceSupplier);
+    this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
     this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
   }
 
@@ -118,8 +115,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
                     fileSystemOptions.getGcsClientOptions(),
                     readExecutorServiceSupplier,
                     telemetry));
-    this.flatStrategy =
-        new FlatNamespaceStrategyImpl(this.gcsClient, this.listExecutorServiceSupplier);
+    this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
     this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
   }
 
@@ -144,8 +140,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.listExecutorServiceSupplier = initializeListExecutionServiceSupplier();
     this.telemetry = telemetry;
     this.cacheManager = cacheManager;
-    this.flatStrategy =
-        new FlatNamespaceStrategyImpl(this.gcsClient, this.listExecutorServiceSupplier);
+    this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
     this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
   }
 
@@ -240,13 +235,15 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     readExecutorService.shutdown();
     listExecutorService.shutdown();
     try {
-      // Wait a total of SHUTDOWN_TIMEOUT_SECONDS for both thread pools to terminate.
-      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(SHUTDOWN_TIMEOUT_SECONDS);
+      // Wait a total of LIST_EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS for both thread pools to terminate.
+      long deadline =
+          System.nanoTime() + TimeUnit.SECONDS.toNanos(LIST_EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS);
       // First, wait for the read executor service to terminate.
-      if (!readExecutorService.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+      if (!readExecutorService.awaitTermination(
+          LIST_EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
         readExecutorService.shutdownNow();
       }
-      // Then, wait for the status executor service to terminate, with the remaining time.
+      // Then, wait for the cached executor service to terminate, with the remaining time.
       if (!listExecutorService.awaitTermination(
           Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS)) {
         listExecutorService.shutdownNow();
@@ -316,13 +313,13 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   private static ExecutorService createCachedExecutor() {
     ThreadPoolExecutor service =
         new ThreadPoolExecutor(
-            /* corePoolSize= */ DEFAULT_STATUS_CORE_POOL_SIZE,
-            /* maximumPoolSize= */ DEFAULT_STATUS_MAX_POOL_SIZE,
-            /* keepAliveTime= */ DEFAULT_STATUS_KEEP_ALIVE_SECONDS,
+            /* corePoolSize= */ CACHED_EXECUTOR_CORE_POOL_SIZE,
+            /* maximumPoolSize= */ CACHED_EXECUTOR_MAX_POOL_SIZE,
+            /* keepAliveTime= */ CACHED_EXECUTOR_KEEP_ALIVE_SECONDS,
             TimeUnit.SECONDS,
             new java.util.concurrent.SynchronousQueue<>(),
             new ThreadFactoryBuilder()
-                .setNameFormat("gcs-filesystem-list-pool-%d")
+                .setNameFormat("gcs-filesystem-cached-pool-%d")
                 .setDaemon(true)
                 .build());
     // allowCoreThreadTimeOut needs to be enabled for cases where the encapsulating class does not

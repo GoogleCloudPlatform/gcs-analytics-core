@@ -64,10 +64,10 @@ final class LazyExecutorService extends AbstractExecutorService {
     return isShutdown;
   }
 
-  /** Returns true immediately, since there are no asynchronous tasks or threads to await. */
+  /** Returns whether the executor has been shut down. */
   @Override
   public boolean awaitTermination(long timeout, TimeUnit unit) {
-    return true;
+    return isShutdown;
   }
 
   @Override
