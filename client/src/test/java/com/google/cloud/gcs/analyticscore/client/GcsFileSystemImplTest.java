@@ -594,7 +594,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void resolveStrategy_hnsEnabledInPropertiesAndApiEnabled_returnsHnsStrategy() throws IOException {
+  void resolveStrategy_hnsFlagEnabledAndHnsBucket_returnsHnsStrategy() throws IOException {
     GcsFileSystemOptions options =
         GcsFileSystemOptions.builder()
             .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
@@ -610,7 +610,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void resolveStrategy_hnsApiDisabled_returnsFlatStrategy() throws IOException {
+  void resolveStrategy_hnsFlagDisabled_returnsFlatStrategy() throws IOException {
     GcsFileSystemOptions options =
         GcsFileSystemOptions.builder()
             .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
@@ -625,8 +625,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void resolveStrategy_hnsDisabledInPropertiesAndApiEnabled_returnsFlatStrategy()
-      throws IOException {
+  void resolveStrategy_hnsFlagEnabledAndFlatBucket_returnsFlatStrategy() throws IOException {
     GcsFileSystemOptions options =
         GcsFileSystemOptions.builder()
             .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)

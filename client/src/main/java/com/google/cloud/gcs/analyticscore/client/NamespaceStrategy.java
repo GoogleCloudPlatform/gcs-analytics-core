@@ -17,7 +17,8 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 /**
- * Strategy interface for namespace operations.
+ * Strategy interface for handling directory operations across different namespace models (Flat vs.
+ * HNS).
  *
  * <p>Methods for directory operations will be added in follow-up PRs. These methods will include:
  *
