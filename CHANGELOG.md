@@ -20,11 +20,6 @@
 
 * Updating adaptive read documentation. ([#355](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/355)) ([0fa1933](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/0fa1933ebe8f2d551d6e763e510d64cd899951b7))
 
-
-### Performance Improvements
-
-* change vectored read default threadpool size to be function of available vcpus ([#337](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/337)) ([d866f24](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d866f24673f4d608f093e882a41f88cd5466347d))
-
 ## [1.4.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.3.1...v1.4.0) (2026-06-26)
 
 
