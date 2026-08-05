@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.5.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.4.0...v1.5.0) (2026-08-04)
+
+
+### Features
+
+* **client:** support content-type/encoding in write options and fix overwrite behavior ([#344](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/344)) ([d95a9db](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d95a9db7caf1bc1117319e0db87aa11460046e41))
+* **core:** Add GoogleCloudStorageOutputStream to the core module and integrate with GcsWriteChannel ([#291](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/291)) ([871a64e](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/871a64ec9ee8145292e6dcd78cc6ccc2ad5640ab))
+* **core:** Allow passing explicit GcsWriteOptions to GoogleCloudStorageOutputStream ([#352](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/352)) ([4219ec9](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/4219ec9ecf68a434dc12129caaea37b25065e58f))
+* **core:** Integrate telemetry for the write path ([#347](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/347)) ([9796a75](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/9796a757943fdb0a6b4e0f59b8d56d359130a3c3))
+* Extract object metadata on first read operation in GCS ([#333](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/333)) ([42b45af](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/42b45af6e014418645043dad49de97ca22329d09))
+* implement bidi vectored reads  ([#289](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/289)) ([60bb286](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/60bb286ff26d372c2472c1dd5d76cc07118a9a5f))
+* Implement non-vectored reads in bidi channel ([#335](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/335)) ([1cdc094](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/1cdc09404c45c6ece787d9ecb8d71a98097f3a65))
+* Integrate GcsWriteChannel in Gcsclient interface ([#287](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/287)) ([ec715f5](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/ec715f5a470a99e56dd6edb3b2e1614896005611))
+* Introduce BucketProperties and add BucketPropertiesCache in AnalyticsCacheManager ([#305](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/305)) ([e45feaa](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/e45feaaeba44c27c9472a8021d567a630ff2aa59))
+
+
+### Bug Fixes
+
+* Updating adaptive read documentation. ([#355](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/355)) ([0fa1933](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/0fa1933ebe8f2d551d6e763e510d64cd899951b7))
+
 ## [1.4.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.3.1...v1.4.0) (2026-06-26)
 
 
