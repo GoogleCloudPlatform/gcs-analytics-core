@@ -26,6 +26,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -231,6 +232,16 @@ class LazyExecutorServiceTest {
 
     // Thread.interrupted() clears the interrupt status.
     assertThat(Thread.interrupted()).isFalse();
+    assertThat(executed.get()).isFalse();
+  }
+
+  @Test
+  void getWithTimeout_whenTimeoutZeroOrNegative_throwsTimeoutException() {
+    Future<String> future = executorService.submit(this::createCallableTask);
+
+    assertThrows(TimeoutException.class, () -> future.get(0, SECONDS));
+    assertThrows(TimeoutException.class, () -> future.get(-1, SECONDS));
+
     assertThat(executed.get()).isFalse();
   }
 

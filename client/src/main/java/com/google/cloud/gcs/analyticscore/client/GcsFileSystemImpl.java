@@ -67,7 +67,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
    * The maximum amount of time in seconds to wait for background thread pools to gracefully
    * terminate upon file system closure.
    */
-  private static final int LIST_EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 10;
+  private static final int EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 10;
 
   private final GcsClient gcsClient;
   private final GcsFileSystemOptions fileSystemOptions;
@@ -237,10 +237,10 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     try {
       // Wait a total of LIST_EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS for both thread pools to terminate.
       long deadline =
-          System.nanoTime() + TimeUnit.SECONDS.toNanos(LIST_EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS);
+          System.nanoTime() + TimeUnit.SECONDS.toNanos(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS);
       // First, wait for the read executor service to terminate.
       if (!readExecutorService.awaitTermination(
-          LIST_EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+          EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
         readExecutorService.shutdownNow();
       }
       // Then, wait for the cached executor service to terminate, with the remaining time.

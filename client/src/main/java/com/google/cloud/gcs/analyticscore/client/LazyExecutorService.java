@@ -36,6 +36,11 @@ import java.util.concurrent.TimeoutException;
  * <p>A returned Future represents a pending task. Upon the first invocation of its {@code get()}
  * method, the task executes and its result is permanently cached.
  *
+ * <p>Timeout Limitation: Because execution is strictly synchronous on the caller's thread, true
+ * preemptive timeouts are not supported. If a timeout is provided to {@code get()}, it only checks
+ * if the timeout has already elapsed prior to execution. If execution begins, it will block
+ * indefinitely until the task completes, ignoring the timeout duration during execution.
+ *
  * <p>Both this class and the returned Future are thread-safe.
  */
 final class LazyExecutorService extends AbstractExecutorService {
@@ -152,6 +157,9 @@ final class LazyExecutorService extends AbstractExecutorService {
       if (!isDone()) {
         if (Thread.interrupted()) {
           throw new InterruptedException();
+        }
+        if (timeout <= 0) {
+          throw new TimeoutException();
         }
         if (isShutdown) {
           cancel(false);
