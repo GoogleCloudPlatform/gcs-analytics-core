@@ -141,10 +141,8 @@ class GcsFileSystemImplTest {
         assertThat(capturedSupplier.get()).isNotNull();
         assertThat(capturedSupplier.get().get()).isNotNull();
         assertThat(executorService1).isEqualTo(executorService2);
-
         assertThat(capturedTelemetry.get()).isNotNull();
         assertThat(capturedTelemetry.get()).isSameInstanceAs(fs.getTelemetry());
-
         assertThat(fs.getFlatStrategy()).isNotNull();
         assertThat(fs.getHnsStrategy()).isNotNull();
       }
@@ -600,9 +598,9 @@ class GcsFileSystemImplTest {
             .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
             .setHnsApiEnabled(true)
             .build();
-    try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
-      when(mockClient.isHnsBucket(TEST_BUCKET)).thenReturn(true);
+    when(mockClient.isHnsBucket(TEST_BUCKET)).thenReturn(true);
 
+    try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
       NamespaceStrategy strategy = gcsFileSystem.resolveStrategy(TEST_BUCKET);
 
       assertThat(strategy).isInstanceOf(HierarchicalNamespaceStrategyImpl.class);
@@ -616,6 +614,7 @@ class GcsFileSystemImplTest {
             .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
             .setHnsApiEnabled(false)
             .build();
+
     try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
       NamespaceStrategy strategy = gcsFileSystem.resolveStrategy(TEST_BUCKET);
 
@@ -631,9 +630,9 @@ class GcsFileSystemImplTest {
             .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
             .setHnsApiEnabled(true)
             .build();
-    try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
-      when(mockClient.isHnsBucket(TEST_BUCKET)).thenReturn(false);
+    when(mockClient.isHnsBucket(TEST_BUCKET)).thenReturn(false);
 
+    try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
       NamespaceStrategy strategy = gcsFileSystem.resolveStrategy(TEST_BUCKET);
 
       assertThat(strategy).isInstanceOf(FlatNamespaceStrategyImpl.class);
