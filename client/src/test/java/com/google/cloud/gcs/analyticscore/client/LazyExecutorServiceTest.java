@@ -196,8 +196,8 @@ class LazyExecutorServiceTest {
   }
 
   /**
-   * Tests that explicitly cancelling a future prevents it from executing, verifying the
-   * !isCancelled() check inside the get() execution logic.
+   * Tests that explicitly cancelling a future prevents it from executing, which is natively handled
+   * by FutureTask's state checks when run() is invoked.
    */
   @Test
   void cancel_preventsTaskExecution() {
@@ -207,6 +207,30 @@ class LazyExecutorServiceTest {
 
     assertThrows(CancellationException.class, future::get);
     assertThrows(CancellationException.class, () -> future.get(10, SECONDS));
+    assertThat(executed.get()).isFalse();
+  }
+
+  @Test
+  void get_whenThreadInterrupted_throwsInterruptedException() {
+    Future<String> future = executorService.submit(this::createCallableTask);
+    Thread.currentThread().interrupt();
+
+    assertThrows(InterruptedException.class, future::get);
+
+    // Thread.interrupted() clears the interrupt status.
+    assertThat(Thread.interrupted()).isFalse();
+    assertThat(executed.get()).isFalse();
+  }
+
+  @Test
+  void getWithTimeout_whenThreadInterrupted_throwsInterruptedException() {
+    Future<String> future = executorService.submit(this::createCallableTask);
+    Thread.currentThread().interrupt();
+
+    assertThrows(InterruptedException.class, () -> future.get(10, SECONDS));
+
+    // Thread.interrupted() clears the interrupt status.
+    assertThat(Thread.interrupted()).isFalse();
     assertThat(executed.get()).isFalse();
   }
 

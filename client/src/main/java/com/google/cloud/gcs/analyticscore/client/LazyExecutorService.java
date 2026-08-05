@@ -127,7 +127,10 @@ final class LazyExecutorService extends AbstractExecutorService {
 
     @Override
     public V get() throws InterruptedException, ExecutionException {
-      if (!isDone() && !isCancelled()) {
+      if (!isDone()) {
+        if (Thread.interrupted()) {
+          throw new InterruptedException();
+        }
         if (isShutdown) {
           cancel(false);
         } else {
@@ -146,7 +149,10 @@ final class LazyExecutorService extends AbstractExecutorService {
     @Override
     public V get(long timeout, TimeUnit unit)
         throws InterruptedException, ExecutionException, TimeoutException {
-      if (!isDone() && !isCancelled()) {
+      if (!isDone()) {
+        if (Thread.interrupted()) {
+          throw new InterruptedException();
+        }
         if (isShutdown) {
           cancel(false);
         } else {
