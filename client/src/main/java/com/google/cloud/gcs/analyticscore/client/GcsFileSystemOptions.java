@@ -52,7 +52,7 @@ public abstract class GcsFileSystemOptions {
     return new AutoValue_GcsFileSystemOptions.Builder()
         .setReadThreadCount(16)
         .setClientType(ClientType.HTTP_CLIENT)
-        .setHnsApiEnabled(false)
+        .setHnsApiEnabled(true)
         .setGcsClientOptions(GcsClientOptions.builder().build())
         .setGcsCacheOptions(GcsCacheOptions.builder().build())
         .setAnalyticsCoreTelemetryOptions(TelemetryOptions.builder().build());

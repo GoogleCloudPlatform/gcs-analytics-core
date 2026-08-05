@@ -641,7 +641,8 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void resolveStrategy_isHnsBucketThrowsIoException_throwsUncheckedIOException() throws IOException {
+  void resolveStrategy_isHnsBucketThrowsIoException_throwsUncheckedIOException()
+      throws IOException {
     GcsFileSystemOptions options =
         GcsFileSystemOptions.builder()
             .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)

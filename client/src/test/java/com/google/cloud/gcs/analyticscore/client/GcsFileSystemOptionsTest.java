@@ -74,7 +74,7 @@ class GcsFileSystemOptionsTest {
     assertThat(options.getGcsClientOptions().getProjectId().isEmpty()).isTrue();
     assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.HTTP_CLIENT);
     assertThat(options.getReadThreadCount()).isEqualTo(16);
-    assertThat(options.isHnsApiEnabled()).isFalse();
+    assertThat(options.isHnsApiEnabled()).isTrue();
 
     GcsCacheOptions cacheOptions = options.getGcsCacheOptions();
     assertThat(cacheOptions.isFooterCacheEnabled()).isFalse();
