@@ -57,6 +57,13 @@ class GcsItemIdTest {
   }
 
   @Test
+  void isGcsObject_emptyBucketWithObject_returnsFalse() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName("").setObjectName(TEST_OBJECT).build();
+
+    assertThat(itemId.isGcsObject()).isFalse();
+  }
+
+  @Test
   void isBucket_withBucketOnly_returnsTrue() {
     GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
 

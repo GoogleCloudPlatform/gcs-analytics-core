@@ -207,7 +207,7 @@ class GcsClientImpl implements GcsClient {
     } catch (NotFoundException e) {
       throw new FileNotFoundException("Folder not found: " + itemId);
     } catch (Exception e) {
-      throw new IOException("Folder not found: " + itemId, e);
+      throw new IOException("Failed to get folder info for: " + itemId, e);
     }
   }
 

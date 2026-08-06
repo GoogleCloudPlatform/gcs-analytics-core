@@ -979,11 +979,8 @@ class GcsClientImplTest {
 
   @Test
   void getBucketInfo_notBucketItemId_throwsIllegalArgumentException() {
-    GcsItemId objectId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("object.txt").build();
-
     IllegalArgumentException e =
-        assertThrows(IllegalArgumentException.class, () -> gcsClient.getBucketInfo(objectId));
+        assertThrows(IllegalArgumentException.class, () -> gcsClient.getBucketInfo(TEST_ITEM_ID));
 
     assertThat(e).hasMessageThat().contains("Expected a bucket itemId");
   }
@@ -1008,7 +1005,6 @@ class GcsClientImplTest {
 
     GcsItemInfo itemInfo = clientWithMock.getBucketInfo(bucketId);
 
-    assertThat(itemInfo).isNotNull();
     assertThat(itemInfo.getItemId()).isEqualTo(bucketId);
     assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
     assertThat(itemInfo.getSize()).isEqualTo(0L);
@@ -1119,17 +1115,15 @@ class GcsClientImplTest {
 
   @Test
   void getFolderInfo_otherRpcException_throwsIOException() throws IOException {
-    GcsItemId folderItemId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
     StorageControlClient mockControlClient = mock(StorageControlClient.class);
     when(mockControlClient.getFolder(any(GetFolderRequest.class)))
         .thenThrow(new RuntimeException("RPC error"));
     GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
 
     IOException e =
-        assertThrows(IOException.class, () -> clientWithMockControl.getFolderInfo(folderItemId));
+        assertThrows(IOException.class, () -> clientWithMockControl.getFolderInfo(TEST_ITEM_ID));
 
-    assertThat(e).hasMessageThat().contains("Folder not found: " + folderItemId);
+    assertThat(e).hasMessageThat().contains("Failed to get folder info for: " + TEST_ITEM_ID);
   }
 
   private GcsClientImpl createClientWithMockControl(StorageControlClient mockControlClient) {
@@ -1175,7 +1169,7 @@ class GcsClientImplTest {
     List<GcsItemInfo> result = clientWithMock.listObjectInfo(prefixId, 1);
 
     assertThat(result).hasSize(1);
-    assertThat(result.get(0).getItemId().getObjectName().get()).isEqualTo(TEST_DIR + "file1.txt");
+    assertThat(result.get(0).getItemId().getObjectName()).hasValue(TEST_DIR + "file1.txt");
   }
 
   @Test
@@ -1192,33 +1186,23 @@ class GcsClientImplTest {
 
   @Test
   void listObjectInfo_nullPrefixId_throwsNullPointerException() {
-    Storage mockStorage = mock(Storage.class);
-    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
-
     NullPointerException e =
-        assertThrows(NullPointerException.class, () -> clientWithMock.listObjectInfo(null, 10));
+        assertThrows(NullPointerException.class, () -> gcsClient.listObjectInfo(null, 10));
 
     assertThat(e).hasMessageThat().contains("prefixId must not be null");
   }
 
   @Test
   void listObjectInfo_nonPositiveMaxResults_throwsIllegalArgumentException() {
-    GcsItemId prefixId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
-    Storage mockStorage = mock(Storage.class);
-    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
-
     IllegalArgumentException e =
         assertThrows(
-            IllegalArgumentException.class, () -> clientWithMock.listObjectInfo(prefixId, 0));
+            IllegalArgumentException.class, () -> gcsClient.listObjectInfo(TEST_ITEM_ID, 0));
 
     assertThat(e).hasMessageThat().contains("maxResults must be > 0");
   }
 
   @Test
   void listObjectInfo_bucketNotFound_throwsFileNotFoundException() {
-    GcsItemId prefixId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
     Storage mockStorage = mock(Storage.class);
     when(mockStorage.list(eq(TEST_BUCKET), any(Storage.BlobListOption[].class)))
         .thenThrow(new StorageException(404, "Bucket not found"));
@@ -1226,24 +1210,22 @@ class GcsClientImplTest {
 
     FileNotFoundException e =
         assertThrows(
-            FileNotFoundException.class, () -> clientWithMock.listObjectInfo(prefixId, 10));
+            FileNotFoundException.class, () -> clientWithMock.listObjectInfo(TEST_ITEM_ID, 10));
 
     assertThat(e).hasMessageThat().contains("Bucket not found: " + TEST_BUCKET);
   }
 
   @Test
   void listObjectInfo_storageException_throwsIOException() {
-    GcsItemId prefixId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
     Storage mockStorage = mock(Storage.class);
     when(mockStorage.list(eq(TEST_BUCKET), any(Storage.BlobListOption[].class)))
         .thenThrow(new StorageException(500, "Internal error"));
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
     IOException e =
-        assertThrows(IOException.class, () -> clientWithMock.listObjectInfo(prefixId, 10));
+        assertThrows(IOException.class, () -> clientWithMock.listObjectInfo(TEST_ITEM_ID, 10));
 
-    assertThat(e).hasMessageThat().contains("Failed to list objects for prefix: " + prefixId);
+    assertThat(e).hasMessageThat().contains("Failed to list objects for prefix: " + TEST_ITEM_ID);
   }
 
   private static Blob createMockBlob(String bucket, String name) {
