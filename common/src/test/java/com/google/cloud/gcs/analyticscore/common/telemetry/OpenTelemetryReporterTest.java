@@ -67,7 +67,7 @@ class OpenTelemetryReporterTest {
   }
 
   @Test
-  void testOperationEnd_recordsMetrics() {
+  void operationEnd_recordsMetrics() {
     OpenTelemetryOptions options =
         OpenTelemetryOptions.builder()
             .setEnabled(true)

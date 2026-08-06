@@ -27,14 +27,14 @@ import org.junit.jupiter.api.Test;
 class OpenTelemetryOptionsTest {
 
   @Test
-  void testOpenTelemetryOptionsDefaultValues() {
+  void openTelemetryOptions_defaultValues_returnsDefaultOptions() {
     OpenTelemetryOptions options = OpenTelemetryOptions.builder().build();
     assertThat(options.isEnabled()).isFalse();
     assertThat(options.getProviderType()).isEqualTo(OpenTelemetryOptions.ProviderType.GLOBAL);
   }
 
   @Test
-  void testOpenTelemetryOptionsCustomValues() {
+  void openTelemetryOptions_customValues_returnsCustomOptions() {
     OpenTelemetry customTelemetry = GlobalOpenTelemetry.get();
     OpenTelemetryOptions options =
         OpenTelemetryOptions.builder()
@@ -52,7 +52,7 @@ class OpenTelemetryOptionsTest {
   }
 
   @Test
-  void testOpenTelemetryOptionsLoggingProvider() {
+  void openTelemetryOptions_loggingProvider_returnsLoggingOptions() {
     OpenTelemetryOptions options =
         OpenTelemetryOptions.builder()
             .setEnabled(true)
@@ -64,7 +64,7 @@ class OpenTelemetryOptionsTest {
   }
 
   @Test
-  void testCreateFromOptions_NoOptions() {
+  void createFromOptions_noOptions_returnsEmpty() {
     Map<String, String> options = new HashMap<>();
     Optional<OpenTelemetryOptions> telemetryOptions =
         OpenTelemetryOptions.createFromOptions(options, "prefix.");
@@ -73,7 +73,7 @@ class OpenTelemetryOptionsTest {
   }
 
   @Test
-  void testCreateFromOptions_WithAllOptions() {
+  void createFromOptions_withAllOptions_returnsPresentOptions() {
     Map<String, String> options = new HashMap<>();
     options.put("prefix.telemetry.opentelemetry.enabled", "true");
     options.put("prefix.telemetry.opentelemetry.provider-type", "PRE_CONFIGURED");
@@ -90,7 +90,7 @@ class OpenTelemetryOptionsTest {
   }
 
   @Test
-  void testCreateFromOptions_WithInvalidValues_fallsbackToDefaults() {
+  void createFromOptions_withInvalidValues_fallsBackToDefaults() {
     Map<String, String> options = new HashMap<>();
     options.put("prefix.telemetry.opentelemetry.enabled", "true");
     options.put("prefix.telemetry.opentelemetry.provider-type", "INVALID_PROVIDER");
