@@ -28,6 +28,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.api.core.ApiFuture;
+import com.google.api.gax.rpc.NotFoundException;
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
@@ -52,6 +53,9 @@ import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.storage.control.v2.Folder;
+import com.google.storage.control.v2.GetFolderRequest;
+import com.google.storage.control.v2.StorageControlClient;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -1143,15 +1147,13 @@ class GcsClientImplTest {
   void getFolderInfo_folderExists_returnsFolderInfo() throws IOException {
     GcsItemId folderItemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("my-folder/").build();
-    com.google.storage.control.v2.StorageControlClient mockControlClient =
-        mock(com.google.storage.control.v2.StorageControlClient.class);
-    com.google.storage.control.v2.Folder mockFolder =
-        com.google.storage.control.v2.Folder.newBuilder()
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    Folder mockFolder =
+        Folder.newBuilder()
             .setName("projects/_/buckets/" + TEST_BUCKET + "/folders/my-folder")
             .setMetageneration(3L)
             .build();
-    when(mockControlClient.getFolder(any(com.google.storage.control.v2.GetFolderRequest.class)))
-        .thenReturn(mockFolder);
+    when(mockControlClient.getFolder(any(GetFolderRequest.class))).thenReturn(mockFolder);
     GcsClientImpl clientWithMockControl =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
           @Override
@@ -1160,7 +1162,7 @@ class GcsClientImplTest {
           }
 
           @Override
-          com.google.storage.control.v2.StorageControlClient lazyGetStorageControlClient() {
+          StorageControlClient lazyGetStorageControlClient() {
             return mockControlClient;
           }
         };
@@ -1177,12 +1179,9 @@ class GcsClientImplTest {
   void getFolderInfo_notFound_throwsFileNotFoundException() throws IOException {
     GcsItemId folderItemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("missing-folder").build();
-    com.google.storage.control.v2.StorageControlClient mockControlClient =
-        mock(com.google.storage.control.v2.StorageControlClient.class);
-    com.google.api.gax.rpc.NotFoundException notFoundException =
-        mock(com.google.api.gax.rpc.NotFoundException.class);
-    when(mockControlClient.getFolder(any(com.google.storage.control.v2.GetFolderRequest.class)))
-        .thenThrow(notFoundException);
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    NotFoundException notFoundException = mock(NotFoundException.class);
+    when(mockControlClient.getFolder(any(GetFolderRequest.class))).thenThrow(notFoundException);
     GcsClientImpl clientWithMockControl =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
           @Override
@@ -1191,7 +1190,7 @@ class GcsClientImplTest {
           }
 
           @Override
-          com.google.storage.control.v2.StorageControlClient lazyGetStorageControlClient() {
+          StorageControlClient lazyGetStorageControlClient() {
             return mockControlClient;
           }
         };
@@ -1207,9 +1206,8 @@ class GcsClientImplTest {
   void getFolderInfo_otherRpcException_throwsIOException() throws IOException {
     GcsItemId folderItemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("folder").build();
-    com.google.storage.control.v2.StorageControlClient mockControlClient =
-        mock(com.google.storage.control.v2.StorageControlClient.class);
-    when(mockControlClient.getFolder(any(com.google.storage.control.v2.GetFolderRequest.class)))
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.getFolder(any(GetFolderRequest.class)))
         .thenThrow(new RuntimeException("RPC error"));
     GcsClientImpl clientWithMockControl =
         new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
@@ -1219,7 +1217,7 @@ class GcsClientImplTest {
           }
 
           @Override
-          com.google.storage.control.v2.StorageControlClient lazyGetStorageControlClient() {
+          StorageControlClient lazyGetStorageControlClient() {
             return mockControlClient;
           }
         };

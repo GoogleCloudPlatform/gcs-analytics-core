@@ -17,8 +17,10 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.api.gax.core.FixedCredentialsProvider;
+import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.auth.Credentials;
@@ -32,6 +34,8 @@ import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.BucketInfo;
 import com.google.cloud.storage.BucketInfo.HierarchicalNamespace;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.Storage.BlobField;
+import com.google.cloud.storage.Storage.BlobListOption;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
@@ -40,6 +44,7 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.BaseEncoding;
+import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.FolderName;
 import com.google.storage.control.v2.GetFolderRequest;
@@ -49,7 +54,9 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
@@ -57,13 +64,13 @@ import org.slf4j.LoggerFactory;
 
 class GcsClientImpl implements GcsClient {
   private static final Logger LOG = LoggerFactory.getLogger(GcsClientImpl.class);
-  private static final List<Storage.BlobField> BLOB_METADATA_FIELDS =
+  private static final List<BlobField> BLOB_METADATA_FIELDS =
       ImmutableList.of(
-          Storage.BlobField.GENERATION,
-          Storage.BlobField.SIZE,
-          Storage.BlobField.TIME_CREATED,
-          Storage.BlobField.UPDATED,
-          Storage.BlobField.METADATA);
+          BlobField.GENERATION,
+          BlobField.SIZE,
+          BlobField.TIME_CREATED,
+          BlobField.UPDATED,
+          BlobField.METADATA);
   private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
 
   @VisibleForTesting Storage storage;
@@ -208,15 +215,14 @@ class GcsClientImpl implements GcsClient {
   }
 
   @Override
-  public java.util.List<GcsItemInfo> listObjectInfo(GcsItemId prefixId, int maxResults)
-      throws IOException {
+  public List<GcsItemInfo> listObjectInfo(GcsItemId prefixId, int maxResults) throws IOException {
     String prefix = prefixId.getObjectName().orElse("");
-    com.google.api.gax.paging.Page<Blob> page =
+    Page<Blob> page =
         storage.list(
             prefixId.getBucketName(),
-            Storage.BlobListOption.prefix(prefix),
-            Storage.BlobListOption.pageSize(maxResults),
-            Storage.BlobListOption.fields(BLOB_METADATA_FIELDS.toArray(new Storage.BlobField[0])));
+            BlobListOption.prefix(prefix),
+            BlobListOption.pageSize(maxResults),
+            BlobListOption.fields(BLOB_METADATA_FIELDS.toArray(new BlobField[0])));
 
     ImmutableList.Builder<GcsItemInfo> builder = ImmutableList.builder();
     for (Blob blob : page.iterateAll()) {
@@ -256,10 +262,9 @@ class GcsClientImpl implements GcsClient {
 
     if (blob.getMetadata() != null) {
       ImmutableMap.Builder<String, byte[]> xattrs = ImmutableMap.builder();
-      for (java.util.Map.Entry<String, String> entry : blob.getMetadata().entrySet()) {
+      for (Map.Entry<String, String> entry : blob.getMetadata().entrySet()) {
         if (entry.getValue() != null) {
-          xattrs.put(
-              entry.getKey(), entry.getValue().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+          xattrs.put(entry.getKey(), entry.getValue().getBytes(UTF_8));
         }
       }
       infoBuilder.setExtendedAttributes(xattrs.build());
@@ -293,11 +298,11 @@ class GcsClientImpl implements GcsClient {
         .build();
   }
 
-  private static long toEpochMilli(java.time.OffsetDateTime dateTime) {
+  private static long toEpochMilli(OffsetDateTime dateTime) {
     return dateTime != null ? dateTime.toInstant().toEpochMilli() : 0L;
   }
 
-  private static long toEpochMilli(com.google.protobuf.Timestamp timestamp) {
+  private static long toEpochMilli(Timestamp timestamp) {
     return timestamp != null
         ? Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos()).toEpochMilli()
         : 0L;
