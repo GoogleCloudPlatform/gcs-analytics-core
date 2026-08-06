@@ -68,4 +68,54 @@ public final class UriUtilTest {
 
     assertThat(e).hasMessageThat().isEqualTo("Invalid GCS path: " + invalidPath);
   }
+
+  @Test
+  public void removeTrailingSlash_withTrailingSlash_removesSlash() {
+    String path = "dir/subdir/";
+
+    String result = UriUtil.removeTrailingSlash(path);
+
+    assertThat(result).isEqualTo("dir/subdir");
+  }
+
+  @Test
+  public void removeTrailingSlash_withoutTrailingSlash_returnsSame() {
+    String path = "dir/subdir";
+
+    String result = UriUtil.removeTrailingSlash(path);
+
+    assertThat(result).isEqualTo("dir/subdir");
+  }
+
+  @Test
+  public void removeTrailingSlash_nullPath_returnsNull() {
+    String result = UriUtil.removeTrailingSlash(null);
+
+    assertThat(result).isNull();
+  }
+
+  @Test
+  public void ensureTrailingSlash_withoutTrailingSlash_appendsSlash() {
+    String path = "dir/subdir";
+
+    String result = UriUtil.ensureTrailingSlash(path);
+
+    assertThat(result).isEqualTo("dir/subdir/");
+  }
+
+  @Test
+  public void ensureTrailingSlash_withTrailingSlash_returnsSame() {
+    String path = "dir/subdir/";
+
+    String result = UriUtil.ensureTrailingSlash(path);
+
+    assertThat(result).isEqualTo("dir/subdir/");
+  }
+
+  @Test
+  public void ensureTrailingSlash_nullPath_returnsNull() {
+    String result = UriUtil.ensureTrailingSlash(null);
+
+    assertThat(result).isNull();
+  }
 }
