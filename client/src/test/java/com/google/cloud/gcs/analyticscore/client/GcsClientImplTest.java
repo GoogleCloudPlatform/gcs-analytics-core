@@ -154,17 +154,18 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getGcsItemInfo_nonExistentBlob_throwsIOException() {
+  void getGcsItemInfo_nonExistentBlob_throwsFileNotFoundException() {
     GcsItemId nonExistentItemId =
         GcsItemId.builder()
             .setBucketName(TEST_BUCKET_NAME)
             .setObjectName(TEST_NON_EXISTENT_OBJECT)
             .build();
 
-    IOException e =
-        assertThrows(IOException.class, () -> gcsClient.getGcsItemInfo(nonExistentItemId));
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class, () -> gcsClient.getGcsItemInfo(nonExistentItemId));
 
-    assertThat(e).hasMessageThat().contains("Object not found:" + nonExistentItemId);
+    assertThat(e).hasMessageThat().contains("Object not found: " + nonExistentItemId);
   }
 
   @Test
@@ -1063,5 +1064,169 @@ class GcsClientImplTest {
     VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemId, readOptions);
 
     assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
+  }
+
+  @Test
+  void getBucketInfo_nullItemId_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> gcsClient.getBucketInfo(null));
+
+    assertThat(e).hasMessageThat().contains("Item ID must not be null");
+  }
+
+  @Test
+  void getBucketInfo_notBucketItemId_throwsIllegalArgumentException() {
+    GcsItemId objectId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("object.txt").build();
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> gcsClient.getBucketInfo(objectId));
+
+    assertThat(e).hasMessageThat().contains("Expected a bucket itemId");
+  }
+
+  @Test
+  void getBucketInfo_nonExistentBucket_throwsFileNotFoundException() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_NON_EXISTENT_BUCKET).build();
+
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> gcsClient.getBucketInfo(bucketId));
+
+    assertThat(e).hasMessageThat().contains("Bucket not found: " + TEST_NON_EXISTENT_BUCKET);
+  }
+
+  @Test
+  void getBucketInfo_bucketExists_returnsBucketInfo() throws IOException {
+    String bucketName = "my-test-bucket";
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(bucketName).build();
+    Storage mockStorage = mock(Storage.class);
+    Bucket mockBucket = mock(Bucket.class);
+    when(mockBucket.getName()).thenReturn(bucketName);
+    when(mockBucket.getLocation()).thenReturn("US");
+    when(mockStorage.get(eq(bucketName))).thenReturn(mockBucket);
+    GcsClientImpl clientWithMock =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return mockStorage;
+          }
+        };
+
+    GcsItemInfo itemInfo = clientWithMock.getBucketInfo(bucketId);
+
+    assertThat(itemInfo).isNotNull();
+    assertThat(itemInfo.getItemId()).isEqualTo(bucketId);
+    assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
+    assertThat(itemInfo.getSize()).isEqualTo(0L);
+    assertThat(itemInfo.getLocation().get()).isEqualTo("US");
+  }
+
+  @Test
+  void getFolderInfo_nullItemId_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> gcsClient.getFolderInfo(null));
+
+    assertThat(e).hasMessageThat().contains("Item ID must not be null");
+  }
+
+  @Test
+  void getFolderInfo_notObjectItemId_throwsIllegalArgumentException() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> gcsClient.getFolderInfo(bucketId));
+
+    assertThat(e).hasMessageThat().contains("Expected a folder itemId");
+  }
+
+  @Test
+  void getFolderInfo_folderExists_returnsFolderInfo() throws IOException {
+    GcsItemId folderItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("my-folder/").build();
+    com.google.storage.control.v2.StorageControlClient mockControlClient =
+        mock(com.google.storage.control.v2.StorageControlClient.class);
+    com.google.storage.control.v2.Folder mockFolder =
+        com.google.storage.control.v2.Folder.newBuilder()
+            .setName("projects/_/buckets/" + TEST_BUCKET + "/folders/my-folder")
+            .setMetageneration(3L)
+            .build();
+    when(mockControlClient.getFolder(any(com.google.storage.control.v2.GetFolderRequest.class)))
+        .thenReturn(mockFolder);
+    GcsClientImpl clientWithMockControl =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return GcsClientImplTest.this.storage;
+          }
+
+          @Override
+          com.google.storage.control.v2.StorageControlClient lazyGetStorageControlClient() {
+            return mockControlClient;
+          }
+        };
+
+    GcsItemInfo itemInfo = clientWithMockControl.getFolderInfo(folderItemId);
+
+    assertThat(itemInfo.getItemId()).isEqualTo(folderItemId);
+    assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.EXPLICIT_DIRECTORY);
+    assertThat(itemInfo.getSize()).isEqualTo(0L);
+    assertThat(itemInfo.getMetaGeneration()).isEqualTo(3L);
+  }
+
+  @Test
+  void getFolderInfo_notFound_throwsFileNotFoundException() throws IOException {
+    GcsItemId folderItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("missing-folder").build();
+    com.google.storage.control.v2.StorageControlClient mockControlClient =
+        mock(com.google.storage.control.v2.StorageControlClient.class);
+    com.google.api.gax.rpc.NotFoundException notFoundException =
+        mock(com.google.api.gax.rpc.NotFoundException.class);
+    when(mockControlClient.getFolder(any(com.google.storage.control.v2.GetFolderRequest.class)))
+        .thenThrow(notFoundException);
+    GcsClientImpl clientWithMockControl =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return GcsClientImplTest.this.storage;
+          }
+
+          @Override
+          com.google.storage.control.v2.StorageControlClient lazyGetStorageControlClient() {
+            return mockControlClient;
+          }
+        };
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class, () -> clientWithMockControl.getFolderInfo(folderItemId));
+
+    assertThat(e).hasMessageThat().contains("Folder not found: " + folderItemId);
+  }
+
+  @Test
+  void getFolderInfo_otherRpcException_throwsIOException() throws IOException {
+    GcsItemId folderItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("folder").build();
+    com.google.storage.control.v2.StorageControlClient mockControlClient =
+        mock(com.google.storage.control.v2.StorageControlClient.class);
+    when(mockControlClient.getFolder(any(com.google.storage.control.v2.GetFolderRequest.class)))
+        .thenThrow(new RuntimeException("RPC error"));
+    GcsClientImpl clientWithMockControl =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return GcsClientImplTest.this.storage;
+          }
+
+          @Override
+          com.google.storage.control.v2.StorageControlClient lazyGetStorageControlClient() {
+            return mockControlClient;
+          }
+        };
+
+    IOException e =
+        assertThrows(IOException.class, () -> clientWithMockControl.getFolderInfo(folderItemId));
+
+    assertThat(e).hasMessageThat().contains("Folder not found: " + folderItemId);
   }
 }
