@@ -52,4 +52,13 @@ class GcsItemIdTest {
 
     assertThat(gcsItemId.isGcsObject()).isFalse();
   }
+
+  @Test
+  void root_hasEmptyBucketAndObjectName() {
+    GcsItemId root = GcsItemId.ROOT;
+
+    assertThat(root.getBucketName()).isEmpty();
+    assertThat(root.getObjectName().isPresent()).isTrue();
+    assertThat(root.getObjectName().get()).isEmpty();
+  }
 }

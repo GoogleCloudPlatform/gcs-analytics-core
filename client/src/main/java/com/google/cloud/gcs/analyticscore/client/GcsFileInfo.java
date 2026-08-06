@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import com.google.common.collect.ImmutableMap;
 import java.net.URI;
 import java.util.Map;
 
@@ -27,6 +28,15 @@ import java.util.Map;
  */
 @AutoValue
 public abstract class GcsFileInfo {
+
+  public static final URI GCS_ROOT_URI = URI.create("gs:/");
+
+  public static final GcsFileInfo ROOT_INFO =
+      builder()
+          .setItemInfo(GcsItemInfo.ROOT_INFO)
+          .setUri(GCS_ROOT_URI)
+          .setAttributes(ImmutableMap.of())
+          .build();
 
   public abstract GcsItemInfo getItemInfo();
 

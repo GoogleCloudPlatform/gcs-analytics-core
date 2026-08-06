@@ -29,8 +29,25 @@ public abstract class GcsItemInfo {
   /** Size of an object in bytes. Returns -1 for items that do not exist. */
   public abstract long getSize();
 
+  /** Content type of the object. */
+  public abstract Optional<String> getContentType();
+
+  /** Content encoding of the object. */
+  public abstract Optional<String> getContentEncoding();
+
+  /** Location of the object. */
+  public abstract Optional<String> getLocation();
+
+  /** Storage class of the object. */
+  public abstract Optional<String> getStorageClass();
+
+  /** Verification attributes for the object. */
+  public abstract Optional<VerificationAttributes> getVerificationAttributes();
+
   /** Generation ID of the object when the metadata is read. */
   public abstract Optional<Long> getContentGeneration();
+
+  public abstract long getMetaGeneration();
 
   public enum ItemType {
     /** A standard storage object. */
@@ -39,8 +56,14 @@ public abstract class GcsItemInfo {
      * An inferred directory, typically represented by a trailing slash in its name or empty object.
      */
     INFERRED_DIRECTORY,
-    /** A native Hierarchical Namespace (HNS) folder. */
-    NATIVE_FOLDER
+    /**
+     * An explicit directory/folder (e.g., an HNS folder or an explicit folder in a flat bucket).
+     */
+    EXPLICIT_DIRECTORY,
+    /** A GCS bucket. */
+    BUCKET,
+    /** The global root namespace. */
+    ROOT
   }
 
   /** Returns the type of this item. */
@@ -49,20 +72,47 @@ public abstract class GcsItemInfo {
   /** Returns the custom extended attributes (metadata) associated with the item. */
   public abstract ImmutableMap<String, byte[]> getExtendedAttributes();
 
+  /** Returns the creation time of the object in milliseconds since epoch, or 0 if not available. */
+  public abstract long getCreationTime();
+
+  /**
+   * Returns the modification time of the object in milliseconds since epoch, or 0 if not available.
+   */
+  public abstract long getModificationTime();
+
   public boolean isInferredDirectory() {
     return getItemType() == ItemType.INFERRED_DIRECTORY;
   }
 
-  public boolean isNativeHnsFolder() {
-    return getItemType() == ItemType.NATIVE_FOLDER;
+  public boolean isExplicitDirectory() {
+    return getItemType() == ItemType.EXPLICIT_DIRECTORY;
   }
+
+  public static GcsItemInfo createInferredDirectory(GcsItemId itemId) {
+    return builder().setItemId(itemId).setSize(0).setItemType(ItemType.INFERRED_DIRECTORY).build();
+  }
+
+  public static GcsItemInfo createBucket(GcsItemId itemId) {
+    return builder().setItemId(itemId).setSize(0).setItemType(ItemType.BUCKET).build();
+  }
+
+  public static final GcsItemInfo ROOT_INFO = createRoot(GcsItemId.ROOT);
+
+  public static GcsItemInfo createRoot(GcsItemId itemId) {
+    return builder().setItemId(itemId).setSize(0).setItemType(ItemType.ROOT).build();
+  }
+
+  public abstract Builder toBuilder();
 
   public static Builder builder() {
     // By default, set size to -1, indicating a non-existent item.
     return new AutoValue_GcsItemInfo.Builder()
         .setSize(-1L)
         .setItemType(ItemType.OBJECT)
-        .setExtendedAttributes(ImmutableMap.of());
+        .setExtendedAttributes(ImmutableMap.of())
+        .setCreationTime(0L)
+        .setModificationTime(0L)
+        .setMetaGeneration(0L);
   }
 
   /** Builder for {@link GcsItemInfo}. */
@@ -73,11 +123,28 @@ public abstract class GcsItemInfo {
 
     public abstract Builder setSize(long size);
 
+    public abstract Builder setContentType(String contentType);
+
+    public abstract Builder setContentEncoding(String contentEncoding);
+
+    public abstract Builder setLocation(String location);
+
+    public abstract Builder setStorageClass(String storageClass);
+
+    public abstract Builder setVerificationAttributes(
+        VerificationAttributes verificationAttributes);
+
     public abstract Builder setContentGeneration(long contentGeneration);
+
+    public abstract Builder setMetaGeneration(long metaGeneration);
 
     public abstract Builder setItemType(ItemType itemType);
 
     public abstract Builder setExtendedAttributes(ImmutableMap<String, byte[]> extendedAttributes);
+
+    public abstract Builder setCreationTime(long creationTime);
+
+    public abstract Builder setModificationTime(long modificationTime);
 
     public abstract GcsItemInfo build();
   }
