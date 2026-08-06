@@ -30,7 +30,7 @@ class GcsItemIdTest {
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
 
     assertThat(gcsItemId.getBucketName()).isEqualTo(TEST_BUCKET);
-    assertThat(gcsItemId.getObjectName().get()).isEqualTo(TEST_OBJECT);
+    assertThat(gcsItemId.getObjectName()).hasValue(TEST_OBJECT);
   }
 
   @Test
@@ -38,7 +38,7 @@ class GcsItemIdTest {
     GcsItemId gcsItemId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
 
     assertThat(gcsItemId.getBucketName()).isEqualTo(TEST_BUCKET);
-    assertThat(gcsItemId.getObjectName().isEmpty()).isTrue();
+    assertThat(gcsItemId.getObjectName()).isEmpty();
   }
 
   @Test
@@ -77,8 +77,7 @@ class GcsItemIdTest {
     GcsItemId root = GcsItemId.ROOT;
 
     assertThat(root.getBucketName()).isEmpty();
-    assertThat(root.getObjectName().isPresent()).isTrue();
-    assertThat(root.getObjectName().get()).isEmpty();
+    assertThat(root.getObjectName()).hasValue("");
     assertThat(root.isBucket()).isFalse();
     assertThat(root.isGcsObject()).isFalse();
   }

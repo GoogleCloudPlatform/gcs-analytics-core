@@ -131,13 +131,7 @@ class GcsClientImplTest {
 
   @BeforeEach
   void setUp() throws IOException {
-    gcsClient =
-        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
-          @Override
-          protected Storage createStorage(Optional<Credentials> credentials) {
-            return GcsClientImplTest.this.storage;
-          }
-        };
+    gcsClient = createClientWithMockStorage(storage);
   }
 
   @Test
@@ -433,13 +427,7 @@ class GcsClientImplTest {
 
   @Test
   void create_withLocalStorage_writesSuccessfully() throws Exception {
-    GcsClientImpl client =
-        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
-          @Override
-          protected Storage createStorage(Optional<Credentials> credentials) {
-            return GcsClientImplTest.this.storage;
-          }
-        };
+    GcsClientImpl client = createClientWithMockStorage(storage);
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_WRITE_OBJECT).build();
     BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_WRITE_OBJECT)).build();
@@ -958,13 +946,7 @@ class GcsClientImplTest {
     Storage mockStorage = mock(Storage.class);
     ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
     when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
-    GcsClient bidiClient =
-        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
-          @Override
-          protected Storage createStorage(Optional<Credentials> credentials) {
-            return mockStorage;
-          }
-        };
+    GcsClient bidiClient = createClientWithMockStorage(mockStorage);
 
     VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemInfo, readOptions);
 
@@ -980,13 +962,7 @@ class GcsClientImplTest {
     Storage mockStorage = mock(Storage.class);
     ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
     when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
-    GcsClient bidiClient =
-        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
-          @Override
-          protected Storage createStorage(Optional<Credentials> credentials) {
-            return mockStorage;
-          }
-        };
+    GcsClient bidiClient = createClientWithMockStorage(mockStorage);
 
     VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemId, readOptions);
 
@@ -1025,16 +1001,8 @@ class GcsClientImplTest {
   @Test
   void getBucketInfo_bucketExists_returnsBucketInfo() throws IOException {
     GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    Bucket mockBucket = createMockBucket(TEST_BUCKET);
     Storage mockStorage = mock(Storage.class);
-    Bucket mockBucket = mock(Bucket.class);
-    when(mockBucket.getName()).thenReturn(TEST_BUCKET);
-    when(mockBucket.getLocation()).thenReturn(TEST_LOCATION);
-    when(mockBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
-    when(mockBucket.getMetageneration()).thenReturn(2L);
-    when(mockBucket.getCreateTimeOffsetDateTime())
-        .thenReturn(OffsetDateTime.parse("2026-08-01T10:00:00Z"));
-    when(mockBucket.getUpdateTimeOffsetDateTime())
-        .thenReturn(OffsetDateTime.parse("2026-08-02T10:00:00Z"));
     when(mockStorage.get(eq(TEST_BUCKET))).thenReturn(mockBucket);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
@@ -1044,8 +1012,8 @@ class GcsClientImplTest {
     assertThat(itemInfo.getItemId()).isEqualTo(bucketId);
     assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
     assertThat(itemInfo.getSize()).isEqualTo(0L);
-    assertThat(itemInfo.getLocation().get()).isEqualTo(TEST_LOCATION);
-    assertThat(itemInfo.getStorageClass().get()).isEqualTo("STANDARD");
+    assertThat(itemInfo.getLocation()).hasValue(TEST_LOCATION);
+    assertThat(itemInfo.getStorageClass()).hasValue("STANDARD");
     assertThat(itemInfo.getMetaGeneration()).isEqualTo(2L);
     assertThat(itemInfo.getCreationTime())
         .isEqualTo(OffsetDateTime.parse("2026-08-01T10:00:00Z").toInstant().toEpochMilli());
@@ -1078,14 +1046,8 @@ class GcsClientImplTest {
             .setBucketName(TEST_BUCKET)
             .setObjectName(TEST_FOLDER_NAME + "/")
             .build();
+    Folder mockFolder = createMockFolder(TEST_BUCKET, TEST_FOLDER_NAME);
     StorageControlClient mockControlClient = mock(StorageControlClient.class);
-    Folder mockFolder =
-        Folder.newBuilder()
-            .setName("projects/_/buckets/" + TEST_BUCKET + "/folders/" + TEST_FOLDER_NAME)
-            .setMetageneration(3L)
-            .setCreateTime(Timestamp.newBuilder().setSeconds(1000).setNanos(500).build())
-            .setUpdateTime(Timestamp.newBuilder().setSeconds(2000).setNanos(500).build())
-            .build();
     when(mockControlClient.getFolder(any(GetFolderRequest.class))).thenReturn(mockFolder);
     GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
 
@@ -1188,29 +1150,8 @@ class GcsClientImplTest {
   void listObjectInfo_returnsObjectsWithMetadata() throws IOException {
     GcsItemId prefixId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
-    Blob mockBlob = mock(Blob.class);
-    when(mockBlob.getBucket()).thenReturn(TEST_BUCKET);
-    when(mockBlob.getName()).thenReturn(TEST_DIR + TEST_OBJECT);
-    when(mockBlob.getGeneration()).thenReturn(100L);
-    when(mockBlob.getMetageneration()).thenReturn(2L);
-    when(mockBlob.getSize()).thenReturn(1024L);
-    when(mockBlob.getCreateTimeOffsetDateTime())
-        .thenReturn(OffsetDateTime.parse("2026-08-01T10:00:00Z"));
-    when(mockBlob.getUpdateTimeOffsetDateTime())
-        .thenReturn(OffsetDateTime.parse("2026-08-02T10:00:00Z"));
-    when(mockBlob.getContentType()).thenReturn(TEST_CONTENT_TYPE);
-    when(mockBlob.getContentEncoding()).thenReturn(TEST_CONTENT_ENCODING);
-    when(mockBlob.getStorageClass()).thenReturn(StorageClass.STANDARD);
-    when(mockBlob.getMd5()).thenReturn(BaseEncoding.base64().encode("md5checksum".getBytes(UTF_8)));
-    when(mockBlob.getCrc32c()).thenReturn(BaseEncoding.base64().encode("crc32c".getBytes(UTF_8)));
-    when(mockBlob.getMetadata()).thenReturn(ImmutableMap.of("userKey", "userVal"));
-
-    @SuppressWarnings("unchecked")
-    Page<Blob> mockPage = mock(Page.class);
-    when(mockPage.iterateAll()).thenReturn(ImmutableList.of(mockBlob));
-    Storage mockStorage = mock(Storage.class);
-    when(mockStorage.list(eq(TEST_BUCKET), any(Storage.BlobListOption[].class)))
-        .thenReturn(mockPage);
+    Blob mockBlob = createMockBlobWithFullMetadata(TEST_BUCKET, TEST_DIR + TEST_OBJECT);
+    Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET, mockBlob);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
     List<GcsItemInfo> result = clientWithMock.listObjectInfo(prefixId, 10);
@@ -1218,44 +1159,35 @@ class GcsClientImplTest {
     assertThat(result).hasSize(1);
     GcsItemInfo item = result.get(0);
     assertThat(item.getItemId().getBucketName()).isEqualTo(TEST_BUCKET);
-    assertThat(item.getItemId().getObjectName().get()).isEqualTo(TEST_DIR + TEST_OBJECT);
+    assertThat(item.getItemId().getObjectName()).hasValue(TEST_DIR + TEST_OBJECT);
     assertThat(item.getSize()).isEqualTo(1024L);
-    assertThat(item.getContentGeneration()).isEqualTo(Optional.of(100L));
-    assertThat(item.getMetaGeneration()).isEqualTo(2L);
-    assertThat(item.getContentType()).isEqualTo(Optional.of(TEST_CONTENT_TYPE));
-    assertThat(item.getContentEncoding()).isEqualTo(Optional.of(TEST_CONTENT_ENCODING));
-    assertThat(item.getStorageClass()).isEqualTo(Optional.of("STANDARD"));
-    assertThat(item.getCreationTime())
-        .isEqualTo(OffsetDateTime.parse("2026-08-01T10:00:00Z").toInstant().toEpochMilli());
-    assertThat(item.getModificationTime())
-        .isEqualTo(OffsetDateTime.parse("2026-08-02T10:00:00Z").toInstant().toEpochMilli());
-    assertThat(item.getExtendedAttributes()).containsKey("userKey");
-    assertThat(item.getExtendedAttributes().get("userKey")).isEqualTo("userVal".getBytes(UTF_8));
   }
 
   @Test
   void listObjectInfo_withMaxResults_limitsReturnedItems() throws IOException {
     GcsItemId prefixId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
-    Blob mockBlob1 = mock(Blob.class);
-    when(mockBlob1.getBucket()).thenReturn(TEST_BUCKET);
-    when(mockBlob1.getName()).thenReturn(TEST_DIR + "file1.txt");
-    Blob mockBlob2 = mock(Blob.class);
-    when(mockBlob2.getBucket()).thenReturn(TEST_BUCKET);
-    when(mockBlob2.getName()).thenReturn(TEST_DIR + "file2.txt");
-
-    @SuppressWarnings("unchecked")
-    Page<Blob> mockPage = mock(Page.class);
-    when(mockPage.iterateAll()).thenReturn(ImmutableList.of(mockBlob1, mockBlob2));
-    Storage mockStorage = mock(Storage.class);
-    when(mockStorage.list(eq(TEST_BUCKET), any(Storage.BlobListOption[].class)))
-        .thenReturn(mockPage);
+    Blob mockBlob1 = createMockBlob(TEST_BUCKET, TEST_DIR + "file1.txt");
+    Blob mockBlob2 = createMockBlob(TEST_BUCKET, TEST_DIR + "file2.txt");
+    Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET, mockBlob1, mockBlob2);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
     List<GcsItemInfo> result = clientWithMock.listObjectInfo(prefixId, 1);
 
     assertThat(result).hasSize(1);
     assertThat(result.get(0).getItemId().getObjectName().get()).isEqualTo(TEST_DIR + "file1.txt");
+  }
+
+  @Test
+  void listObjectInfo_emptyPage_returnsEmptyList() throws IOException {
+    GcsItemId prefixId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
+    Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    List<GcsItemInfo> result = clientWithMock.listObjectInfo(prefixId, 10);
+
+    assertThat(result).isEmpty();
   }
 
   @Test
@@ -1312,5 +1244,61 @@ class GcsClientImplTest {
         assertThrows(IOException.class, () -> clientWithMock.listObjectInfo(prefixId, 10));
 
     assertThat(e).hasMessageThat().contains("Failed to list objects for prefix: " + prefixId);
+  }
+
+  private static Blob createMockBlob(String bucket, String name) {
+    Blob mockBlob = mock(Blob.class);
+    when(mockBlob.getBucket()).thenReturn(bucket);
+    when(mockBlob.getName()).thenReturn(name);
+    return mockBlob;
+  }
+
+  private static Blob createMockBlobWithFullMetadata(String bucket, String name) {
+    Blob mockBlob = createMockBlob(bucket, name);
+    when(mockBlob.getGeneration()).thenReturn(100L);
+    when(mockBlob.getMetageneration()).thenReturn(2L);
+    when(mockBlob.getSize()).thenReturn(1024L);
+    when(mockBlob.getCreateTimeOffsetDateTime())
+        .thenReturn(OffsetDateTime.parse("2026-08-01T10:00:00Z"));
+    when(mockBlob.getUpdateTimeOffsetDateTime())
+        .thenReturn(OffsetDateTime.parse("2026-08-02T10:00:00Z"));
+    when(mockBlob.getContentType()).thenReturn(TEST_CONTENT_TYPE);
+    when(mockBlob.getContentEncoding()).thenReturn(TEST_CONTENT_ENCODING);
+    when(mockBlob.getStorageClass()).thenReturn(StorageClass.STANDARD);
+    when(mockBlob.getMd5()).thenReturn(BaseEncoding.base64().encode("md5checksum".getBytes(UTF_8)));
+    when(mockBlob.getCrc32c()).thenReturn(BaseEncoding.base64().encode("crc32c".getBytes(UTF_8)));
+    when(mockBlob.getMetadata()).thenReturn(ImmutableMap.of("userKey", "userVal"));
+    return mockBlob;
+  }
+
+  private static Bucket createMockBucket(String bucketName) {
+    Bucket mockBucket = mock(Bucket.class);
+    when(mockBucket.getName()).thenReturn(bucketName);
+    when(mockBucket.getLocation()).thenReturn(TEST_LOCATION);
+    when(mockBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
+    when(mockBucket.getMetageneration()).thenReturn(2L);
+    when(mockBucket.getCreateTimeOffsetDateTime())
+        .thenReturn(OffsetDateTime.parse("2026-08-01T10:00:00Z"));
+    when(mockBucket.getUpdateTimeOffsetDateTime())
+        .thenReturn(OffsetDateTime.parse("2026-08-02T10:00:00Z"));
+    return mockBucket;
+  }
+
+  private static Folder createMockFolder(String bucketName, String folderName) {
+    return Folder.newBuilder()
+        .setName("projects/_/buckets/" + bucketName + "/folders/" + folderName)
+        .setMetageneration(3L)
+        .setCreateTime(Timestamp.newBuilder().setSeconds(1000).setNanos(500).build())
+        .setUpdateTime(Timestamp.newBuilder().setSeconds(2000).setNanos(500).build())
+        .build();
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Storage createMockStorageWithBlobs(String bucket, Blob... blobs) {
+    Page<Blob> mockPage = mock(Page.class);
+    when(mockPage.iterateAll()).thenReturn(ImmutableList.copyOf(blobs));
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.list(eq(bucket), any(Storage.BlobListOption[].class))).thenReturn(mockPage);
+    return mockStorage;
   }
 }

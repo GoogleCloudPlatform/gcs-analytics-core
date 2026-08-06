@@ -33,7 +33,7 @@ class UriUtilTest {
     GcsItemId itemId = UriUtil.getItemIdFromString(gcsBucketName);
 
     assertThat(itemId.getBucketName()).isEqualTo(TEST_BUCKET);
-    assertThat(itemId.getObjectName().isEmpty()).isTrue();
+    assertThat(itemId.getObjectName()).isEmpty();
   }
 
   @Test
@@ -43,8 +43,7 @@ class UriUtilTest {
     GcsItemId itemId = UriUtil.getItemIdFromString(gcsObjectName);
 
     assertThat(itemId.getBucketName()).isEqualTo(TEST_BUCKET);
-    assertThat(itemId.getObjectName().isPresent()).isTrue();
-    assertThat(itemId.getObjectName().get()).isEqualTo(TEST_OBJECT);
+    assertThat(itemId.getObjectName()).hasValue(TEST_OBJECT);
   }
 
   @Test
