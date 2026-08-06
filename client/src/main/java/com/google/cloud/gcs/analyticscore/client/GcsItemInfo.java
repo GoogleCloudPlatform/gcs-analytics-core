@@ -23,6 +23,8 @@ import java.util.Optional;
 @AutoValue
 public abstract class GcsItemInfo {
 
+  public static final GcsItemInfo ROOT_INFO = createRoot(GcsItemId.ROOT);
+
   /** Returns the identifier of the GCS item. */
   public abstract GcsItemId getItemId();
 
@@ -95,8 +97,6 @@ public abstract class GcsItemInfo {
   public static GcsItemInfo createBucket(GcsItemId itemId) {
     return builder().setItemId(itemId).setSize(0).setItemType(ItemType.BUCKET).build();
   }
-
-  public static final GcsItemInfo ROOT_INFO = createRoot(GcsItemId.ROOT);
 
   public static GcsItemInfo createRoot(GcsItemId itemId) {
     return builder().setItemId(itemId).setSize(0).setItemType(ItemType.ROOT).build();

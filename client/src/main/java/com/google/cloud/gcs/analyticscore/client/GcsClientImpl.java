@@ -66,10 +66,18 @@ class GcsClientImpl implements GcsClient {
   private static final Logger LOG = LoggerFactory.getLogger(GcsClientImpl.class);
   private static final List<BlobField> BLOB_METADATA_FIELDS =
       ImmutableList.of(
+          BlobField.NAME,
+          BlobField.BUCKET,
           BlobField.GENERATION,
+          BlobField.METAGENERATION,
           BlobField.SIZE,
+          BlobField.CONTENT_TYPE,
+          BlobField.CONTENT_ENCODING,
+          BlobField.STORAGE_CLASS,
           BlobField.TIME_CREATED,
           BlobField.UPDATED,
+          BlobField.MD5HASH,
+          BlobField.CRC32C,
           BlobField.METADATA);
   private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
 
@@ -78,7 +86,7 @@ class GcsClientImpl implements GcsClient {
   private final Optional<Credentials> credentials;
   private Supplier<ExecutorService> executorServiceSupplier;
   private final Telemetry telemetry;
-  private StorageControlClient storageControlClient;
+  @VisibleForTesting StorageControlClient storageControlClient;
 
   GcsClientImpl(
       Credentials credentials,
@@ -216,22 +224,34 @@ class GcsClientImpl implements GcsClient {
 
   @Override
   public List<GcsItemInfo> listObjectInfo(GcsItemId prefixId, int maxResults) throws IOException {
+    checkNotNull(prefixId, "prefixId must not be null");
+    checkArgument(maxResults > 0, "maxResults must be > 0");
     String prefix = prefixId.getObjectName().orElse("");
-    Page<Blob> page =
-        storage.list(
-            prefixId.getBucketName(),
-            BlobListOption.prefix(prefix),
-            BlobListOption.pageSize(maxResults),
-            BlobListOption.fields(BLOB_METADATA_FIELDS.toArray(new BlobField[0])));
 
-    ImmutableList.Builder<GcsItemInfo> builder = ImmutableList.builder();
-    for (Blob blob : page.iterateAll()) {
-      builder.add(fromBlob(blob));
-      if (builder.build().size() >= maxResults && maxResults > 0) {
-        break;
+    try {
+      Page<Blob> page =
+          storage.list(
+              prefixId.getBucketName(),
+              BlobListOption.prefix(prefix),
+              BlobListOption.pageSize(maxResults),
+              BlobListOption.fields(BLOB_METADATA_FIELDS.toArray(new BlobField[0])));
+
+      ImmutableList.Builder<GcsItemInfo> builder = ImmutableList.builder();
+      int count = 0;
+      for (Blob blob : page.iterateAll()) {
+        builder.add(fromBlob(blob));
+        count++;
+        if (count >= maxResults) {
+          break;
+        }
       }
+      return builder.build();
+    } catch (StorageException e) {
+      if (e.getCode() == 404) {
+        throw new FileNotFoundException("Bucket not found: " + prefixId.getBucketName());
+      }
+      throw new IOException("Failed to list objects for prefix: " + prefixId, e);
     }
-    return builder.build();
   }
 
   private GcsItemInfo fromBlob(Blob blob) {
@@ -259,6 +279,7 @@ class GcsClientImpl implements GcsClient {
     Optional.ofNullable(blob.getContentEncoding()).ifPresent(infoBuilder::setContentEncoding);
     Optional.ofNullable(blob.getStorageClass())
         .ifPresent(sc -> infoBuilder.setStorageClass(sc.name()));
+    Optional.ofNullable(blob.getMetageneration()).ifPresent(infoBuilder::setMetaGeneration);
 
     if (blob.getMetadata() != null) {
       ImmutableMap.Builder<String, byte[]> xattrs = ImmutableMap.builder();

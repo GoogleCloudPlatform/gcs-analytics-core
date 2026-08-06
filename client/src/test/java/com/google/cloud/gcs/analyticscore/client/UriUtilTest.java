@@ -20,31 +20,35 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
 
-public final class UriUtilTest {
+class UriUtilTest {
+
+  private static final String TEST_BUCKET = "test-bucket";
+  private static final String TEST_OBJECT = "test-object";
+  private static final String TEST_PATH = "dir/subdir";
 
   @Test
-  public void getItemIdFromString_gcsBucket_succeeds() {
-    String gcsBucketName = "gs://test-bucket";
+  void getItemIdFromString_gcsBucket_succeeds() {
+    String gcsBucketName = "gs://" + TEST_BUCKET;
 
     GcsItemId itemId = UriUtil.getItemIdFromString(gcsBucketName);
 
-    assertThat(itemId.getBucketName()).isEqualTo("test-bucket");
+    assertThat(itemId.getBucketName()).isEqualTo(TEST_BUCKET);
     assertThat(itemId.getObjectName().isEmpty()).isTrue();
   }
 
   @Test
-  public void getItemIdFromString_gcsObject_succeeds() {
-    String gcsObjectName = "gs://test-bucket/test-object";
+  void getItemIdFromString_gcsObject_succeeds() {
+    String gcsObjectName = "gs://" + TEST_BUCKET + "/" + TEST_OBJECT;
 
     GcsItemId itemId = UriUtil.getItemIdFromString(gcsObjectName);
 
-    assertThat(itemId.getBucketName()).isEqualTo("test-bucket");
+    assertThat(itemId.getBucketName()).isEqualTo(TEST_BUCKET);
     assertThat(itemId.getObjectName().isPresent()).isTrue();
-    assertThat(itemId.getObjectName().get()).isEqualTo("test-object");
+    assertThat(itemId.getObjectName().get()).isEqualTo(TEST_OBJECT);
   }
 
   @Test
-  public void getItemIdFromString_gsOnly_throwsIllegalArgumentException() {
+  void getItemIdFromString_gsOnly_throwsIllegalArgumentException() {
     IllegalArgumentException e =
         assertThrows(IllegalArgumentException.class, () -> UriUtil.getItemIdFromString("gs://"));
 
@@ -52,7 +56,7 @@ public final class UriUtilTest {
   }
 
   @Test
-  public void getItemIdFromString_nullPath_throwsIllegalArgumentException() {
+  void getItemIdFromString_nullPath_throwsIllegalArgumentException() {
     IllegalArgumentException e =
         assertThrows(IllegalArgumentException.class, () -> UriUtil.getItemIdFromString(null));
 
@@ -60,8 +64,8 @@ public final class UriUtilTest {
   }
 
   @Test
-  public void getItemIdFromString_invalidPath_throwsIllegalArgumentException() {
-    String invalidPath = "http://test-bucket/test-pbject";
+  void getItemIdFromString_invalidPath_throwsIllegalArgumentException() {
+    String invalidPath = "http://test-bucket/test-object";
     IllegalArgumentException e =
         assertThrows(
             IllegalArgumentException.class, () -> UriUtil.getItemIdFromString(invalidPath));
@@ -70,50 +74,42 @@ public final class UriUtilTest {
   }
 
   @Test
-  public void removeTrailingSlash_withTrailingSlash_removesSlash() {
-    String path = "dir/subdir/";
+  void removeTrailingSlash_withTrailingSlash_removesSlash() {
+    String result = UriUtil.removeTrailingSlash(TEST_PATH + "/");
 
-    String result = UriUtil.removeTrailingSlash(path);
-
-    assertThat(result).isEqualTo("dir/subdir");
+    assertThat(result).isEqualTo(TEST_PATH);
   }
 
   @Test
-  public void removeTrailingSlash_withoutTrailingSlash_returnsSame() {
-    String path = "dir/subdir";
+  void removeTrailingSlash_withoutTrailingSlash_returnsSame() {
+    String result = UriUtil.removeTrailingSlash(TEST_PATH);
 
-    String result = UriUtil.removeTrailingSlash(path);
-
-    assertThat(result).isEqualTo("dir/subdir");
+    assertThat(result).isEqualTo(TEST_PATH);
   }
 
   @Test
-  public void removeTrailingSlash_nullPath_returnsNull() {
+  void removeTrailingSlash_nullPath_returnsNull() {
     String result = UriUtil.removeTrailingSlash(null);
 
     assertThat(result).isNull();
   }
 
   @Test
-  public void ensureTrailingSlash_withoutTrailingSlash_appendsSlash() {
-    String path = "dir/subdir";
+  void ensureTrailingSlash_withoutTrailingSlash_appendsSlash() {
+    String result = UriUtil.ensureTrailingSlash(TEST_PATH);
 
-    String result = UriUtil.ensureTrailingSlash(path);
-
-    assertThat(result).isEqualTo("dir/subdir/");
+    assertThat(result).isEqualTo(TEST_PATH + "/");
   }
 
   @Test
-  public void ensureTrailingSlash_withTrailingSlash_returnsSame() {
-    String path = "dir/subdir/";
+  void ensureTrailingSlash_withTrailingSlash_returnsSame() {
+    String result = UriUtil.ensureTrailingSlash(TEST_PATH + "/");
 
-    String result = UriUtil.ensureTrailingSlash(path);
-
-    assertThat(result).isEqualTo("dir/subdir/");
+    assertThat(result).isEqualTo(TEST_PATH + "/");
   }
 
   @Test
-  public void ensureTrailingSlash_nullPath_returnsNull() {
+  void ensureTrailingSlash_nullPath_returnsNull() {
     String result = UriUtil.ensureTrailingSlash(null);
 
     assertThat(result).isNull();

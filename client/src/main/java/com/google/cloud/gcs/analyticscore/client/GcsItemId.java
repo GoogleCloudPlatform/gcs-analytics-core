@@ -48,14 +48,27 @@ public abstract class GcsItemId {
     public abstract GcsItemId build();
   }
 
+  /**
+   * Returns true if this identifier represents a GCS object/folder within a bucket.
+   *
+   * <p>An item is a GCS object if it has a non-empty bucket name and a present, non-empty object
+   * name.
+   */
   public boolean isGcsObject() {
     return this.getBucketName() != null
         && this.getObjectName().isPresent()
         && !this.getObjectName().get().isEmpty();
   }
 
+  /**
+   * Returns true if this identifier represents a GCS bucket.
+   *
+   * <p>An item is a bucket if it has a non-empty bucket name and no object path (the object name is
+   * either absent or empty).
+   */
   public boolean isBucket() {
     return this.getBucketName() != null
+        && !this.getBucketName().isEmpty()
         && (this.getObjectName().isEmpty() || this.getObjectName().get().isEmpty());
   }
 }

@@ -21,11 +21,17 @@ import org.junit.jupiter.api.Test;
 
 class GcsItemInfoTest {
 
+  private static final String TEST_BUCKET = "bucket";
+  private static final String TEST_DIR = "dir/";
+  private static final String TEST_FOLDER = "folder/";
+  private static final String TEST_OBJECT = "obj";
+
   @Test
   void isInferredDirectory() {
     GcsItemInfo itemInfo =
         GcsItemInfo.builder()
-            .setItemId(GcsItemId.builder().setBucketName("bucket").setObjectName("dir/").build())
+            .setItemId(
+                GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build())
             .setItemType(GcsItemInfo.ItemType.INFERRED_DIRECTORY)
             .build();
 
@@ -37,7 +43,8 @@ class GcsItemInfoTest {
   void isExplicitDirectory() {
     GcsItemInfo itemInfo =
         GcsItemInfo.builder()
-            .setItemId(GcsItemId.builder().setBucketName("bucket").setObjectName("folder/").build())
+            .setItemId(
+                GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_FOLDER).build())
             .setItemType(GcsItemInfo.ItemType.EXPLICIT_DIRECTORY)
             .build();
 
@@ -49,7 +56,8 @@ class GcsItemInfoTest {
   void isObject() {
     GcsItemInfo itemInfo =
         GcsItemInfo.builder()
-            .setItemId(GcsItemId.builder().setBucketName("bucket").setObjectName("obj").build())
+            .setItemId(
+                GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build())
             .setItemType(GcsItemInfo.ItemType.OBJECT)
             .build();
 
