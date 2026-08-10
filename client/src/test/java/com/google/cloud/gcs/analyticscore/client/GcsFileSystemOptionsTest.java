@@ -84,12 +84,12 @@ class GcsFileSystemOptionsTest {
   }
 
   @Test
-  void createFromOptions_withListParallelEnabledFalse_createsCorrectOptions() {
+  void createFromOptions_withStatusParallelEnabledFalse_createsCorrectOptions() {
     ImmutableMap<String, String> properties =
-        ImmutableMap.of("fs.gs.analytics-core.list.parallel.enabled", "false");
+        ImmutableMap.of("fs.gs.status.parallel.enable", "false");
 
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
-    assertThat(options.isListParallelEnabled()).isFalse();
+    assertThat(options.isStatusParallelEnabled()).isFalse();
   }
 }

@@ -235,7 +235,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     readExecutorService.shutdown();
     listExecutorService.shutdown();
     try {
-      // Wait a total of LIST_EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS for both thread pools to terminate.
+      // Wait a total of EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS for both thread pools to terminate.
       long deadline =
           System.nanoTime() + TimeUnit.SECONDS.toNanos(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS);
       // First, wait for the read executor service to terminate.
@@ -243,7 +243,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
           EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
         readExecutorService.shutdownNow();
       }
-      // Then, wait for the cached executor service to terminate, with the remaining time.
+      // Then, wait for the list executor service to terminate, with the remaining time.
       if (!listExecutorService.awaitTermination(
           Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS)) {
         listExecutorService.shutdownNow();
@@ -303,7 +303,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   Supplier<ExecutorService> initializeListExecutionServiceSupplier() {
     return Suppliers.memoize(
         () -> {
-          if (fileSystemOptions.isListParallelEnabled()) {
+          if (fileSystemOptions.isStatusParallelEnabled()) {
             return createCachedExecutor();
           }
           return new LazyExecutorService();

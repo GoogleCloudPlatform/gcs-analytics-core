@@ -26,7 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class LoggingTelemetryReporterTest {
 
   @Test
-  public void testFormatMetrics_singleMetricWithoutAttributes() {
+  void formatMetrics_singleMetricWithoutAttributes() {
     try (LoggingTelemetryReporter reporter =
         new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build())) {
       Map<MetricKey, Long> metrics =
@@ -43,7 +43,7 @@ class LoggingTelemetryReporterTest {
   }
 
   @Test
-  public void testFormatMetrics_singleMetricWithAttributes() {
+  void formatMetrics_singleMetricWithAttributes() {
     try (LoggingTelemetryReporter reporter =
         new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build())) {
       Map<MetricKey, Long> metrics =
@@ -64,7 +64,7 @@ class LoggingTelemetryReporterTest {
   }
 
   @Test
-  public void testFormatMetrics_multipleMetrics() {
+  void formatMetrics_multipleMetrics() {
     try (LoggingTelemetryReporter reporter =
         new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build())) {
       Map<MetricKey, Long> metrics =
