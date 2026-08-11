@@ -53,7 +53,7 @@ public class FakeGcsClientImpl extends GcsClientImpl {
 
   @Override
   BucketProperties getBucketProperties(String bucketName) {
-    // FakeStorageRpc does not support bucket operations
+    // LocalStorageHelper does not support bucket operations
     return BucketProperties.create(false);
   }
 

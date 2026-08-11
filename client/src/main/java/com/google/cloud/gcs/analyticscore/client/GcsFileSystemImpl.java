@@ -34,7 +34,6 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.channels.WritableByteChannel;
 import java.util.Collections;
@@ -125,14 +124,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
     BucketProperties properties =
         cacheManager.getBucketProperties(
-            bucketName,
-            name -> {
-              try {
-                return BucketProperties.create(gcsClient.isHnsBucket(name));
-              } catch (IOException e) {
-                throw new UncheckedIOException(e);
-              }
-            });
+            bucketName, name -> BucketProperties.create(gcsClient.isHnsBucket(name)));
 
     if (properties.isHnsEnabled()) {
       return hnsStrategy;

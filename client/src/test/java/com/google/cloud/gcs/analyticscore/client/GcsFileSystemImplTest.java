@@ -35,7 +35,6 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.channels.WritableByteChannel;
@@ -641,8 +640,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void resolveStrategy_isHnsBucketThrowsIoException_throwsUncheckedIOException()
-      throws IOException {
+  void resolveStrategy_isHnsBucketThrowsIoException_throwsIOException() throws IOException {
     GcsFileSystemOptions options =
         GcsFileSystemOptions.builder()
             .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
@@ -651,12 +649,10 @@ class GcsFileSystemImplTest {
     when(mockClient.isHnsBucket(TEST_BUCKET)).thenThrow(new IOException("test exception"));
 
     try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
-      UncheckedIOException exception =
-          assertThrows(
-              UncheckedIOException.class, () -> gcsFileSystem.resolveStrategy(TEST_BUCKET));
+      IOException exception =
+          assertThrows(IOException.class, () -> gcsFileSystem.resolveStrategy(TEST_BUCKET));
 
-      assertThat(exception).hasCauseThat().isInstanceOf(IOException.class);
-      assertThat(exception).hasCauseThat().hasMessageThat().isEqualTo("test exception");
+      assertThat(exception).hasMessageThat().isEqualTo("test exception");
     }
   }
 
