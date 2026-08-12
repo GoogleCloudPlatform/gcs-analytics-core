@@ -17,7 +17,6 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
-
   private final GcsClient gcsClient;
 
   FlatNamespaceStrategyImpl(GcsClient gcsClient) {

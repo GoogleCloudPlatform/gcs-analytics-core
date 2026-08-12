@@ -45,23 +45,18 @@ import java.util.concurrent.TimeUnit;
 public class GcsFileSystemImpl implements GcsFileSystem {
 
   /**
-   * Status or list calls (e.g., getting file info or listing a directory) block on I/O. A core pool
-   * size of 2 allows basic concurrency without significant resource overhead.
-   */
-  private static final int CACHED_EXECUTOR_CORE_POOL_SIZE = 2;
-
-  /**
    * Using a 30-second keep-alive enables efficient thread reuse during intermittent spikes in
    * status and list requests, while ensuring rapid resource cleanup during periods of inactivity.
    */
   private static final int CACHED_EXECUTOR_KEEP_ALIVE_SECONDS = 30;
 
   /**
-   * Status and list calls block on I/O. An unbounded maximum pool size, combined with a
-   * zero-capacity SynchronousQueue, ensures tasks are never queued and new threads are immediately
-   * allocated to handle concurrent operations.
+   * Thread pool size for cached executor. A multiplier of 4x available cores is used as file info /
+   * status calls are lightweight metadata operations. Floor of 16: Hides network latency on small
+   * containers. Ceiling of 128: Prevents connection/memory thrashing on massive VMs.
    */
-  private static final int CACHED_EXECUTOR_MAX_POOL_SIZE = Integer.MAX_VALUE;
+  private static final int CACHED_EXECUTOR_MAX_POOL_SIZE =
+      Math.max(16, Math.min(Runtime.getRuntime().availableProcessors() * 4, 128));
 
   /**
    * The maximum amount of time in seconds to wait for background thread pools to gracefully
@@ -311,13 +306,20 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   private static ExecutorService createCachedExecutor() {
+    // TODO: Benchmark to determine the best fit for pool size and queue capacity.
+
+    // Setting corePoolSize equal to maxPoolSize combined with allowCoreThreadTimeOut ensures that
+    // incoming tasks immediately spawn new threads up to CACHED_EXECUTOR_MAX_POOL_SIZE before
+    // tasks are queued in the LinkedBlockingQueue, while allowing all idle threads to terminate
+    // after 30 seconds of inactivity.
+    // An unbounded queue is used so that new tasks are not rejected due to queue capacity.
     ThreadPoolExecutor service =
         new ThreadPoolExecutor(
-            /* corePoolSize= */ CACHED_EXECUTOR_CORE_POOL_SIZE,
+            /* corePoolSize= */ CACHED_EXECUTOR_MAX_POOL_SIZE,
             /* maximumPoolSize= */ CACHED_EXECUTOR_MAX_POOL_SIZE,
             /* keepAliveTime= */ CACHED_EXECUTOR_KEEP_ALIVE_SECONDS,
             TimeUnit.SECONDS,
-            new java.util.concurrent.SynchronousQueue<>(),
+            new LinkedBlockingQueue<>(),
             new ThreadFactoryBuilder()
                 .setNameFormat("gcs-filesystem-cached-pool-%d")
                 .setDaemon(true)
