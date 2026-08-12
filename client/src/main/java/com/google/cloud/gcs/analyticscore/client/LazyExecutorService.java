@@ -16,6 +16,7 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.AbstractExecutorService;
@@ -85,24 +86,23 @@ final class LazyExecutorService extends AbstractExecutorService {
    * must be explicitly submitted and resolved individually via their returned Futures.
    */
   @Override
-  public <T> List<Future<T>> invokeAll(java.util.Collection<? extends Callable<T>> tasks) {
+  public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks) {
     throw new UnsupportedOperationException("LazyExecutorService does not support invokeAll");
   }
 
   @Override
   public <T> List<Future<T>> invokeAll(
-      java.util.Collection<? extends Callable<T>> tasks, long timeout, TimeUnit unit) {
+      Collection<? extends Callable<T>> tasks, long timeout, TimeUnit unit) {
     throw new UnsupportedOperationException("LazyExecutorService does not support invokeAll");
   }
 
   @Override
-  public <T> T invokeAny(java.util.Collection<? extends Callable<T>> tasks) {
+  public <T> T invokeAny(Collection<? extends Callable<T>> tasks) {
     throw new UnsupportedOperationException("LazyExecutorService does not support invokeAny");
   }
 
   @Override
-  public <T> T invokeAny(
-      java.util.Collection<? extends Callable<T>> tasks, long timeout, TimeUnit unit) {
+  public <T> T invokeAny(Collection<? extends Callable<T>> tasks, long timeout, TimeUnit unit) {
     throw new UnsupportedOperationException("LazyExecutorService does not support invokeAny");
   }
 

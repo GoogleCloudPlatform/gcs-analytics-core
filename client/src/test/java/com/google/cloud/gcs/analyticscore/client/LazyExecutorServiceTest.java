@@ -68,9 +68,9 @@ class LazyExecutorServiceTest {
           executionThread.set(Thread.currentThread());
           return "success";
         };
+
     Future<String> future = executorService.submit(task);
     boolean executedBeforeGet = executionCount.get() > 0;
-
     String result1 = future.get(10, SECONDS);
     String result2 = future.get();
 
@@ -89,7 +89,6 @@ class LazyExecutorServiceTest {
   void submitRunnable_isLazyAndExecutesOnce() throws Exception {
     Future<?> future = executorService.submit(this::createRunnableTask);
     boolean executedBeforeGet = executed.get();
-
     future.get();
     future.get(10, SECONDS);
 
@@ -102,7 +101,7 @@ class LazyExecutorServiceTest {
    * cancelled and get() throws CancellationException.
    */
   @Test
-  void shutdown_throwsCancellationExceptionOnGet() {
+  void shutdown_whenTasksPending_cancelsTasksAndThrowsCancellationExceptionOnGet() {
     Future<String> future = executorService.submit(this::createCallableTask);
 
     executorService.shutdown();
@@ -120,7 +119,7 @@ class LazyExecutorServiceTest {
    * since tasks are not queued internally.
    */
   @Test
-  void shutdownNow_cancelsTasksAndReturnsEmptyList() {
+  void shutdownNow_whenTasksPending_cancelsTasksAndReturnsEmptyList() {
     Future<String> future = executorService.submit(this::createCallableTask);
 
     List<Runnable> unexecutedTasks = executorService.shutdownNow();
@@ -135,20 +134,25 @@ class LazyExecutorServiceTest {
   }
 
   @Test
-  void awaitTermination_andIsTerminated() throws Exception {
-    assertThat(executorService.isTerminated()).isFalse();
-    assertThat(executorService.awaitTermination(10, SECONDS)).isFalse();
+  void awaitTermination_whenNotShutdown_returnsFalse() throws Exception {
+    boolean terminated = executorService.awaitTermination(10, SECONDS);
 
+    assertThat(terminated).isFalse();
+    assertThat(executorService.isTerminated()).isFalse();
+  }
+
+  @Test
+  void awaitTermination_whenShutdown_returnsTrue() throws Exception {
     executorService.shutdown();
 
     boolean terminated = executorService.awaitTermination(10, SECONDS);
 
-    assertThat(executorService.isTerminated()).isTrue();
     assertThat(terminated).isTrue();
+    assertThat(executorService.isTerminated()).isTrue();
   }
 
   @Test
-  void execute_throwsRejectedExecutionException() {
+  void execute_whenCalled_throwsRejectedExecutionException() {
     assertThrows(RejectedExecutionException.class, () -> executorService.execute(() -> {}));
   }
 
@@ -157,7 +161,7 @@ class LazyExecutorServiceTest {
    * successful result instead of throwing CancellationException.
    */
   @Test
-  void completedTask_returnsResultAfterShutdown() throws Exception {
+  void completedTask_whenExecutorShutdown_returnsResultAfterShutdown() throws Exception {
     Future<String> future = executorService.submit(this::createCallableTask);
     future.get();
 
@@ -168,7 +172,7 @@ class LazyExecutorServiceTest {
   }
 
   @Test
-  void submitRunnable_withResult() throws Exception {
+  void submit_whenRunnableWithResultSubmitted_isLazyAndReturnsResult() throws Exception {
     Future<String> future = executorService.submit(this::createRunnableTask, "success");
     boolean executedBeforeGet = executed.get();
 
@@ -182,14 +186,14 @@ class LazyExecutorServiceTest {
   }
 
   @Test
-  void submitNullTask_throwsNullPointerException() {
+  void submit_whenTaskIsNull_throwsNullPointerException() {
     assertThrows(NullPointerException.class, () -> executorService.submit((Callable<String>) null));
     assertThrows(NullPointerException.class, () -> executorService.submit((Runnable) null));
     assertThrows(NullPointerException.class, () -> executorService.submit((Runnable) null, "res"));
   }
 
   @Test
-  void submitAfterShutdown_throwsRejectedExecutionException() {
+  void submit_whenExecutorShutdown_throwsRejectedExecutionException() {
     executorService.shutdown();
 
     assertThrows(RejectedExecutionException.class, () -> executorService.submit(() -> "task"));
@@ -201,7 +205,7 @@ class LazyExecutorServiceTest {
    * by FutureTask's state checks when run() is invoked.
    */
   @Test
-  void cancel_preventsTaskExecution() {
+  void cancel_whenPendingTask_preventsTaskExecutionAndThrowsCancellationExceptionOnGet() {
     Future<String> future = executorService.submit(this::createCallableTask);
 
     future.cancel(true);
@@ -217,7 +221,6 @@ class LazyExecutorServiceTest {
     Thread.currentThread().interrupt();
 
     assertThrows(InterruptedException.class, future::get);
-
     // Thread.interrupted() clears the interrupt status.
     assertThat(Thread.interrupted()).isFalse();
     assertThat(executed.get()).isFalse();
@@ -229,7 +232,6 @@ class LazyExecutorServiceTest {
     Thread.currentThread().interrupt();
 
     assertThrows(InterruptedException.class, () -> future.get(10, SECONDS));
-
     // Thread.interrupted() clears the interrupt status.
     assertThat(Thread.interrupted()).isFalse();
     assertThat(executed.get()).isFalse();
@@ -241,12 +243,11 @@ class LazyExecutorServiceTest {
 
     assertThrows(TimeoutException.class, () -> future.get(0, SECONDS));
     assertThrows(TimeoutException.class, () -> future.get(-1, SECONDS));
-
     assertThat(executed.get()).isFalse();
   }
 
   @Test
-  void invokeMethods_throwUnsupportedOperationException() {
+  void invokeMethods_whenCalled_throwUnsupportedOperationException() {
     assertThrows(
         UnsupportedOperationException.class,
         () -> executorService.invokeAll(Collections.emptyList()));

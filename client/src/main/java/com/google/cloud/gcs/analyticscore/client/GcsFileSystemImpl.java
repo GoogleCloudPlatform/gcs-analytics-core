@@ -50,24 +50,19 @@ public class GcsFileSystemImpl implements GcsFileSystem {
    */
   private static final int CACHED_EXECUTOR_KEEP_ALIVE_SECONDS = 30;
 
-  /**
-   * Thread pool size for cached executor. A multiplier of 4x available cores is used as file info /
-   * status calls are lightweight metadata operations. Floor of 16: Hides network latency on small
-   * containers. Ceiling of 128: Prevents connection/memory thrashing on massive VMs.
-   */
+  // TODO: Determine the appropriate values for pool size and queue capacity for cached executor by
+  // benchmarking.
+  /** Max thread pool size for cached status executor, clamped between 16 and 128. */
   private static final int CACHED_EXECUTOR_MAX_POOL_SIZE =
       Math.max(16, Math.min(Runtime.getRuntime().availableProcessors() * 4, 128));
 
-  /**
-   * The maximum amount of time in seconds to wait for background thread pools to gracefully
-   * terminate upon file system closure.
-   */
+  /** Timeout in seconds for background thread pools to terminate when closing the file system. */
   private static final int EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 10;
 
   private final GcsClient gcsClient;
   private final GcsFileSystemOptions fileSystemOptions;
   private final Supplier<ExecutorService> readExecutorServiceSupplier;
-  private final Supplier<ExecutorService> listExecutorServiceSupplier;
+  private final Supplier<ExecutorService> statusExecutorServiceSupplier;
   private final Telemetry telemetry;
   private final AnalyticsCacheManager cacheManager;
   private final FlatNamespaceStrategyImpl flatStrategy;
@@ -76,7 +71,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
     this.readExecutorServiceSupplier = initializeReadExecutionServiceSupplier();
-    this.listExecutorServiceSupplier = initializeListExecutionServiceSupplier();
+    this.statusExecutorServiceSupplier = initializeStatusExecutionServiceSupplier();
     this.telemetry = createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
     this.cacheManager = new AnalyticsCacheManager(fileSystemOptions.getGcsCacheOptions());
     this.gcsClient =
@@ -96,7 +91,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
     this.readExecutorServiceSupplier = initializeReadExecutionServiceSupplier();
-    this.listExecutorServiceSupplier = initializeListExecutionServiceSupplier();
+    this.statusExecutorServiceSupplier = initializeStatusExecutionServiceSupplier();
     this.telemetry = createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
     this.cacheManager = new AnalyticsCacheManager(fileSystemOptions.getGcsCacheOptions());
     this.gcsClient =
@@ -132,7 +127,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.gcsClient = gcsClient;
     this.fileSystemOptions = fileSystemOptions;
     this.readExecutorServiceSupplier = initializeReadExecutionServiceSupplier();
-    this.listExecutorServiceSupplier = initializeListExecutionServiceSupplier();
+    this.statusExecutorServiceSupplier = initializeStatusExecutionServiceSupplier();
     this.telemetry = telemetry;
     this.cacheManager = cacheManager;
     this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
@@ -226,9 +221,9 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   @Override
   public void close() {
     ExecutorService readExecutorService = readExecutorServiceSupplier.get();
-    ExecutorService listExecutorService = listExecutorServiceSupplier.get();
+    ExecutorService statusExecutorService = statusExecutorServiceSupplier.get();
     readExecutorService.shutdown();
-    listExecutorService.shutdown();
+    statusExecutorService.shutdown();
     try {
       // Wait a total of EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS for both thread pools to terminate.
       long deadline =
@@ -238,14 +233,14 @@ public class GcsFileSystemImpl implements GcsFileSystem {
           EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
         readExecutorService.shutdownNow();
       }
-      // Then, wait for the list executor service to terminate, with the remaining time.
-      if (!listExecutorService.awaitTermination(
+      // Then, wait for the status executor service to terminate, with the remaining time.
+      if (!statusExecutorService.awaitTermination(
           Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS)) {
-        listExecutorService.shutdownNow();
+        statusExecutorService.shutdownNow();
       }
     } catch (InterruptedException e) {
       readExecutorService.shutdownNow();
-      listExecutorService.shutdownNow();
+      statusExecutorService.shutdownNow();
       Thread.currentThread().interrupt();
     }
     gcsClient.close();
@@ -295,7 +290,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   @VisibleForTesting
-  Supplier<ExecutorService> initializeListExecutionServiceSupplier() {
+  Supplier<ExecutorService> initializeStatusExecutionServiceSupplier() {
     return Suppliers.memoize(
         () -> {
           if (fileSystemOptions.isStatusParallelEnabled()) {
@@ -306,7 +301,6 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   private static ExecutorService createCachedExecutor() {
-    // TODO: Benchmark to determine the best fit for pool size and queue capacity.
 
     // Setting corePoolSize equal to maxPoolSize combined with allowCoreThreadTimeOut ensures that
     // incoming tasks immediately spawn new threads up to CACHED_EXECUTOR_MAX_POOL_SIZE before
