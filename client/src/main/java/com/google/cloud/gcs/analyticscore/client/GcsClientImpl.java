@@ -73,7 +73,6 @@ class GcsClientImpl implements GcsClient {
           BlobField.SIZE,
           BlobField.CONTENT_TYPE,
           BlobField.CONTENT_ENCODING,
-          BlobField.STORAGE_CLASS,
           BlobField.TIME_CREATED,
           BlobField.UPDATED,
           BlobField.MD5HASH,
@@ -255,17 +254,15 @@ class GcsClientImpl implements GcsClient {
   }
 
   private GcsItemInfo fromBlob(Blob blob) {
-    GcsItemId id =
-        GcsItemId.builder()
-            .setContentGeneration(blob.getGeneration())
-            .setBucketName(blob.getBucket())
-            .setObjectName(blob.getName())
-            .build();
+    GcsItemId.Builder idBuilder =
+        GcsItemId.builder().setBucketName(blob.getBucket()).setObjectName(blob.getName());
+    Optional.ofNullable(blob.getGeneration()).ifPresent(idBuilder::setContentGeneration);
+    GcsItemId id = idBuilder.build();
+
     GcsItemInfo.Builder infoBuilder =
         GcsItemInfo.builder()
             .setItemId(id)
-            .setSize(blob.getSize())
-            .setContentGeneration(blob.getGeneration())
+            .setSize(blob.getSize() == null ? 0L : blob.getSize())
             .setCreationTime(toEpochMilli(blob.getCreateTimeOffsetDateTime()))
             .setModificationTime(toEpochMilli(blob.getUpdateTimeOffsetDateTime()))
             .setVerificationAttributes(
@@ -275,10 +272,9 @@ class GcsClientImpl implements GcsClient {
                         ? BaseEncoding.base64().decode(blob.getCrc32c())
                         : null));
 
+    Optional.ofNullable(blob.getGeneration()).ifPresent(infoBuilder::setContentGeneration);
     Optional.ofNullable(blob.getContentType()).ifPresent(infoBuilder::setContentType);
     Optional.ofNullable(blob.getContentEncoding()).ifPresent(infoBuilder::setContentEncoding);
-    Optional.ofNullable(blob.getStorageClass())
-        .ifPresent(sc -> infoBuilder.setStorageClass(sc.name()));
     Optional.ofNullable(blob.getMetageneration()).ifPresent(infoBuilder::setMetaGeneration);
 
     if (blob.getMetadata() != null) {
@@ -302,8 +298,6 @@ class GcsClientImpl implements GcsClient {
             .setModificationTime(toEpochMilli(bucketInfo.getUpdateTimeOffsetDateTime()));
 
     Optional.ofNullable(bucketInfo.getLocation()).ifPresent(builder::setLocation);
-    Optional.ofNullable(bucketInfo.getStorageClass())
-        .ifPresent(sc -> builder.setStorageClass(sc.name()));
     Optional.ofNullable(bucketInfo.getMetageneration()).ifPresent(builder::setMetaGeneration);
     return builder.build();
   }

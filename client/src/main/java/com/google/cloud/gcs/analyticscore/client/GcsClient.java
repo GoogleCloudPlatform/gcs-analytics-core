@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
+import java.util.List;
 
 @VisibleForTesting
 public interface GcsClient {
@@ -50,7 +51,7 @@ public interface GcsClient {
   GcsItemInfo getFolderInfo(GcsItemId itemId) throws IOException;
 
   /** Lists objects in a bucket. */
-  java.util.List<GcsItemInfo> listObjectInfo(GcsItemId prefixId, int maxResults) throws IOException;
+  List<GcsItemInfo> listObjectInfo(GcsItemId prefixId, int maxResults) throws IOException;
 
   boolean isHnsBucket(String bucketName) throws IOException;
 

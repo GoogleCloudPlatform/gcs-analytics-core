@@ -49,7 +49,6 @@ import com.google.cloud.storage.HttpStorageOptions;
 import com.google.cloud.storage.ParallelCompositeUploadBlobWriteSessionConfig;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BucketGetOption;
-import com.google.cloud.storage.StorageClass;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
@@ -1009,7 +1008,6 @@ class GcsClientImplTest {
     assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
     assertThat(itemInfo.getSize()).isEqualTo(0L);
     assertThat(itemInfo.getLocation()).hasValue(TEST_LOCATION);
-    assertThat(itemInfo.getStorageClass()).hasValue("STANDARD");
     assertThat(itemInfo.getMetaGeneration()).isEqualTo(2L);
     assertThat(itemInfo.getCreationTime())
         .isEqualTo(OffsetDateTime.parse("2026-08-01T10:00:00Z").toInstant().toEpochMilli());
@@ -1246,7 +1244,6 @@ class GcsClientImplTest {
         .thenReturn(OffsetDateTime.parse("2026-08-02T10:00:00Z"));
     when(mockBlob.getContentType()).thenReturn(TEST_CONTENT_TYPE);
     when(mockBlob.getContentEncoding()).thenReturn(TEST_CONTENT_ENCODING);
-    when(mockBlob.getStorageClass()).thenReturn(StorageClass.STANDARD);
     when(mockBlob.getMd5()).thenReturn(BaseEncoding.base64().encode("md5checksum".getBytes(UTF_8)));
     when(mockBlob.getCrc32c()).thenReturn(BaseEncoding.base64().encode("crc32c".getBytes(UTF_8)));
     when(mockBlob.getMetadata()).thenReturn(ImmutableMap.of("userKey", "userVal"));
@@ -1257,7 +1254,6 @@ class GcsClientImplTest {
     Bucket mockBucket = mock(Bucket.class);
     when(mockBucket.getName()).thenReturn(bucketName);
     when(mockBucket.getLocation()).thenReturn(TEST_LOCATION);
-    when(mockBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
     when(mockBucket.getMetageneration()).thenReturn(2L);
     when(mockBucket.getCreateTimeOffsetDateTime())
         .thenReturn(OffsetDateTime.parse("2026-08-01T10:00:00Z"));
