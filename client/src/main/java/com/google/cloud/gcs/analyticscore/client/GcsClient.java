@@ -43,6 +43,8 @@ public interface GcsClient {
   /** Fetches object metadata. */
   GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException;
 
+  boolean isHnsBucket(String bucketName) throws IOException;
+
   /** Close the client. */
   void close();
 }

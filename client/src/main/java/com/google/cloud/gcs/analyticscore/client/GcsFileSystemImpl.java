@@ -51,6 +51,9 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   private final Telemetry telemetry;
   private final AnalyticsCacheManager cacheManager;
 
+  private final FlatNamespaceStrategyImpl flatStrategy;
+  private final HierarchicalNamespaceStrategyImpl hnsStrategy;
+
   public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
     this.fileSystemOptions = fileSystemOptions;
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
@@ -64,6 +67,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
             recorder ->
                 new GcsClientImpl(
                     fileSystemOptions.getGcsClientOptions(), executorServiceSupplier, telemetry));
+    this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
+    this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
   }
 
   public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions) {
@@ -82,6 +87,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
                     fileSystemOptions.getGcsClientOptions(),
                     executorServiceSupplier,
                     telemetry));
+    this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
+    this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
   }
 
   @VisibleForTesting
@@ -104,6 +111,25 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     this.executorServiceSupplier = initializeExecutionServiceSupplier();
     this.telemetry = telemetry;
     this.cacheManager = cacheManager;
+    this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
+    this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
+  }
+
+  @VisibleForTesting
+  NamespaceStrategy resolveStrategy(String bucketName) throws IOException {
+    checkNotNull(bucketName, "bucketName cannot be null");
+    if (!fileSystemOptions.isHnsApiEnabled()) {
+      return flatStrategy;
+    }
+
+    BucketProperties properties =
+        cacheManager.getBucketProperties(
+            bucketName, name -> BucketProperties.create(gcsClient.isHnsBucket(name)));
+
+    if (properties.isHnsEnabled()) {
+      return hnsStrategy;
+    }
+    return flatStrategy;
   }
 
   @Override
@@ -161,6 +187,16 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   @Override
   public AnalyticsCacheManager getCacheManager() {
     return cacheManager;
+  }
+
+  @VisibleForTesting
+  FlatNamespaceStrategyImpl getFlatStrategy() {
+    return flatStrategy;
+  }
+
+  @VisibleForTesting
+  HierarchicalNamespaceStrategyImpl getHnsStrategy() {
+    return hnsStrategy;
   }
 
   @Override

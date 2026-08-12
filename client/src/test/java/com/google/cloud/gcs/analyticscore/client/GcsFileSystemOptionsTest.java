@@ -32,13 +32,15 @@ class GcsFileSystemOptionsTest {
         ImmutableMap.of(
             "fs.gs.project-id", "test-project",
             "fs.gs.client.type", "GRPC_CLIENT",
-            "fs.gs.analytics-core.read.thread.count", "32");
+            "fs.gs.analytics-core.read.thread.count", "32",
+            "fs.gs.analytics-core.hierarchical.namespace.enable", "true");
 
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
     assertThat(options.getGcsClientOptions().getProjectId().get()).isEqualTo("test-project");
     assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.GRPC_CLIENT);
     assertThat(options.getReadThreadCount()).isEqualTo(32);
+    assertThat(options.isHnsApiEnabled()).isTrue();
   }
 
   @Test
@@ -60,6 +62,24 @@ class GcsFileSystemOptionsTest {
     assertThat(cacheOptions.isFooterCacheEnabled()).isFalse();
     assertThat(cacheOptions.getFooterCacheMaxSizeBytes()).isEqualTo(500 * MB);
     assertThat(cacheOptions.isSmallObjectCacheEnabled()).isTrue();
+    assertThat(cacheOptions.getSmallObjectCacheMaxSizeBytes()).isEqualTo(200 * MB);
+  }
+
+  @Test
+  void createFromOptions_withDefaultProperties_shouldCreateCorrectOptions() {
+    ImmutableMap<String, String> properties = ImmutableMap.of();
+
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
+
+    assertThat(options.getGcsClientOptions().getProjectId().isEmpty()).isTrue();
+    assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.HTTP_CLIENT);
+    assertThat(options.getReadThreadCount()).isEqualTo(16);
+    assertThat(options.isHnsApiEnabled()).isTrue();
+
+    GcsCacheOptions cacheOptions = options.getGcsCacheOptions();
+    assertThat(cacheOptions.isFooterCacheEnabled()).isFalse();
+    assertThat(cacheOptions.getFooterCacheMaxSizeBytes()).isEqualTo(100 * MB);
+    assertThat(cacheOptions.isSmallObjectCacheEnabled()).isFalse();
     assertThat(cacheOptions.getSmallObjectCacheMaxSizeBytes()).isEqualTo(200 * MB);
   }
 }
