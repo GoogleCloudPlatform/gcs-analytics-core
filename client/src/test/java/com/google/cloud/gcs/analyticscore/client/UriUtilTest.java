@@ -47,6 +47,15 @@ class UriUtilTest {
   }
 
   @Test
+  void getItemIdFromString_rootPath_returnsRootItemId() {
+    String rootPath = "gs:/";
+
+    GcsItemId itemId = UriUtil.getItemIdFromString(rootPath);
+
+    assertThat(itemId).isEqualTo(GcsItemId.ROOT);
+  }
+
+  @Test
   void getItemIdFromString_gsOnly_throwsIllegalArgumentException() {
     IllegalArgumentException e =
         assertThrows(IllegalArgumentException.class, () -> UriUtil.getItemIdFromString("gs://"));
@@ -65,6 +74,7 @@ class UriUtilTest {
   @Test
   void getItemIdFromString_invalidPath_throwsIllegalArgumentException() {
     String invalidPath = "http://test-bucket/test-object";
+
     IllegalArgumentException e =
         assertThrows(
             IllegalArgumentException.class, () -> UriUtil.getItemIdFromString(invalidPath));

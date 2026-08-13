@@ -39,6 +39,10 @@ final class UriUtil {
   static GcsItemId getItemIdFromString(String path) {
     checkArgument(path != null, "path should not be null");
 
+    if (path.equals("gs:/")) {
+      return GcsItemId.ROOT;
+    }
+
     Matcher matcher = GCS_PATH_PATTERN.matcher(path);
     checkArgument(matcher.matches(), "Invalid GCS path: %s", path);
 
