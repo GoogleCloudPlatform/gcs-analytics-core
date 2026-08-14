@@ -83,6 +83,20 @@ class UriUtilTest {
   }
 
   @Test
+  void getItemIdFromString_consecutiveSlashes_throwsIllegalArgumentException() {
+    String consecutiveSlashPath = "gs://test-bucket/dir//test-object";
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> UriUtil.getItemIdFromString(consecutiveSlashPath));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("GCS path must not have consecutive '/' characters: " + consecutiveSlashPath);
+  }
+
+  @Test
   void removeTrailingSlash_withTrailingSlash_removesSlash() {
     String result = UriUtil.removeTrailingSlash(TEST_PATH + "/");
 

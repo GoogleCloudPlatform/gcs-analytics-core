@@ -45,6 +45,10 @@ final class UriUtil {
 
     Matcher matcher = GCS_PATH_PATTERN.matcher(path);
     checkArgument(matcher.matches(), "Invalid GCS path: %s", path);
+    checkArgument(
+        !path.substring(5).contains("//"),
+        "GCS path must not have consecutive '/' characters: %s",
+        path);
 
     String bucketName = matcher.group(2);
     String relativePath = matcher.group(4);

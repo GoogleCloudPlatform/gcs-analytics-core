@@ -1066,6 +1066,17 @@ class GcsClientImplTest {
   }
 
   @Test
+  void getFolderInfo_emptyFolderName_throwsIllegalArgumentException() {
+    GcsItemId rootSlashId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("/").build();
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> gcsClient.getFolderInfo(rootSlashId));
+
+    assertThat(e).hasMessageThat().contains("Folder name cannot be empty");
+  }
+
+  @Test
   void getFolderInfo_folderExists_returnsFolderInfo() throws IOException {
     GcsItemId folderItemId =
         GcsItemId.builder()

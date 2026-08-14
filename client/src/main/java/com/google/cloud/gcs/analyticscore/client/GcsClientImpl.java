@@ -215,6 +215,7 @@ class GcsClientImpl implements GcsClient {
     checkArgument(itemId.isGcsObject(), "Expected a folder itemId");
     String objectName = itemId.getObjectName().orElse("");
     String folderName = UriUtil.removeTrailingSlash(objectName);
+    checkArgument(!folderName.isEmpty(), "Folder name cannot be empty");
 
     GetFolderRequest request =
         GetFolderRequest.newBuilder()
