@@ -93,7 +93,7 @@ class GcsClientImpl implements GcsClient {
   private final Optional<Credentials> credentials;
   private Supplier<ExecutorService> executorServiceSupplier;
   private final Telemetry telemetry;
-  @VisibleForTesting StorageControlClient storageControlClient;
+  @VisibleForTesting volatile StorageControlClient storageControlClient;
 
   GcsClientImpl(
       Credentials credentials,
@@ -233,10 +233,14 @@ class GcsClientImpl implements GcsClient {
   @VisibleForTesting
   StorageControlClient lazyGetStorageControlClient() throws IOException {
     if (this.storageControlClient == null) {
-      StorageControlSettings.Builder builder = StorageControlSettings.newBuilder();
-      this.credentials.ifPresent(
-          c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
-      this.storageControlClient = StorageControlClient.create(builder.build());
+      synchronized (this) {
+        if (this.storageControlClient == null) {
+          StorageControlSettings.Builder builder = StorageControlSettings.newBuilder();
+          this.credentials.ifPresent(
+              c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
+          this.storageControlClient = StorageControlClient.create(builder.build());
+        }
+      }
     }
     return this.storageControlClient;
   }

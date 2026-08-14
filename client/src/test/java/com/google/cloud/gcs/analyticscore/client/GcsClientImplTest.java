@@ -1125,6 +1125,16 @@ class GcsClientImplTest {
   }
 
   @Test
+  void lazyGetStorageControlClient_initializesClientWhenNull() throws Exception {
+    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class));
+
+    StorageControlClient result = localClient.lazyGetStorageControlClient();
+
+    assertThat(result).isNotNull();
+    result.close();
+  }
+
+  @Test
   void getFolderInfo_notFound_throwsFileNotFoundException() throws IOException {
     GcsItemId folderItemId =
         GcsItemId.builder()
