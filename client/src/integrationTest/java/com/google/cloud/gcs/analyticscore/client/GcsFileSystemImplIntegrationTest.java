@@ -41,6 +41,24 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 // TODO: Setup buckets and test data as part of setup on place of relying on existing bucket.
 class GcsFileSystemImplIntegrationTest {
 
+    private static final String GCS_INTEGRATION_TEST_BUCKET_PROPERTY =
+            "gcs.integration.test.bucket";
+    private static final String GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY =
+            "gcs.integration.hns.test.bucket";
+    private static final String PUBLIC_BUCKET_NAME = "cloud-samples-data";
+    private static final String PUBLIC_PARQUET_OBJECT = "bigquery/us-states/us-states.parquet";
+    private static final String PUBLIC_CSV_OBJECT = "bigquery/us-states/us-states.csv";
+    private static final String PUBLIC_PARQUET_URI_STRING =
+            "gs://" + PUBLIC_BUCKET_NAME + "/" + PUBLIC_PARQUET_OBJECT;
+    private static final String PUBLIC_CSV_URI_STRING =
+            "gs://" + PUBLIC_BUCKET_NAME + "/" + PUBLIC_CSV_OBJECT;
+    private static final String PRIVATE_BUCKET_NAME =
+            "gcs-connector-private-test-bucket-do-not-delete";
+    private static final String PRIVATE_PARQUET_OBJECT = "tpch_customer_1.parquet";
+    private static final String PRIVATE_PARQUET_URI_STRING =
+            "gs://" + PRIVATE_BUCKET_NAME + "/" + PRIVATE_PARQUET_OBJECT;
+    private static final String PRIVATE_IMPLICIT_FOLDER = "implicit-folder";
+
     private Storage storage;
     private List<BlobId> blobsToDelete;
 
@@ -65,7 +83,7 @@ class GcsFileSystemImplIntegrationTest {
 
     @Test
     void open_publicObject_canReadContent() throws IOException {
-        String gcsObject = "gs://cloud-samples-data/bigquery/us-states/us-states.csv";
+        String gcsObject = PUBLIC_CSV_URI_STRING;
         GcsFileSystemOptions options = GcsFileSystemOptions.builder()
                 .setGcsClientOptions(GcsClientOptions.builder().build())
                 .build();
@@ -88,7 +106,7 @@ class GcsFileSystemImplIntegrationTest {
 
     @Test
     void getFileInfo_noCredentialProvided_urlPointsToPublicObject_success() throws IOException {
-        String gcsObject = "gs://cloud-samples-data/bigquery/us-states/us-states.parquet";
+        String gcsObject = PUBLIC_PARQUET_URI_STRING;
         GcsFileSystemOptions options = GcsFileSystemOptions.builder()
                 .setGcsClientOptions(GcsClientOptions.builder().build())
                 .build();
@@ -97,14 +115,21 @@ class GcsFileSystemImplIntegrationTest {
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(gcsObject));
 
         assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
-        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue("bigquery/us-states/us-states.parquet");
-        assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo("cloud-samples-data");
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(PUBLIC_PARQUET_OBJECT);
+        assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(PUBLIC_BUCKET_NAME);
+        assertThat(fileInfo.getItemInfo().getSize()).isGreaterThan(0L);
+        assertThat(fileInfo.getItemInfo().getContentGeneration().isPresent()).isTrue();
+        assertThat(fileInfo.getItemInfo().getCreationTime()).isGreaterThan(0L);
+        assertThat(fileInfo.getItemInfo().getModificationTime()).isGreaterThan(0L);
+        assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.OBJECT);
+        assertThat(fileInfo.getItemInfo().isInferredDirectory()).isFalse();
+        assertThat(fileInfo.getItemInfo().isExplicitDirectory()).isFalse();
     }
 
     @Test
     void getFileInfo_noCredentialProvided_urlPointsToPrivateObject_usesApplicationDefaultCredentials()
             throws IOException {
-        String object = "gs://gcs-connector-private-test-bucket-do-not-delete/tpch_customer_1.parquet";
+        String object = PRIVATE_PARQUET_URI_STRING;
         GcsFileSystemOptions options =
                 GcsFileSystemOptions.builder()
                         .setGcsClientOptions(GcsClientOptions.builder().build())
@@ -114,14 +139,14 @@ class GcsFileSystemImplIntegrationTest {
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(object));
 
         assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
-        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue("tpch_customer_1.parquet");
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(PRIVATE_PARQUET_OBJECT);
         assertThat(fileInfo.getItemInfo().getItemId().getBucketName())
-                .isEqualTo("gcs-connector-private-test-bucket-do-not-delete");
+                .isEqualTo(PRIVATE_BUCKET_NAME);
     }
 
     @Test
     void getFileInfo_anonymousCredentialProvided_urlPointsToPublicObject_success() throws IOException {
-        String gcsObject = "gs://cloud-samples-data/bigquery/us-states/us-states.parquet";
+        String gcsObject = PUBLIC_PARQUET_URI_STRING;
         GcsFileSystemOptions options =
                 GcsFileSystemOptions.builder()
                         .setGcsClientOptions(GcsClientOptions.builder().build())
@@ -131,13 +156,13 @@ class GcsFileSystemImplIntegrationTest {
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(gcsObject));
 
         assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
-        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue("bigquery/us-states/us-states.parquet");
-        assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo("cloud-samples-data");
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(PUBLIC_PARQUET_OBJECT);
+        assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(PUBLIC_BUCKET_NAME);
     }
 
     @Test
     void getFileInfo_anonymousCredentialProvided_urlPointsToPrivateObject_throws() throws IOException {
-        String object = "gs://gcs-connector-private-test-bucket-do-not-delete/tpch_customer_1.parquet";
+        String object = PRIVATE_PARQUET_URI_STRING;
         GcsFileSystemOptions options =
                 GcsFileSystemOptions.builder()
                         .setGcsClientOptions(GcsClientOptions.builder().build())
@@ -151,9 +176,11 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     @Test
-    @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
     void create_object_canWriteContent() throws IOException {
-        TestWriteContext ctx = new TestWriteContext(System.getProperty("gcs.integration.test.bucket"), blobsToDelete);
+        TestWriteContext ctx =
+                new TestWriteContext(
+                        System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY), blobsToDelete);
         GcsFileSystemImpl gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         byte[] content = "test content".getBytes(StandardCharsets.UTF_8);
@@ -170,9 +197,11 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     @Test
-    @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
     void create_overwriteDisabled_throwsFileAlreadyExistsException() throws IOException {
-        TestWriteContext ctx = new TestWriteContext(System.getProperty("gcs.integration.test.bucket"), blobsToDelete);
+        TestWriteContext ctx =
+                new TestWriteContext(
+                        System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY), blobsToDelete);
         GcsFileSystemImpl gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
         byte[] content = "test".getBytes(StandardCharsets.UTF_8);
         // We do a preliminary setup write
@@ -199,9 +228,9 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     @Test
-    @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
     void create_withParallelCompositeUpload_success() throws IOException {
-        TestWriteContext ctx = new TestWriteContext(System.getProperty("gcs.integration.test.bucket"), blobsToDelete);
+        TestWriteContext ctx = new TestWriteContext(System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY), blobsToDelete);
         GcsClientOptions clientOptions = GcsClientOptions.builder()
                 .setUploadType(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
                 .build();
