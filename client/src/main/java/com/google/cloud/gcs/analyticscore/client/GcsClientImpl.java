@@ -37,6 +37,7 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobField;
 import com.google.cloud.storage.Storage.BlobListOption;
 import com.google.cloud.storage.Storage.BlobWriteOption;
+import com.google.cloud.storage.Storage.BucketField;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 import com.google.common.annotations.VisibleForTesting;
@@ -78,6 +79,13 @@ class GcsClientImpl implements GcsClient {
           BlobField.MD5HASH,
           BlobField.CRC32C,
           BlobField.METADATA);
+  private static final List<BucketField> BUCKET_METADATA_FIELDS =
+      ImmutableList.of(
+          BucketField.NAME,
+          BucketField.LOCATION,
+          BucketField.METAGENERATION,
+          BucketField.TIME_CREATED,
+          BucketField.UPDATED);
   private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
 
   @VisibleForTesting Storage storage;
@@ -182,7 +190,19 @@ class GcsClientImpl implements GcsClient {
   public GcsItemInfo getBucketInfo(GcsItemId itemId) throws IOException {
     checkNotNull(itemId, "Item ID must not be null.");
     checkArgument(itemId.isBucket(), "Expected a bucket itemId");
-    BucketInfo bucketInfo = storage.get(itemId.getBucketName());
+    BucketInfo bucketInfo;
+    try {
+      bucketInfo =
+          storage.get(
+              itemId.getBucketName(),
+              Storage.BucketGetOption.fields(BUCKET_METADATA_FIELDS.toArray(new BucketField[0])));
+    } catch (StorageException e) {
+      if (e.getCode() == 404) {
+        bucketInfo = null;
+      } else {
+        throw new IOException("Unable to access bucket: " + itemId.getBucketName(), e);
+      }
+    }
     if (bucketInfo == null) {
       throw new FileNotFoundException("Bucket not found: " + itemId.getBucketName());
     }
@@ -253,7 +273,7 @@ class GcsClientImpl implements GcsClient {
     }
   }
 
-  private GcsItemInfo fromBlob(Blob blob) {
+  private static GcsItemInfo fromBlob(Blob blob) {
     GcsItemId.Builder idBuilder =
         GcsItemId.builder().setBucketName(blob.getBucket()).setObjectName(blob.getName());
     Optional.ofNullable(blob.getGeneration()).ifPresent(idBuilder::setContentGeneration);
@@ -290,7 +310,7 @@ class GcsClientImpl implements GcsClient {
     return infoBuilder.build();
   }
 
-  private GcsItemInfo fromBucketInfo(BucketInfo bucketInfo) {
+  private static GcsItemInfo fromBucketInfo(BucketInfo bucketInfo) {
     GcsItemId itemId = GcsItemId.builder().setBucketName(bucketInfo.getName()).build();
     GcsItemInfo.Builder builder =
         GcsItemInfo.createBucket(itemId).toBuilder()
@@ -302,7 +322,7 @@ class GcsClientImpl implements GcsClient {
     return builder.build();
   }
 
-  private GcsItemInfo fromFolder(Folder folder, GcsItemId itemId) {
+  private static GcsItemInfo fromFolder(Folder folder, GcsItemId itemId) {
     return GcsItemInfo.builder()
         .setItemId(itemId)
         .setSize(0)
@@ -426,7 +446,7 @@ class GcsClientImpl implements GcsClient {
     return encoded.build();
   }
 
-  private BlobInfo createBlobInfo(GcsItemId itemId, GcsWriteOptions writeOptions) {
+  private static BlobInfo createBlobInfo(GcsItemId itemId, GcsWriteOptions writeOptions) {
     checkNotNull(itemId, "itemId should not be null");
     String objectName =
         itemId

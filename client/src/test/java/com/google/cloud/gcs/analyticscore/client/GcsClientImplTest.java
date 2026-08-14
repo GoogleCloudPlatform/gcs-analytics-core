@@ -987,9 +987,13 @@ class GcsClientImplTest {
   @Test
   void getBucketInfo_nonExistentBucket_throwsFileNotFoundException() {
     GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_NON_EXISTENT_BUCKET).build();
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.get(eq(TEST_NON_EXISTENT_BUCKET), any(Storage.BucketGetOption[].class)))
+        .thenReturn(null);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
     FileNotFoundException e =
-        assertThrows(FileNotFoundException.class, () -> gcsClient.getBucketInfo(bucketId));
+        assertThrows(FileNotFoundException.class, () -> clientWithMock.getBucketInfo(bucketId));
 
     assertThat(e).hasMessageThat().contains("Bucket not found: " + TEST_NON_EXISTENT_BUCKET);
   }
@@ -999,7 +1003,8 @@ class GcsClientImplTest {
     GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
     Bucket mockBucket = createMockBucket(TEST_BUCKET);
     Storage mockStorage = mock(Storage.class);
-    when(mockStorage.get(eq(TEST_BUCKET))).thenReturn(mockBucket);
+    when(mockStorage.get(eq(TEST_BUCKET), any(Storage.BucketGetOption[].class)))
+        .thenReturn(mockBucket);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
     GcsItemInfo itemInfo = clientWithMock.getBucketInfo(bucketId);
@@ -1013,6 +1018,33 @@ class GcsClientImplTest {
         .isEqualTo(OffsetDateTime.parse("2026-08-01T10:00:00Z").toInstant().toEpochMilli());
     assertThat(itemInfo.getModificationTime())
         .isEqualTo(OffsetDateTime.parse("2026-08-02T10:00:00Z").toInstant().toEpochMilli());
+  }
+
+  @Test
+  void getBucketInfo_storageException404_throwsFileNotFoundException() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.get(eq(TEST_BUCKET), any(Storage.BucketGetOption[].class)))
+        .thenThrow(new StorageException(404, "Not Found"));
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> clientWithMock.getBucketInfo(bucketId));
+
+    assertThat(e).hasMessageThat().contains("Bucket not found: " + TEST_BUCKET);
+  }
+
+  @Test
+  void getBucketInfo_storageException500_throwsIOException() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.get(eq(TEST_BUCKET), any(Storage.BucketGetOption[].class)))
+        .thenThrow(new StorageException(500, "Internal Error"));
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    IOException e = assertThrows(IOException.class, () -> clientWithMock.getBucketInfo(bucketId));
+
+    assertThat(e).hasMessageThat().contains("Unable to access bucket: " + TEST_BUCKET);
   }
 
   @Test
