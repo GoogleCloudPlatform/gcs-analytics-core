@@ -247,9 +247,8 @@ class GcsClientImpl implements GcsClient {
   }
 
   @Override
-  public List<GcsItemInfo> listObjectInfo(GcsItemId prefixId, int maxResults) throws IOException {
+  public List<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) throws IOException {
     checkNotNull(prefixId, "prefixId must not be null");
-    checkArgument(maxResults > 0, "maxResults must be > 0");
     String prefix = prefixId.getObjectName().orElse("");
 
     try {
@@ -257,24 +256,18 @@ class GcsClientImpl implements GcsClient {
           storage.list(
               prefixId.getBucketName(),
               BlobListOption.prefix(prefix),
-              BlobListOption.pageSize(maxResults),
+              BlobListOption.pageSize(1),
               BlobListOption.fields(BLOB_METADATA_FIELDS.toArray(new BlobField[0])));
 
-      ImmutableList.Builder<GcsItemInfo> builder = ImmutableList.builder();
-      int count = 0;
-      for (Blob blob : page.iterateAll()) {
-        builder.add(fromBlob(blob));
-        count++;
-        if (count >= maxResults) {
-          break;
-        }
+      for (Blob blob : page.getValues()) {
+        return ImmutableList.of(fromBlob(blob));
       }
-      return builder.build();
+      return ImmutableList.of();
     } catch (StorageException e) {
       if (e.getCode() == 404) {
         throw new FileNotFoundException("Bucket not found: " + prefixId.getBucketName());
       }
-      throw new IOException("Failed to list objects for prefix: " + prefixId, e);
+      throw new IOException("Failed to list the first object for prefix: " + prefixId, e);
     }
   }
 

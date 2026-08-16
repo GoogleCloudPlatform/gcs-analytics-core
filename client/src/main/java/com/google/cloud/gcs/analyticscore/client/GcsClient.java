@@ -50,8 +50,11 @@ public interface GcsClient {
   /** Fetches folder metadata for HNS buckets. */
   GcsItemInfo getFolderInfo(GcsItemId itemId) throws IOException;
 
-  /** Lists objects in a bucket. */
-  List<GcsItemInfo> listObjectInfo(GcsItemId prefixId, int maxResults) throws IOException;
+  /**
+   * Fetches metadata for at most one object matching the given prefix without pagination. Optimized
+   * for fast directory emptiness checks.
+   */
+  List<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) throws IOException;
 
   boolean isHnsBucket(String bucketName) throws IOException;
 
