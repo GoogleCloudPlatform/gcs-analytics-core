@@ -293,7 +293,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   Supplier<ExecutorService> initializeStatusExecutionServiceSupplier() {
     return Suppliers.memoize(
         () -> {
-          if (fileSystemOptions.isStatusParallelEnabled()) {
+          if (fileSystemOptions.isMetadataLookupParallelEnabled()) {
             return createCachedExecutor();
           }
           return new LazyExecutorService();

@@ -333,7 +333,7 @@ class GcsFileSystemImplTest {
 
   @Test
   void
-      initializeStatusExecutionServiceSupplier_whenStatusParallelEnabled_shouldReturnCachedExecutorService() {
+      initializeStatusExecutionServiceSupplier_whenMetadataLookupParallelEnabled_shouldReturnCachedExecutorService() {
     GcsFileSystemImpl fileSystemImpl = (GcsFileSystemImpl) gcsFileSystem;
 
     Supplier<ExecutorService> statusExecutorServiceSupplier =
@@ -349,10 +349,10 @@ class GcsFileSystemImplTest {
 
   @Test
   void
-      initializeStatusExecutionServiceSupplier_whenStatusParallelDisabled_shouldReturnLazyExecutorService()
+      initializeStatusExecutionServiceSupplier_whenMetadataLookupParallelDisabled_shouldReturnLazyExecutorService()
           throws Exception {
     GcsFileSystemOptions options =
-        TEST_GCS_FILESYSTEM_OPTIONS.toBuilder().setStatusParallelEnabled(false).build();
+        TEST_GCS_FILESYSTEM_OPTIONS.toBuilder().setMetadataLookupParallelEnabled(false).build();
     // Use try-with-resources to ensure GcsFileSystemImpl is closed with its internal executors.
     try (GcsFileSystemImpl fileSystemImpl = new GcsFileSystemImpl(mock(GcsClient.class), options)) {
 

@@ -84,12 +84,12 @@ class GcsFileSystemOptionsTest {
   }
 
   @Test
-  void createFromOptions_withStatusParallelEnabledFalse_createsCorrectOptions() {
+  void createFromOptions_withMetadataLookupParallelEnabledFalse_createsCorrectOptions() {
     ImmutableMap<String, String> properties =
-        ImmutableMap.of("fs.gs.status.parallel.enable", "false");
+        ImmutableMap.of("fs.gs.analytics-core.metadata.lookup.parallel.enable", "false");
 
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
-    assertThat(options.isStatusParallelEnabled()).isFalse();
+    assertThat(options.isMetadataLookupParallelEnabled()).isFalse();
   }
 }

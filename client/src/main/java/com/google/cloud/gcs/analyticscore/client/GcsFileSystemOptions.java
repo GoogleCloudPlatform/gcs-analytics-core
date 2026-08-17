@@ -26,7 +26,8 @@ public abstract class GcsFileSystemOptions {
   private static final String READ_THREAD_COUNT_KEY = "analytics-core.read.thread.count";
   private static final String CLIENT_TYPE_KEY = "client.type";
   private static final String HNS_API_ENABLED_KEY = "analytics-core.hierarchical.namespace.enable";
-  private static final String STATUS_PARALLEL_ENABLED_KEY = "status.parallel.enable";
+  private static final String METADATA_LOOKUP_PARALLEL_ENABLED_KEY =
+      "analytics-core.metadata.lookup.parallel.enable";
 
   /** Cloud Storage client to use. */
   public enum ClientType {
@@ -47,7 +48,7 @@ public abstract class GcsFileSystemOptions {
 
   public abstract boolean isHnsApiEnabled();
 
-  public abstract boolean isStatusParallelEnabled();
+  public abstract boolean isMetadataLookupParallelEnabled();
 
   public abstract Builder toBuilder();
 
@@ -56,7 +57,7 @@ public abstract class GcsFileSystemOptions {
         .setReadThreadCount(16)
         .setClientType(ClientType.HTTP_CLIENT)
         .setHnsApiEnabled(true)
-        .setStatusParallelEnabled(true)
+        .setMetadataLookupParallelEnabled(true)
         .setGcsClientOptions(GcsClientOptions.builder().build())
         .setGcsCacheOptions(GcsCacheOptions.builder().build())
         .setAnalyticsCoreTelemetryOptions(TelemetryOptions.builder().build());
@@ -77,9 +78,10 @@ public abstract class GcsFileSystemOptions {
       optionsBuilder.setHnsApiEnabled(
           Boolean.parseBoolean(analyticsCoreOptions.get(prefix + HNS_API_ENABLED_KEY)));
     }
-    if (analyticsCoreOptions.containsKey(prefix + STATUS_PARALLEL_ENABLED_KEY)) {
-      optionsBuilder.setStatusParallelEnabled(
-          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + STATUS_PARALLEL_ENABLED_KEY)));
+    if (analyticsCoreOptions.containsKey(prefix + METADATA_LOOKUP_PARALLEL_ENABLED_KEY)) {
+      optionsBuilder.setMetadataLookupParallelEnabled(
+          Boolean.parseBoolean(
+              analyticsCoreOptions.get(prefix + METADATA_LOOKUP_PARALLEL_ENABLED_KEY)));
     }
 
     optionsBuilder.setGcsClientOptions(
@@ -103,7 +105,8 @@ public abstract class GcsFileSystemOptions {
 
     public abstract Builder setHnsApiEnabled(boolean isHnsApiEnabled);
 
-    public abstract Builder setStatusParallelEnabled(boolean isStatusParallelEnabled);
+    public abstract Builder setMetadataLookupParallelEnabled(
+        boolean isMetadataLookupParallelEnabled);
 
     public abstract Builder setGcsClientOptions(GcsClientOptions gcsClientOptions);
 
