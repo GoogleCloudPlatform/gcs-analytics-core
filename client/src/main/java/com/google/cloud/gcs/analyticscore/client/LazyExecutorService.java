@@ -16,6 +16,8 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -47,6 +49,7 @@ import java.util.concurrent.TimeoutException;
 final class LazyExecutorService extends AbstractExecutorService {
 
   private volatile boolean isShutdown = false;
+  private volatile boolean isShutdownNow = false;
 
   @Override
   public void shutdown() {
@@ -56,6 +59,7 @@ final class LazyExecutorService extends AbstractExecutorService {
   @Override
   public List<Runnable> shutdownNow() {
     isShutdown = true;
+    isShutdownNow = true;
     return Collections.emptyList();
   }
 
@@ -118,7 +122,7 @@ final class LazyExecutorService extends AbstractExecutorService {
 
   @Override
   public <T> Future<T> submit(Callable<T> task) {
-    if (task == null) throw new NullPointerException();
+    checkNotNull(task, "task should not be null");
     if (isShutdown) {
       throw new RejectedExecutionException("Executor is shut down");
     }
@@ -136,7 +140,7 @@ final class LazyExecutorService extends AbstractExecutorService {
         if (Thread.interrupted()) {
           throw new InterruptedException();
         }
-        if (isShutdown) {
+        if (isShutdownNow) {
           cancel(false);
         } else {
           run(); // Execute on the caller's thread when get() is called
@@ -161,7 +165,7 @@ final class LazyExecutorService extends AbstractExecutorService {
         if (timeout <= 0) {
           throw new TimeoutException();
         }
-        if (isShutdown) {
+        if (isShutdownNow) {
           cancel(false);
         } else {
           run();

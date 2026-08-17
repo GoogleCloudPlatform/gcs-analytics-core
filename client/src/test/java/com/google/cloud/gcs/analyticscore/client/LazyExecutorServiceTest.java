@@ -96,27 +96,24 @@ class LazyExecutorServiceTest {
     assertThat(executed.get()).isTrue();
   }
 
-  /**
-   * Tests that if the executor is shut down before a task's get() is called, the task is implicitly
-   * cancelled and get() throws CancellationException.
-   */
+  /** Tests that shutdown allows pending futures to execute on get(). */
   @Test
-  void shutdown_whenTasksPending_cancelsTasksAndThrowsCancellationExceptionOnGet() {
+  void shutdown_whenTasksPending_allowsTasksToExecuteOnGet() throws Exception {
     Future<String> future = executorService.submit(this::createCallableTask);
 
     executorService.shutdown();
+    String result = future.get();
 
     assertThat(executorService.isShutdown()).isTrue();
-    assertThrows(CancellationException.class, () -> future.get(10, SECONDS));
-    assertThrows(CancellationException.class, future::get);
-    assertThat(executed.get()).isFalse();
-    assertThat(future.isCancelled()).isTrue();
+    assertThat(result).isEqualTo("success");
+    assertThat(executed.get()).isTrue();
+    assertThat(future.isCancelled()).isFalse();
     assertThat(future.isDone()).isTrue();
   }
 
   /**
-   * Tests that shutdownNow cancels pending futures similarly to shutdown, and returns an empty list
-   * since tasks are not queued internally.
+   * Tests that shutdownNow cancels pending futures, and returns an empty list since tasks are not
+   * queued internally.
    */
   @Test
   void shutdownNow_whenTasksPending_cancelsTasksAndReturnsEmptyList() {
