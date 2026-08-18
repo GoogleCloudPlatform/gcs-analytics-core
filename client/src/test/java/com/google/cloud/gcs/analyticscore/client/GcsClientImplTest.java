@@ -1052,13 +1052,25 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getFolderInfo_notObjectItemId_throwsIllegalArgumentException() {
+  void getFolderInfo_rootItemId_returnsRootInfo() throws IOException {
+    GcsItemInfo itemInfo = gcsClient.getFolderInfo(GcsItemId.ROOT);
+
+    assertThat(itemInfo).isEqualTo(GcsItemInfo.ROOT_INFO);
+  }
+
+  @Test
+  void getFolderInfo_bucketItemId_returnsBucketInfo() throws IOException {
     GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    Bucket mockBucket = createMockBucket(TEST_BUCKET);
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.get(eq(TEST_BUCKET), any(Storage.BucketGetOption[].class)))
+        .thenReturn(mockBucket);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
-    IllegalArgumentException e =
-        assertThrows(IllegalArgumentException.class, () -> gcsClient.getFolderInfo(bucketId));
+    GcsItemInfo itemInfo = clientWithMock.getFolderInfo(bucketId);
 
-    assertThat(e).hasMessageThat().contains("Expected a folder itemId");
+    assertThat(itemInfo.getItemId()).isEqualTo(bucketId);
+    assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
   }
 
   @Test
@@ -1121,24 +1133,15 @@ class GcsClientImplTest {
   }
 
   @Test
-  void lazyGetStorageControlClient_reusesExistingInstance() throws IOException {
-    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class));
-    StorageControlClient mockClient = mock(StorageControlClient.class);
-    localClient.storageControlClient = mockClient;
+  void lazyGetStorageControlClient_initializesWhenNullAndReusesInstance() throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl mockClient = createClientWithMockControl(mockControlClient);
 
-    StorageControlClient result = localClient.lazyGetStorageControlClient();
+    StorageControlClient createdInstance = mockClient.lazyGetStorageControlClient();
+    StorageControlClient cachedInstance = mockClient.lazyGetStorageControlClient();
 
-    assertThat(result).isSameInstanceAs(mockClient);
-  }
-
-  @Test
-  void lazyGetStorageControlClient_initializesClientWhenNull() throws Exception {
-    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class));
-
-    StorageControlClient result = localClient.lazyGetStorageControlClient();
-
-    assertThat(result).isNotNull();
-    result.close();
+    assertThat(createdInstance).isSameInstanceAs(mockControlClient);
+    assertThat(cachedInstance).isSameInstanceAs(mockControlClient);
   }
 
   @Test
@@ -1181,7 +1184,7 @@ class GcsClientImplTest {
       }
 
       @Override
-      StorageControlClient lazyGetStorageControlClient() {
+      protected StorageControlClient createStorageControlClient(Optional<Credentials> credentials) {
         return mockControlClient;
       }
     };

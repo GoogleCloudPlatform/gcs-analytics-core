@@ -17,7 +17,6 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.gax.paging.Page;
@@ -57,7 +56,6 @@ import java.nio.channels.WritableByteChannel;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
@@ -212,6 +210,12 @@ class GcsClientImpl implements GcsClient {
   @Override
   public GcsItemInfo getFolderInfo(GcsItemId itemId) throws IOException {
     checkNotNull(itemId, "Item ID must not be null.");
+    if (GcsItemId.ROOT.equals(itemId)) {
+      return GcsItemInfo.ROOT_INFO;
+    }
+    if (itemId.isBucket()) {
+      return getBucketInfo(itemId);
+    }
     checkArgument(itemId.isGcsObject(), "Expected a folder itemId");
     String objectName = itemId.getObjectName().orElse("");
     String folderName = UriUtil.removeTrailingSlash(objectName);
@@ -236,14 +240,19 @@ class GcsClientImpl implements GcsClient {
     if (this.storageControlClient == null) {
       synchronized (this) {
         if (this.storageControlClient == null) {
-          StorageControlSettings.Builder builder = StorageControlSettings.newBuilder();
-          this.credentials.ifPresent(
-              c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
-          this.storageControlClient = StorageControlClient.create(builder.build());
+          this.storageControlClient = createStorageControlClient(this.credentials);
         }
       }
     }
     return this.storageControlClient;
+  }
+
+  @VisibleForTesting
+  protected StorageControlClient createStorageControlClient(Optional<Credentials> credentials)
+      throws IOException {
+    StorageControlSettings.Builder builder = StorageControlSettings.newBuilder();
+    credentials.ifPresent(c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
+    return StorageControlClient.create(builder.build());
   }
 
   @Override
@@ -295,15 +304,7 @@ class GcsClientImpl implements GcsClient {
     Optional.ofNullable(blob.getContentEncoding()).ifPresent(infoBuilder::setContentEncoding);
     Optional.ofNullable(blob.getMetageneration()).ifPresent(infoBuilder::setMetaGeneration);
 
-    if (blob.getMetadata() != null) {
-      ImmutableMap.Builder<String, byte[]> xattrs = ImmutableMap.builder();
-      for (Map.Entry<String, String> entry : blob.getMetadata().entrySet()) {
-        if (entry.getValue() != null) {
-          xattrs.put(entry.getKey(), entry.getValue().getBytes(UTF_8));
-        }
-      }
-      infoBuilder.setExtendedAttributes(xattrs.build());
-    }
+    infoBuilder.setExtendedAttributes(GcsItemInfo.decodeMetadata(blob.getMetadata()));
 
     return infoBuilder.build();
   }
@@ -437,13 +438,6 @@ class GcsClientImpl implements GcsClient {
     }
   }
 
-  private static ImmutableMap<String, String> encodeMetadata(
-      ImmutableMap<String, byte[]> metadata) {
-    ImmutableMap.Builder<String, String> encoded = ImmutableMap.builder();
-    metadata.forEach((k, v) -> encoded.put(k, BaseEncoding.base64().encode(v)));
-    return encoded.build();
-  }
-
   private static BlobInfo createBlobInfo(GcsItemId itemId, GcsWriteOptions writeOptions) {
     checkNotNull(itemId, "itemId should not be null");
     String objectName =
@@ -465,7 +459,7 @@ class GcsClientImpl implements GcsClient {
               options.getContentEncoding().ifPresent(blobInfoBuilder::setContentEncoding);
               ImmutableMap<String, byte[]> metadata = options.getMetadata();
               if (!metadata.isEmpty()) {
-                blobInfoBuilder.setMetadata(encodeMetadata(metadata));
+                blobInfoBuilder.setMetadata(GcsItemInfo.encodeMetadata(metadata));
               }
             });
 

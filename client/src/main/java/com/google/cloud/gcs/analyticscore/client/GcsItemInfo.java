@@ -17,11 +17,16 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.io.BaseEncoding;
+import java.util.Map;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Represents metadata of a GCS Item. */
 @AutoValue
 public abstract class GcsItemInfo {
+  private static final Logger LOG = LoggerFactory.getLogger(GcsItemInfo.class);
 
   public static final GcsItemInfo ROOT_INFO = createRoot(GcsItemId.ROOT);
 
@@ -97,6 +102,32 @@ public abstract class GcsItemInfo {
 
   public static GcsItemInfo createRoot(GcsItemId itemId) {
     return builder().setItemId(itemId).setSize(0).setItemType(ItemType.ROOT).build();
+  }
+
+  public static ImmutableMap<String, String> encodeMetadata(ImmutableMap<String, byte[]> metadata) {
+    ImmutableMap.Builder<String, String> encoded = ImmutableMap.builder();
+    metadata.forEach((k, v) -> encoded.put(k, BaseEncoding.base64().encode(v)));
+    return encoded.build();
+  }
+
+  public static ImmutableMap<String, byte[]> decodeMetadata(Map<String, String> metadata) {
+    if (metadata == null || metadata.isEmpty()) {
+      return ImmutableMap.of();
+    }
+    ImmutableMap.Builder<String, byte[]> decoded = ImmutableMap.builder();
+    for (Map.Entry<String, String> entry : metadata.entrySet()) {
+      String key = entry.getKey();
+      if (key != null) {
+        String value = entry.getValue();
+        try {
+          byte[] decodedValue = (value == null) ? new byte[0] : BaseEncoding.base64().decode(value);
+          decoded.put(key, decodedValue);
+        } catch (IllegalArgumentException e) {
+          LOG.error("Failed to parse base64 encoded attribute value for key {}: {}", key, value, e);
+        }
+      }
+    }
+    return decoded.build();
   }
 
   public abstract Builder toBuilder();

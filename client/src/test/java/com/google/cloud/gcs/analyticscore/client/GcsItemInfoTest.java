@@ -17,6 +17,9 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.common.collect.ImmutableMap;
+import java.util.Collections;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class GcsItemInfoTest {
@@ -72,5 +75,50 @@ class GcsItemInfoTest {
     assertThat(rootInfo.getItemId()).isEqualTo(GcsItemId.ROOT);
     assertThat(rootInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.ROOT);
     assertThat(rootInfo.getSize()).isEqualTo(0L);
+  }
+
+  @Test
+  void encodeAndDecodeMetadata_roundTripsCorrectly() {
+    ImmutableMap<String, byte[]> original =
+        ImmutableMap.of(
+            "key1", new byte[] {1, 2, 3},
+            "key2", new byte[] {0, -1, 127});
+
+    ImmutableMap<String, String> encoded = GcsItemInfo.encodeMetadata(original);
+    ImmutableMap<String, byte[]> decoded = GcsItemInfo.decodeMetadata(encoded);
+
+    assertThat(decoded.keySet()).isEqualTo(original.keySet());
+    decoded.forEach((k, v) -> assertThat(v).isEqualTo(original.get(k)));
+  }
+
+  @Test
+  void decodeMetadata_nullOrEmpty_returnsEmptyMap() {
+    assertThat(GcsItemInfo.decodeMetadata(null)).isEmpty();
+    assertThat(GcsItemInfo.decodeMetadata(ImmutableMap.of())).isEmpty();
+  }
+
+  @Test
+  void decodeMetadata_invalidBase64Value_ignoresInvalidAttributeAndDecodesValidAttributes() {
+    Map<String, String> metadata =
+        ImmutableMap.of(
+            "validKey",
+            GcsItemInfo.encodeMetadata(ImmutableMap.of("validKey", new byte[] {1, 2}))
+                .get("validKey"),
+            "invalidKey",
+            "not-base-64!!!");
+
+    ImmutableMap<String, byte[]> decoded = GcsItemInfo.decodeMetadata(metadata);
+
+    assertThat(decoded.keySet()).containsExactly("validKey");
+    assertThat(decoded.get("validKey")).isEqualTo(new byte[] {1, 2});
+  }
+
+  @Test
+  void decodeMetadata_nullKeyIsIgnored_nullValueMapsToEmptyByteArray() {
+    assertThat(GcsItemInfo.decodeMetadata(Collections.singletonMap(null, "dmFs"))).isEmpty();
+    ImmutableMap<String, byte[]> decodedNullVal =
+        GcsItemInfo.decodeMetadata(Collections.singletonMap("key", null));
+    assertThat(decodedNullVal.keySet()).containsExactly("key");
+    assertThat(decodedNullVal.get("key")).isEmpty();
   }
 }
