@@ -63,7 +63,8 @@ class FlatNamespaceStrategyImplTest {
                     .build())
             .setSize(100L)
             .build();
-    when(mockClient.listObjectInfo(eq(prefixId), eq(1))).thenReturn(ImmutableList.of(childItem));
+    when(mockClient.listFirstObjectWithPrefix(eq(prefixId)))
+        .thenReturn(ImmutableList.of(childItem));
 
     GcsItemInfo result = strategy.getDirectoryInfo(dirId);
 
@@ -71,7 +72,7 @@ class FlatNamespaceStrategyImplTest {
     assertThat(result.getItemId()).isEqualTo(dirId);
     assertThat(result.getItemType()).isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
     assertThat(result.isInferredDirectory()).isTrue();
-    verify(mockClient).listObjectInfo(prefixId, 1);
+    verify(mockClient).listFirstObjectWithPrefix(prefixId);
   }
 
   @Test
@@ -81,29 +82,29 @@ class FlatNamespaceStrategyImplTest {
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
     GcsItemId prefixId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR + "/").build();
-    when(mockClient.listObjectInfo(eq(prefixId), eq(1))).thenReturn(ImmutableList.of());
+    when(mockClient.listFirstObjectWithPrefix(eq(prefixId))).thenReturn(ImmutableList.of());
 
     FileNotFoundException e =
         assertThrows(FileNotFoundException.class, () -> strategy.getDirectoryInfo(dirId));
 
     assertThat(e).hasMessageThat().contains("Directory not found: " + dirId);
-    verify(mockClient).listObjectInfo(prefixId, 1);
+    verify(mockClient).listFirstObjectWithPrefix(prefixId);
   }
 
   @Test
-  void getDirectoryInfo_listObjectInfoThrowsIOException_throwsFileNotFoundException()
+  void getDirectoryInfo_listFirstObjectWithPrefixThrowsIOException_throwsFileNotFoundException()
       throws IOException {
     GcsItemId dirId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
     GcsItemId prefixId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR + "/").build();
-    when(mockClient.listObjectInfo(eq(prefixId), eq(1)))
+    when(mockClient.listFirstObjectWithPrefix(eq(prefixId)))
         .thenThrow(new IOException("GCS listing failure"));
 
     FileNotFoundException e =
         assertThrows(FileNotFoundException.class, () -> strategy.getDirectoryInfo(dirId));
 
     assertThat(e).hasMessageThat().contains("Directory not found: " + dirId);
-    verify(mockClient).listObjectInfo(prefixId, 1);
+    verify(mockClient).listFirstObjectWithPrefix(prefixId);
   }
 }

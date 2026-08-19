@@ -43,8 +43,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -381,7 +381,8 @@ class GcsFileSystemImplTest {
             .build();
     when(mockClient.getGcsItemInfo(eq(itemId)))
         .thenThrow(new FileNotFoundException("Object not found: " + itemId));
-    when(mockClient.listObjectInfo(eq(prefixId), eq(1))).thenReturn(ImmutableList.of(childItem));
+    when(mockClient.listFirstObjectWithPrefix(eq(prefixId)))
+        .thenReturn(ImmutableList.of(childItem));
 
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
 
@@ -399,7 +400,7 @@ class GcsFileSystemImplTest {
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data.parquet/").build();
     when(mockClient.getGcsItemInfo(eq(itemId)))
         .thenThrow(new FileNotFoundException("Object not found: " + itemId));
-    when(mockClient.listObjectInfo(eq(prefixId), eq(1))).thenReturn(ImmutableList.of());
+    when(mockClient.listFirstObjectWithPrefix(eq(prefixId))).thenReturn(ImmutableList.of());
 
     FileNotFoundException e =
         assertThrows(FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(itemId));
@@ -423,7 +424,8 @@ class GcsFileSystemImplTest {
                     .build())
             .setSize(100L)
             .build();
-    when(mockClient.listObjectInfo(eq(prefixId), eq(1))).thenReturn(ImmutableList.of(childItem));
+    when(mockClient.listFirstObjectWithPrefix(eq(prefixId)))
+        .thenReturn(ImmutableList.of(childItem));
 
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
 

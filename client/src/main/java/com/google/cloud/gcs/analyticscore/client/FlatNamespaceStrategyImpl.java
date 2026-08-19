@@ -48,7 +48,7 @@ final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
     GcsItemId prefixId =
         GcsItemId.builder().setBucketName(id.getBucketName()).setObjectName(prefix).build();
     try {
-      return !gcsClient.listObjectInfo(prefixId, 1).isEmpty();
+      return !gcsClient.listFirstObjectWithPrefix(prefixId).isEmpty();
     } catch (IOException e) {
       logger.warn("Failed to check if {} is an implicit directory, returning false", id, e);
       return false;

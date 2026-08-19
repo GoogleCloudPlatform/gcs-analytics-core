@@ -42,7 +42,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -194,9 +193,9 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       return createBucketFileInfo(bucketInfo);
     }
     // Submit directory info in background
-    ExecutorService listExecutorService = listExecutorServiceSupplier.get();
+    ExecutorService statusExecutorService = statusExecutorServiceSupplier.get();
     Future<GcsItemInfo> directoryInfoFuture =
-        listExecutorService.submit(
+        statusExecutorService.submit(
             () -> {
               NamespaceStrategy strategy = resolveStrategy(itemId.getBucketName());
               return strategy.getDirectoryInfo(itemId);
