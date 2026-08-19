@@ -31,12 +31,10 @@ class GcsItemInfoTest {
 
   @Test
   void isInferredDirectory() {
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder()
-            .setItemId(
-                GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build())
-            .setItemType(GcsItemInfo.ItemType.INFERRED_DIRECTORY)
-            .build();
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
+
+    GcsItemInfo itemInfo = GcsItemInfo.createInferredDirectory(itemId);
 
     assertThat(itemInfo.isInferredDirectory()).isTrue();
     assertThat(itemInfo.isExplicitDirectory()).isFalse();

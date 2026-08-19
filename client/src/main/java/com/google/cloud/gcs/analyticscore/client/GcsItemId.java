@@ -55,8 +55,7 @@ public abstract class GcsItemId {
    * name.
    */
   public boolean isGcsObject() {
-    return this.getBucketName() != null
-        && !this.getBucketName().isEmpty()
+    return !this.getBucketName().isEmpty()
         && this.getObjectName().isPresent()
         && !this.getObjectName().get().isEmpty();
   }
@@ -68,8 +67,7 @@ public abstract class GcsItemId {
    * either absent or empty).
    */
   public boolean isBucket() {
-    return this.getBucketName() != null
-        && !this.getBucketName().isEmpty()
+    return !this.getBucketName().isEmpty()
         && (this.getObjectName().isEmpty() || this.getObjectName().get().isEmpty());
   }
 }

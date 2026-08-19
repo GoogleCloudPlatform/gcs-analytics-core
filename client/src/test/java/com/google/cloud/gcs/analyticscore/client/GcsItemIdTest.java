@@ -64,6 +64,13 @@ class GcsItemIdTest {
   }
 
   @Test
+  void isGcsObject_emptyObjectName_returnsFalse() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("").build();
+
+    assertThat(itemId.isGcsObject()).isFalse();
+  }
+
+  @Test
   void isBucket_withBucketOnly_returnsTrue() {
     GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
 
@@ -77,6 +84,14 @@ class GcsItemIdTest {
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
 
     assertThat(objectId.isBucket()).isFalse();
+  }
+
+  @Test
+  void isBucket_withEmptyObjectName_returnsTrue() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("").build();
+
+    assertThat(bucketId.isBucket()).isTrue();
+    assertThat(bucketId.isGcsObject()).isFalse();
   }
 
   @Test

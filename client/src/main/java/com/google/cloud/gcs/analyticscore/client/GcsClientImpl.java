@@ -23,7 +23,6 @@ import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.auth.Credentials;
-import com.google.cloud.gcs.analyticscore.client.GcsItemInfo.ItemType;
 import com.google.cloud.gcs.analyticscore.client.GcsReadChannel.ItemInfoProvider;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
@@ -325,9 +324,9 @@ class GcsClientImpl implements GcsClient {
     return GcsItemInfo.builder()
         .setItemId(itemId)
         .setSize(0)
-        .setItemType(ItemType.EXPLICIT_DIRECTORY)
-        .setCreationTime(folder.hasCreateTime() ? toEpochMilli(folder.getCreateTime()) : 0L)
-        .setModificationTime(folder.hasUpdateTime() ? toEpochMilli(folder.getUpdateTime()) : 0L)
+        .setItemType(GcsItemInfo.ItemType.EXPLICIT_DIRECTORY)
+        .setCreationTime(toEpochMilli(folder.hasCreateTime() ? folder.getCreateTime() : null))
+        .setModificationTime(toEpochMilli(folder.hasUpdateTime() ? folder.getUpdateTime() : null))
         .setMetaGeneration(folder.getMetageneration())
         .build();
   }
@@ -379,11 +378,14 @@ class GcsClientImpl implements GcsClient {
     } catch (Exception e) {
       LOG.debug("Exception while closing storage instance", e);
     }
-    if (storageControlClient != null) {
-      try {
-        storageControlClient.close();
-      } catch (Exception e) {
-        LOG.debug("Exception while closing storageControlClient", e);
+    synchronized (this) {
+      if (storageControlClient != null) {
+        try {
+          storageControlClient.close();
+        } catch (Exception e) {
+          LOG.debug("Exception while closing storageControlClient", e);
+        }
+        storageControlClient = null;
       }
     }
   }

@@ -59,6 +59,7 @@ import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
+import com.google.storage.control.v2.StorageControlSettings;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -76,8 +77,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -161,6 +167,8 @@ class GcsClientImplTest {
     assertThat(itemInfo.getItemId()).isEqualTo(expectedItemId);
     assertThat(itemInfo.getSize()).isEqualTo(objectData.length());
     assertThat(itemInfo.getContentGeneration().get()).isEqualTo(0L);
+    assertThat(itemInfo.getVerificationAttributes().get().getMd5hash()).isNull();
+    assertThat(itemInfo.getVerificationAttributes().get().getCrc32c()).isNotNull();
   }
 
   @Test
@@ -1109,6 +1117,24 @@ class GcsClientImplTest {
   }
 
   @Test
+  void getFolderInfo_folderWithoutCreateOrUpdateTime_setsTimestampsToZero() throws IOException {
+    GcsItemId folderItemId =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET)
+            .setObjectName(TEST_FOLDER_NAME + "/")
+            .build();
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.getFolder(any(GetFolderRequest.class)))
+        .thenReturn(Folder.getDefaultInstance());
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    GcsItemInfo itemInfo = clientWithMockControl.getFolderInfo(folderItemId);
+
+    assertThat(itemInfo.getCreationTime()).isEqualTo(0L);
+    assertThat(itemInfo.getModificationTime()).isEqualTo(0L);
+  }
+
+  @Test
   void close_withStorageControlClient_closesBoth() throws Exception {
     Storage mockStorage = mock(Storage.class);
     StorageControlClient mockControlClient = mock(StorageControlClient.class);
@@ -1119,17 +1145,47 @@ class GcsClientImplTest {
 
     verify(mockStorage).close();
     verify(mockControlClient).close();
+    assertThat(localClient.storageControlClient).isNull();
   }
 
   @Test
-  void close_whenStorageCloseThrowsException_doesNotPropagate() throws Exception {
+  void close_whenUnderlyingClientsThrowException_suppressesException() throws Exception {
     Storage mockStorage = mock(Storage.class);
-    doThrow(new RuntimeException("close error")).when(mockStorage).close();
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    doThrow(new RuntimeException("storage close error")).when(mockStorage).close();
+    doThrow(new RuntimeException("control client close error")).when(mockControlClient).close();
     GcsClientImpl localClient = createClientWithMockStorage(mockStorage);
+    localClient.storageControlClient = mockControlClient;
 
     localClient.close();
 
     verify(mockStorage).close();
+    verify(mockControlClient).close();
+  }
+
+  @Test
+  void createStorageControlClient_withCredentials_createsClient() throws Exception {
+    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class));
+
+    try (StorageControlClient controlClient =
+        localClient.createStorageControlClient(Optional.of(NoCredentials.getInstance()))) {
+      assertThat(controlClient).isNotNull();
+    }
+  }
+
+  @Test
+  void createStorageControlClient_withoutCredentials_createsClient() throws Exception {
+    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class));
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+
+    try (MockedStatic<StorageControlClient> mocked = mockStatic(StorageControlClient.class)) {
+      mocked
+          .when(() -> StorageControlClient.create(any(StorageControlSettings.class)))
+          .thenReturn(mockControlClient);
+
+      assertThat(localClient.createStorageControlClient(Optional.empty()))
+          .isSameInstanceAs(mockControlClient);
+    }
   }
 
   @Test
@@ -1142,6 +1198,45 @@ class GcsClientImplTest {
 
     assertThat(createdInstance).isSameInstanceAs(mockControlClient);
     assertThat(cachedInstance).isSameInstanceAs(mockControlClient);
+  }
+
+  @Test
+  void lazyGetStorageControlClient_concurrentCalls_instantiatesExactlyOnce() throws Exception {
+    StorageControlClient mockClientInstance = mock(StorageControlClient.class);
+    AtomicInteger factoryInvocations = new AtomicInteger();
+    GcsClientImpl client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected StorageControlClient createStorageControlClient(
+              Optional<Credentials> credentials) {
+            factoryInvocations.incrementAndGet();
+            return mockClientInstance;
+          }
+        };
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch start = new CountDownLatch(1);
+    Callable<StorageControlClient> task =
+        () -> {
+          ready.countDown();
+          start.await();
+          return client.lazyGetStorageControlClient();
+        };
+
+    try {
+      Future<StorageControlClient> f1 = executor.submit(task);
+      Future<StorageControlClient> f2 = executor.submit(task);
+      ready.await(5, TimeUnit.SECONDS);
+      start.countDown();
+      StorageControlClient result1 = f1.get(5, TimeUnit.SECONDS);
+      StorageControlClient result2 = f2.get(5, TimeUnit.SECONDS);
+
+      assertThat(result1).isSameInstanceAs(mockClientInstance);
+      assertThat(result2).isSameInstanceAs(mockClientInstance);
+      assertThat(factoryInvocations.get()).isEqualTo(1);
+    } finally {
+      executor.shutdownNow();
+    }
   }
 
   @Test
@@ -1202,6 +1297,7 @@ class GcsClientImplTest {
 
     assertThat(result).hasSize(1);
     assertThat(result.get(0).getItemId().getObjectName()).hasValue(TEST_DIR + "file.txt");
+    assertThat(result.get(0).getSize()).isEqualTo(0L);
   }
 
   @Test
