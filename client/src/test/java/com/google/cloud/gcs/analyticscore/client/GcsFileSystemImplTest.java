@@ -41,6 +41,7 @@ import java.nio.channels.WritableByteChannel;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -315,80 +316,147 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void initializeExecutionServiceSupplier_shouldReturnMemoizedExecutorService() {
+  void initializeReadExecutionServiceSupplier_shouldReturnMemoizedExecutorService() {
     GcsFileSystemImpl fileSystemImpl = (GcsFileSystemImpl) gcsFileSystem;
 
-    Supplier<ExecutorService> executorServiceSupplier =
-        fileSystemImpl.initializeExecutionServiceSupplier();
+    Supplier<ExecutorService> readExecutorServiceSupplier =
+        fileSystemImpl.initializeReadExecutionServiceSupplier();
 
-    assertThat(executorServiceSupplier).isNotNull();
-    assertThat(executorServiceSupplier.get()).isNotNull();
-    assertThat(executorServiceSupplier.get()).isInstanceOf(ThreadPoolExecutor.class);
-    assertThat(((ThreadPoolExecutor) executorServiceSupplier.get()).getCorePoolSize())
+    assertThat(readExecutorServiceSupplier).isNotNull();
+    assertThat(readExecutorServiceSupplier.get()).isNotNull();
+    assertThat(readExecutorServiceSupplier.get()).isInstanceOf(ThreadPoolExecutor.class);
+    assertThat(((ThreadPoolExecutor) readExecutorServiceSupplier.get()).getCorePoolSize())
         .isEqualTo(16);
+    assertThat(readExecutorServiceSupplier.get())
+        .isSameInstanceAs(readExecutorServiceSupplier.get());
+  }
+
+  @Test
+  void
+      initializeStatusExecutionServiceSupplier_whenMetadataLookupParallelEnabled_shouldReturnCachedExecutorService() {
+    GcsFileSystemImpl fileSystemImpl = (GcsFileSystemImpl) gcsFileSystem;
+
+    Supplier<ExecutorService> statusExecutorServiceSupplier =
+        fileSystemImpl.initializeStatusExecutionServiceSupplier();
+
+    assertThat(statusExecutorServiceSupplier).isNotNull();
+    assertThat(statusExecutorServiceSupplier.get()).isNotNull();
+    assertThat(((ThreadPoolExecutor) statusExecutorServiceSupplier.get()).getQueue())
+        .isInstanceOf(LinkedBlockingQueue.class);
+    assertThat(statusExecutorServiceSupplier.get())
+        .isSameInstanceAs(statusExecutorServiceSupplier.get());
+  }
+
+  @Test
+  void
+      initializeStatusExecutionServiceSupplier_whenMetadataLookupParallelDisabled_shouldReturnLazyExecutorService()
+          throws Exception {
+    GcsFileSystemOptions options =
+        TEST_GCS_FILESYSTEM_OPTIONS.toBuilder().setMetadataLookupParallelEnabled(false).build();
+    // Use try-with-resources to ensure GcsFileSystemImpl is closed with its internal executors.
+    try (GcsFileSystemImpl fileSystemImpl = new GcsFileSystemImpl(mock(GcsClient.class), options)) {
+
+      Supplier<ExecutorService> statusExecutorServiceSupplier =
+          fileSystemImpl.initializeStatusExecutionServiceSupplier();
+
+      assertThat(statusExecutorServiceSupplier).isNotNull();
+      assertThat(statusExecutorServiceSupplier.get()).isNotNull();
+      assertThat(statusExecutorServiceSupplier.get()).isInstanceOf(LazyExecutorService.class);
+    }
   }
 
   @Test
   void close_whenTerminationSucceeds_shutsDownGracefully() throws InterruptedException {
-    ExecutorService mockExecutorService = mock(ExecutorService.class);
-    when(mockExecutorService.awaitTermination(anyLong(), any(TimeUnit.class))).thenReturn(true);
+    ExecutorService mockReadExecutorService = mock(ExecutorService.class);
+    ExecutorService mockStatusExecutorService = mock(ExecutorService.class);
+    when(mockReadExecutorService.awaitTermination(anyLong(), any(TimeUnit.class))).thenReturn(true);
+    when(mockStatusExecutorService.awaitTermination(anyLong(), any(TimeUnit.class)))
+        .thenReturn(true);
     GcsFileSystemImpl fileSystemWithMockExecutor =
         new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS) {
           @Override
-          Supplier<ExecutorService> initializeExecutionServiceSupplier() {
-            return () -> mockExecutorService;
+          Supplier<ExecutorService> initializeReadExecutionServiceSupplier() {
+            return () -> mockReadExecutorService;
+          }
+
+          @Override
+          Supplier<ExecutorService> initializeStatusExecutionServiceSupplier() {
+            return () -> mockStatusExecutorService;
           }
         };
 
     fileSystemWithMockExecutor.close();
-    InOrder inOrder = inOrder(mockExecutorService, mockClient);
+    InOrder inOrder = inOrder(mockReadExecutorService, mockStatusExecutorService, mockClient);
 
-    inOrder.verify(mockExecutorService).shutdown();
-    inOrder.verify(mockExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
+    inOrder.verify(mockReadExecutorService).shutdown();
+    inOrder.verify(mockStatusExecutorService).shutdown();
+    inOrder.verify(mockReadExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
+    inOrder.verify(mockStatusExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
     inOrder.verify(mockClient).close();
-    verify(mockExecutorService, never()).shutdownNow();
+    verify(mockReadExecutorService, never()).shutdownNow();
+    verify(mockStatusExecutorService, never()).shutdownNow();
   }
 
   @Test
   void close_whenTerminationTimesOut_shutsDownNow() throws InterruptedException {
-    ExecutorService mockExecutorService = mock(ExecutorService.class);
-    when(mockExecutorService.awaitTermination(anyLong(), any(TimeUnit.class))).thenReturn(false);
+    ExecutorService mockReadExecutorService = mock(ExecutorService.class);
+    ExecutorService mockStatusExecutorService = mock(ExecutorService.class);
+    when(mockReadExecutorService.awaitTermination(anyLong(), any(TimeUnit.class)))
+        .thenReturn(false);
+    when(mockStatusExecutorService.awaitTermination(anyLong(), any(TimeUnit.class)))
+        .thenReturn(false);
     GcsFileSystemImpl fileSystemWithMockExecutor =
         new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS) {
           @Override
-          Supplier<ExecutorService> initializeExecutionServiceSupplier() {
-            return () -> mockExecutorService;
+          Supplier<ExecutorService> initializeReadExecutionServiceSupplier() {
+            return () -> mockReadExecutorService;
+          }
+
+          @Override
+          Supplier<ExecutorService> initializeStatusExecutionServiceSupplier() {
+            return () -> mockStatusExecutorService;
           }
         };
 
     fileSystemWithMockExecutor.close();
-    InOrder inOrder = inOrder(mockExecutorService, mockClient);
+    InOrder inOrder = inOrder(mockReadExecutorService, mockStatusExecutorService, mockClient);
 
-    inOrder.verify(mockExecutorService).shutdown();
-    inOrder.verify(mockExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
-    inOrder.verify(mockExecutorService).shutdownNow();
+    inOrder.verify(mockReadExecutorService).shutdown();
+    inOrder.verify(mockStatusExecutorService).shutdown();
+    inOrder.verify(mockReadExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
+    inOrder.verify(mockReadExecutorService).shutdownNow();
+    inOrder.verify(mockStatusExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
+    inOrder.verify(mockStatusExecutorService).shutdownNow();
     inOrder.verify(mockClient).close();
   }
 
   @Test
   void close_whenInterrupted_reInterruptsThreadAndShutsDownNow() throws InterruptedException {
-    ExecutorService mockExecutorService = mock(ExecutorService.class);
-    when(mockExecutorService.awaitTermination(anyLong(), any(TimeUnit.class)))
+    ExecutorService mockReadExecutorService = mock(ExecutorService.class);
+    ExecutorService mockStatusExecutorService = mock(ExecutorService.class);
+    when(mockReadExecutorService.awaitTermination(anyLong(), any(TimeUnit.class)))
         .thenThrow(new InterruptedException());
     GcsFileSystemImpl fileSystemWithMockExecutor =
         new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS) {
           @Override
-          Supplier<ExecutorService> initializeExecutionServiceSupplier() {
-            return () -> mockExecutorService;
+          Supplier<ExecutorService> initializeReadExecutionServiceSupplier() {
+            return () -> mockReadExecutorService;
+          }
+
+          @Override
+          Supplier<ExecutorService> initializeStatusExecutionServiceSupplier() {
+            return () -> mockStatusExecutorService;
           }
         };
 
     fileSystemWithMockExecutor.close();
-    InOrder inOrder = inOrder(mockExecutorService, mockClient);
+    InOrder inOrder = inOrder(mockReadExecutorService, mockStatusExecutorService, mockClient);
 
-    inOrder.verify(mockExecutorService).shutdown();
-    inOrder.verify(mockExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
-    inOrder.verify(mockExecutorService).shutdownNow();
+    inOrder.verify(mockReadExecutorService).shutdown();
+    inOrder.verify(mockStatusExecutorService).shutdown();
+    inOrder.verify(mockReadExecutorService).awaitTermination(anyLong(), any(TimeUnit.class));
+    inOrder.verify(mockReadExecutorService).shutdownNow();
+    inOrder.verify(mockStatusExecutorService).shutdownNow();
     inOrder.verify(mockClient).close();
     assertThat(Thread.currentThread().isInterrupted()).isTrue();
     Thread.interrupted(); // Clear interrupted status to not affect other tests

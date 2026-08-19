@@ -82,4 +82,14 @@ class GcsFileSystemOptionsTest {
     assertThat(cacheOptions.isSmallObjectCacheEnabled()).isFalse();
     assertThat(cacheOptions.getSmallObjectCacheMaxSizeBytes()).isEqualTo(200 * MB);
   }
+
+  @Test
+  void createFromOptions_withMetadataLookupParallelEnabledFalse_createsCorrectOptions() {
+    ImmutableMap<String, String> properties =
+        ImmutableMap.of("fs.gs.analytics-core.metadata.lookup.parallel.enable", "false");
+
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
+
+    assertThat(options.isMetadataLookupParallelEnabled()).isFalse();
+  }
 }
