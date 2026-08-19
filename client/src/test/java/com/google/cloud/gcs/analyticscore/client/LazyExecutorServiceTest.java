@@ -124,6 +124,18 @@ class LazyExecutorServiceTest {
     assertThat(unexecutedTasks).isEmpty();
     assertThat(executorService.isShutdown()).isTrue();
     assertThrows(CancellationException.class, future::get);
+    assertThat(executed.get()).isFalse();
+    assertThat(future.isCancelled()).isTrue();
+    assertThat(future.isDone()).isTrue();
+  }
+
+  @Test
+  void
+      shutdownNow_whenGetWithTimeoutCalledOnPendingTask_cancelsTaskAndThrowsCancellationException() {
+    Future<String> future = executorService.submit(this::createCallableTask);
+
+    executorService.shutdownNow();
+
     assertThrows(CancellationException.class, () -> future.get(10, SECONDS));
     assertThat(executed.get()).isFalse();
     assertThat(future.isCancelled()).isTrue();
@@ -195,6 +207,8 @@ class LazyExecutorServiceTest {
 
     assertThrows(RejectedExecutionException.class, () -> executorService.submit(() -> "task"));
     assertThrows(RejectedExecutionException.class, () -> executorService.submit(() -> {}));
+    assertThrows(
+        RejectedExecutionException.class, () -> executorService.submit(() -> {}, "result"));
   }
 
   /**
