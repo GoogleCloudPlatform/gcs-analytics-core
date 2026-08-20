@@ -20,12 +20,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
-
-  private static final Logger logger = LoggerFactory.getLogger(FlatNamespaceStrategyImpl.class);
 
   private final GcsClient gcsClient;
 
@@ -43,15 +39,10 @@ final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
   }
 
   // Checks if a path is an implicit directory by seeing if any objects exist with it as a prefix
-  private boolean isImplicitDirectory(GcsItemId id) {
+  private boolean isImplicitDirectory(GcsItemId id) throws IOException {
     String prefix = UriUtil.ensureTrailingSlash(id.getObjectName().orElse(""));
     GcsItemId prefixId =
         GcsItemId.builder().setBucketName(id.getBucketName()).setObjectName(prefix).build();
-    try {
-      return !gcsClient.listFirstObjectWithPrefix(prefixId).isEmpty();
-    } catch (IOException e) {
-      logger.warn("Failed to check if {} is an implicit directory, returning false", id, e);
-      return false;
-    }
+    return !gcsClient.listFirstObjectWithPrefix(prefixId).isEmpty();
   }
 }

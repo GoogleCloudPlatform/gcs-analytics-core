@@ -22,10 +22,10 @@ import java.io.IOException;
  * Strategy interface for handling directory operations across different namespace models (Flat vs.
  * HNS).
  *
- * <p>Methods for directory operations will be added in follow-up PRs. These methods will include:
+ * <p>Additional methods for directory operations will be added in follow-up PRs. These methods will
+ * include:
  *
  * <ul>
- *   <li>{@code GcsItemInfo getDirectoryInfo(GcsItemId id) throws IOException;}
  *   <li>{@code void createDirectory(GcsItemId id) throws IOException;}
  *   <li>{@code boolean isDirectoryEmpty(GcsItemId id) throws IOException;}
  *   <li>{@code void renameDirectory(GcsItemId src, GcsItemId dst) throws IOException;}

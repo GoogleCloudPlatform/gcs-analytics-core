@@ -224,6 +224,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     try {
       return future.get();
     } catch (InterruptedException e) {
+      future.cancel(true);
       Thread.currentThread().interrupt();
       throw new IOException("Thread interrupted while waiting on future", e);
     } catch (ExecutionException e) {

@@ -339,14 +339,13 @@ class GcsFileSystemImplTest {
 
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
 
-    assertNotNull(fileInfo);
-    assertEquals("gs://" + TEST_BUCKET + "/" + TEST_OBJECT, fileInfo.getUri().toString());
-    assertEquals(TEST_BUCKET, fileInfo.getItemInfo().getItemId().getBucketName());
-    assertTrue(fileInfo.getItemInfo().getItemId().getObjectName().isPresent());
-    assertEquals(TEST_OBJECT, fileInfo.getItemInfo().getItemId().getObjectName().get());
-    assertEquals(content.length(), fileInfo.getItemInfo().getSize());
-    assertNotNull(fileInfo.getAttributes());
-    assertTrue(fileInfo.getAttributes().isEmpty());
+    assertThat(fileInfo).isNotNull();
+    assertThat(fileInfo.getUri().toString()).isEqualTo("gs://" + TEST_BUCKET + "/" + TEST_OBJECT);
+    assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(TEST_BUCKET);
+    assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(TEST_OBJECT);
+    assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) content.length());
+    assertThat(fileInfo.getAttributes()).isNotNull();
+    assertThat(fileInfo.getAttributes()).isEmpty();
   }
 
   @Test
@@ -465,6 +464,7 @@ class GcsFileSystemImplTest {
 
     assertThat(e).hasMessageThat().contains("Thread interrupted while waiting on future");
     assertThat(Thread.interrupted()).isTrue();
+    verify(mockFuture).cancel(true);
   }
 
   @Test

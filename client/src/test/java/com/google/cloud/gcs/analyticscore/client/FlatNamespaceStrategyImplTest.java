@@ -92,7 +92,7 @@ class FlatNamespaceStrategyImplTest {
   }
 
   @Test
-  void getDirectoryInfo_listFirstObjectWithPrefixThrowsIOException_throwsFileNotFoundException()
+  void getDirectoryInfo_listFirstObjectWithPrefixThrowsIOException_throwsIOException()
       throws IOException {
     GcsItemId dirId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
@@ -101,10 +101,9 @@ class FlatNamespaceStrategyImplTest {
     when(mockClient.listFirstObjectWithPrefix(eq(prefixId)))
         .thenThrow(new IOException("GCS listing failure"));
 
-    FileNotFoundException e =
-        assertThrows(FileNotFoundException.class, () -> strategy.getDirectoryInfo(dirId));
+    IOException e = assertThrows(IOException.class, () -> strategy.getDirectoryInfo(dirId));
 
-    assertThat(e).hasMessageThat().contains("Directory not found: " + dirId);
+    assertThat(e).hasMessageThat().contains("GCS listing failure");
     verify(mockClient).listFirstObjectWithPrefix(prefixId);
   }
 }
