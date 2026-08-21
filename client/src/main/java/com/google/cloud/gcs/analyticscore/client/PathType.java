@@ -33,7 +33,7 @@ public enum PathType {
 
   public static PathType resolve(GcsItemId itemId) {
     checkNotNull(itemId, "itemId cannot be null");
-    if (itemId.getBucketName() == null || itemId.getBucketName().isEmpty()) {
+    if (itemId.getBucketName().isEmpty()) {
       return ROOT;
     }
     if (itemId.isBucket()) {

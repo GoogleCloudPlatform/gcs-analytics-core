@@ -65,19 +65,22 @@ class GcsFileSystemImplIntegrationTest {
     private static final String PRIVATE_PARQUET_URI_STRING =
             "gs://" + PRIVATE_BUCKET_NAME + "/" + PRIVATE_PARQUET_OBJECT;
     private static final String PRIVATE_IMPLICIT_FOLDER = "implicit-folder";
+    private static final byte[] TEST_HNS_FILE_CONTENT =
+            "test hns file content".getBytes(StandardCharsets.UTF_8);
 
     private Storage storage;
     private Storage grpcStorage;
     private List<BlobId> blobsToDelete;
     private List<String> foldersToDelete;
+    private GcsFileSystemImpl gcsFileSystem;
 
     @BeforeEach
     void setUp() {
         storage = StorageOptions.getDefaultInstance().getService();
         blobsToDelete = new ArrayList<>();
         foldersToDelete = new ArrayList<>();
+        gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
     }
-
 
     private synchronized Storage getGrpcStorage() {
         if (grpcStorage == null) {
@@ -88,6 +91,11 @@ class GcsFileSystemImplIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        if (gcsFileSystem != null) {
+            try {
+                gcsFileSystem.close();
+            } catch (Exception ignored) {}
+        }
         // Ignore all cleanup errors
         if (storage != null) {
             for (BlobId blobId : blobsToDelete) {
@@ -111,10 +119,6 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     void open_publicObject_canReadContent() throws IOException {
         String gcsObject = PUBLIC_CSV_URI_STRING;
-        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
-                .setGcsClientOptions(GcsClientOptions.builder().build())
-                .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(gcsObject));
         GcsReadOptions readOptions = GcsReadOptions.builder().build();
 
@@ -134,10 +138,6 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     void getFileInfo_noCredentialProvided_urlPointsToPublicObject_success() throws IOException {
         String gcsObject = PUBLIC_PARQUET_URI_STRING;
-        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
-                .setGcsClientOptions(GcsClientOptions.builder().build())
-                .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(gcsObject));
 
@@ -157,11 +157,6 @@ class GcsFileSystemImplIntegrationTest {
     void getFileInfo_noCredentialProvided_urlPointsToPrivateObject_usesApplicationDefaultCredentials()
             throws IOException {
         String object = PRIVATE_PARQUET_URI_STRING;
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(object));
 
@@ -178,13 +173,15 @@ class GcsFileSystemImplIntegrationTest {
                 GcsFileSystemOptions.builder()
                         .setGcsClientOptions(GcsClientOptions.builder().build())
                         .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(NoCredentials.getInstance(), options);
 
-        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(gcsObject));
+        try (GcsFileSystemImpl anonFileSystem =
+                new GcsFileSystemImpl(NoCredentials.getInstance(), options)) {
+            GcsFileInfo fileInfo = anonFileSystem.getFileInfo(URI.create(gcsObject));
 
-        assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
-        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(PUBLIC_PARQUET_OBJECT);
-        assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(PUBLIC_BUCKET_NAME);
+            assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
+            assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(PUBLIC_PARQUET_OBJECT);
+            assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(PUBLIC_BUCKET_NAME);
+        }
     }
 
     @Test
@@ -194,22 +191,19 @@ class GcsFileSystemImplIntegrationTest {
                 GcsFileSystemOptions.builder()
                         .setGcsClientOptions(GcsClientOptions.builder().build())
                         .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(NoCredentials.getInstance(), options);
 
-        IOException exception =
-                assertThrows(IOException.class, () -> gcsFileSystem.getFileInfo(URI.create(object)));
+        try (GcsFileSystemImpl anonFileSystem =
+                new GcsFileSystemImpl(NoCredentials.getInstance(), options)) {
+            IOException exception =
+                    assertThrows(IOException.class, () -> anonFileSystem.getFileInfo(URI.create(object)));
 
-        assertThat(exception).hasMessageThat().contains("Unable to access blob");
+            assertThat(exception).hasMessageThat().contains("Unable to access blob");
+        }
     }
 
     @Test
     void getFileInfo_uriWithoutBucket_throwsIllegalArgumentException() {
         URI uriWithoutBucket = URI.create("gs:///path");
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         assertThrows(
                 IllegalArgumentException.class, () -> gcsFileSystem.getFileInfo(uriWithoutBucket));
@@ -218,11 +212,6 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     void getFileInfo_rootItemId_returnsRootInfo() throws IOException {
         GcsItemId rootId = GcsItemId.ROOT;
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(rootId);
 
@@ -235,11 +224,6 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     void getFileInfo_bucketUri_returnsBucketInfo() throws IOException {
         URI bucketUri = URI.create("gs://" + PRIVATE_BUCKET_NAME);
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(bucketUri);
 
@@ -251,16 +235,9 @@ class GcsFileSystemImplIntegrationTest {
         assertThat(fileInfo.getUri()).isEqualTo(bucketUri);
     }
 
-
-
     @Test
     void getFileInfo_nonExistentBucket_throwsFileNotFoundException() {
         URI nonExistentBucketUri = URI.create("gs://non-existent-bucket-" + UUID.randomUUID());
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         assertThrows(
                 FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentBucketUri));
@@ -269,11 +246,6 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     void getFileInfo_nonExistentObject_throwsFileNotFoundException() {
         URI nonExistentUri = URI.create("gs://" + PRIVATE_BUCKET_NAME + "/non-existent-file-" + UUID.randomUUID() + ".parquet");
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         assertThrows(FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentUri));
     }
@@ -281,11 +253,6 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     void getFileInfo_implicitDirectoryWithTrailingSlash_returnsInferredDirectory() throws IOException {
         URI dirUri = URI.create("gs://" + PRIVATE_BUCKET_NAME + "/" + PRIVATE_IMPLICIT_FOLDER + "/");
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(dirUri);
 
@@ -301,11 +268,6 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     void getFileInfo_implicitDirectoryWithoutTrailingSlash_returnsInferredDirectory() throws IOException {
         URI dirUri = URI.create("gs://" + PRIVATE_BUCKET_NAME + "/" + PRIVATE_IMPLICIT_FOLDER);
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(dirUri);
 
@@ -322,11 +284,6 @@ class GcsFileSystemImplIntegrationTest {
     void getFileInfo_nonExistentDirectoryWithTrailingSlash_throwsFileNotFoundException() {
         URI nonExistentDirUri =
                 URI.create("gs://" + PRIVATE_BUCKET_NAME + "/non-existent-folder-" + UUID.randomUUID() + "/");
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         assertThrows(
                 FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentDirUri));
@@ -336,11 +293,6 @@ class GcsFileSystemImplIntegrationTest {
     void getFileInfo_nonExistentDirectoryWithoutTrailingSlash_throwsFileNotFoundException() {
         URI nonExistentDirUri =
                 URI.create("gs://" + PRIVATE_BUCKET_NAME + "/non-existent-folder-" + UUID.randomUUID());
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         assertThrows(
                 FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentDirUri));
@@ -351,11 +303,6 @@ class GcsFileSystemImplIntegrationTest {
     void getFileInfo_hnsBucket_returnsBucketInfo() throws IOException {
         String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
         URI bucketUri = URI.create("gs://" + bucketName);
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(bucketUri);
 
@@ -371,20 +318,14 @@ class GcsFileSystemImplIntegrationTest {
     void getFileInfo_hnsFile_returnsObjectInfo() throws IOException {
         String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
         TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete, foldersToDelete);
-        byte[] content = "test hns file content".getBytes(StandardCharsets.UTF_8);
-        ctx.createAppendableObject(content, getGrpcStorage());
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
+        ctx.createAppendableObject(TEST_HNS_FILE_CONTENT, getGrpcStorage());
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(ctx.uri);
 
         assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
         assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(ctx.objectName);
         assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(bucketName);
-        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) content.length);
+        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) TEST_HNS_FILE_CONTENT.length);
         assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.OBJECT);
     }
 
@@ -393,14 +334,8 @@ class GcsFileSystemImplIntegrationTest {
     void getFileInfo_hnsFolderWithTrailingSlash_returnsExplicitDirectory() throws IOException {
         String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
         TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete, foldersToDelete);
-        byte[] content = "test hns file content".getBytes(StandardCharsets.UTF_8);
-        ctx.createAppendableObject(content, getGrpcStorage());
+        ctx.createAppendableObject(TEST_HNS_FILE_CONTENT, getGrpcStorage());
         URI folderWithSlashUri = URI.create("gs://" + bucketName + "/" + ctx.folderName + "/");
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(folderWithSlashUri);
 
@@ -418,14 +353,8 @@ class GcsFileSystemImplIntegrationTest {
     void getFileInfo_hnsFolderWithoutTrailingSlash_returnsExplicitDirectory() throws IOException {
         String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
         TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete, foldersToDelete);
-        byte[] content = "test hns file content".getBytes(StandardCharsets.UTF_8);
-        ctx.createAppendableObject(content, getGrpcStorage());
+        ctx.createAppendableObject(TEST_HNS_FILE_CONTENT, getGrpcStorage());
         URI folderWithoutSlashUri = URI.create("gs://" + bucketName + "/" + ctx.folderName);
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(folderWithoutSlashUri);
 
@@ -443,11 +372,6 @@ class GcsFileSystemImplIntegrationTest {
         String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
         URI nonExistentUri =
                 URI.create("gs://" + bucketName + "/non-existent-folder-" + UUID.randomUUID());
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
 
         assertThrows(FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentUri));
     }
@@ -458,7 +382,6 @@ class GcsFileSystemImplIntegrationTest {
         TestWriteContext ctx =
                 new TestWriteContext(
                         System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY), blobsToDelete);
-        GcsFileSystemImpl gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         byte[] content = "test content".getBytes(StandardCharsets.UTF_8);
 
@@ -479,7 +402,6 @@ class GcsFileSystemImplIntegrationTest {
         TestWriteContext ctx =
                 new TestWriteContext(
                         System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY), blobsToDelete);
-        GcsFileSystemImpl gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
         byte[] content = "test".getBytes(StandardCharsets.UTF_8);
         // We do a preliminary setup write
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
@@ -529,7 +451,6 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     void create_nonExistentBucket_throwsFileNotFoundException() throws IOException {
         TestWriteContext ctx = new TestWriteContext("non-existent-bucket-" + UUID.randomUUID(), blobsToDelete);
-        GcsFileSystemImpl gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         byte[] content = "test".getBytes(StandardCharsets.UTF_8);
 
