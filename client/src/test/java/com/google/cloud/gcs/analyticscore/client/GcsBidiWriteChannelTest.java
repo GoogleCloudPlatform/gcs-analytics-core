@@ -180,5 +180,6 @@ class GcsBidiWriteChannelTest {
     Mockito.doThrow(se).when(mockAppendChannel).close();
 
     assertThrows(AccessDeniedException.class, () -> channel.close());
+    assertThat(channel.isOpen()).isTrue();
   }
 }
