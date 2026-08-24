@@ -52,12 +52,12 @@ final class UriUtil {
 
     String bucketName = matcher.group(2);
     String relativePath = matcher.group(4);
-    checkArgument(bucketName != null, "GCS path must include a bucket name: %s", path);
-
-    if (relativePath == null) {
-      return GcsItemId.builder().setBucketName(bucketName).build();
+    if (bucketName == null) {
+      return GcsItemId.ROOT;
+    } else if (relativePath != null) {
+      return GcsItemId.builder().setBucketName(bucketName).setObjectName(relativePath).build();
     }
-    return GcsItemId.builder().setBucketName(bucketName).setObjectName(relativePath).build();
+    return GcsItemId.builder().setBucketName(bucketName).build();
   }
 
   static String removeTrailingSlash(String path) {

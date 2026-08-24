@@ -95,6 +95,42 @@ class GcsItemIdTest {
   }
 
   @Test
+  void isRoot_root_returnsTrue() {
+    GcsItemId root = GcsItemId.ROOT;
+
+    assertThat(root.isRoot()).isTrue();
+  }
+
+  @Test
+  void isRoot_bucket_returnsFalse() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+
+    assertThat(bucketId.isRoot()).isFalse();
+  }
+
+  @Test
+  void isRoot_object_returnsFalse() {
+    GcsItemId objectId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+
+    assertThat(objectId.isRoot()).isFalse();
+  }
+
+  @Test
+  void isRoot_emptyBucketWithoutObject_returnsTrue() {
+    GcsItemId root = GcsItemId.builder().setBucketName("").build();
+
+    assertThat(root.isRoot()).isTrue();
+  }
+
+  @Test
+  void isRoot_emptyBucketWithObject_returnsFalse() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName("").setObjectName(TEST_OBJECT).build();
+
+    assertThat(itemId.isRoot()).isFalse();
+  }
+
+  @Test
   void root_hasEmptyBucketAndObjectName() {
     GcsItemId root = GcsItemId.ROOT;
 
@@ -102,5 +138,6 @@ class GcsItemIdTest {
     assertThat(root.getObjectName()).hasValue("");
     assertThat(root.isBucket()).isFalse();
     assertThat(root.isGcsObject()).isFalse();
+    assertThat(root.isRoot()).isTrue();
   }
 }

@@ -236,14 +236,16 @@ class GcsClientImpl implements GcsClient {
 
   @VisibleForTesting
   StorageControlClient lazyGetStorageControlClient() throws IOException {
-    if (this.storageControlClient == null) {
+    StorageControlClient result = this.storageControlClient;
+    if (result == null) {
       synchronized (this) {
-        if (this.storageControlClient == null) {
-          this.storageControlClient = createStorageControlClient(this.credentials);
+        result = this.storageControlClient;
+        if (result == null) {
+          this.storageControlClient = result = createStorageControlClient(this.credentials);
         }
       }
     }
-    return this.storageControlClient;
+    return result;
   }
 
   @VisibleForTesting

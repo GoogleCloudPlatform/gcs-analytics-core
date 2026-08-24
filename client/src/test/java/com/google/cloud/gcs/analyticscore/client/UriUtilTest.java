@@ -19,6 +19,8 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class UriUtilTest {
 
@@ -26,10 +28,9 @@ class UriUtilTest {
   private static final String TEST_OBJECT = "test-object";
   private static final String TEST_PATH = "dir/subdir";
 
-  @Test
-  void getItemIdFromString_gcsBucket_succeeds() {
-    String gcsBucketName = "gs://" + TEST_BUCKET;
-
+  @ParameterizedTest
+  @ValueSource(strings = {"gs://" + TEST_BUCKET, "gs://" + TEST_BUCKET + "/"})
+  void getItemIdFromString_gcsBucket_succeeds(String gcsBucketName) {
     GcsItemId itemId = UriUtil.getItemIdFromString(gcsBucketName);
 
     assertThat(itemId.getBucketName()).isEqualTo(TEST_BUCKET);
@@ -46,21 +47,12 @@ class UriUtilTest {
     assertThat(itemId.getObjectName()).hasValue(TEST_OBJECT);
   }
 
-  @Test
-  void getItemIdFromString_rootPath_returnsRootItemId() {
-    String rootPath = "gs:/";
-
+  @ParameterizedTest
+  @ValueSource(strings = {"gs:/", "gs://"})
+  void getItemIdFromString_rootPath_returnsRootItemId(String rootPath) {
     GcsItemId itemId = UriUtil.getItemIdFromString(rootPath);
 
     assertThat(itemId).isEqualTo(GcsItemId.ROOT);
-  }
-
-  @Test
-  void getItemIdFromString_gsOnly_throwsIllegalArgumentException() {
-    IllegalArgumentException e =
-        assertThrows(IllegalArgumentException.class, () -> UriUtil.getItemIdFromString("gs://"));
-
-    assertThat(e).hasMessageThat().isEqualTo("GCS path must include a bucket name: gs://");
   }
 
   @Test
@@ -71,10 +63,9 @@ class UriUtilTest {
     assertThat(e).hasMessageThat().isEqualTo("path should not be null");
   }
 
-  @Test
-  void getItemIdFromString_invalidPath_throwsIllegalArgumentException() {
-    String invalidPath = "http://test-bucket/test-object";
-
+  @ParameterizedTest
+  @ValueSource(strings = {"http://test-bucket/test-object", "gs:///", "gs:/test-bucket", ""})
+  void getItemIdFromString_invalidPath_throwsIllegalArgumentException(String invalidPath) {
     IllegalArgumentException e =
         assertThrows(
             IllegalArgumentException.class, () -> UriUtil.getItemIdFromString(invalidPath));
