@@ -25,6 +25,7 @@ import com.google.cloud.storage.StorageException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * A write channel that supports bidirectional/appendable upload to Google Cloud Storage.
@@ -35,6 +36,7 @@ import java.nio.channels.ClosedChannelException;
 public class GcsBidiWriteChannel extends GcsWriteChannel {
 
   private final BlobAppendableUpload.AppendableUploadWriteableByteChannel gcsAppendChannel;
+  private final AtomicLong bidiBytesWritten = new AtomicLong(0);
 
   public GcsBidiWriteChannel(Storage storage, BlobInfo blobInfo, GcsWriteOptions writeOptions)
       throws IOException {
@@ -75,7 +77,8 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
     try {
       int written = StorageChannelUtils.blockingEmptyTo(src, gcsAppendChannel);
       if (written > 0) {
-        bytesWritten += written;
+        bidiBytesWritten.addAndGet(written);
+        this.bytesWritten = bidiBytesWritten.get();
       }
       return written;
     } catch (StorageException | IOException e) {
@@ -102,5 +105,16 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
   @Override
   public boolean isOpen() {
     return !this.closed && gcsAppendChannel != null && gcsAppendChannel.isOpen();
+  }
+
+  @Override
+  public long getBytesWritten() {
+    return bidiBytesWritten.get();
+  }
+
+  @Override
+  protected IOException handleException(Exception e, String context) {
+    return GcsExceptionUtil.translateWriteException(
+        e, context, blobInfo.getBlobId(), bidiBytesWritten.get(), writeOptions);
   }
 }
