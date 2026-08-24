@@ -27,43 +27,57 @@ class GcsItemInfoTest {
   private static final String TEST_BUCKET = "bucket";
   private static final String TEST_DIR = "dir/";
   private static final String TEST_FOLDER = "folder/";
-  private static final String TEST_OBJECT = "obj";
 
   @Test
-  void isInferredDirectory() {
+  void createInferredDirectory_returnsItemInfoWithInferredDirectoryType() {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
 
     GcsItemInfo itemInfo = GcsItemInfo.createInferredDirectory(itemId);
 
-    assertThat(itemInfo.isInferredDirectory()).isTrue();
-    assertThat(itemInfo.isExplicitDirectory()).isFalse();
+    assertThat(itemInfo.getItemId()).isEqualTo(itemId);
+    assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
+    assertThat(itemInfo.getSize()).isEqualTo(0L);
   }
 
   @Test
-  void isExplicitDirectory() {
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder()
-            .setItemId(
-                GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_FOLDER).build())
-            .setItemType(GcsItemInfo.ItemType.EXPLICIT_DIRECTORY)
-            .build();
+  void createPlaceholderDirectory_returnsItemInfoWithPlaceholderDirectoryType() {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
 
-    assertThat(itemInfo.isInferredDirectory()).isFalse();
-    assertThat(itemInfo.isExplicitDirectory()).isTrue();
+    GcsItemInfo itemInfo = GcsItemInfo.createPlaceholderDirectory(itemId);
+
+    assertThat(itemInfo.getItemId()).isEqualTo(itemId);
+    assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY);
+    assertThat(itemInfo.getSize()).isEqualTo(0L);
   }
 
   @Test
-  void isObject() {
-    GcsItemInfo itemInfo =
-        GcsItemInfo.builder()
-            .setItemId(
-                GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build())
-            .setItemType(GcsItemInfo.ItemType.OBJECT)
-            .build();
+  void createFolder_returnsItemInfoWithNativeFolderTypeAndTimestamps() {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_FOLDER).build();
 
-    assertThat(itemInfo.isInferredDirectory()).isFalse();
-    assertThat(itemInfo.isExplicitDirectory()).isFalse();
+    GcsItemInfo itemInfo = GcsItemInfo.createFolder(itemId, 1000L, 2000L, 1L);
+
+    assertThat(itemInfo.getItemId()).isEqualTo(itemId);
+    assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
+    assertThat(itemInfo.getSize()).isEqualTo(0L);
+    assertThat(itemInfo.getContentGeneration()).isEmpty();
+    assertThat(itemInfo.getMetaGeneration()).isEqualTo(1L);
+    assertThat(itemInfo.getCreationTime()).isEqualTo(1000L);
+    assertThat(itemInfo.getModificationTime()).isEqualTo(2000L);
+    assertThat(itemInfo.getExtendedAttributes()).isEmpty();
+  }
+
+  @Test
+  void createBucket_returnsItemInfoWithBucketType() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+
+    GcsItemInfo bucketInfo = GcsItemInfo.createBucket(bucketId);
+
+    assertThat(bucketInfo.getItemId()).isEqualTo(bucketId);
+    assertThat(bucketInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
+    assertThat(bucketInfo.getSize()).isEqualTo(0L);
   }
 
   @Test

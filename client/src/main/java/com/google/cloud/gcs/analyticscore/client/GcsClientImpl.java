@@ -305,6 +305,10 @@ class GcsClientImpl implements GcsClient {
     Optional.ofNullable(blob.getContentEncoding()).ifPresent(infoBuilder::setContentEncoding);
     Optional.ofNullable(blob.getMetageneration()).ifPresent(infoBuilder::setMetaGeneration);
 
+    if (blob.isDirectory()) {
+      infoBuilder.setItemType(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY);
+    }
+
     infoBuilder.setExtendedAttributes(GcsItemInfo.decodeMetadata(blob.getMetadata()));
 
     return infoBuilder.build();
@@ -323,14 +327,11 @@ class GcsClientImpl implements GcsClient {
   }
 
   private static GcsItemInfo fromFolder(Folder folder, GcsItemId itemId) {
-    return GcsItemInfo.builder()
-        .setItemId(itemId)
-        .setSize(0)
-        .setItemType(GcsItemInfo.ItemType.EXPLICIT_DIRECTORY)
-        .setCreationTime(toEpochMilli(folder.hasCreateTime() ? folder.getCreateTime() : null))
-        .setModificationTime(toEpochMilli(folder.hasUpdateTime() ? folder.getUpdateTime() : null))
-        .setMetaGeneration(folder.getMetageneration())
-        .build();
+    return GcsItemInfo.createFolder(
+        itemId,
+        toEpochMilli(folder.hasCreateTime() ? folder.getCreateTime() : null),
+        toEpochMilli(folder.hasUpdateTime() ? folder.getUpdateTime() : null),
+        folder.getMetageneration());
   }
 
   private static long toEpochMilli(OffsetDateTime dateTime) {

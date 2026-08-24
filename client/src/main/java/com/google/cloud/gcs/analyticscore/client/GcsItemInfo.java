@@ -56,14 +56,12 @@ public abstract class GcsItemInfo {
   public enum ItemType {
     /** A standard storage object. */
     OBJECT,
-    /**
-     * An inferred directory, typically represented by a trailing slash in its name or empty object.
-     */
+    /** An inferred directory, which only exists because of other objects with this prefix */
     INFERRED_DIRECTORY,
-    /**
-     * An explicit directory/folder (e.g., an HNS folder or an explicit folder in a flat bucket).
-     */
-    EXPLICIT_DIRECTORY,
+    /** A 0-byte placeholder object created in a flat bucket to explicitly represent a directory */
+    PLACEHOLDER_DIRECTORY,
+    /** A native directory resource in a Hierarchical Namespace (HNS) enabled bucket */
+    NATIVE_FOLDER,
     /** A GCS bucket. */
     BUCKET,
     /** The global root namespace. */
@@ -84,16 +82,28 @@ public abstract class GcsItemInfo {
    */
   public abstract long getModificationTime();
 
-  public boolean isInferredDirectory() {
-    return getItemType() == ItemType.INFERRED_DIRECTORY;
-  }
-
-  public boolean isExplicitDirectory() {
-    return getItemType() == ItemType.EXPLICIT_DIRECTORY;
+  public static GcsItemInfo createFolder(
+      GcsItemId itemId, long creationTime, long modificationTime, long metaGeneration) {
+    return builder()
+        .setItemId(itemId)
+        .setSize(0)
+        .setItemType(ItemType.NATIVE_FOLDER)
+        .setCreationTime(creationTime)
+        .setModificationTime(modificationTime)
+        .setMetaGeneration(metaGeneration)
+        .build();
   }
 
   public static GcsItemInfo createInferredDirectory(GcsItemId itemId) {
     return builder().setItemId(itemId).setSize(0).setItemType(ItemType.INFERRED_DIRECTORY).build();
+  }
+
+  public static GcsItemInfo createPlaceholderDirectory(GcsItemId itemId) {
+    return builder()
+        .setItemId(itemId)
+        .setSize(0)
+        .setItemType(ItemType.PLACEHOLDER_DIRECTORY)
+        .build();
   }
 
   public static GcsItemInfo createBucket(GcsItemId itemId) {
