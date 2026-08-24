@@ -1020,6 +1020,20 @@ class GcsClientImplTest {
   }
 
   @Test
+  void createStorage_bidiWriteEnabled_usesGrpcTransport() throws IOException {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setGcsWriteOptions(GcsWriteOptions.builder().setBidiWriteEnabled(true).build())
+            .build();
+
+    GcsClientImpl client =
+        new GcsClientImpl(NoCredentials.getInstance(), options, executorServiceSupplier, telemetry);
+
+    assertThat(client.storage.getOptions()).isInstanceOf(GrpcStorageOptions.class);
+  }
+
+  @Test
   void openReadChannel_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
     GcsReadOptions readOptions =
         GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).setBidiReadEnabled(true).build();

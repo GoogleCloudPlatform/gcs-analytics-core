@@ -89,11 +89,11 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
       return;
     }
 
-    this.closed = true;
     try {
       if (gcsAppendChannel != null) {
         gcsAppendChannel.close();
       }
+      this.closed = true;
     } catch (StorageException | IOException e) {
       throw handleException(e, "close");
     }
