@@ -16,6 +16,8 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.cloud.storage.BlobAppendableUpload;
 import com.google.cloud.storage.BlobAppendableUploadConfig;
 import com.google.cloud.storage.BlobInfo;
@@ -26,6 +28,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.util.concurrent.atomic.AtomicLong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A write channel that supports bidirectional/appendable upload to Google Cloud Storage.
@@ -34,6 +38,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * allowing incremental, bidirectional writes that can optionally be finalized on close.
  */
 public class GcsBidiWriteChannel extends GcsWriteChannel {
+
+  private static final Logger LOG = LoggerFactory.getLogger(GcsBidiWriteChannel.class);
 
   private final BlobAppendableUpload.AppendableUploadWriteableByteChannel gcsAppendChannel;
   private final AtomicLong bidiBytesWritten = new AtomicLong(0);
@@ -49,7 +55,13 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
       GcsWriteOptions writeOptions,
       Storage.BlobWriteOption[] sdkWriteOptions)
       throws IOException {
-    super(null, null, blobInfo, writeOptions);
+    super(
+        null,
+        null,
+        checkNotNull(blobInfo, "blobInfo cannot be null"),
+        checkNotNull(writeOptions, "writeOptions cannot be null"));
+    checkNotNull(storage, "storage cannot be null");
+    checkNotNull(sdkWriteOptions, "sdkWriteOptions cannot be null");
 
     BlobAppendableUploadConfig.CloseAction closeAction =
         writeOptions.isFinalizeOnClose()
@@ -70,6 +82,7 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
 
   @Override
   public int write(ByteBuffer src) throws IOException {
+    checkNotNull(src, "src cannot be null");
     if (!isOpen()) {
       throw new ClosedChannelException();
     }
@@ -87,18 +100,26 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
   }
 
   @Override
-  public synchronized void close() throws IOException {
+  public void close() throws IOException {
     if (this.closed) {
       return;
     }
 
-    try {
-      if (gcsAppendChannel != null) {
-        gcsAppendChannel.close();
+    synchronized (this) {
+      if (this.closed) {
+        return;
       }
-      this.closed = true;
-    } catch (StorageException | IOException e) {
-      throw handleException(e, "close");
+
+      try {
+        if (gcsAppendChannel != null) {
+          gcsAppendChannel.close();
+        }
+        this.closed = true;
+        LOG.debug(
+            "Successfully closed bidirectional write channel for object: {}", blobInfo.getBlobId());
+      } catch (StorageException | IOException e) {
+        throw handleException(e, "close");
+      }
     }
   }
 
