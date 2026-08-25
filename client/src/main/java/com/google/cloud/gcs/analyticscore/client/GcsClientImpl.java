@@ -120,19 +120,23 @@ class GcsClientImpl implements GcsClient {
       throws IOException {
     checkNotNull(itemId, "itemId should not be null");
 
-    BlobInfo blobInfo = createBlobInfo(itemId, writeOptions);
+    GcsWriteOptions resolvedWriteOptions =
+        Optional.ofNullable(writeOptions).orElseGet(() -> GcsWriteOptions.builder().build());
+    BlobInfo blobInfo = createBlobInfo(itemId, resolvedWriteOptions);
 
     try {
-      BlobWriteOption[] sdkWriteOptions =
-          Optional.ofNullable(writeOptions)
-              .orElseGet(() -> GcsWriteOptions.builder().build())
-              .generateWriteOptions(itemId);
+      BlobWriteOption[] sdkWriteOptions = resolvedWriteOptions.generateWriteOptions(itemId);
+
+      if (resolvedWriteOptions.isBidiWriteEnabled()) {
+        return new GcsBidiWriteChannel(storage, blobInfo, resolvedWriteOptions, sdkWriteOptions);
+      }
+
       BlobWriteSession sdkWriteSession = storage.blobWriteSession(blobInfo, sdkWriteOptions);
       WritableByteChannel channel = sdkWriteSession.open();
-      return new GcsWriteChannel(sdkWriteSession, channel, blobInfo, writeOptions);
+      return new GcsWriteChannel(sdkWriteSession, channel, blobInfo, resolvedWriteOptions);
     } catch (StorageException | IOException e) {
       throw GcsExceptionUtil.translateWriteException(
-          e, "initialization", blobInfo.getBlobId(), 0L, writeOptions);
+          e, "initialization", blobInfo.getBlobId(), 0L, resolvedWriteOptions);
     }
   }
 
@@ -187,10 +191,10 @@ class GcsClientImpl implements GcsClient {
 
   @VisibleForTesting
   protected Storage createStorage(Optional<Credentials> credentials) {
-    StorageOptions.Builder builder =
+    boolean useGrpc =
         clientOptions.getGcsReadOptions().isBidiReadEnabled()
-            ? StorageOptions.grpc()
-            : StorageOptions.newBuilder();
+            || clientOptions.getGcsWriteOptions().isBidiWriteEnabled();
+    StorageOptions.Builder builder = useGrpc ? StorageOptions.grpc() : StorageOptions.newBuilder();
     String userAgent = getUserAgent();
     builder.setHeaderProvider(FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);

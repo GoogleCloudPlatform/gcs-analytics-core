@@ -37,18 +37,24 @@ import javax.annotation.Nullable;
 @AutoValue
 public abstract class GcsWriteOptions {
 
-  private static final String CHECKSUM_VALIDATION_KEY = "channel.write.checksum-validation.enabled";
-  private static final String DISABLE_GZIP_CONTENT_KEY = "channel.write.disable-gzip-content";
-  private static final String OVERWRITE_EXISTING_KEY = "channel.write.overwrite-existing";
-  private static final String KMS_KEY_NAME_KEY = "kms-key-name";
-  private static final String USER_PROJECT_KEY = "user-project";
-  private static final String ENCRYPTION_KEY_KEY = "encryption-key";
+  static final String CHECKSUM_VALIDATION_KEY = "channel.write.checksum-validation.enabled";
+  static final String DISABLE_GZIP_CONTENT_KEY = "channel.write.disable-gzip-content";
+  static final String OVERWRITE_EXISTING_KEY = "channel.write.overwrite-existing";
+  static final String KMS_KEY_NAME_KEY = "kms-key-name";
+  static final String USER_PROJECT_KEY = "user-project";
+  static final String ENCRYPTION_KEY_KEY = "encryption-key";
+  static final String BIDI_WRITE_ENABLED_KEY = "channel.write.bidi-write.enabled";
+  static final String FINALIZE_ON_CLOSE_KEY = "channel.write.finalize-on-close";
 
   public abstract boolean isChecksumValidationEnabled();
 
   public abstract boolean isDisableGzipContent();
 
   public abstract boolean isOverwriteExisting();
+
+  public abstract boolean isBidiWriteEnabled();
+
+  public abstract boolean isFinalizeOnClose();
 
   // Metadata/Auth Configurations
   public abstract Optional<String> getKmsKeyName();
@@ -88,6 +94,12 @@ public abstract class GcsWriteOptions {
         .ifPresent(optionsBuilder::setUserProject);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + ENCRYPTION_KEY_KEY))
         .ifPresent(optionsBuilder::setEncryptionKey);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + BIDI_WRITE_ENABLED_KEY))
+        .map(Boolean::parseBoolean)
+        .ifPresent(optionsBuilder::setBidiWriteEnabled);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + FINALIZE_ON_CLOSE_KEY))
+        .map(Boolean::parseBoolean)
+        .ifPresent(optionsBuilder::setFinalizeOnClose);
     return optionsBuilder.build();
   }
 
@@ -97,7 +109,9 @@ public abstract class GcsWriteOptions {
         .setDisableGzipContent(true)
         .setOverwriteExisting(true)
         .setContentType("application/octet-stream")
-        .setMetadata(ImmutableMap.of());
+        .setMetadata(ImmutableMap.of())
+        .setBidiWriteEnabled(false)
+        .setFinalizeOnClose(false);
   }
 
   /** Builder for {@link GcsWriteOptions}. */
@@ -115,6 +129,10 @@ public abstract class GcsWriteOptions {
     public abstract Builder setUserProject(String project);
 
     public abstract Builder setEncryptionKey(String key);
+
+    public abstract Builder setBidiWriteEnabled(boolean enabled);
+
+    public abstract Builder setFinalizeOnClose(boolean finalize);
 
     public abstract Builder setContentType(String contentType);
 
