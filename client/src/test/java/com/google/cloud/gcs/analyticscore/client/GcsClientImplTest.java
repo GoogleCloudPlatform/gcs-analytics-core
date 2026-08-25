@@ -907,9 +907,7 @@ class GcsClientImplTest {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
     StorageException e412 = new StorageException(412, "Precondition Failed");
-    BlobInfo nullOptionsBlobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
-    when(mockStorage.blobWriteSession(
-            eq(nullOptionsBlobInfo), any(Storage.BlobWriteOption[].class)))
+    when(mockStorage.blobWriteSession(eq(TEST_BLOB_INFO), any(Storage.BlobWriteOption[].class)))
         .thenThrow(e412);
 
     IOException exception =

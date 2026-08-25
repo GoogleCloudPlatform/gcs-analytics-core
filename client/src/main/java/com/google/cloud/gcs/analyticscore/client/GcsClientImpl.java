@@ -122,7 +122,7 @@ class GcsClientImpl implements GcsClient {
 
     GcsWriteOptions resolvedWriteOptions =
         Optional.ofNullable(writeOptions).orElseGet(() -> GcsWriteOptions.builder().build());
-    BlobInfo blobInfo = createBlobInfo(itemId, writeOptions);
+    BlobInfo blobInfo = createBlobInfo(itemId, resolvedWriteOptions);
 
     try {
       BlobWriteOption[] sdkWriteOptions = resolvedWriteOptions.generateWriteOptions(itemId);
