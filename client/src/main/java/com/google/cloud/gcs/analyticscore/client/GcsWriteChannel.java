@@ -40,8 +40,8 @@ public class GcsWriteChannel implements WritableByteChannel {
   private volatile WritableByteChannel sdkWriteChannel;
   private final GcsWriteOptions writeOptions;
 
-  protected final AtomicLong bytesWritten = new AtomicLong(0);
-  protected volatile boolean closed = false;
+  final AtomicLong bytesWritten = new AtomicLong(0);
+  volatile boolean closed = false;
 
   GcsWriteChannel(
       BlobWriteSession blobWriteSession,
@@ -116,7 +116,7 @@ public class GcsWriteChannel implements WritableByteChannel {
     }
   }
 
-  protected IOException handleException(Exception e, String context) {
+  IOException handleException(Exception e, String context) {
     return GcsExceptionUtil.translateWriteException(
         e, context, blobInfo.getBlobId(), getBytesWritten(), writeOptions);
   }
