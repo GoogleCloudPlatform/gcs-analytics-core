@@ -64,7 +64,7 @@ class GcsBidiWriteChannelTest {
   }
 
   @Test
-  void testConstructor_setsCloseActionBasedOnOptions_finalizeOnCloseTrue() throws Exception {
+  void constructor_setsCloseActionBasedOnOptions_finalizeOnCloseTrue() throws Exception {
     GcsWriteOptions optionsTrue =
         GcsWriteOptions.builder().setBidiWriteEnabled(true).setFinalizeOnClose(true).build();
     ArgumentCaptor<BlobAppendableUploadConfig> configCaptor =
@@ -81,7 +81,7 @@ class GcsBidiWriteChannelTest {
   }
 
   @Test
-  void testConstructor_setsCloseActionBasedOnOptions_finalizeOnCloseFalse() throws Exception {
+  void constructor_setsCloseActionBasedOnOptions_finalizeOnCloseFalse() throws Exception {
     GcsWriteOptions optionsFalse =
         GcsWriteOptions.builder().setBidiWriteEnabled(true).setFinalizeOnClose(false).build();
     ArgumentCaptor<BlobAppendableUploadConfig> configCaptorFalse =
@@ -98,7 +98,26 @@ class GcsBidiWriteChannelTest {
   }
 
   @Test
-  void testConstructor_initializationThrowsStorageException_translated() throws Exception {
+  void constructor_nullStorage_throwsNullPointerException() {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    assertThrows(
+        NullPointerException.class, () -> new GcsBidiWriteChannel(null, blobInfo, options));
+  }
+
+  @Test
+  void constructor_nullBlobInfo_throwsNullPointerException() {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    assertThrows(NullPointerException.class, () -> new GcsBidiWriteChannel(storage, null, options));
+  }
+
+  @Test
+  void constructor_nullWriteOptions_throwsNullPointerException() {
+    assertThrows(
+        NullPointerException.class, () -> new GcsBidiWriteChannel(storage, blobInfo, null));
+  }
+
+  @Test
+  void constructor_initializationThrowsStorageException_translated() throws Exception {
     StorageException se = new StorageException(403, "Forbidden");
     when(storage.blobAppendableUpload(
             any(BlobInfo.class),
@@ -113,7 +132,7 @@ class GcsBidiWriteChannelTest {
   }
 
   @Test
-  void testWrite_success_delegatesToAppendChannelAndTracksBytes() throws Exception {
+  void write_success_delegatesToAppendChannelAndTracksBytes() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
     GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
 
@@ -134,7 +153,15 @@ class GcsBidiWriteChannelTest {
   }
 
   @Test
-  void testWrite_whenClosed_throwsClosedChannelException() throws Exception {
+  void write_nullBuffer_throwsNullPointerException() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+
+    assertThrows(NullPointerException.class, () -> channel.write(null));
+  }
+
+  @Test
+  void write_whenClosed_throwsClosedChannelException() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
     GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
     channel.close();
@@ -144,7 +171,7 @@ class GcsBidiWriteChannelTest {
   }
 
   @Test
-  void testWrite_failure_translatesException() throws Exception {
+  void write_failure_translatesException() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
     GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
 
@@ -156,7 +183,7 @@ class GcsBidiWriteChannelTest {
   }
 
   @Test
-  void testClose_success_closesAppendChannelAndUpdatesIsOpen() throws Exception {
+  void close_success_closesAppendChannelAndUpdatesIsOpen() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
     GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
 
@@ -172,7 +199,7 @@ class GcsBidiWriteChannelTest {
   }
 
   @Test
-  void testClose_failure_translatesException() throws Exception {
+  void close_failure_translatesException() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
     GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
 
