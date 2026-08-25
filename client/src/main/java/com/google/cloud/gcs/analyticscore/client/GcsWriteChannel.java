@@ -26,6 +26,7 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.channels.WritableByteChannel;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,7 +40,7 @@ public class GcsWriteChannel implements WritableByteChannel {
   private volatile WritableByteChannel sdkWriteChannel;
   private final GcsWriteOptions writeOptions;
 
-  private volatile long bytesWritten = 0;
+  protected final AtomicLong bytesWritten = new AtomicLong(0);
   protected volatile boolean closed = false;
 
   GcsWriteChannel(
@@ -63,14 +64,14 @@ public class GcsWriteChannel implements WritableByteChannel {
     try {
       int written = sdkWriteChannel.write(src);
       if (written > 0) {
-        bytesWritten += written;
+        bytesWritten.addAndGet(written);
       }
 
       LOG.trace(
           "{} bytes were written out of provided buffer of capacity {}. Total: {}",
           written,
           bytesToDraft,
-          bytesWritten);
+          bytesWritten.get());
       return written;
     } catch (StorageException | IOException e) {
       throw handleException(e, "write");
@@ -121,6 +122,6 @@ public class GcsWriteChannel implements WritableByteChannel {
   }
 
   public long getBytesWritten() {
-    return bytesWritten;
+    return bytesWritten.get();
   }
 }
