@@ -20,6 +20,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -207,6 +208,29 @@ class GcsBidiWriteChannelTest {
     Mockito.doThrow(se).when(mockAppendChannel).close();
 
     assertThrows(AccessDeniedException.class, () -> channel.close());
+    assertThat(channel.isOpen()).isFalse();
+  }
+
+  @Test
+  void write_emptyBuffer_returnsZeroAndDoesNotIncrementBytesWritten() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+
+    ByteBuffer emptyBuffer = ByteBuffer.allocate(0);
+    int written = channel.write(emptyBuffer);
+
+    assertThat(written).isEqualTo(0);
+    assertThat(channel.getBytesWritten()).isEqualTo(0L);
+    verify(mockAppendChannel, never()).write(any(ByteBuffer.class));
+  }
+
+  @Test
+  void isOpen_whenUnderlyingChannelClosed_returnsFalse() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+
+    when(mockAppendChannel.isOpen()).thenReturn(false);
+
     assertThat(channel.isOpen()).isFalse();
   }
 }
