@@ -30,8 +30,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.util.concurrent.atomic.AtomicLong;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * A write channel that supports bidirectional/appendable upload to Google Cloud Storage.
@@ -40,8 +38,6 @@ import org.slf4j.LoggerFactory;
  * allowing incremental, bidirectional writes that can optionally be finalized on close.
  */
 public class GcsBidiWriteChannel extends GcsWriteChannel {
-
-  private static final Logger LOG = LoggerFactory.getLogger(GcsBidiWriteChannel.class);
 
   private volatile BlobAppendableUpload.AppendableUploadWriteableByteChannel gcsAppendChannel;
   private final AtomicLong bidiBytesWritten = new AtomicLong(0);
