@@ -28,7 +28,6 @@ import com.google.cloud.storage.StorageException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
-import java.util.concurrent.atomic.AtomicLong;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
@@ -40,7 +39,6 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 public class GcsBidiWriteChannel extends GcsWriteChannel {
 
   private volatile BlobAppendableUpload.AppendableUploadWriteableByteChannel gcsAppendChannel;
-  private final AtomicLong bidiBytesWritten = new AtomicLong(0);
 
   public GcsBidiWriteChannel(
       @NonNull Storage storage, @NonNull BlobInfo blobInfo, @NonNull GcsWriteOptions writeOptions)
@@ -89,7 +87,7 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
     try {
       int written = StorageChannelUtils.blockingEmptyTo(src, gcsAppendChannel);
       if (written > 0) {
-        bidiBytesWritten.addAndGet(written);
+        bytesWritten.addAndGet(written);
       }
       return written;
     } catch (StorageException | IOException e) {
@@ -124,10 +122,5 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
   @Override
   public boolean isOpen() {
     return !closed && gcsAppendChannel != null && gcsAppendChannel.isOpen();
-  }
-
-  @Override
-  public long getBytesWritten() {
-    return bidiBytesWritten.get();
   }
 }
