@@ -22,12 +22,14 @@ import com.google.cloud.storage.BlobAppendableUpload;
 import com.google.cloud.storage.BlobAppendableUploadConfig;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.StorageChannelUtils;
 import com.google.cloud.storage.StorageException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.util.concurrent.atomic.AtomicLong;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,19 +43,20 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
 
   private static final Logger LOG = LoggerFactory.getLogger(GcsBidiWriteChannel.class);
 
-  private final BlobAppendableUpload.AppendableUploadWriteableByteChannel gcsAppendChannel;
+  private volatile BlobAppendableUpload.AppendableUploadWriteableByteChannel gcsAppendChannel;
   private final AtomicLong bidiBytesWritten = new AtomicLong(0);
 
-  public GcsBidiWriteChannel(Storage storage, BlobInfo blobInfo, GcsWriteOptions writeOptions)
+  public GcsBidiWriteChannel(
+      @NonNull Storage storage, @NonNull BlobInfo blobInfo, @NonNull GcsWriteOptions writeOptions)
       throws IOException {
-    this(storage, blobInfo, writeOptions, new Storage.BlobWriteOption[0]);
+    this(storage, blobInfo, writeOptions, new BlobWriteOption[0]);
   }
 
   public GcsBidiWriteChannel(
-      Storage storage,
-      BlobInfo blobInfo,
-      GcsWriteOptions writeOptions,
-      Storage.BlobWriteOption[] sdkWriteOptions)
+      @NonNull Storage storage,
+      @NonNull BlobInfo blobInfo,
+      @NonNull GcsWriteOptions writeOptions,
+      @NonNull BlobWriteOption[] sdkWriteOptions)
       throws IOException {
     super(
         null,
@@ -81,7 +84,7 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
   }
 
   @Override
-  public int write(ByteBuffer src) throws IOException {
+  public int write(@NonNull ByteBuffer src) throws IOException {
     checkNotNull(src, "src cannot be null");
     if (!isOpen()) {
       throw new ClosedChannelException();
@@ -101,31 +104,31 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
 
   @Override
   public void close() throws IOException {
-    if (this.closed) {
+    if (closed) {
       return;
     }
 
     synchronized (this) {
-      if (this.closed) {
-        return;
-      }
-
+      closed = true;
       try {
+        super.close();
+      } finally {
         if (gcsAppendChannel != null) {
-          gcsAppendChannel.close();
+          try {
+            gcsAppendChannel.close();
+          } catch (StorageException | IOException e) {
+            throw handleException(e, "close");
+          } finally {
+            gcsAppendChannel = null;
+          }
         }
-        this.closed = true;
-        LOG.debug(
-            "Successfully closed bidirectional write channel for object: {}", blobInfo.getBlobId());
-      } catch (StorageException | IOException e) {
-        throw handleException(e, "close");
       }
     }
   }
 
   @Override
   public boolean isOpen() {
-    return !this.closed && gcsAppendChannel != null && gcsAppendChannel.isOpen();
+    return !closed && gcsAppendChannel != null && gcsAppendChannel.isOpen();
   }
 
   @Override
@@ -134,7 +137,7 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
   }
 
   @Override
-  protected IOException handleException(Exception e, String context) {
+  protected IOException handleException(@NonNull Exception e, @NonNull String context) {
     return GcsExceptionUtil.translateWriteException(
         e, context, blobInfo.getBlobId(), bidiBytesWritten.get(), writeOptions);
   }
