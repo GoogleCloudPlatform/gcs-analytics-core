@@ -90,7 +90,6 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
       int written = StorageChannelUtils.blockingEmptyTo(src, gcsAppendChannel);
       if (written > 0) {
         bidiBytesWritten.addAndGet(written);
-        this.bytesWritten = bidiBytesWritten.get();
       }
       return written;
     } catch (StorageException | IOException e) {
@@ -130,11 +129,5 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
   @Override
   public long getBytesWritten() {
     return bidiBytesWritten.get();
-  }
-
-  @Override
-  protected IOException handleException(@NonNull Exception e, @NonNull String context) {
-    return GcsExceptionUtil.translateWriteException(
-        e, context, blobInfo.getBlobId(), bidiBytesWritten.get(), writeOptions);
   }
 }
