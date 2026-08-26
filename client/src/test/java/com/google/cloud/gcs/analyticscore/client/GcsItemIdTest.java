@@ -182,4 +182,35 @@ class GcsItemIdTest {
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("foo.parquet").build();
     assertThat(itemId.resolvePathType()).isEqualTo(PathType.UNKNOWN);
   }
+
+  @Test
+  void toDirectoryId_root_returnsRoot() {
+    assertThat(GcsItemId.ROOT.toDirectoryId()).isSameInstanceAs(GcsItemId.ROOT);
+  }
+
+  @Test
+  void toDirectoryId_bucket_returnsBucket() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    assertThat(bucketId.toDirectoryId()).isSameInstanceAs(bucketId);
+  }
+
+  @Test
+  void toDirectoryId_objectWithoutTrailingSlash_appendsSlash() {
+    GcsItemId result =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("foo").build().toDirectoryId();
+    assertThat(result.getBucketName()).isEqualTo(TEST_BUCKET);
+    assertThat(result.getObjectName()).hasValue("foo/");
+  }
+
+  @Test
+  void toDirectoryId_objectWithTrailingSlash_returnsDirectory() {
+    GcsItemId result =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET)
+            .setObjectName("foo/")
+            .build()
+            .toDirectoryId();
+    assertThat(result.getBucketName()).isEqualTo(TEST_BUCKET);
+    assertThat(result.getObjectName()).hasValue("foo/");
+  }
 }

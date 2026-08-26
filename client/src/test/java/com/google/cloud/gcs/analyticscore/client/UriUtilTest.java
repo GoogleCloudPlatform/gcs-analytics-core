@@ -123,6 +123,13 @@ class UriUtilTest {
   }
 
   @Test
+  void toDirectoryPath_emptyPath_returnsEmpty() {
+    String result = UriUtil.toDirectoryPath("");
+
+    assertThat(result).isEmpty();
+  }
+
+  @Test
   void toDirectoryPath_nullPath_returnsNull() {
     String result = UriUtil.toDirectoryPath(null);
 

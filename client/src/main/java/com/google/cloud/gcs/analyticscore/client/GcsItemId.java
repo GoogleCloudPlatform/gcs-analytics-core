@@ -98,4 +98,15 @@ public abstract class GcsItemId {
     }
     return PathType.UNKNOWN;
   }
+
+  /** Returns a new GcsItemId with the object name formatted as a directory path. */
+  public GcsItemId toDirectoryId() {
+    if (isRoot() || isBucket()) {
+      return this;
+    }
+    return builder()
+        .setBucketName(getBucketName())
+        .setObjectName(UriUtil.toDirectoryPath(getObjectName().orElse("")))
+        .build();
+  }
 }

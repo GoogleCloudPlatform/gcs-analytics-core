@@ -454,6 +454,24 @@ class GcsFileSystemImplTest {
   }
 
   @Test
+  void getFileInfoInternal_inferImplicitDirectoriesFalse_checksDirectoryPlaceholderObject()
+      throws IOException {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data").build();
+    GcsItemId dirPlaceholderId = itemId.toDirectoryId();
+    GcsItemInfo placeholderInfo = createPlaceholderDirectoryInfo(dirPlaceholderId);
+    when(mockClient.getGcsItemInfo(eq(itemId)))
+        .thenThrow(new FileNotFoundException("Object not found: " + itemId));
+    when(mockClient.getGcsItemInfo(eq(dirPlaceholderId))).thenReturn(placeholderInfo);
+
+    GcsFileInfo fileInfo =
+        ((GcsFileSystemImpl) gcsFileSystem)
+            .getFileInfoInternal(itemId, /* inferImplicitDirectories= */ false);
+
+    assertThat(fileInfo.getItemInfo()).isEqualTo(placeholderInfo);
+    verify(mockClient, never()).listFirstObjectWithPrefix(any(GcsItemId.class));
+  }
+
+  @Test
   void getFromFuture_whenInterrupted_throwsIOExceptionAndRestoresInterrupt() throws Exception {
     Future<String> mockFuture = mock(Future.class);
     when(mockFuture.get()).thenThrow(new InterruptedException("interrupted"));
@@ -909,5 +927,13 @@ class GcsFileSystemImplTest {
     } catch (Exception e) {
       throw new RuntimeException("Failed to get Telemetry listeners", e);
     }
+  }
+
+  private static GcsItemInfo createPlaceholderDirectoryInfo(GcsItemId itemId) {
+    return GcsItemInfo.builder()
+        .setItemId(itemId)
+        .setSize(0L)
+        .setItemType(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY)
+        .build();
   }
 }
