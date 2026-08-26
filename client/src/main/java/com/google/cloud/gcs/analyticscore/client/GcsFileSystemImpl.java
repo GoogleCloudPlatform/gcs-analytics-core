@@ -44,8 +44,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class GcsFileSystemImpl implements GcsFileSystem {
+
+  private static final Logger LOG = LoggerFactory.getLogger(GcsFileSystemImpl.class);
 
   /**
    * Using a 30-second keep-alive enables efficient thread reuse during intermittent spikes in
@@ -209,6 +213,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
         return toGcsFileInfo(itemInfo);
       } catch (FileNotFoundException ignored) {
         // Direct object not found; fall through to directory info
+        LOG.debug("Item '{}' not found directly, checking for directory existence.", itemId);
       } catch (Exception e) {
         directoryInfoFuture.cancel(true);
         throw e;

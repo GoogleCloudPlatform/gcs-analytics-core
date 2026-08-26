@@ -248,7 +248,6 @@ class GcsFileSystemImplTest {
   void getFileInfo_nullUri_throwsNullPointerException() {
     NullPointerException e =
         assertThrows(NullPointerException.class, () -> gcsFileSystem.getFileInfo((URI) null));
-
     assertThat(e).hasMessageThat().contains("path should not be null");
   }
 
@@ -256,14 +255,12 @@ class GcsFileSystemImplTest {
   void getFileInfo_nullItemId_throwsNullPointerException() {
     NullPointerException e =
         assertThrows(NullPointerException.class, () -> gcsFileSystem.getFileInfo((GcsItemId) null));
-
     assertThat(e).hasMessageThat().contains("itemId should not be null");
   }
 
   @Test
   void getFileInfo_whenPathTypeIsRoot_returnsRootInfo() throws IOException {
     GcsItemId rootId = GcsItemId.ROOT;
-
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(rootId);
 
     assertThat(fileInfo).isSameInstanceAs(GcsFileInfo.ROOT_INFO);
@@ -353,12 +350,12 @@ class GcsFileSystemImplTest {
     GcsItemId nonExistentItemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("non-existent-object").build();
     when(mockClient.getGcsItemInfo(eq(nonExistentItemId)))
-        .thenThrow(new IOException("Fatal network error: " + nonExistentItemId));
+        .thenThrow(new IOException("Object not found:" + nonExistentItemId));
 
     IOException e =
         assertThrows(IOException.class, () -> gcsFileSystem.getFileInfo(nonExistentItemId));
 
-    assertThat(e).hasMessageThat().contains("Fatal network error: " + nonExistentItemId);
+    assertThat(e).hasMessageThat().contains("Object not found:" + nonExistentItemId);
   }
 
   @Test
@@ -436,7 +433,7 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void getFileInfo_whenHnsDirectory_returnsExplicitDirectoryInfo() throws IOException {
+  void getFileInfo_whenHnsDirectory_returnsNativeFolderInfo() throws IOException {
     GcsItemId folderId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("my-folder/").build();
     GcsItemInfo folderInfo =

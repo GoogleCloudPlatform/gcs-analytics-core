@@ -50,19 +50,9 @@ class FlatNamespaceStrategyImplTest {
 
   @Test
   void getDirectoryInfo_implicitDirectoryExists_returnsInferredDirectory() throws IOException {
-    GcsItemId dirId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
-    GcsItemId prefixId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR + "/").build();
-    GcsItemInfo childItem =
-        GcsItemInfo.builder()
-            .setItemId(
-                GcsItemId.builder()
-                    .setBucketName(TEST_BUCKET)
-                    .setObjectName(TEST_DIR + "/file.txt")
-                    .build())
-            .setSize(100L)
-            .build();
+    GcsItemId dirId = createGcsItemId(TEST_DIR);
+    GcsItemId prefixId = createGcsItemId(TEST_DIR + "/");
+    GcsItemInfo childItem = createGcsItemInfo(TEST_DIR + "/file.txt", 100L);
     when(mockClient.listFirstObjectWithPrefix(eq(prefixId)))
         .thenReturn(ImmutableList.of(childItem));
 
@@ -77,10 +67,8 @@ class FlatNamespaceStrategyImplTest {
   @Test
   void getDirectoryInfo_implicitDirectoryDoesNotExist_throwsFileNotFoundException()
       throws IOException {
-    GcsItemId dirId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
-    GcsItemId prefixId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR + "/").build();
+    GcsItemId dirId = createGcsItemId(TEST_DIR);
+    GcsItemId prefixId = createGcsItemId(TEST_DIR + "/");
     when(mockClient.listFirstObjectWithPrefix(eq(prefixId))).thenReturn(ImmutableList.of());
 
     FileNotFoundException e =
@@ -93,10 +81,8 @@ class FlatNamespaceStrategyImplTest {
   @Test
   void getDirectoryInfo_listFirstObjectWithPrefixThrowsIOException_throwsIOException()
       throws IOException {
-    GcsItemId dirId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
-    GcsItemId prefixId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR + "/").build();
+    GcsItemId dirId = createGcsItemId(TEST_DIR);
+    GcsItemId prefixId = createGcsItemId(TEST_DIR + "/");
     when(mockClient.listFirstObjectWithPrefix(eq(prefixId)))
         .thenThrow(new IOException("GCS listing failure"));
 
@@ -104,5 +90,13 @@ class FlatNamespaceStrategyImplTest {
 
     assertThat(e).hasMessageThat().contains("GCS listing failure");
     verify(mockClient).listFirstObjectWithPrefix(prefixId);
+  }
+
+  private static GcsItemId createGcsItemId(String objectName) {
+    return GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(objectName).build();
+  }
+
+  private static GcsItemInfo createGcsItemInfo(String objectName, long size) {
+    return GcsItemInfo.builder().setItemId(createGcsItemId(objectName)).setSize(size).build();
   }
 }
