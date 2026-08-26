@@ -182,7 +182,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   @Override
   public GcsFileInfo getFileInfo(GcsItemId itemId) throws IOException {
     checkNotNull(itemId, "itemId should not be null");
-    PathType pathType = PathType.resolve(itemId);
+    PathType pathType = itemId.resolvePathType();
 
     if (pathType == PathType.ROOT) {
       return GcsFileInfo.ROOT_INFO;

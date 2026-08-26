@@ -16,8 +16,6 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 /** Represents the type of a path based on its string format (e.g., trailing slash, extensions). */
 public enum PathType {
   /** A path that is definitively known to be a file/object. */
@@ -30,28 +28,4 @@ public enum PathType {
   ROOT,
   /** The path type cannot be definitively determined from its format. */
   UNKNOWN;
-
-  public static PathType resolve(GcsItemId itemId) {
-    checkNotNull(itemId, "itemId cannot be null");
-    if (itemId.getBucketName().isEmpty()) {
-      return ROOT;
-    }
-    if (itemId.isBucket()) {
-      return BUCKET;
-    }
-    String objectName = itemId.getObjectName().get();
-    if (objectName.endsWith("/")) {
-      return DIRECTORY;
-    }
-    String lower = objectName.toLowerCase(java.util.Locale.US);
-    if (lower.endsWith(".parquet")
-        || lower.endsWith(".csv")
-        || lower.endsWith(".json")
-        || lower.endsWith(".avro")
-        || lower.endsWith(".orc")
-        || lower.endsWith(".txt")) {
-      return FILE;
-    }
-    return UNKNOWN;
-  }
 }

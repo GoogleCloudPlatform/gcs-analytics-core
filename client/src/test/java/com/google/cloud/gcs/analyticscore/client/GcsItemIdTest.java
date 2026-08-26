@@ -140,4 +140,46 @@ class GcsItemIdTest {
     assertThat(root.isGcsObject()).isFalse();
     assertThat(root.isRoot()).isTrue();
   }
+
+  @Test
+  void resolvePathType_root_returnsRoot() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName("").setObjectName("").build();
+    assertThat(itemId.resolvePathType()).isEqualTo(PathType.ROOT);
+  }
+
+  @Test
+  void resolvePathType_rootConstant_returnsRoot() {
+    assertThat(GcsItemId.ROOT.resolvePathType()).isEqualTo(PathType.ROOT);
+  }
+
+  @Test
+  void resolvePathType_bucket_returnsBucket() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("").build();
+    assertThat(itemId.resolvePathType()).isEqualTo(PathType.BUCKET);
+  }
+
+  @Test
+  void resolvePathType_bucketWithoutObject_returnsBucket() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    assertThat(itemId.resolvePathType()).isEqualTo(PathType.BUCKET);
+  }
+
+  @Test
+  void resolvePathType_directory_returnsDirectory() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("foo/").build();
+    assertThat(itemId.resolvePathType()).isEqualTo(PathType.DIRECTORY);
+  }
+
+  @Test
+  void resolvePathType_objectWithoutTrailingSlash_returnsUnknown() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("foo").build();
+    assertThat(itemId.resolvePathType()).isEqualTo(PathType.UNKNOWN);
+  }
+
+  @Test
+  void resolvePathType_fileWithExtension_returnsUnknown() {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("foo.parquet").build();
+    assertThat(itemId.resolvePathType()).isEqualTo(PathType.UNKNOWN);
+  }
 }

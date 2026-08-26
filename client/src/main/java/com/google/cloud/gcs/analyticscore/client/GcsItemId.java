@@ -81,4 +81,21 @@ public abstract class GcsItemId {
     return !this.getBucketName().isEmpty()
         && (this.getObjectName().isEmpty() || this.getObjectName().get().isEmpty());
   }
+
+  /**
+   * Resolves the {@link PathType} of this identifier based on its string format (e.g., trailing
+   * slash).
+   */
+  public PathType resolvePathType() {
+    if (isRoot()) {
+      return PathType.ROOT;
+    }
+    if (isBucket()) {
+      return PathType.BUCKET;
+    }
+    if (getObjectName().orElse("").endsWith("/")) {
+      return PathType.DIRECTORY;
+    }
+    return PathType.UNKNOWN;
+  }
 }
