@@ -55,7 +55,7 @@ class HierarchicalNamespaceStrategyImplTest {
         GcsItemInfo.builder()
             .setItemId(folderId)
             .setSize(0L)
-            .setItemType(GcsItemInfo.ItemType.EXPLICIT_DIRECTORY)
+            .setItemType(GcsItemInfo.ItemType.NATIVE_FOLDER)
             .build();
     when(mockClient.getFolderInfo(eq(folderId))).thenReturn(folderInfo);
 
@@ -63,8 +63,7 @@ class HierarchicalNamespaceStrategyImplTest {
 
     assertThat(result).isNotNull();
     assertThat(result.getItemId()).isEqualTo(folderId);
-    assertThat(result.getItemType()).isEqualTo(GcsItemInfo.ItemType.EXPLICIT_DIRECTORY);
-    assertThat(result.isExplicitDirectory()).isTrue();
+    assertThat(result.getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
     verify(mockClient).getFolderInfo(folderId);
   }
 

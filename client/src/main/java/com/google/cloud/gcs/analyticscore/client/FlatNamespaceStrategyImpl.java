@@ -40,7 +40,7 @@ final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
 
   // Checks if a path is an implicit directory by seeing if any objects exist with it as a prefix
   private boolean isImplicitDirectory(GcsItemId id) throws IOException {
-    String prefix = UriUtil.ensureTrailingSlash(id.getObjectName().orElse(""));
+    String prefix = UriUtil.toDirectoryPath(id.getObjectName().orElse(""));
     GcsItemId prefixId =
         GcsItemId.builder().setBucketName(id.getBucketName()).setObjectName(prefix).build();
     return !gcsClient.listFirstObjectWithPrefix(prefixId).isEmpty();

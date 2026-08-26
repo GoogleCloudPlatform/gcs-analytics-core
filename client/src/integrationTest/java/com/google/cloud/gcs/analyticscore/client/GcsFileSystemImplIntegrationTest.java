@@ -149,8 +149,6 @@ class GcsFileSystemImplIntegrationTest {
         assertThat(fileInfo.getItemInfo().getCreationTime()).isGreaterThan(0L);
         assertThat(fileInfo.getItemInfo().getModificationTime()).isGreaterThan(0L);
         assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.OBJECT);
-        assertThat(fileInfo.getItemInfo().isInferredDirectory()).isFalse();
-        assertThat(fileInfo.getItemInfo().isExplicitDirectory()).isFalse();
     }
 
     @Test
@@ -256,7 +254,6 @@ class GcsFileSystemImplIntegrationTest {
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(dirUri);
 
-        assertThat(fileInfo.getItemInfo().isInferredDirectory()).isTrue();
         assertThat(fileInfo.getItemInfo().getItemType())
                 .isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
         assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
@@ -271,7 +268,6 @@ class GcsFileSystemImplIntegrationTest {
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(dirUri);
 
-        assertThat(fileInfo.getItemInfo().isInferredDirectory()).isTrue();
         assertThat(fileInfo.getItemInfo().getItemType())
                 .isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
         assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
@@ -339,9 +335,8 @@ class GcsFileSystemImplIntegrationTest {
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(folderWithSlashUri);
 
-        assertThat(fileInfo.getItemInfo().isExplicitDirectory()).isTrue();
         assertThat(fileInfo.getItemInfo().getItemType())
-                .isEqualTo(GcsItemInfo.ItemType.EXPLICIT_DIRECTORY);
+                .isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
         assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
         assertThat(fileInfo.getItemInfo().getItemId().getObjectName())
                 .hasValue(ctx.folderName + "/");
@@ -358,9 +353,8 @@ class GcsFileSystemImplIntegrationTest {
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(folderWithoutSlashUri);
 
-        assertThat(fileInfo.getItemInfo().isExplicitDirectory()).isTrue();
         assertThat(fileInfo.getItemInfo().getItemType())
-                .isEqualTo(GcsItemInfo.ItemType.EXPLICIT_DIRECTORY);
+                .isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
         assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
         assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(ctx.folderName);
         assertThat(fileInfo.getUri()).isEqualTo(folderWithoutSlashUri);

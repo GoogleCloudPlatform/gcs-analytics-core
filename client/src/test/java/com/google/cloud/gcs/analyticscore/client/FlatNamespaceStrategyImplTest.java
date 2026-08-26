@@ -71,7 +71,6 @@ class FlatNamespaceStrategyImplTest {
     assertThat(result).isNotNull();
     assertThat(result.getItemId()).isEqualTo(dirId);
     assertThat(result.getItemType()).isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
-    assertThat(result.isInferredDirectory()).isTrue();
     verify(mockClient).listFirstObjectWithPrefix(prefixId);
   }
 

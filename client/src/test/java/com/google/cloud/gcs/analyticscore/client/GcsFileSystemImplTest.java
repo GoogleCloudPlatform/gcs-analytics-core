@@ -386,7 +386,8 @@ class GcsFileSystemImplTest {
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
 
     assertThat(fileInfo).isNotNull();
-    assertThat(fileInfo.getItemInfo().isInferredDirectory()).isTrue();
+    assertThat(fileInfo.getItemInfo().getItemType())
+        .isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
     assertThat(fileInfo.getUri().toString()).isEqualTo("gs://" + TEST_BUCKET + "/data.parquet");
   }
 
@@ -429,7 +430,8 @@ class GcsFileSystemImplTest {
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
 
     assertThat(fileInfo).isNotNull();
-    assertThat(fileInfo.getItemInfo().isInferredDirectory()).isTrue();
+    assertThat(fileInfo.getItemInfo().getItemType())
+        .isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
     verify(mockClient, never()).getGcsItemInfo(any(GcsItemId.class));
   }
 
@@ -441,7 +443,7 @@ class GcsFileSystemImplTest {
         GcsItemInfo.builder()
             .setItemId(folderId)
             .setSize(0L)
-            .setItemType(GcsItemInfo.ItemType.EXPLICIT_DIRECTORY)
+            .setItemType(GcsItemInfo.ItemType.NATIVE_FOLDER)
             .build();
     when(mockClient.isHnsBucket(TEST_BUCKET)).thenReturn(true);
     when(mockClient.getFolderInfo(eq(folderId))).thenReturn(folderInfo);
@@ -449,7 +451,7 @@ class GcsFileSystemImplTest {
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(folderId);
 
     assertThat(fileInfo).isNotNull();
-    assertThat(fileInfo.getItemInfo().isExplicitDirectory()).isTrue();
+    assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
     assertThat(fileInfo.getUri().toString()).isEqualTo("gs://" + TEST_BUCKET + "/my-folder/");
     verify(mockClient, never()).getGcsItemInfo(any(GcsItemId.class));
   }
