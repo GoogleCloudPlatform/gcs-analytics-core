@@ -209,7 +209,7 @@ class GcsClientImpl implements GcsClient {
   @Override
   public GcsItemInfo getFolderInfo(GcsItemId itemId) throws IOException {
     checkNotNull(itemId, "Item ID must not be null.");
-    if (GcsItemId.ROOT.equals(itemId)) {
+    if (itemId.isRoot()) {
       return GcsItemInfo.ROOT_INFO;
     }
     if (itemId.isBucket()) {

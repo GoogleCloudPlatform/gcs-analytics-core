@@ -67,7 +67,7 @@ final class UriUtil {
     return path;
   }
 
-  static String ensureTrailingSlash(String path) {
+  static String toDirectoryPath(String path) {
     if (path != null && !path.endsWith("/")) {
       return path + "/";
     }

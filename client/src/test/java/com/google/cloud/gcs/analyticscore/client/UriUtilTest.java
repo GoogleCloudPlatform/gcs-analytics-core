@@ -109,22 +109,22 @@ class UriUtilTest {
   }
 
   @Test
-  void ensureTrailingSlash_withoutTrailingSlash_appendsSlash() {
-    String result = UriUtil.ensureTrailingSlash(TEST_PATH);
+  void toDirectoryPath_withoutTrailingSlash_appendsSlash() {
+    String result = UriUtil.toDirectoryPath(TEST_PATH);
 
     assertThat(result).isEqualTo(TEST_PATH + "/");
   }
 
   @Test
-  void ensureTrailingSlash_withTrailingSlash_returnsSame() {
-    String result = UriUtil.ensureTrailingSlash(TEST_PATH + "/");
+  void toDirectoryPath_withTrailingSlash_returnsOriginal() {
+    String result = UriUtil.toDirectoryPath(TEST_PATH + "/");
 
     assertThat(result).isEqualTo(TEST_PATH + "/");
   }
 
   @Test
-  void ensureTrailingSlash_nullPath_returnsNull() {
-    String result = UriUtil.ensureTrailingSlash(null);
+  void toDirectoryPath_nullPath_returnsNull() {
+    String result = UriUtil.toDirectoryPath(null);
 
     assertThat(result).isNull();
   }
