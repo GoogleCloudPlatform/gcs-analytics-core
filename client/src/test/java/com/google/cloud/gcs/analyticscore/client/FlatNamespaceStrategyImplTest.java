@@ -24,7 +24,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableList;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -65,16 +64,17 @@ class FlatNamespaceStrategyImplTest {
   }
 
   @Test
-  void getDirectoryInfo_implicitDirectoryDoesNotExist_throwsFileNotFoundException()
-      throws IOException {
+  void getDirectoryInfo_implicitDirectoryDoesNotExist_returnsNotFoundItemInfo() throws IOException {
     GcsItemId dirId = createGcsItemId(TEST_DIR);
     GcsItemId prefixId = createGcsItemId(TEST_DIR + "/");
     when(mockClient.listFirstObjectWithPrefix(eq(prefixId))).thenReturn(ImmutableList.of());
 
-    FileNotFoundException e =
-        assertThrows(FileNotFoundException.class, () -> strategy.getDirectoryInfo(dirId));
+    GcsItemInfo result = strategy.getDirectoryInfo(dirId);
 
-    assertThat(e).hasMessageThat().contains("Directory not found: " + dirId);
+    assertThat(result).isNotNull();
+    assertThat(result.getItemId()).isEqualTo(dirId);
+    assertThat(result.exists()).isFalse();
+    assertThat(result.getSize()).isEqualTo(-1L);
     verify(mockClient).listFirstObjectWithPrefix(prefixId);
   }
 

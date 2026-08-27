@@ -18,7 +18,6 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 
 final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
@@ -35,7 +34,7 @@ final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
     if (isImplicitDirectory(id)) {
       return GcsItemInfo.createInferredDirectory(id);
     }
-    throw new FileNotFoundException("Directory not found: " + id);
+    return GcsItemInfo.createNotFound(id);
   }
 
   // Checks if a path is an implicit directory by seeing if any objects exist with it as a prefix

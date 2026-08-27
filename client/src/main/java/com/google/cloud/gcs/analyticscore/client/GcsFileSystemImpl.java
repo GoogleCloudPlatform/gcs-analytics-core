@@ -33,7 +33,6 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.channels.WritableByteChannel;
@@ -44,12 +43,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class GcsFileSystemImpl implements GcsFileSystem {
-
-  private static final Logger LOG = LoggerFactory.getLogger(GcsFileSystemImpl.class);
 
   /**
    * Using a 30-second keep-alive enables efficient thread reuse during intermittent spikes in
@@ -220,20 +215,19 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     if (pathType != PathType.DIRECTORY) {
       try {
         GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(itemId);
-        directoryInfoFuture.cancel(true);
-        return toGcsFileInfo(itemInfo);
-      } catch (FileNotFoundException ignored) {
-        // Direct object not found; fall through to directory info
-        LOG.debug("Item '{}' not found directly, checking for directory existence.", itemId);
+        if (itemInfo != null && itemInfo.exists()) {
+          directoryInfoFuture.cancel(true);
+          return toGcsFileInfo(itemInfo);
+        }
       } catch (Exception e) {
         directoryInfoFuture.cancel(true);
         throw e;
       }
     }
 
-    // Await directory info and return (unwraps ExecutionException to FileNotFoundException /
-    // IOException)
-    return toGcsFileInfo(getFromFuture(directoryInfoFuture));
+    // Await directory info and return
+    GcsItemInfo dirInfo = getFromFuture(directoryInfoFuture);
+    return toGcsFileInfo(dirInfo);
   }
 
   static <T> T getFromFuture(Future<T> future) throws IOException {
@@ -253,6 +247,9 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   private GcsFileInfo createBucketFileInfo(GcsItemInfo bucketInfo) {
+    if (!bucketInfo.exists()) {
+      return GcsFileInfo.createNotFound(bucketInfo.getItemId());
+    }
     return GcsFileInfo.builder()
         .setItemInfo(bucketInfo)
         .setUri(URI.create("gs://" + bucketInfo.getItemId().getBucketName()))
@@ -261,6 +258,9 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   private GcsFileInfo toGcsFileInfo(GcsItemInfo gcsItemInfo) {
+    if (!gcsItemInfo.exists()) {
+      return GcsFileInfo.createNotFound(gcsItemInfo.getItemId());
+    }
     GcsItemId itemId = gcsItemInfo.getItemId();
     return GcsFileInfo.builder()
         .setItemInfo(gcsItemInfo)

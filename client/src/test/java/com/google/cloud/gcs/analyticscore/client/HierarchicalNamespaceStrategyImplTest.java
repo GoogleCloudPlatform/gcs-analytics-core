@@ -23,7 +23,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,16 +67,17 @@ class HierarchicalNamespaceStrategyImplTest {
   }
 
   @Test
-  void getDirectoryInfo_folderNotFound_throwsFileNotFoundException() throws IOException {
+  void getDirectoryInfo_folderNotFound_returnsNotFoundItemInfo() throws IOException {
     GcsItemId folderId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_FOLDER).build();
-    when(mockClient.getFolderInfo(eq(folderId)))
-        .thenThrow(new FileNotFoundException("Folder not found: " + folderId));
+    when(mockClient.getFolderInfo(eq(folderId))).thenReturn(GcsItemInfo.createNotFound(folderId));
 
-    FileNotFoundException e =
-        assertThrows(FileNotFoundException.class, () -> strategy.getDirectoryInfo(folderId));
+    GcsItemInfo result = strategy.getDirectoryInfo(folderId);
 
-    assertThat(e).hasMessageThat().contains("Folder not found: " + folderId);
+    assertThat(result).isNotNull();
+    assertThat(result.getItemId()).isEqualTo(folderId);
+    assertThat(result.exists()).isFalse();
+    assertThat(result.getSize()).isEqualTo(-1L);
     verify(mockClient).getFolderInfo(folderId);
   }
 }

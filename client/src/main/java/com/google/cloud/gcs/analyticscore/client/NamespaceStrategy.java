@@ -16,7 +16,6 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 
 /**
@@ -40,8 +39,8 @@ interface NamespaceStrategy {
    * Retrieves directory metadata for the given item identifier based on the namespace strategy.
    *
    * @param id the item identifier of the directory
-   * @return {@link GcsItemInfo} containing directory metadata
-   * @throws FileNotFoundException if the directory does not exist
+   * @return {@link GcsItemInfo} containing directory metadata, or a not-found info if it does not
+   *     exist
    * @throws IOException if an I/O error occurs while retrieving directory information
    */
   GcsItemInfo getDirectoryInfo(GcsItemId id) throws IOException;

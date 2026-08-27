@@ -224,16 +224,24 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     @Test
-    void getFileInfo_nonExistentBucket_throwsFileNotFoundException() {
+    void getFileInfo_nonExistentBucket_returnsNotFoundFileInfo() throws IOException {
         URI nonExistentBucketUri = URI.create("gs://non-existent-bucket-" + UUID.randomUUID());
-        assertThrows(
-                FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentBucketUri));
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(nonExistentBucketUri);
+
+        assertThat(fileInfo).isNotNull();
+        assertThat(fileInfo.exists()).isFalse();
     }
 
     @Test
-    void getFileInfo_nonExistentObject_throwsFileNotFoundException() {
-        URI nonExistentUri = URI.create("gs://" + PRIVATE_BUCKET_NAME + "/non-existent-file-" + UUID.randomUUID() + ".parquet");
-        assertThrows(FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentUri));
+    void getFileInfo_nonExistentObject_returnsNotFoundFileInfo() throws IOException {
+        URI nonExistentUri =
+                URI.create("gs://" + PRIVATE_BUCKET_NAME + "/non-existent-file-" + UUID.randomUUID() + ".parquet");
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(nonExistentUri);
+
+        assertThat(fileInfo).isNotNull();
+        assertThat(fileInfo.exists()).isFalse();
     }
 
     @Test
@@ -265,19 +273,25 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     @Test
-    void getFileInfo_nonExistentDirectoryWithTrailingSlash_throwsFileNotFoundException() {
+    void getFileInfo_nonExistentDirectoryWithTrailingSlash_returnsNotFoundFileInfo() throws IOException {
         URI nonExistentDirUri =
                 URI.create("gs://" + PRIVATE_BUCKET_NAME + "/non-existent-folder-" + UUID.randomUUID() + "/");
-        assertThrows(
-                FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentDirUri));
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(nonExistentDirUri);
+
+        assertThat(fileInfo).isNotNull();
+        assertThat(fileInfo.exists()).isFalse();
     }
 
     @Test
-    void getFileInfo_nonExistentDirectoryWithoutTrailingSlash_throwsFileNotFoundException() {
+    void getFileInfo_nonExistentDirectoryWithoutTrailingSlash_returnsNotFoundFileInfo() throws IOException {
         URI nonExistentDirUri =
                 URI.create("gs://" + PRIVATE_BUCKET_NAME + "/non-existent-folder-" + UUID.randomUUID());
-        assertThrows(
-                FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentDirUri));
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(nonExistentDirUri);
+
+        assertThat(fileInfo).isNotNull();
+        assertThat(fileInfo.exists()).isFalse();
     }
 
     @Test
@@ -366,11 +380,15 @@ class GcsFileSystemImplIntegrationTest {
 
     @Test
     @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
-    void getFileInfo_hnsNonExistentItem_throwsFileNotFoundException() {
+    void getFileInfo_hnsNonExistentItem_returnsNotFoundFileInfo() throws IOException {
         String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
         URI nonExistentUri =
                 URI.create("gs://" + bucketName + "/non-existent-folder-" + UUID.randomUUID());
-        assertThrows(FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentUri));
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(nonExistentUri);
+
+        assertThat(fileInfo).isNotNull();
+        assertThat(fileInfo.exists()).isFalse();
     }
 
     @Test

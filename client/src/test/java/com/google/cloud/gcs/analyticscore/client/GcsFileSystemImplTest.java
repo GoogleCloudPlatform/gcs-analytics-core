@@ -34,7 +34,6 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -366,9 +365,8 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void
-      getFileInfo_whenPathTypeIsFileAndDirectLookupFails_fallsThroughToStrategyAndFindsImplicitDirectory()
-          throws IOException {
+  void getFileInfo_whenDirectLookupNotFound_fallsThroughAndFindsImplicitDirectory()
+      throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data.parquet").build();
     GcsItemId prefixId =
@@ -382,8 +380,7 @@ class GcsFileSystemImplTest {
                     .build())
             .setSize(100L)
             .build();
-    when(mockClient.getGcsItemInfo(eq(itemId)))
-        .thenThrow(new FileNotFoundException("Object not found: " + itemId));
+    when(mockClient.getGcsItemInfo(eq(itemId))).thenReturn(GcsItemInfo.createNotFound(itemId));
     when(mockClient.listFirstObjectWithPrefix(eq(prefixId)))
         .thenReturn(ImmutableList.of(childItem));
 
@@ -396,20 +393,21 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void getFileInfo_whenPathTypeIsFileAndDirectLookupFailsAndNotDirectory_throwsException()
+  void getFileInfo_whenDirectLookupNotFoundAndNotDirectory_returnsNotFoundFileInfo()
       throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data.parquet").build();
     GcsItemId prefixId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data.parquet/").build();
-    when(mockClient.getGcsItemInfo(eq(itemId)))
-        .thenThrow(new FileNotFoundException("Object not found: " + itemId));
+    when(mockClient.getGcsItemInfo(eq(itemId))).thenReturn(GcsItemInfo.createNotFound(itemId));
     when(mockClient.listFirstObjectWithPrefix(eq(prefixId))).thenReturn(ImmutableList.of());
 
-    FileNotFoundException e =
-        assertThrows(FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(itemId));
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
 
-    assertThat(e).hasMessageThat().contains("Directory not found: " + itemId);
+    assertThat(fileInfo).isNotNull();
+    assertThat(fileInfo.exists()).isFalse();
+    assertThat(fileInfo.getItemInfo().exists()).isFalse();
+    assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(-1L);
   }
 
   @Test
@@ -466,8 +464,7 @@ class GcsFileSystemImplTest {
     GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data").build();
     GcsItemId dirPlaceholderId = itemId.toDirectoryId();
     GcsItemInfo placeholderInfo = createPlaceholderDirectoryInfo(dirPlaceholderId);
-    when(mockClient.getGcsItemInfo(eq(itemId)))
-        .thenThrow(new FileNotFoundException("Object not found: " + itemId));
+    when(mockClient.getGcsItemInfo(eq(itemId))).thenReturn(GcsItemInfo.createNotFound(itemId));
     when(mockClient.getGcsItemInfo(eq(dirPlaceholderId))).thenReturn(placeholderInfo);
 
     GcsFileInfo fileInfo =
