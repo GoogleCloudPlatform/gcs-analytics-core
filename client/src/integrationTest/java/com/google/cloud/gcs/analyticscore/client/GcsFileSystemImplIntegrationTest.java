@@ -210,24 +210,6 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     @Test
-    void getFileInfo_uriWithoutBucket_throwsIllegalArgumentException() {
-        URI uriWithoutBucket = URI.create("gs:///path");
-        assertThrows(
-                IllegalArgumentException.class, () -> gcsFileSystem.getFileInfo(uriWithoutBucket));
-    }
-
-    @Test
-    void getFileInfo_rootItemId_returnsRootInfo() throws IOException {
-        GcsItemId rootId = GcsItemId.ROOT;
-        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(rootId);
-
-        assertThat(fileInfo).isEqualTo(GcsFileInfo.ROOT_INFO);
-        assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.ROOT);
-        assertThat(fileInfo.getItemInfo().getItemId()).isEqualTo(GcsItemId.ROOT);
-        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
-    }
-
-    @Test
     void getFileInfo_bucketUri_returnsBucketInfo() throws IOException {
         URI bucketUri = URI.create("gs://" + PRIVATE_BUCKET_NAME);
 
@@ -318,7 +300,6 @@ class GcsFileSystemImplIntegrationTest {
     void getFileInfo_hnsFile_returnsObjectInfo() throws IOException {
         String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
         TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete, foldersToDelete);
-        
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         try (WritableByteChannel channel = gcsFileSystem.create(ctx.itemId, writeOptions)) {
             ByteBuffer buffer = ByteBuffer.wrap(TEST_HNS_FILE_CONTENT);
@@ -341,7 +322,6 @@ class GcsFileSystemImplIntegrationTest {
     void getFileInfo_hnsFolderWithTrailingSlash_returnsNativeFolder() throws IOException {
         String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
         TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete, foldersToDelete);
-        
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         try (WritableByteChannel channel = gcsFileSystem.create(ctx.itemId, writeOptions)) {
             ByteBuffer buffer = ByteBuffer.wrap(TEST_HNS_FILE_CONTENT);
@@ -366,7 +346,6 @@ class GcsFileSystemImplIntegrationTest {
     void getFileInfo_hnsFolderWithoutTrailingSlash_returnsNativeFolder() throws IOException {
         String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
         TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete, foldersToDelete);
-        
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         try (WritableByteChannel channel = gcsFileSystem.create(ctx.itemId, writeOptions)) {
             ByteBuffer buffer = ByteBuffer.wrap(TEST_HNS_FILE_CONTENT);

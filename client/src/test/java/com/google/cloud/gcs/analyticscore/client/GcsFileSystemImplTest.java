@@ -252,6 +252,13 @@ class GcsFileSystemImplTest {
   }
 
   @Test
+  void getFileInfo_uriWithoutBucket_throwsIllegalArgumentException() {
+    URI uriWithoutBucket = URI.create("gs:///path");
+
+    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.getFileInfo(uriWithoutBucket));
+  }
+
+  @Test
   void getFileInfo_nullItemId_throwsNullPointerException() {
     NullPointerException e =
         assertThrows(NullPointerException.class, () -> gcsFileSystem.getFileInfo((GcsItemId) null));
