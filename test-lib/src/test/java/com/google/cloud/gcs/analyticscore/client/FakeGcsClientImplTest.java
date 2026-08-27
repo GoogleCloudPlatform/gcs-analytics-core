@@ -76,10 +76,15 @@ class FakeGcsClientImplTest {
   }
 
   @Test
-  void getGcsItemInfo_objectDoesNotExists_throws() {
+  void getGcsItemInfo_objectDoesNotExists_returnsNotFoundItemInfo() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("not-exists").build();
-    assertThrows(IOException.class, () -> fakeGcsClient.getGcsItemInfo(itemId));
+
+    GcsItemInfo itemInfo = fakeGcsClient.getGcsItemInfo(itemId);
+
+    assertThat(itemInfo.getItemId()).isEqualTo(itemId);
+    assertThat(itemInfo.exists()).isFalse();
+    assertThat(itemInfo.getSize()).isEqualTo(-1L);
   }
 
   @Test

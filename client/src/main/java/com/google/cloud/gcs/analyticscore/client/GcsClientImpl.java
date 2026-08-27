@@ -201,7 +201,7 @@ class GcsClientImpl implements GcsClient {
       }
     }
     if (bucketInfo == null) {
-      throw new FileNotFoundException("Bucket not found: " + itemId.getBucketName());
+      return GcsItemInfo.createNotFound(itemId);
     }
     return fromBucketInfo(bucketInfo);
   }
@@ -228,7 +228,7 @@ class GcsClientImpl implements GcsClient {
       Folder folder = lazyGetStorageControlClient().getFolder(request);
       return fromFolder(folder, itemId);
     } catch (NotFoundException e) {
-      throw new FileNotFoundException("Folder not found: " + itemId);
+      return GcsItemInfo.createNotFound(itemId);
     } catch (Exception e) {
       throw new IOException("Failed to get folder info for: " + itemId, e);
     }
@@ -425,7 +425,7 @@ class GcsClientImpl implements GcsClient {
     checkArgument(itemId.isGcsObject(), String.format("Expected gcs object got %s", itemId));
     Blob blob = getBlob(itemId.getBucketName(), itemId.getObjectName().get());
     if (blob == null) {
-      throw new FileNotFoundException("Object not found: " + itemId);
+      return GcsItemInfo.createNotFound(itemId);
     }
     return fromBlob(blob);
   }

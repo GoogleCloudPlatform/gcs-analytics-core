@@ -114,6 +114,15 @@ public abstract class GcsItemInfo {
     return builder().setItemId(itemId).setSize(0).setItemType(ItemType.ROOT).build();
   }
 
+  public static GcsItemInfo createNotFound(GcsItemId itemId) {
+    return builder().setItemId(itemId).setSize(-1L).build();
+  }
+
+  /** Indicates whether this item exists. */
+  public boolean exists() {
+    return getSize() >= 0;
+  }
+
   public static ImmutableMap<String, String> encodeMetadata(ImmutableMap<String, byte[]> metadata) {
     ImmutableMap.Builder<String, String> encoded = ImmutableMap.builder();
     metadata.forEach((k, v) -> encoded.put(k, BaseEncoding.base64().encode(v)));

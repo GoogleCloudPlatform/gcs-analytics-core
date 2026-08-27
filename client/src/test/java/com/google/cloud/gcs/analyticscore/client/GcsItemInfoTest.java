@@ -87,6 +87,31 @@ class GcsItemInfoTest {
     assertThat(rootInfo.getItemId()).isEqualTo(GcsItemId.ROOT);
     assertThat(rootInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.ROOT);
     assertThat(rootInfo.getSize()).isEqualTo(0L);
+    assertThat(rootInfo.exists()).isTrue();
+  }
+
+  @Test
+  void createNotFound_returnsItemInfoWithNegativeSizeAndExistsFalse() {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("non-existent.txt").build();
+
+    GcsItemInfo itemInfo = GcsItemInfo.createNotFound(itemId);
+
+    assertThat(itemInfo.getItemId()).isEqualTo(itemId);
+    assertThat(itemInfo.getSize()).isEqualTo(-1L);
+    assertThat(itemInfo.exists()).isFalse();
+  }
+
+  @Test
+  void exists_withNonNegativeSize_returnsTrue() {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("file.txt").build();
+
+    GcsItemInfo existingInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
+    GcsItemInfo zeroSizeInfo = GcsItemInfo.builder().setItemId(itemId).setSize(0L).build();
+
+    assertThat(existingInfo.exists()).isTrue();
+    assertThat(zeroSizeInfo.exists()).isTrue();
   }
 
   @Test
