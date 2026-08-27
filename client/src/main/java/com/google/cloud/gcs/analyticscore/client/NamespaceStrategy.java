@@ -16,14 +16,16 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import java.io.IOException;
+
 /**
  * Strategy interface for handling directory operations across different namespace models (Flat vs.
  * HNS).
  *
- * <p>Methods for directory operations will be added in follow-up PRs. These methods will include:
+ * <p>Additional methods for directory operations will be added in follow-up PRs. These methods will
+ * include:
  *
  * <ul>
- *   <li>{@code GcsItemInfo getFileInfo(GcsItemId id, PathType pathType) throws IOException;}
  *   <li>{@code void createDirectory(GcsItemId id) throws IOException;}
  *   <li>{@code boolean isDirectoryEmpty(GcsItemId id) throws IOException;}
  *   <li>{@code void renameDirectory(GcsItemId src, GcsItemId dst) throws IOException;}
@@ -31,4 +33,15 @@ package com.google.cloud.gcs.analyticscore.client;
  *   <li>{@code java.util.List<GcsItemInfo> listRecursive(GcsItemId id) throws IOException;}
  * </ul>
  */
-interface NamespaceStrategy {}
+interface NamespaceStrategy {
+
+  /**
+   * Retrieves directory metadata for the given item identifier based on the namespace strategy.
+   *
+   * @param id the item identifier of the directory
+   * @return {@link GcsItemInfo} containing directory metadata, or a not-found info if it does not
+   *     exist
+   * @throws IOException if an I/O error occurs while retrieving directory information
+   */
+  GcsItemInfo getDirectoryInfo(GcsItemId id) throws IOException;
+}

@@ -16,10 +16,32 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import java.io.IOException;
+
 final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
+
   private final GcsClient gcsClient;
 
   FlatNamespaceStrategyImpl(GcsClient gcsClient) {
     this.gcsClient = gcsClient;
+  }
+
+  @Override
+  public GcsItemInfo getDirectoryInfo(GcsItemId id) throws IOException {
+    checkNotNull(id, "Item ID must not be null.");
+    if (isImplicitDirectory(id)) {
+      return GcsItemInfo.createInferredDirectory(id);
+    }
+    return GcsItemInfo.createNotFound(id);
+  }
+
+  // Checks if a path is an implicit directory by seeing if any objects exist with it as a prefix
+  private boolean isImplicitDirectory(GcsItemId id) throws IOException {
+    String prefix = UriUtil.toDirectoryPath(id.getObjectName().orElse(""));
+    GcsItemId prefixId =
+        GcsItemId.builder().setBucketName(id.getBucketName()).setObjectName(prefix).build();
+    return !gcsClient.listFirstObjectWithPrefix(prefixId).isEmpty();
   }
 }

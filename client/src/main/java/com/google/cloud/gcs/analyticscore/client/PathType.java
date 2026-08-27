@@ -16,20 +16,16 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.io.IOException;
-
-final class HierarchicalNamespaceStrategyImpl implements NamespaceStrategy {
-  private final GcsClient gcsClient;
-
-  HierarchicalNamespaceStrategyImpl(GcsClient gcsClient) {
-    this.gcsClient = gcsClient;
-  }
-
-  @Override
-  public GcsItemInfo getDirectoryInfo(GcsItemId id) throws IOException {
-    checkNotNull(id, "Item ID must not be null.");
-    return gcsClient.getFolderInfo(id);
-  }
+/** Represents the type of a path based on its string format (e.g., trailing slash, extensions). */
+public enum PathType {
+  /** A path that is definitively known to be a file/object. */
+  FILE,
+  /** A path that is definitively known to be a directory (e.g., ends with a trailing slash). */
+  DIRECTORY,
+  /** A path that represents a bucket (no object name). */
+  BUCKET,
+  /** A path that represents the root namespace (no bucket name). */
+  ROOT,
+  /** The path type cannot be definitively determined from its format. */
+  UNKNOWN;
 }

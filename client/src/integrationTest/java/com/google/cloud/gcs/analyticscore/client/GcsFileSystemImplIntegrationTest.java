@@ -16,9 +16,14 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.cloud.NoCredentials;
+
 import com.google.cloud.storage.BlobId;
+
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
+import com.google.storage.control.v2.DeleteFolderRequest;
+import com.google.storage.control.v2.StorageControlClient;
+
 import java.io.FileNotFoundException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.FileAlreadyExistsException;
@@ -34,42 +39,96 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 // TODO: Setup buckets and test data as part of setup on place of relying on existing bucket.
+// TODO: Update both Flat and HNS getFileInfo tests to run using the bucket provided via
+// GCS_INTEGRATION_TEST_BUCKET_PROPERTY and GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY
 class GcsFileSystemImplIntegrationTest {
+
+    private static final String GCS_INTEGRATION_TEST_BUCKET_PROPERTY =
+            "gcs.integration.test.bucket";
+    private static final String GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY =
+            "gcs.integration.hns.test.bucket";
+    private static final String PUBLIC_BUCKET_NAME = "cloud-samples-data";
+    private static final String PUBLIC_PARQUET_OBJECT = "bigquery/us-states/us-states.parquet";
+    private static final String PUBLIC_CSV_OBJECT = "bigquery/us-states/us-states.csv";
+    private static final String PUBLIC_PARQUET_URI_STRING =
+            "gs://" + PUBLIC_BUCKET_NAME + "/" + PUBLIC_PARQUET_OBJECT;
+    private static final String PUBLIC_CSV_URI_STRING =
+            "gs://" + PUBLIC_BUCKET_NAME + "/" + PUBLIC_CSV_OBJECT;
+    private static final String PRIVATE_BUCKET_NAME =
+            "gcs-connector-private-test-bucket-do-not-delete";
+    private static final String PRIVATE_PARQUET_OBJECT = "tpch_customer_1.parquet";
+    private static final String PRIVATE_PARQUET_URI_STRING =
+            "gs://" + PRIVATE_BUCKET_NAME + "/" + PRIVATE_PARQUET_OBJECT;
+    private static final String PRIVATE_IMPLICIT_FOLDER = "implicit-folder";
+    private static final byte[] TEST_HNS_FILE_CONTENT =
+            "test hns file content".getBytes(StandardCharsets.UTF_8);
+
+    private static final Logger LOG =
+            LoggerFactory.getLogger(GcsFileSystemImplIntegrationTest.class);
 
     private Storage storage;
     private List<BlobId> blobsToDelete;
+    private List<String> foldersToDelete;
+    private GcsFileSystemImpl gcsFileSystem;
 
     @BeforeEach
     void setUp() {
         storage = StorageOptions.getDefaultInstance().getService();
         blobsToDelete = new ArrayList<>();
+        foldersToDelete = new ArrayList<>();
+        gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
     }
 
     @AfterEach
     void tearDown() {
-        if (storage != null) {
-            for (BlobId blobId : blobsToDelete) {
+        try {
+            if (gcsFileSystem != null) {
                 try {
-                    storage.delete(blobId);
+                    gcsFileSystem.close();
                 } catch (Exception e) {
-                    // Ignore cleanup errors
+                    LOG.warn("Failed to close gcsFileSystem during cleanup", e);
                 }
             }
+            // Ignore all cleanup errors
+            if (storage != null) {
+                for (BlobId blobId : blobsToDelete) {
+                    try {
+                        storage.delete(blobId);
+                    } catch (Exception e) {
+                        LOG.warn("Failed to delete blob {} during cleanup", blobId, e);
+                    }
+                }
+            }
+            if (!foldersToDelete.isEmpty()) {
+                try (StorageControlClient client = StorageControlClient.create()) {
+                    for (String folderResourceName : foldersToDelete) {
+                        try {
+                            client.deleteFolder(
+                                    DeleteFolderRequest.newBuilder().setName(folderResourceName).build());
+                        } catch (Exception e) {
+                            LOG.warn("Failed to delete folder {} during cleanup", folderResourceName, e);
+                        }
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Failed to close StorageControlClient during cleanup", e);
+                }
+            }
+        } finally {
+            blobsToDelete.clear();
+            foldersToDelete.clear();
         }
     }
 
     @Test
     void open_publicObject_canReadContent() throws IOException {
-        String gcsObject = "gs://cloud-samples-data/bigquery/us-states/us-states.csv";
-        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
-                .setGcsClientOptions(GcsClientOptions.builder().build())
-                .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
+        String gcsObject = PUBLIC_CSV_URI_STRING;
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(gcsObject));
         GcsReadOptions readOptions = GcsReadOptions.builder().build();
 
@@ -88,73 +147,256 @@ class GcsFileSystemImplIntegrationTest {
 
     @Test
     void getFileInfo_noCredentialProvided_urlPointsToPublicObject_success() throws IOException {
-        String gcsObject = "gs://cloud-samples-data/bigquery/us-states/us-states.parquet";
-        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
-                .setGcsClientOptions(GcsClientOptions.builder().build())
-                .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
+        String gcsObject = PUBLIC_PARQUET_URI_STRING;
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(gcsObject));
 
         assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
-        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue("bigquery/us-states/us-states.parquet");
-        assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo("cloud-samples-data");
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(PUBLIC_PARQUET_OBJECT);
+        assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(PUBLIC_BUCKET_NAME);
+        assertThat(fileInfo.getItemInfo().getSize()).isGreaterThan(0L);
+        assertThat(fileInfo.getItemInfo().getContentGeneration().isPresent()).isTrue();
+        assertThat(fileInfo.getItemInfo().getCreationTime()).isGreaterThan(0L);
+        assertThat(fileInfo.getItemInfo().getModificationTime()).isGreaterThan(0L);
+        assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.OBJECT);
     }
 
     @Test
     void getFileInfo_noCredentialProvided_urlPointsToPrivateObject_usesApplicationDefaultCredentials()
             throws IOException {
-        String object = "gs://gcs-connector-private-test-bucket-do-not-delete/tpch_customer_1.parquet";
-        GcsFileSystemOptions options =
-                GcsFileSystemOptions.builder()
-                        .setGcsClientOptions(GcsClientOptions.builder().build())
-                        .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options);
+        String object = PRIVATE_PARQUET_URI_STRING;
 
         GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(object));
 
         assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
-        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue("tpch_customer_1.parquet");
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(PRIVATE_PARQUET_OBJECT);
         assertThat(fileInfo.getItemInfo().getItemId().getBucketName())
-                .isEqualTo("gcs-connector-private-test-bucket-do-not-delete");
+                .isEqualTo(PRIVATE_BUCKET_NAME);
     }
 
     @Test
     void getFileInfo_anonymousCredentialProvided_urlPointsToPublicObject_success() throws IOException {
-        String gcsObject = "gs://cloud-samples-data/bigquery/us-states/us-states.parquet";
+        String gcsObject = PUBLIC_PARQUET_URI_STRING;
         GcsFileSystemOptions options =
                 GcsFileSystemOptions.builder()
                         .setGcsClientOptions(GcsClientOptions.builder().build())
                         .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(NoCredentials.getInstance(), options);
 
-        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(gcsObject));
+        try (GcsFileSystemImpl anonFileSystem =
+                new GcsFileSystemImpl(NoCredentials.getInstance(), options)) {
+            GcsFileInfo fileInfo = anonFileSystem.getFileInfo(URI.create(gcsObject));
 
-        assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
-        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue("bigquery/us-states/us-states.parquet");
-        assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo("cloud-samples-data");
+            assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
+            assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(PUBLIC_PARQUET_OBJECT);
+            assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(PUBLIC_BUCKET_NAME);
+        }
     }
 
     @Test
     void getFileInfo_anonymousCredentialProvided_urlPointsToPrivateObject_throws() throws IOException {
-        String object = "gs://gcs-connector-private-test-bucket-do-not-delete/tpch_customer_1.parquet";
+        String object = PRIVATE_PARQUET_URI_STRING;
         GcsFileSystemOptions options =
                 GcsFileSystemOptions.builder()
                         .setGcsClientOptions(GcsClientOptions.builder().build())
                         .build();
-        GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(NoCredentials.getInstance(), options);
 
-        IOException exception =
-                assertThrows(IOException.class, () -> gcsFileSystem.getFileInfo(URI.create(object)));
+        try (GcsFileSystemImpl anonFileSystem =
+                new GcsFileSystemImpl(NoCredentials.getInstance(), options)) {
+            IOException exception =
+                    assertThrows(IOException.class, () -> anonFileSystem.getFileInfo(URI.create(object)));
 
-        assertThat(exception).hasMessageThat().contains("Unable to access blob");
+            assertThat(exception).hasMessageThat().contains("Unable to access blob");
+        }
     }
 
     @Test
-    @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
+    void getFileInfo_bucketUri_returnsBucketInfo() throws IOException {
+        URI bucketUri = URI.create("gs://" + PRIVATE_BUCKET_NAME);
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(bucketUri);
+
+        assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
+        assertThat(fileInfo.getItemInfo().getItemId().getBucketName())
+                .isEqualTo(PRIVATE_BUCKET_NAME);
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName().isPresent()).isFalse();
+        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
+        assertThat(fileInfo.getUri()).isEqualTo(bucketUri);
+    }
+
+    @Test
+    void getFileInfo_nonExistentBucket_returnsNotFoundFileInfo() throws IOException {
+        URI nonExistentBucketUri = URI.create("gs://non-existent-bucket-" + UUID.randomUUID());
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(nonExistentBucketUri);
+
+        assertThat(fileInfo).isNotNull();
+        assertThat(fileInfo.exists()).isFalse();
+    }
+
+    @Test
+    void getFileInfo_nonExistentObject_returnsNotFoundFileInfo() throws IOException {
+        URI nonExistentUri =
+                URI.create("gs://" + PRIVATE_BUCKET_NAME + "/non-existent-file-" + UUID.randomUUID() + ".parquet");
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(nonExistentUri);
+
+        assertThat(fileInfo).isNotNull();
+        assertThat(fileInfo.exists()).isFalse();
+    }
+
+    @Test
+    void getFileInfo_implicitDirectoryWithTrailingSlash_returnsInferredDirectory() throws IOException {
+        URI dirUri = URI.create("gs://" + PRIVATE_BUCKET_NAME + "/" + PRIVATE_IMPLICIT_FOLDER + "/");
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(dirUri);
+
+        assertThat(fileInfo.getItemInfo().getItemType())
+                .isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
+        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName())
+                .hasValue(PRIVATE_IMPLICIT_FOLDER + "/");
+        assertThat(fileInfo.getUri()).isEqualTo(dirUri);
+    }
+
+    @Test
+    void getFileInfo_implicitDirectoryWithoutTrailingSlash_returnsInferredDirectory() throws IOException {
+        URI dirUri = URI.create("gs://" + PRIVATE_BUCKET_NAME + "/" + PRIVATE_IMPLICIT_FOLDER);
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(dirUri);
+
+        assertThat(fileInfo.getItemInfo().getItemType())
+                .isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
+        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName())
+                .hasValue(PRIVATE_IMPLICIT_FOLDER);
+        assertThat(fileInfo.getUri()).isEqualTo(dirUri);
+    }
+
+    @Test
+    void getFileInfo_nonExistentDirectoryWithTrailingSlash_returnsNotFoundFileInfo() throws IOException {
+        URI nonExistentDirUri =
+                URI.create("gs://" + PRIVATE_BUCKET_NAME + "/non-existent-folder-" + UUID.randomUUID() + "/");
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(nonExistentDirUri);
+
+        assertThat(fileInfo).isNotNull();
+        assertThat(fileInfo.exists()).isFalse();
+    }
+
+    @Test
+    void getFileInfo_nonExistentDirectoryWithoutTrailingSlash_returnsNotFoundFileInfo() throws IOException {
+        URI nonExistentDirUri =
+                URI.create("gs://" + PRIVATE_BUCKET_NAME + "/non-existent-folder-" + UUID.randomUUID());
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(nonExistentDirUri);
+
+        assertThat(fileInfo).isNotNull();
+        assertThat(fileInfo.exists()).isFalse();
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void getFileInfo_hnsBucket_returnsBucketInfo() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        URI bucketUri = URI.create("gs://" + bucketName);
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(bucketUri);
+
+        assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
+        assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(bucketName);
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName().isPresent()).isFalse();
+        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
+        assertThat(fileInfo.getUri()).isEqualTo(bucketUri);
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void getFileInfo_hnsFile_returnsObjectInfo() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete, foldersToDelete);
+        GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+        try (WritableByteChannel channel = gcsFileSystem.create(ctx.itemId, writeOptions)) {
+            ByteBuffer buffer = ByteBuffer.wrap(TEST_HNS_FILE_CONTENT);
+            while (buffer.hasRemaining()) {
+                channel.write(buffer);
+            }
+        }
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(ctx.uri);
+
+        assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(ctx.objectName);
+        assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(bucketName);
+        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) TEST_HNS_FILE_CONTENT.length);
+        assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.OBJECT);
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void getFileInfo_hnsFolderWithTrailingSlash_returnsNativeFolder() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete, foldersToDelete);
+        GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+        try (WritableByteChannel channel = gcsFileSystem.create(ctx.itemId, writeOptions)) {
+            ByteBuffer buffer = ByteBuffer.wrap(TEST_HNS_FILE_CONTENT);
+            while (buffer.hasRemaining()) {
+                channel.write(buffer);
+            }
+        }
+        URI folderWithSlashUri = URI.create("gs://" + bucketName + "/" + ctx.folderName + "/");
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(folderWithSlashUri);
+
+        assertThat(fileInfo.getItemInfo().getItemType())
+                .isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
+        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName())
+                .hasValue(ctx.folderName + "/");
+        assertThat(fileInfo.getUri()).isEqualTo(folderWithSlashUri);
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void getFileInfo_hnsFolderWithoutTrailingSlash_returnsNativeFolder() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete, foldersToDelete);
+        GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+        try (WritableByteChannel channel = gcsFileSystem.create(ctx.itemId, writeOptions)) {
+            ByteBuffer buffer = ByteBuffer.wrap(TEST_HNS_FILE_CONTENT);
+            while (buffer.hasRemaining()) {
+                channel.write(buffer);
+            }
+        }
+        URI folderWithoutSlashUri = URI.create("gs://" + bucketName + "/" + ctx.folderName);
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(folderWithoutSlashUri);
+
+        assertThat(fileInfo.getItemInfo().getItemType())
+                .isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
+        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(ctx.folderName);
+        assertThat(fileInfo.getUri()).isEqualTo(folderWithoutSlashUri);
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void getFileInfo_hnsNonExistentItem_returnsNotFoundFileInfo() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        URI nonExistentUri =
+                URI.create("gs://" + bucketName + "/non-existent-folder-" + UUID.randomUUID());
+
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(nonExistentUri);
+
+        assertThat(fileInfo).isNotNull();
+        assertThat(fileInfo.exists()).isFalse();
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
     void create_object_canWriteContent() throws IOException {
-        TestWriteContext ctx = new TestWriteContext(System.getProperty("gcs.integration.test.bucket"), blobsToDelete);
-        GcsFileSystemImpl gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
+        TestWriteContext ctx =
+                new TestWriteContext(
+                        System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY), blobsToDelete);
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         byte[] content = "test content".getBytes(StandardCharsets.UTF_8);
 
@@ -170,10 +412,11 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     @Test
-    @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
     void create_overwriteDisabled_throwsFileAlreadyExistsException() throws IOException {
-        TestWriteContext ctx = new TestWriteContext(System.getProperty("gcs.integration.test.bucket"), blobsToDelete);
-        GcsFileSystemImpl gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
+        TestWriteContext ctx =
+                new TestWriteContext(
+                        System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY), blobsToDelete);
         byte[] content = "test".getBytes(StandardCharsets.UTF_8);
         // We do a preliminary setup write
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
@@ -199,9 +442,9 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     @Test
-    @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
     void create_withParallelCompositeUpload_success() throws IOException {
-        TestWriteContext ctx = new TestWriteContext(System.getProperty("gcs.integration.test.bucket"), blobsToDelete);
+        TestWriteContext ctx = new TestWriteContext(System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY), blobsToDelete);
         GcsClientOptions clientOptions = GcsClientOptions.builder()
                 .setUploadType(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
                 .build();
@@ -223,7 +466,6 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     void create_nonExistentBucket_throwsFileNotFoundException() throws IOException {
         TestWriteContext ctx = new TestWriteContext("non-existent-bucket-" + UUID.randomUUID(), blobsToDelete);
-        GcsFileSystemImpl gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
         GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
         byte[] content = "test".getBytes(StandardCharsets.UTF_8);
 
@@ -238,16 +480,30 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     private static class TestWriteContext {
+        final String folderName;
+        final String objectName;
         final URI uri;
         final GcsItemId itemId;
+
         TestWriteContext(String bucketName, List<BlobId> blobsToDelete) {
-            String objectName = "test-folder/test-file-" + UUID.randomUUID() + ".txt";
+            this(bucketName, blobsToDelete, null);
+        }
+
+        TestWriteContext(
+                String bucketName,
+                List<BlobId> blobsToDelete,
+                List<String> foldersToDelete) {
+            this.folderName = "test-folder-" + UUID.randomUUID();
+            this.objectName = folderName + "/test-file-" + UUID.randomUUID() + ".txt";
             this.uri = URI.create("gs://" + bucketName + "/" + objectName);
             this.itemId = GcsItemId.builder()
                     .setBucketName(bucketName)
                     .setObjectName(objectName)
                     .build();
             blobsToDelete.add(BlobId.of(bucketName, objectName));
+            if (foldersToDelete != null) {
+                foldersToDelete.add("projects/_/buckets/" + bucketName + "/folders/" + folderName);
+            }
         }
     }
 

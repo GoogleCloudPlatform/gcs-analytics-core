@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Strings.isNullOrEmpty;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -39,16 +40,35 @@ final class UriUtil {
   static GcsItemId getItemIdFromString(String path) {
     checkArgument(path != null, "path should not be null");
 
+    if (path.equals("gs:/")) {
+      return GcsItemId.ROOT;
+    }
+
     Matcher matcher = GCS_PATH_PATTERN.matcher(path);
     checkArgument(matcher.matches(), "Invalid GCS path: %s", path);
+    checkArgument(
+        !path.substring(5).contains("//"),
+        "GCS path must not have consecutive '/' characters: %s",
+        path);
 
     String bucketName = matcher.group(2);
     String relativePath = matcher.group(4);
-    checkArgument(bucketName != null, "GCS path must include a bucket name: %s", path);
-
-    if (relativePath == null) {
-      return GcsItemId.builder().setBucketName(bucketName).build();
+    if (bucketName == null) {
+      return GcsItemId.ROOT;
+    } else if (relativePath != null) {
+      return GcsItemId.builder().setBucketName(bucketName).setObjectName(relativePath).build();
     }
-    return GcsItemId.builder().setBucketName(bucketName).setObjectName(relativePath).build();
+    return GcsItemId.builder().setBucketName(bucketName).build();
+  }
+
+  static String removeTrailingSlash(String path) {
+    if (path != null && path.endsWith("/")) {
+      return path.substring(0, path.length() - 1);
+    }
+    return path;
+  }
+
+  static String toDirectoryPath(String path) {
+    return isNullOrEmpty(path) || path.endsWith("/") ? path : path + "/";
   }
 }

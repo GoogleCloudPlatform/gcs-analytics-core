@@ -16,20 +16,21 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.auto.value.AutoValue;
+import javax.annotation.Nullable;
 
-import java.io.IOException;
+/** GCS provided validation attributes for a single object. */
+@AutoValue
+public abstract class VerificationAttributes {
+  @Nullable
+  @SuppressWarnings("mutable")
+  public abstract byte[] getMd5hash();
 
-final class HierarchicalNamespaceStrategyImpl implements NamespaceStrategy {
-  private final GcsClient gcsClient;
+  @Nullable
+  @SuppressWarnings("mutable")
+  public abstract byte[] getCrc32c();
 
-  HierarchicalNamespaceStrategyImpl(GcsClient gcsClient) {
-    this.gcsClient = gcsClient;
-  }
-
-  @Override
-  public GcsItemInfo getDirectoryInfo(GcsItemId id) throws IOException {
-    checkNotNull(id, "Item ID must not be null.");
-    return gcsClient.getFolderInfo(id);
+  public static VerificationAttributes create(@Nullable byte[] md5hash, @Nullable byte[] crc32c) {
+    return new AutoValue_VerificationAttributes(md5hash, crc32c);
   }
 }

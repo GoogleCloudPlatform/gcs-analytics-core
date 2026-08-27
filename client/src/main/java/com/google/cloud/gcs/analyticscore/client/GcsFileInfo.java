@@ -16,6 +16,8 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.storage.BlobId;
+import com.google.common.collect.ImmutableMap;
 import java.net.URI;
 import java.util.Map;
 
@@ -28,6 +30,15 @@ import java.util.Map;
 @AutoValue
 public abstract class GcsFileInfo {
 
+  public static final URI GCS_ROOT_URI = URI.create("gs:/");
+
+  public static final GcsFileInfo ROOT_INFO =
+      builder()
+          .setItemInfo(GcsItemInfo.ROOT_INFO)
+          .setUri(GCS_ROOT_URI)
+          .setAttributes(ImmutableMap.of())
+          .build();
+
   public abstract GcsItemInfo getItemInfo();
 
   /** Gets the path of this file or directory. */
@@ -38,8 +49,39 @@ public abstract class GcsFileInfo {
    *
    * @return A map of file attributes
    */
-  @SuppressWarnings("AutoValueImmutableFields")
-  public abstract Map<String, byte[]> getAttributes();
+  public abstract ImmutableMap<String, byte[]> getAttributes();
+
+  /** Indicates whether this file or directory exists. */
+  public boolean exists() {
+    return getItemInfo().exists();
+  }
+
+  public static GcsFileInfo createNotFound(URI uri) {
+    GcsItemId itemId = UriUtil.getItemIdFromString(uri.toString());
+    return builder()
+        .setItemInfo(GcsItemInfo.createNotFound(itemId))
+        .setUri(uri)
+        .setAttributes(ImmutableMap.of())
+        .build();
+  }
+
+  public static GcsFileInfo createNotFound(GcsItemId itemId) {
+    URI uri;
+    if (itemId.isRoot()) {
+      uri = GCS_ROOT_URI;
+    } else if (itemId.isBucket()) {
+      uri = URI.create("gs://" + itemId.getBucketName());
+    } else {
+      uri =
+          URI.create(
+              BlobId.of(itemId.getBucketName(), itemId.getObjectName().orElse("")).toGsUtilUri());
+    }
+    return builder()
+        .setItemInfo(GcsItemInfo.createNotFound(itemId))
+        .setUri(uri)
+        .setAttributes(ImmutableMap.of())
+        .build();
+  }
 
   public abstract Builder toBuilder();
 
