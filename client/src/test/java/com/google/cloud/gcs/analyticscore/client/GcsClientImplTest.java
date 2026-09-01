@@ -80,15 +80,18 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
@@ -196,21 +199,43 @@ class GcsClientImplTest {
     assertThat(itemInfo.getVerificationAttributes()).isEmpty();
   }
 
-  @Test
-  void getGcsItemInfo_withMd5AndCrc32c_returnsVerificationAttributes() throws IOException {
+  @ParameterizedTest
+  @CsvSource({"md5, crc", ", crc", "md5, "})
+  void getGcsItemInfo_withChecksums_returnsVerificationAttributes(String md5, String crc32c)
+      throws IOException {
     Blob mockBlob = mock(Blob.class);
     when(mockBlob.getBucket()).thenReturn(TEST_BUCKET);
     when(mockBlob.getName()).thenReturn(TEST_OBJECT);
-    when(mockBlob.getMd5()).thenReturn(BaseEncoding.base64().encode("md5".getBytes(UTF_8)));
-    when(mockBlob.getCrc32c()).thenReturn(BaseEncoding.base64().encode("crc".getBytes(UTF_8)));
+    if (md5 != null) {
+      when(mockBlob.getMd5()).thenReturn(BaseEncoding.base64().encode(md5.getBytes(UTF_8)));
+    }
+    if (crc32c != null) {
+      when(mockBlob.getCrc32c()).thenReturn(BaseEncoding.base64().encode(crc32c.getBytes(UTF_8)));
+    }
     Storage mockStorage = mock(Storage.class);
     when(mockStorage.get(any(BlobId.class), any(Storage.BlobGetOption[].class)))
         .thenReturn(mockBlob);
 
     GcsItemInfo itemInfo = createClientWithMockStorage(mockStorage).getGcsItemInfo(TEST_ITEM_ID);
 
+    byte[] expectedMd5 = md5 != null ? md5.getBytes(UTF_8) : null;
+    byte[] expectedCrc32c = crc32c != null ? crc32c.getBytes(UTF_8) : null;
     assertThat(itemInfo.getVerificationAttributes())
-        .hasValue(VerificationAttributes.create("md5".getBytes(UTF_8), "crc".getBytes(UTF_8)));
+        .hasValue(VerificationAttributes.create(expectedMd5, expectedCrc32c));
+  }
+
+  @Test
+  void getGcsItemInfo_nullSize_defaultsToZero() throws IOException {
+    Blob mockBlob = mock(Blob.class);
+    when(mockBlob.getBucket()).thenReturn(TEST_BUCKET);
+    when(mockBlob.getName()).thenReturn(TEST_OBJECT);
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.get(any(BlobId.class), any(Storage.BlobGetOption[].class)))
+        .thenReturn(mockBlob);
+
+    GcsItemInfo itemInfo = createClientWithMockStorage(mockStorage).getGcsItemInfo(TEST_ITEM_ID);
+
+    assertThat(itemInfo.getSize()).isEqualTo(0L);
   }
 
   @Test
@@ -1224,6 +1249,29 @@ class GcsClientImplTest {
     IOException e =
         assertThrows(IOException.class, () -> localClient.lazyGetStorageControlClient());
     assertThat(e).hasMessageThat().contains("StorageControlClient is closed");
+  }
+
+  @Test
+  void lazyGetStorageControlClient_closedWhileWaitingForLock_throwsIOException() throws Exception {
+    GcsClientImpl client = createClientWithMockStorage(mock(Storage.class));
+    CountDownLatch started = new CountDownLatch(1);
+    AtomicReference<IOException> thrown = new AtomicReference<>();
+
+    CompletableFuture<Void> future;
+    synchronized (client) {
+      future =
+          CompletableFuture.runAsync(
+              () -> {
+                started.countDown();
+                thrown.set(assertThrows(IOException.class, client::lazyGetStorageControlClient));
+              });
+      started.await(5, TimeUnit.SECONDS);
+      Thread.sleep(50);
+      client.close();
+    }
+    future.get(5, TimeUnit.SECONDS);
+
+    assertThat(thrown.get()).hasMessageThat().contains("StorageControlClient is closed");
   }
 
   @Test
