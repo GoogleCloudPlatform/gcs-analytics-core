@@ -18,7 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
-import java.util.List;
+import java.util.Optional;
 
 @VisibleForTesting
 public interface GcsClient {
@@ -54,7 +54,7 @@ public interface GcsClient {
    * Fetches metadata for at most one object matching the given prefix without pagination. Optimized
    * for fast directory emptiness checks.
    */
-  List<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) throws IOException;
+  Optional<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) throws IOException;
 
   boolean isHnsBucket(String bucketName) throws IOException;
 

@@ -24,6 +24,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,12 +50,14 @@ import com.google.cloud.storage.HttpStorageOptions;
 import com.google.cloud.storage.ParallelCompositeUploadBlobWriteSessionConfig;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BucketGetOption;
+import com.google.cloud.storage.StorageClass;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.io.BaseEncoding;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
@@ -74,7 +77,6 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -191,6 +193,24 @@ class GcsClientImplTest {
     assertThat(itemInfo.getItemId().getBucketName()).isEqualTo(TEST_BUCKET);
     assertThat(itemInfo.getItemId().getObjectName()).hasValue("dir/");
     assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY);
+    assertThat(itemInfo.getVerificationAttributes()).isEmpty();
+  }
+
+  @Test
+  void getGcsItemInfo_withMd5AndCrc32c_returnsVerificationAttributes() throws IOException {
+    Blob mockBlob = mock(Blob.class);
+    when(mockBlob.getBucket()).thenReturn(TEST_BUCKET);
+    when(mockBlob.getName()).thenReturn(TEST_OBJECT);
+    when(mockBlob.getMd5()).thenReturn(BaseEncoding.base64().encode("md5".getBytes(UTF_8)));
+    when(mockBlob.getCrc32c()).thenReturn(BaseEncoding.base64().encode("crc".getBytes(UTF_8)));
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.get(any(BlobId.class), any(Storage.BlobGetOption[].class)))
+        .thenReturn(mockBlob);
+
+    GcsItemInfo itemInfo = createClientWithMockStorage(mockStorage).getGcsItemInfo(TEST_ITEM_ID);
+
+    assertThat(itemInfo.getVerificationAttributes())
+        .hasValue(VerificationAttributes.create("md5".getBytes(UTF_8), "crc".getBytes(UTF_8)));
   }
 
   @Test
@@ -1036,6 +1056,7 @@ class GcsClientImplTest {
     assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
     assertThat(itemInfo.getSize()).isEqualTo(0L);
     assertThat(itemInfo.getLocation()).hasValue(TEST_LOCATION);
+    assertThat(itemInfo.getStorageClass()).hasValue(StorageClass.STANDARD.toString());
     assertThat(itemInfo.getMetaGeneration()).isEqualTo(2L);
     assertThat(itemInfo.getCreationTime())
         .isEqualTo(OffsetDateTime.parse("2026-08-01T10:00:00Z").toInstant().toEpochMilli());
@@ -1163,7 +1184,6 @@ class GcsClientImplTest {
 
     verify(mockStorage).close();
     verify(mockControlClient).close();
-    assertThat(localClient.storageControlClient).isNull();
   }
 
   @Test
@@ -1179,7 +1199,31 @@ class GcsClientImplTest {
 
     verify(mockStorage).close();
     verify(mockControlClient).close();
-    assertThat(localClient.storageControlClient).isNull();
+  }
+
+  @Test
+  void close_idempotent_closesStorageControlClientOnlyOnce() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl localClient = createClientWithMockStorage(mockStorage);
+    localClient.storageControlClient = mockControlClient;
+
+    localClient.close();
+    localClient.close();
+
+    verify(mockControlClient, times(1)).close();
+  }
+
+  @Test
+  void lazyGetStorageControlClient_afterClose_throwsIOException() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localClient = createClientWithMockStorage(mockStorage);
+
+    localClient.close();
+
+    IOException e =
+        assertThrows(IOException.class, () -> localClient.lazyGetStorageControlClient());
+    assertThat(e).hasMessageThat().contains("StorageControlClient is closed");
   }
 
   @Test
@@ -1310,11 +1354,11 @@ class GcsClientImplTest {
     Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET, mockBlob);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
-    List<GcsItemInfo> result = clientWithMock.listFirstObjectWithPrefix(prefixId);
+    Optional<GcsItemInfo> result = clientWithMock.listFirstObjectWithPrefix(prefixId);
 
-    assertThat(result).hasSize(1);
-    assertThat(result.get(0).getItemId().getObjectName()).hasValue(TEST_DIR + "file.txt");
-    assertThat(result.get(0).getSize()).isEqualTo(0L);
+    assertThat(result).isPresent();
+    assertThat(result.get().getItemId().getObjectName()).hasValue(TEST_DIR + "file.txt");
+    assertThat(result.get().getSize()).isEqualTo(0L);
   }
 
   @Test
@@ -1324,7 +1368,7 @@ class GcsClientImplTest {
     Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
-    List<GcsItemInfo> result = clientWithMock.listFirstObjectWithPrefix(prefixId);
+    Optional<GcsItemInfo> result = clientWithMock.listFirstObjectWithPrefix(prefixId);
 
     assertThat(result).isEmpty();
   }
@@ -1379,6 +1423,7 @@ class GcsClientImplTest {
     Bucket mockBucket = mock(Bucket.class);
     when(mockBucket.getName()).thenReturn(bucketName);
     when(mockBucket.getLocation()).thenReturn(TEST_LOCATION);
+    when(mockBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
     when(mockBucket.getMetageneration()).thenReturn(2L);
     when(mockBucket.getCreateTimeOffsetDateTime())
         .thenReturn(OffsetDateTime.parse("2026-08-01T10:00:00Z"));

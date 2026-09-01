@@ -45,6 +45,9 @@ public abstract class GcsItemInfo {
   /** Location of the object. */
   public abstract Optional<String> getLocation();
 
+  /** Storage class of the object or default storage class of the bucket. */
+  public abstract Optional<String> getStorageClass();
+
   /** Verification attributes for the object. */
   public abstract Optional<VerificationAttributes> getVerificationAttributes();
 
@@ -175,6 +178,8 @@ public abstract class GcsItemInfo {
     public abstract Builder setContentEncoding(String contentEncoding);
 
     public abstract Builder setLocation(String location);
+
+    public abstract Builder setStorageClass(String storageClass);
 
     public abstract Builder setVerificationAttributes(
         VerificationAttributes verificationAttributes);

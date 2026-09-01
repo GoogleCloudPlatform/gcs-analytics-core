@@ -40,8 +40,8 @@ import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import com.google.common.io.BaseEncoding;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.Folder;
@@ -54,7 +54,6 @@ import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
@@ -62,27 +61,30 @@ import org.slf4j.LoggerFactory;
 
 class GcsClientImpl implements GcsClient {
   private static final Logger LOG = LoggerFactory.getLogger(GcsClientImpl.class);
-  private static final List<BlobField> BLOB_METADATA_FIELDS =
-      ImmutableList.of(
-          BlobField.NAME,
-          BlobField.BUCKET,
-          BlobField.GENERATION,
-          BlobField.METAGENERATION,
-          BlobField.SIZE,
-          BlobField.CONTENT_TYPE,
-          BlobField.CONTENT_ENCODING,
-          BlobField.TIME_CREATED,
-          BlobField.UPDATED,
-          BlobField.MD5HASH,
-          BlobField.CRC32C,
-          BlobField.METADATA);
-  private static final List<BucketField> BUCKET_METADATA_FIELDS =
-      ImmutableList.of(
-          BucketField.NAME,
-          BucketField.LOCATION,
-          BucketField.METAGENERATION,
-          BucketField.TIME_CREATED,
-          BucketField.UPDATED);
+  private static final BlobField[] BLOB_METADATA_FIELDS_ARRAY =
+      new BlobField[] {
+        BlobField.NAME,
+        BlobField.BUCKET,
+        BlobField.GENERATION,
+        BlobField.METAGENERATION,
+        BlobField.SIZE,
+        BlobField.CONTENT_TYPE,
+        BlobField.CONTENT_ENCODING,
+        BlobField.TIME_CREATED,
+        BlobField.UPDATED,
+        BlobField.MD5HASH,
+        BlobField.CRC32C,
+        BlobField.METADATA
+      };
+  private static final BucketField[] BUCKET_METADATA_FIELDS_ARRAY =
+      new BucketField[] {
+        BucketField.NAME,
+        BucketField.LOCATION,
+        BucketField.METAGENERATION,
+        BucketField.TIME_CREATED,
+        BucketField.UPDATED,
+        BucketField.STORAGE_CLASS
+      };
   private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
 
   @VisibleForTesting Storage storage;
@@ -91,6 +93,7 @@ class GcsClientImpl implements GcsClient {
   private Supplier<ExecutorService> executorServiceSupplier;
   private final Telemetry telemetry;
   @VisibleForTesting volatile StorageControlClient storageControlClient;
+  private volatile boolean isStorageControlClientClosed = false;
 
   GcsClientImpl(
       Credentials credentials,
@@ -191,8 +194,7 @@ class GcsClientImpl implements GcsClient {
     try {
       bucketInfo =
           storage.get(
-              itemId.getBucketName(),
-              Storage.BucketGetOption.fields(BUCKET_METADATA_FIELDS.toArray(new BucketField[0])));
+              itemId.getBucketName(), Storage.BucketGetOption.fields(BUCKET_METADATA_FIELDS_ARRAY));
     } catch (StorageException e) {
       if (e.getCode() == 404) {
         bucketInfo = null;
@@ -236,9 +238,15 @@ class GcsClientImpl implements GcsClient {
 
   @VisibleForTesting
   StorageControlClient lazyGetStorageControlClient() throws IOException {
+    if (isStorageControlClientClosed) {
+      throw new IOException("StorageControlClient is closed");
+    }
     StorageControlClient result = this.storageControlClient;
     if (result == null) {
       synchronized (this) {
+        if (isStorageControlClientClosed) {
+          throw new IOException("StorageControlClient is closed");
+        }
         result = this.storageControlClient;
         if (result == null) {
           this.storageControlClient = result = createStorageControlClient(this.credentials);
@@ -257,7 +265,7 @@ class GcsClientImpl implements GcsClient {
   }
 
   @Override
-  public List<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) throws IOException {
+  public Optional<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) throws IOException {
     checkNotNull(prefixId, "prefixId must not be null");
     String prefix = prefixId.getObjectName().orElse("");
 
@@ -267,12 +275,10 @@ class GcsClientImpl implements GcsClient {
               prefixId.getBucketName(),
               BlobListOption.prefix(prefix),
               BlobListOption.pageSize(1),
-              BlobListOption.fields(BLOB_METADATA_FIELDS.toArray(new BlobField[0])));
+              BlobListOption.fields(BLOB_METADATA_FIELDS_ARRAY));
 
-      for (Blob blob : page.getValues()) {
-        return ImmutableList.of(fromBlob(blob));
-      }
-      return ImmutableList.of();
+      Blob blob = Iterables.getFirst(page.getValues(), null);
+      return Optional.ofNullable(blob).map(b -> fromBlob(b));
     } catch (StorageException e) {
       if (e.getCode() == 404) {
         throw new FileNotFoundException("Bucket not found: " + prefixId.getBucketName());
@@ -292,13 +298,14 @@ class GcsClientImpl implements GcsClient {
             .setItemId(id)
             .setSize(blob.getSize() == null ? 0L : blob.getSize())
             .setCreationTime(toEpochMilli(blob.getCreateTimeOffsetDateTime()))
-            .setModificationTime(toEpochMilli(blob.getUpdateTimeOffsetDateTime()))
-            .setVerificationAttributes(
-                VerificationAttributes.create(
-                    blob.getMd5() != null ? BaseEncoding.base64().decode(blob.getMd5()) : null,
-                    blob.getCrc32c() != null
-                        ? BaseEncoding.base64().decode(blob.getCrc32c())
-                        : null));
+            .setModificationTime(toEpochMilli(blob.getUpdateTimeOffsetDateTime()));
+
+    if (blob.getMd5() != null || blob.getCrc32c() != null) {
+      infoBuilder.setVerificationAttributes(
+          VerificationAttributes.create(
+              blob.getMd5() != null ? BaseEncoding.base64().decode(blob.getMd5()) : null,
+              blob.getCrc32c() != null ? BaseEncoding.base64().decode(blob.getCrc32c()) : null));
+    }
 
     Optional.ofNullable(blob.getGeneration()).ifPresent(infoBuilder::setContentGeneration);
     Optional.ofNullable(blob.getContentType()).ifPresent(infoBuilder::setContentType);
@@ -322,6 +329,9 @@ class GcsClientImpl implements GcsClient {
             .setModificationTime(toEpochMilli(bucketInfo.getUpdateTimeOffsetDateTime()));
 
     Optional.ofNullable(bucketInfo.getLocation()).ifPresent(builder::setLocation);
+    Optional.ofNullable(bucketInfo.getStorageClass())
+        .map(Object::toString)
+        .ifPresent(builder::setStorageClass);
     Optional.ofNullable(bucketInfo.getMetageneration()).ifPresent(builder::setMetaGeneration);
     return builder.build();
   }
@@ -382,13 +392,16 @@ class GcsClientImpl implements GcsClient {
       LOG.debug("Exception while closing storage instance", e);
     }
     synchronized (this) {
+      if (isStorageControlClientClosed) {
+        return;
+      }
+      isStorageControlClientClosed = true;
       if (storageControlClient != null) {
         try {
           storageControlClient.close();
         } catch (Exception e) {
           LOG.debug("Exception while closing storageControlClient", e);
         }
-        storageControlClient = null;
       }
     }
   }
@@ -435,9 +448,7 @@ class GcsClientImpl implements GcsClient {
     checkNotNull(objectName);
     BlobId blobId = BlobId.of(bucketName, objectName);
     try {
-      return storage.get(
-          blobId,
-          Storage.BlobGetOption.fields(BLOB_METADATA_FIELDS.toArray(new Storage.BlobField[0])));
+      return storage.get(blobId, Storage.BlobGetOption.fields(BLOB_METADATA_FIELDS_ARRAY));
     } catch (StorageException storageException) {
       throw new IOException("Unable to access blob :" + blobId, storageException);
     }

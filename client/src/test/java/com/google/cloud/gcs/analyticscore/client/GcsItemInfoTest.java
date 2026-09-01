@@ -158,4 +158,19 @@ class GcsItemInfoTest {
     assertThat(decodedNullVal.keySet()).containsExactly("key");
     assertThat(decodedNullVal.get("key")).isEmpty();
   }
+
+  @Test
+  void builder_withStorageClass_populatesStorageClass() {
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(GcsItemId.ROOT).setStorageClass("STANDARD").build();
+
+    assertThat(itemInfo.getStorageClass()).hasValue("STANDARD");
+  }
+
+  @Test
+  void builder_withoutStorageClass_hasEmptyStorageClass() {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(GcsItemId.ROOT).build();
+
+    assertThat(itemInfo.getStorageClass()).isEmpty();
+  }
 }
