@@ -126,6 +126,24 @@ public abstract class GcsItemInfo {
     return getSize() >= 0;
   }
 
+  /**
+   * @deprecated Use {@link #getItemType()} and check against {@link ItemType#INFERRED_DIRECTORY}
+   *     instead.
+   */
+  @Deprecated
+  public boolean isInferredDirectory() {
+    return getItemType() == ItemType.INFERRED_DIRECTORY;
+  }
+
+  /**
+   * @deprecated Use {@link #getItemType()} and check against {@link ItemType#NATIVE_FOLDER}
+   *     instead.
+   */
+  @Deprecated
+  public boolean isNativeHnsFolder() {
+    return getItemType() == ItemType.NATIVE_FOLDER;
+  }
+
   public static ImmutableMap<String, String> encodeMetadata(ImmutableMap<String, byte[]> metadata) {
     ImmutableMap.Builder<String, String> encoded = ImmutableMap.builder();
     metadata.forEach((k, v) -> encoded.put(k, BaseEncoding.base64().encode(v)));

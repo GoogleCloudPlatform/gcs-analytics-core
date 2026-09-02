@@ -173,4 +173,28 @@ class GcsItemInfoTest {
 
     assertThat(itemInfo.getStorageClass()).isEmpty();
   }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  void isInferredDirectory_withInferredDirectoryType_returnsTrue() {
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(GcsItemId.builder().setBucketName("bucket").setObjectName("dir/").build())
+            .setItemType(GcsItemInfo.ItemType.INFERRED_DIRECTORY)
+            .build();
+
+    assertThat(itemInfo.isInferredDirectory()).isTrue();
+  }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  void isNativeHnsFolder_withNativeFolderType_returnsTrue() {
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(GcsItemId.builder().setBucketName("bucket").setObjectName("folder/").build())
+            .setItemType(GcsItemInfo.ItemType.NATIVE_FOLDER)
+            .build();
+
+    assertThat(itemInfo.isNativeHnsFolder()).isTrue();
+  }
 }
