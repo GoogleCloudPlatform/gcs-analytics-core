@@ -19,53 +19,113 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
-public final class UriUtilTest {
+class UriUtilTest {
 
-  @Test
-  public void getItemIdFromString_gcsBucket_succeeds() {
-    String gcsBucketName = "gs://test-bucket";
+  private static final String TEST_BUCKET = "test-bucket";
+  private static final String TEST_OBJECT = "test-object";
+  private static final String TEST_PATH = "dir/subdir";
 
+  @ParameterizedTest
+  @ValueSource(strings = {"gs://" + TEST_BUCKET, "gs://" + TEST_BUCKET + "/"})
+  void getItemIdFromString_gcsBucket_succeeds(String gcsBucketName) {
     GcsItemId itemId = UriUtil.getItemIdFromString(gcsBucketName);
 
-    assertThat(itemId.getBucketName()).isEqualTo("test-bucket");
-    assertThat(itemId.getObjectName().isEmpty()).isTrue();
+    assertThat(itemId.getBucketName()).isEqualTo(TEST_BUCKET);
+    assertThat(itemId.getObjectName()).isEmpty();
   }
 
   @Test
-  public void getItemIdFromString_gcsObject_succeeds() {
-    String gcsObjectName = "gs://test-bucket/test-object";
+  void getItemIdFromString_gcsObject_succeeds() {
+    String gcsObjectName = "gs://" + TEST_BUCKET + "/" + TEST_OBJECT;
 
     GcsItemId itemId = UriUtil.getItemIdFromString(gcsObjectName);
 
-    assertThat(itemId.getBucketName()).isEqualTo("test-bucket");
-    assertThat(itemId.getObjectName().isPresent()).isTrue();
-    assertThat(itemId.getObjectName().get()).isEqualTo("test-object");
+    assertThat(itemId.getBucketName()).isEqualTo(TEST_BUCKET);
+    assertThat(itemId.getObjectName()).hasValue(TEST_OBJECT);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"gs:/", "gs://"})
+  void getItemIdFromString_rootPath_returnsRootItemId(String rootPath) {
+    GcsItemId itemId = UriUtil.getItemIdFromString(rootPath);
+
+    assertThat(itemId).isEqualTo(GcsItemId.ROOT);
   }
 
   @Test
-  public void getItemIdFromString_gsOnly_throwsIllegalArgumentException() {
-    IllegalArgumentException e =
-        assertThrows(IllegalArgumentException.class, () -> UriUtil.getItemIdFromString("gs://"));
-
-    assertThat(e).hasMessageThat().isEqualTo("GCS path must include a bucket name: gs://");
-  }
-
-  @Test
-  public void getItemIdFromString_nullPath_throwsIllegalArgumentException() {
+  void getItemIdFromString_nullPath_throwsIllegalArgumentException() {
     IllegalArgumentException e =
         assertThrows(IllegalArgumentException.class, () -> UriUtil.getItemIdFromString(null));
 
     assertThat(e).hasMessageThat().isEqualTo("path should not be null");
   }
 
-  @Test
-  public void getItemIdFromString_invalidPath_throwsIllegalArgumentException() {
-    String invalidPath = "http://test-bucket/test-pbject";
+  @ParameterizedTest
+  @ValueSource(strings = {"http://test-bucket/test-object", "gs:///", "gs:/test-bucket", ""})
+  void getItemIdFromString_invalidPath_throwsIllegalArgumentException(String invalidPath) {
     IllegalArgumentException e =
         assertThrows(
             IllegalArgumentException.class, () -> UriUtil.getItemIdFromString(invalidPath));
 
     assertThat(e).hasMessageThat().isEqualTo("Invalid GCS path: " + invalidPath);
+  }
+
+  @Test
+  void getItemIdFromString_consecutiveSlashes_throwsIllegalArgumentException() {
+    String consecutiveSlashPath = "gs://test-bucket/dir//test-object";
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> UriUtil.getItemIdFromString(consecutiveSlashPath));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("GCS path must not have consecutive '/' characters: " + consecutiveSlashPath);
+  }
+
+  @Test
+  void removeTrailingSlash_withTrailingSlash_removesSlash() {
+    String result = UriUtil.removeTrailingSlash(TEST_PATH + "/");
+
+    assertThat(result).isEqualTo(TEST_PATH);
+  }
+
+  @Test
+  void removeTrailingSlash_withoutTrailingSlash_returnsSame() {
+    String result = UriUtil.removeTrailingSlash(TEST_PATH);
+
+    assertThat(result).isEqualTo(TEST_PATH);
+  }
+
+  @Test
+  void removeTrailingSlash_nullPath_returnsNull() {
+    String result = UriUtil.removeTrailingSlash(null);
+
+    assertThat(result).isNull();
+  }
+
+  @Test
+  void toDirectoryPath_withoutTrailingSlash_appendsSlash() {
+    String result = UriUtil.toDirectoryPath(TEST_PATH);
+
+    assertThat(result).isEqualTo(TEST_PATH + "/");
+  }
+
+  @Test
+  void toDirectoryPath_withTrailingSlash_returnsOriginal() {
+    String result = UriUtil.toDirectoryPath(TEST_PATH + "/");
+
+    assertThat(result).isEqualTo(TEST_PATH + "/");
+  }
+
+  @Test
+  void toDirectoryPath_nullPath_returnsNull() {
+    String result = UriUtil.toDirectoryPath(null);
+
+    assertThat(result).isNull();
   }
 }

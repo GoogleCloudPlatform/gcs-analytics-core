@@ -16,7 +16,8 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -216,14 +217,9 @@ class GcsFileSystemImplTest {
 
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(gcsPath);
 
-    assertNotNull(fileInfo);
-    assertEquals(gcsPath, fileInfo.getUri());
-    assertEquals(TEST_BUCKET, fileInfo.getItemInfo().getItemId().getBucketName());
-    assertTrue(fileInfo.getItemInfo().getItemId().getObjectName().isPresent());
-    assertEquals(TEST_OBJECT, fileInfo.getItemInfo().getItemId().getObjectName().get());
-    assertEquals(content.length(), fileInfo.getItemInfo().getSize());
-    assertNotNull(fileInfo.getAttributes());
-    assertTrue(fileInfo.getAttributes().isEmpty());
+    assertThat(fileInfo.getUri()).isEqualTo(gcsPath);
+    assertThat(fileInfo.getItemInfo()).isEqualTo(mockItemInfo);
+    assertThat(fileInfo.getAttributes()).isEmpty();
   }
 
   @Test
@@ -292,14 +288,9 @@ class GcsFileSystemImplTest {
 
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
 
-    assertNotNull(fileInfo);
-    assertEquals("gs://" + TEST_BUCKET + "/" + TEST_OBJECT, fileInfo.getUri().toString());
-    assertEquals(TEST_BUCKET, fileInfo.getItemInfo().getItemId().getBucketName());
-    assertTrue(fileInfo.getItemInfo().getItemId().getObjectName().isPresent());
-    assertEquals(TEST_OBJECT, fileInfo.getItemInfo().getItemId().getObjectName().get());
-    assertEquals(content.length(), fileInfo.getItemInfo().getSize());
-    assertNotNull(fileInfo.getAttributes());
-    assertTrue(fileInfo.getAttributes().isEmpty());
+    assertThat(fileInfo.getUri().toString()).isEqualTo("gs://" + TEST_BUCKET + "/" + TEST_OBJECT);
+    assertThat(fileInfo.getItemInfo()).isEqualTo(mockItemInfo);
+    assertThat(fileInfo.getAttributes()).isEmpty();
   }
 
   @Test

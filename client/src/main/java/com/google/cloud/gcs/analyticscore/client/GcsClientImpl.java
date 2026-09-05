@@ -18,7 +18,10 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.api.gax.core.FixedCredentialsProvider;
+import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.FixedHeaderProvider;
+import com.google.api.gax.rpc.NotFoundException;
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.client.GcsReadChannel.ItemInfoProvider;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
@@ -29,17 +32,28 @@ import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.BucketInfo;
 import com.google.cloud.storage.BucketInfo.HierarchicalNamespace;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.Storage.BlobField;
+import com.google.cloud.storage.Storage.BlobListOption;
 import com.google.cloud.storage.Storage.BlobWriteOption;
+import com.google.cloud.storage.Storage.BucketField;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import com.google.common.io.BaseEncoding;
+import com.google.protobuf.Timestamp;
+import com.google.storage.control.v2.Folder;
+import com.google.storage.control.v2.FolderName;
+import com.google.storage.control.v2.GetFolderRequest;
+import com.google.storage.control.v2.StorageControlClient;
+import com.google.storage.control.v2.StorageControlSettings;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
-import java.util.List;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
@@ -47,14 +61,39 @@ import org.slf4j.LoggerFactory;
 
 class GcsClientImpl implements GcsClient {
   private static final Logger LOG = LoggerFactory.getLogger(GcsClientImpl.class);
-  private static final List<Storage.BlobField> BLOB_METADATA_FIELDS =
-      ImmutableList.of(Storage.BlobField.GENERATION, Storage.BlobField.SIZE);
+  private static final BlobField[] BLOB_METADATA_FIELDS_ARRAY =
+      new BlobField[] {
+        BlobField.NAME,
+        BlobField.BUCKET,
+        BlobField.GENERATION,
+        BlobField.METAGENERATION,
+        BlobField.SIZE,
+        BlobField.CONTENT_TYPE,
+        BlobField.CONTENT_ENCODING,
+        BlobField.TIME_CREATED,
+        BlobField.UPDATED,
+        BlobField.MD5HASH,
+        BlobField.CRC32C,
+        BlobField.METADATA
+      };
+  private static final BucketField[] BUCKET_METADATA_FIELDS_ARRAY =
+      new BucketField[] {
+        BucketField.NAME,
+        BucketField.LOCATION,
+        BucketField.METAGENERATION,
+        BucketField.TIME_CREATED,
+        BucketField.UPDATED,
+        BucketField.STORAGE_CLASS
+      };
   private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
 
   @VisibleForTesting Storage storage;
   private final GcsClientOptions clientOptions;
+  private final Optional<Credentials> credentials;
   private Supplier<ExecutorService> executorServiceSupplier;
   private final Telemetry telemetry;
+  @VisibleForTesting volatile StorageControlClient storageControlClient;
+  private volatile boolean isStorageControlClientClosed = false;
 
   GcsClientImpl(
       Credentials credentials,
@@ -77,6 +116,7 @@ class GcsClientImpl implements GcsClient {
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry) {
     this.clientOptions = clientOptions;
+    this.credentials = credentials;
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
     this.storage = createStorage(credentials);
@@ -146,6 +186,174 @@ class GcsClientImpl implements GcsClient {
         String.format("Expected gcs object but got %s", itemId));
   }
 
+  @Override
+  public GcsItemInfo getBucketInfo(GcsItemId itemId) throws IOException {
+    checkNotNull(itemId, "Item ID must not be null.");
+    checkArgument(itemId.isBucket(), "Expected a bucket itemId");
+    BucketInfo bucketInfo;
+    try {
+      bucketInfo =
+          storage.get(
+              itemId.getBucketName(), Storage.BucketGetOption.fields(BUCKET_METADATA_FIELDS_ARRAY));
+    } catch (StorageException e) {
+      if (e.getCode() == 404) {
+        bucketInfo = null;
+      } else {
+        throw new IOException("Unable to access bucket: " + itemId.getBucketName(), e);
+      }
+    }
+    if (bucketInfo == null) {
+      return GcsItemInfo.createNotFound(itemId);
+    }
+    return fromBucketInfo(bucketInfo);
+  }
+
+  @Override
+  public GcsItemInfo getFolderInfo(GcsItemId itemId) throws IOException {
+    checkNotNull(itemId, "Item ID must not be null.");
+    if (itemId.isRoot()) {
+      return GcsItemInfo.ROOT_INFO;
+    }
+    if (itemId.isBucket()) {
+      return getBucketInfo(itemId);
+    }
+    checkArgument(itemId.isGcsObject(), "Expected a folder itemId");
+    String objectName = itemId.getObjectName().orElse("");
+    String folderName = UriUtil.removeTrailingSlash(objectName);
+    checkArgument(!folderName.isEmpty(), "Folder name cannot be empty");
+
+    GetFolderRequest request =
+        GetFolderRequest.newBuilder()
+            .setName(FolderName.format("_", itemId.getBucketName(), folderName))
+            .build();
+    try {
+      Folder folder = lazyGetStorageControlClient().getFolder(request);
+      return fromFolder(folder, itemId);
+    } catch (NotFoundException e) {
+      return GcsItemInfo.createNotFound(itemId);
+    } catch (Exception e) {
+      throw new IOException("Failed to get folder info for: " + itemId, e);
+    }
+  }
+
+  @VisibleForTesting
+  StorageControlClient lazyGetStorageControlClient() throws IOException {
+    if (isStorageControlClientClosed) {
+      throw new IOException("StorageControlClient is closed");
+    }
+    StorageControlClient result = this.storageControlClient;
+    if (result == null) {
+      synchronized (this) {
+        if (isStorageControlClientClosed) {
+          throw new IOException("StorageControlClient is closed");
+        }
+        result = this.storageControlClient;
+        if (result == null) {
+          this.storageControlClient = result = createStorageControlClient(this.credentials);
+        }
+      }
+    }
+    return result;
+  }
+
+  @VisibleForTesting
+  protected StorageControlClient createStorageControlClient(Optional<Credentials> credentials)
+      throws IOException {
+    StorageControlSettings.Builder builder = StorageControlSettings.newBuilder();
+    credentials.ifPresent(c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
+    return StorageControlClient.create(builder.build());
+  }
+
+  @Override
+  public Optional<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) throws IOException {
+    checkNotNull(prefixId, "prefixId must not be null");
+    String prefix = prefixId.getObjectName().orElse("");
+
+    try {
+      Page<Blob> page =
+          storage.list(
+              prefixId.getBucketName(),
+              BlobListOption.prefix(prefix),
+              BlobListOption.pageSize(1),
+              BlobListOption.fields(BLOB_METADATA_FIELDS_ARRAY));
+
+      Blob blob = Iterables.getFirst(page.getValues(), null);
+      return Optional.ofNullable(blob).map(b -> fromBlob(b));
+    } catch (StorageException e) {
+      if (e.getCode() == 404) {
+        throw new FileNotFoundException("Bucket not found: " + prefixId.getBucketName());
+      }
+      throw new IOException("Failed to list the first object for prefix: " + prefixId, e);
+    }
+  }
+
+  private static GcsItemInfo fromBlob(Blob blob) {
+    GcsItemId.Builder idBuilder =
+        GcsItemId.builder().setBucketName(blob.getBucket()).setObjectName(blob.getName());
+    Optional.ofNullable(blob.getGeneration()).ifPresent(idBuilder::setContentGeneration);
+    GcsItemId id = idBuilder.build();
+
+    GcsItemInfo.Builder infoBuilder =
+        GcsItemInfo.builder()
+            .setItemId(id)
+            .setSize(blob.getSize() == null ? 0L : blob.getSize())
+            .setCreationTime(toEpochMilli(blob.getCreateTimeOffsetDateTime()))
+            .setModificationTime(toEpochMilli(blob.getUpdateTimeOffsetDateTime()));
+
+    if (blob.getMd5() != null || blob.getCrc32c() != null) {
+      infoBuilder.setVerificationAttributes(
+          VerificationAttributes.create(
+              blob.getMd5() != null ? BaseEncoding.base64().decode(blob.getMd5()) : null,
+              blob.getCrc32c() != null ? BaseEncoding.base64().decode(blob.getCrc32c()) : null));
+    }
+
+    Optional.ofNullable(blob.getGeneration()).ifPresent(infoBuilder::setContentGeneration);
+    Optional.ofNullable(blob.getContentType()).ifPresent(infoBuilder::setContentType);
+    Optional.ofNullable(blob.getContentEncoding()).ifPresent(infoBuilder::setContentEncoding);
+    Optional.ofNullable(blob.getMetageneration()).ifPresent(infoBuilder::setMetaGeneration);
+
+    if (blob.isDirectory()) {
+      infoBuilder.setItemType(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY);
+    }
+
+    infoBuilder.setExtendedAttributes(GcsItemInfo.decodeMetadata(blob.getMetadata()));
+
+    return infoBuilder.build();
+  }
+
+  private static GcsItemInfo fromBucketInfo(BucketInfo bucketInfo) {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(bucketInfo.getName()).build();
+    GcsItemInfo.Builder builder =
+        GcsItemInfo.createBucket(itemId).toBuilder()
+            .setCreationTime(toEpochMilli(bucketInfo.getCreateTimeOffsetDateTime()))
+            .setModificationTime(toEpochMilli(bucketInfo.getUpdateTimeOffsetDateTime()));
+
+    Optional.ofNullable(bucketInfo.getLocation()).ifPresent(builder::setLocation);
+    Optional.ofNullable(bucketInfo.getStorageClass())
+        .map(Object::toString)
+        .ifPresent(builder::setStorageClass);
+    Optional.ofNullable(bucketInfo.getMetageneration()).ifPresent(builder::setMetaGeneration);
+    return builder.build();
+  }
+
+  private static GcsItemInfo fromFolder(Folder folder, GcsItemId itemId) {
+    return GcsItemInfo.createFolder(
+        itemId,
+        toEpochMilli(folder.hasCreateTime() ? folder.getCreateTime() : null),
+        toEpochMilli(folder.hasUpdateTime() ? folder.getUpdateTime() : null),
+        folder.getMetageneration());
+  }
+
+  private static long toEpochMilli(OffsetDateTime dateTime) {
+    return dateTime != null ? dateTime.toInstant().toEpochMilli() : 0L;
+  }
+
+  private static long toEpochMilli(Timestamp timestamp) {
+    return timestamp != null
+        ? Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos()).toEpochMilli()
+        : 0L;
+  }
+
   BucketProperties getBucketProperties(String bucketName) throws IOException {
     checkNotNull(bucketName, "bucketName cannot be null");
     try {
@@ -183,6 +391,19 @@ class GcsClientImpl implements GcsClient {
     } catch (Exception e) {
       LOG.debug("Exception while closing storage instance", e);
     }
+    synchronized (this) {
+      if (isStorageControlClientClosed) {
+        return;
+      }
+      isStorageControlClientClosed = true;
+      if (storageControlClient != null) {
+        try {
+          storageControlClient.close();
+        } catch (Exception e) {
+          LOG.debug("Exception while closing storageControlClient", e);
+        }
+      }
+    }
   }
 
   @VisibleForTesting
@@ -217,19 +438,9 @@ class GcsClientImpl implements GcsClient {
     checkArgument(itemId.isGcsObject(), String.format("Expected gcs object got %s", itemId));
     Blob blob = getBlob(itemId.getBucketName(), itemId.getObjectName().get());
     if (blob == null) {
-      throw new IOException("Object not found:" + itemId);
+      return GcsItemInfo.createNotFound(itemId);
     }
-    GcsItemId itemIdWithGeneration =
-        GcsItemId.builder()
-            .setContentGeneration(blob.getGeneration())
-            .setBucketName(blob.getBucket())
-            .setObjectName(blob.getName())
-            .build();
-    return GcsItemInfo.builder()
-        .setItemId(itemIdWithGeneration)
-        .setSize(blob.getSize())
-        .setContentGeneration(blob.getGeneration())
-        .build();
+    return fromBlob(blob);
   }
 
   private Blob getBlob(String bucketName, String objectName) throws IOException {
@@ -237,22 +448,13 @@ class GcsClientImpl implements GcsClient {
     checkNotNull(objectName);
     BlobId blobId = BlobId.of(bucketName, objectName);
     try {
-      return storage.get(
-          blobId,
-          Storage.BlobGetOption.fields(BLOB_METADATA_FIELDS.toArray(new Storage.BlobField[0])));
+      return storage.get(blobId, Storage.BlobGetOption.fields(BLOB_METADATA_FIELDS_ARRAY));
     } catch (StorageException storageException) {
       throw new IOException("Unable to access blob :" + blobId, storageException);
     }
   }
 
-  private static ImmutableMap<String, String> encodeMetadata(
-      ImmutableMap<String, byte[]> metadata) {
-    ImmutableMap.Builder<String, String> encoded = ImmutableMap.builder();
-    metadata.forEach((k, v) -> encoded.put(k, BaseEncoding.base64().encode(v)));
-    return encoded.build();
-  }
-
-  private BlobInfo createBlobInfo(GcsItemId itemId, GcsWriteOptions writeOptions) {
+  private static BlobInfo createBlobInfo(GcsItemId itemId, GcsWriteOptions writeOptions) {
     checkNotNull(itemId, "itemId should not be null");
     String objectName =
         itemId
@@ -273,7 +475,7 @@ class GcsClientImpl implements GcsClient {
               options.getContentEncoding().ifPresent(blobInfoBuilder::setContentEncoding);
               ImmutableMap<String, byte[]> metadata = options.getMetadata();
               if (!metadata.isEmpty()) {
-                blobInfoBuilder.setMetadata(encodeMetadata(metadata));
+                blobInfoBuilder.setMetadata(GcsItemInfo.encodeMetadata(metadata));
               }
             });
 

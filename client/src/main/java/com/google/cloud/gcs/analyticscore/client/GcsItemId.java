@@ -22,6 +22,8 @@ import java.util.Optional;
 @AutoValue
 public abstract class GcsItemId {
 
+  public static final GcsItemId ROOT = builder().setBucketName("").setObjectName("").build();
+
   // Name of the bucket.
   public abstract String getBucketName();
 
@@ -46,7 +48,37 @@ public abstract class GcsItemId {
     public abstract GcsItemId build();
   }
 
+  /**
+   * Returns true if this identifier represents a GCS object/folder within a bucket.
+   *
+   * <p>An item is a GCS object if it has a non-empty bucket name and a present, non-empty object
+   * name.
+   */
   public boolean isGcsObject() {
-    return this.getBucketName() != null && !this.getObjectName().isEmpty();
+    return !this.getBucketName().isEmpty()
+        && this.getObjectName().isPresent()
+        && !this.getObjectName().get().isEmpty();
+  }
+
+  /**
+   * Returns true if this identifier represents the GCS global root.
+   *
+   * <p>An item is root if it has an empty bucket name and no object path (the object name is either
+   * absent or empty).
+   */
+  public boolean isRoot() {
+    return this.getBucketName().isEmpty()
+        && (this.getObjectName().isEmpty() || this.getObjectName().get().isEmpty());
+  }
+
+  /**
+   * Returns true if this identifier represents a GCS bucket.
+   *
+   * <p>An item is a bucket if it has a non-empty bucket name and no object path (the object name is
+   * either absent or empty).
+   */
+  public boolean isBucket() {
+    return !this.getBucketName().isEmpty()
+        && (this.getObjectName().isEmpty() || this.getObjectName().get().isEmpty());
   }
 }
