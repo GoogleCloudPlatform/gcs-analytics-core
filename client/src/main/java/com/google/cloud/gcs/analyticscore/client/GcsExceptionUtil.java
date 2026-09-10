@@ -191,8 +191,9 @@ class GcsExceptionUtil {
     StorageException storageException =
         new StorageException(
             HttpURLConnection.HTTP_NOT_FOUND, String.format("Object %s not found", location));
-    return (FileNotFoundException)
-        new FileNotFoundException(String.format("Location does not exist: %s", location))
-            .initCause(storageException);
+    FileNotFoundException exception =
+        new FileNotFoundException(String.format("Location does not exist: %s", location));
+    exception.initCause(storageException);
+    return exception;
   }
 }
