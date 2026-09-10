@@ -239,16 +239,18 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getGcsItemInfo_storageReturnsNull_returnsNotFoundItemInfo() throws IOException {
+  void getGcsItemInfo_storageReturnsNull_throwsFileNotFoundException() throws IOException {
     GcsItemId nonExistentItemId =
         GcsItemId.builder()
             .setBucketName(TEST_BUCKET_NAME)
             .setObjectName(TEST_NON_EXISTENT_OBJECT)
             .build();
 
-    GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(nonExistentItemId);
-
-    assertNotFound(itemInfo, nonExistentItemId);
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class, () -> gcsClient.getGcsItemInfo(nonExistentItemId));
+    assertThat(e.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
   }
 
   @Test
