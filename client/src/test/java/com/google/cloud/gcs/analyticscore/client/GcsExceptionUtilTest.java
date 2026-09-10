@@ -384,6 +384,43 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void createFileNotFoundException_withGcsItemId_returnsFileNotFoundExceptionWith404Cause() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(BUCKET).setObjectName(NAME).build();
+
+    FileNotFoundException exception = GcsExceptionUtil.createFileNotFoundException(itemId);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Location does not exist: gs://" + BUCKET + "/" + NAME);
+    assertThat(exception.getCause()).isInstanceOf(StorageException.class);
+    StorageException se = (StorageException) exception.getCause();
+    assertThat(se.getCode()).isEqualTo(404);
+    assertThat(se.getMessage()).isEqualTo("Object gs://" + BUCKET + "/" + NAME + " not found");
+  }
+
+  @Test
+  void createFileNotFoundException_withBucketItemId_returnsFileNotFoundExceptionWith404Cause() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(BUCKET).build();
+
+    FileNotFoundException exception = GcsExceptionUtil.createFileNotFoundException(itemId);
+
+    assertThat(exception).hasMessageThat().isEqualTo("Location does not exist: gs://" + BUCKET);
+    assertThat(exception.getCause()).isInstanceOf(StorageException.class);
+    StorageException se = (StorageException) exception.getCause();
+    assertThat(se.getCode()).isEqualTo(404);
+  }
+
+  @Test
+  void createFileNotFoundException_withRootItemId_returnsFileNotFoundExceptionWith404Cause() {
+    FileNotFoundException exception = GcsExceptionUtil.createFileNotFoundException(GcsItemId.ROOT);
+
+    assertThat(exception).hasMessageThat().isEqualTo("Location does not exist: gs:/");
+    assertThat(exception.getCause()).isInstanceOf(StorageException.class);
+    StorageException se = (StorageException) exception.getCause();
+    assertThat(se.getCode()).isEqualTo(404);
+  }
+
+  @Test
   void constructor_isPrivate() throws Exception {
     Constructor<GcsExceptionUtil> constructor = GcsExceptionUtil.class.getDeclaredConstructor();
 

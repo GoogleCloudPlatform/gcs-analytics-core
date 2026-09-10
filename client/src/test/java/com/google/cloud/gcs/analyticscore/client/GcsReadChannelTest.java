@@ -28,6 +28,7 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobSourceOption;
+import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -35,6 +36,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import java.io.EOFException;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
@@ -50,6 +52,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntFunction;
@@ -59,6 +62,8 @@ import org.mockito.Mockito;
 class GcsReadChannelTest {
 
   private static final String TEST_PROJECT_ID = "test-project-id";
+  private static final String TEST_BUCKET = "test-bucket";
+  private static final String TEST_OBJECT = "test-object";
   private static GcsReadOptions TEST_GCS_READ_OPTIONS =
       GcsReadOptions.builder().setUserProjectId(TEST_PROJECT_ID).build();
 
@@ -472,8 +477,7 @@ class GcsReadChannelTest {
     GcsItemInfo itemInfo =
         GcsItemInfo.builder().setItemId(itemId).setSize(4242).setContentGeneration(123L).build();
 
-    java.util.concurrent.atomic.AtomicInteger providerCallCount =
-        new java.util.concurrent.atomic.AtomicInteger(0);
+    AtomicInteger providerCallCount = new AtomicInteger(0);
     GcsReadChannel.ItemInfoProvider provider =
         (id) -> {
           providerCallCount.incrementAndGet();
@@ -488,6 +492,27 @@ class GcsReadChannelTest {
     assertThat(gcsReadChannel.size()).isEqualTo(4242);
     assertThat(gcsReadChannel.size()).isEqualTo(4242);
     assertThat(providerCallCount.get()).isEqualTo(1);
+  }
+
+  @Test
+  void size_withItemInfoProvider_notFound_throwsFileNotFoundException() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    AtomicBoolean providerCalled = new AtomicBoolean(false);
+    GcsReadChannel.ItemInfoProvider provider =
+        (id) -> {
+          providerCalled.set(true);
+          throw GcsExceptionUtil.createFileNotFoundException(itemId);
+        };
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            storage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry, provider);
+
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> gcsReadChannel.size());
+    assertThat(providerCalled.get()).isTrue();
+    assertThat(e.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
   }
 
   @Test

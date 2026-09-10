@@ -445,7 +445,7 @@ class GcsClientImpl implements GcsClient {
     checkArgument(itemId.isGcsObject(), String.format("Expected gcs object got %s", itemId));
     Blob blob = getBlob(itemId.getBucketName(), itemId.getObjectName().get());
     if (blob == null) {
-      return GcsItemInfo.createNotFound(itemId);
+      throw GcsExceptionUtil.createFileNotFoundException(itemId);
     }
     return fromBlob(blob);
   }
