@@ -1,0 +1,24 @@
+name: Label Release Please PR for Kokoro
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  label-release-pr:
+    runs-on: ubuntu-latest
+    if: startsWith(github.head_ref, 'release-please--') || contains(github.event.pull_request.labels.*.name, 'autorelease: pending')
+    steps:
+      - name: Add kokoro:force-run label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh label create "kokoro:force-run" --color "ededed" --description "Triggers Kokoro correctness tests" --force || true
+          gh pr edit "$PR_URL" --add-label "kokoro:force-run"
