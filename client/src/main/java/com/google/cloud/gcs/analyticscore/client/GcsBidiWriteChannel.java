@@ -102,18 +102,17 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
     }
 
     synchronized (this) {
+      if (closed) {
+        return;
+      }
       closed = true;
-      try {
-        super.close();
-      } finally {
-        if (gcsAppendChannel != null) {
-          try {
-            gcsAppendChannel.close();
-          } catch (StorageException | IOException e) {
-            throw handleException(e, "close");
-          } finally {
-            gcsAppendChannel = null;
-          }
+      if (gcsAppendChannel != null) {
+        try {
+          gcsAppendChannel.close();
+        } catch (StorageException | IOException e) {
+          throw handleException(e, "close");
+        } finally {
+          gcsAppendChannel = null;
         }
       }
     }
