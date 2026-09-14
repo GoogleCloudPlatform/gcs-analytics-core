@@ -49,6 +49,14 @@ limitations under the License.
         </profile>
     </profiles>
 
+    <!--
+      jacoco:report-aggregate only walks this module's directly-declared dependencies, so every
+      module that should appear in the coverage report must be listed here. `common` was missing,
+      which silently excluded all telemetry and cache classes from the report and the badge.
+
+      test-lib is deliberately absent: it is test scaffolding rather than product code, and is
+      excluded from the Codecov report too (see the `ignore` list in codecov.yml).
+    -->
     <dependencies>
         <dependency>
             <groupId>com.google.cloud.gcs.analytics</groupId>
@@ -58,6 +66,11 @@ limitations under the License.
         <dependency>
             <groupId>com.google.cloud.gcs.analytics</groupId>
             <artifactId>gcs-analytics-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.cloud.gcs.analytics</groupId>
+            <artifactId>common</artifactId>
             <version>${project.version}</version>
         </dependency>
     </dependencies>

@@ -5,16 +5,29 @@ on:
     branches:
       - main
 
+# Least privilege at the workflow level; the single job that needs write access declares it
+# itself below.
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     steps:
-      - uses: googleapis/release-please-action@v5
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      # Pinned to the commit SHA that the v5 tag resolves to, matching every other action in
+      # this repo. A mutable tag on a release-automation workflow with write permissions is the
+      # highest-value supply-chain target here.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           release-type: maven

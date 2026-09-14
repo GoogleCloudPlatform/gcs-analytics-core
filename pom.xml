@@ -61,14 +61,16 @@ limitations under the License.
 
     <properties>
         <argLine/>
-        <google.analyticscore.version>1.0-SNAPSHOT</google.analyticscore.version>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
-        <build.java.source.version>11</build.java.source.version>
-        <build.java.target.version>11</build.java.target.version>
+        <!--
+          Use `release` rather than `source`/`target`: it additionally restricts the visible JDK
+          API to the target version, so building on a newer JDK cannot silently link against
+          APIs that are absent at runtime on Java 11.
+        -->
+        <maven.compiler.release>11</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Surefire and Failsafe are released in lockstep; keep them on one version. -->
+        <maven.surefire.version>3.5.6</maven.surefire.version>
         <google.auto-value.version>1.11.1</google.auto-value.version>
-        <google.cloud.bom.version>26.39.0</google.cloud.bom.version>
         <google.cloud-storage.bom.version>2.69.0</google.cloud-storage.bom.version>
         <google.guava.version>33.6.0-jre</google.guava.version>
         <google.java-format.version>1.17.0</google.java-format.version>
@@ -218,8 +220,7 @@ limitations under the License.
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-compiler-plugin</artifactId>
                         <configuration>
-                            <source>${maven.compiler.source}</source>
-                            <target>${maven.compiler.target}</target>
+                            <release>${maven.compiler.release}</release>
                             <excludes>
                                 <exclude>**/*IntegrationTest.java</exclude>
                             </excludes>
@@ -443,9 +444,13 @@ limitations under the License.
                 <artifactId>slf4j-api</artifactId>
                 <version>${slf4j.version}</version>
             </dependency>
+            <!--
+              Test-scope logging binding. slf4j-log4j12 was used here previously, but it is a
+              relocation stub that resolves to slf4j-reload4j (a log4j 1.2 fork).
+            -->
             <dependency>
                 <groupId>org.slf4j</groupId>
-                <artifactId>slf4j-log4j12</artifactId>
+                <artifactId>slf4j-simple</artifactId>
                 <version>${slf4j.version}</version>
             </dependency>
             <dependency>
@@ -508,16 +513,40 @@ limitations under the License.
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.5.6</version>
+                    <version>${maven.surefire.version}</version>
+                    <configuration>
+                        <properties>
+                            <configurationParameters>
+                                <!--
+                                  A deadlock in the vectored-IO or executor paths would otherwise
+                                  hang CI until the job limit. The whole suite runs in ~2 minutes,
+                                  so a 5 minute per-test ceiling only trips on a genuine hang.
+                                -->
+                                junit.jupiter.execution.timeout.default = 5 m
+                            </configurationParameters>
+                        </properties>
+                    </configuration>
+                </plugin>
+                <!--
+                  Failsafe and Shade were previously unversioned, so Maven resolved whichever
+                  release happened to be newest at build time. Pinning them keeps the build
+                  reproducible and lets Dependabot track them.
+                -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <version>${maven.surefire.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-shade-plugin</artifactId>
+                    <version>3.6.2</version>
                 </plugin>
                 <plugin>
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>3.15.0</version>
                     <configuration>
-                        <source>${build.java.source.version}</source>
-                        <target>${build.java.target.version}</target>
-                        <testSource>${build.java.source.version}</testSource>
-                        <testTarget>${build.java.source.version}</testTarget>
+                        <release>${maven.compiler.release}</release>
                         <compilerArgs>
                             <arg>-XDcompilePolicy=simple</arg>
                             <arg>-Xplugin:ErrorProne</arg>
@@ -567,6 +596,7 @@ limitations under the License.
                                 <off>fmt:off</off>
                                 <on>fmt:on</on>
                             </toggleOffOn>
+                            <removeUnusedImports/>
                             <googleJavaFormat>
                                 <version>${google.java-format.version}</version>
                             </googleJavaFormat>
@@ -577,7 +607,8 @@ limitations under the License.
                             <goals>
                                 <goal>check</goal>
                             </goals>
-                            <phase>test</phase>
+                            <!-- Fail on formatting before compiling/testing, not after. -->
+                            <phase>validate</phase>
                         </execution>
                     </executions>
                 </plugin>
@@ -587,8 +618,21 @@ limitations under the License.
                     <version>0.8.15</version>
                     <executions>
                         <execution>
+                            <id>prepare-agent</id>
                             <goals>
                                 <goal>prepare-agent</goal>
+                            </goals>
+                        </execution>
+                        <!--
+                          Emit a per-module jacoco.xml as well as the aggregate. Without this the
+                          aggregate report in coverage/ is the only artifact produced, so a module
+                          missing from its dependency list is invisible rather than obviously empty.
+                        -->
+                        <execution>
+                            <id>report</id>
+                            <phase>test</phase>
+                            <goals>
+                                <goal>report</goal>
                             </goals>
                         </execution>
                     </executions>
@@ -618,12 +662,97 @@ limitations under the License.
                     <artifactId>exec-maven-plugin</artifactId>
                     <version>3.6.3</version>
                 </plugin>
+                <!--
+                  Default lifecycle plugins. Maven supplies these from its own super-POM, so
+                  without an explicit version the build depends on which Maven version happens to
+                  be running it. Pinned at the versions Maven 3.9.16 was already selecting.
+                -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-clean-plugin</artifactId>
+                    <version>3.2.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>3.1.4</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>3.1.4</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-site-plugin</artifactId>
+                    <version>3.12.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.5.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>3.4.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <version>3.5.0</version>
+                    <executions>
+                        <execution>
+                            <id>enforce-build-invariants</id>
+                            <phase>validate</phase>
+                            <goals>
+                                <goal>enforce</goal>
+                            </goals>
+                            <configuration>
+                                <rules>
+                                    <requireMavenVersion>
+                                        <version>[3.8.0,)</version>
+                                    </requireMavenVersion>
+                                    <requireJavaVersion>
+                                        <version>[11,)</version>
+                                    </requireJavaVersion>
+                                    <!--
+                                      Catches plugins declared without a version, which Maven
+                                      would otherwise resolve to whichever release is newest at
+                                      build time. Failsafe and Shade were both in that state.
+                                    -->
+                                    <requirePluginVersions>
+                                        <banLatest>true</banLatest>
+                                        <banRelease>true</banRelease>
+                                        <banSnapshots>true</banSnapshots>
+                                    </requirePluginVersions>
+                                    <bannedDependencies>
+                                        <excludes>
+                                            <!--
+                                              log4j 1.x is EOL and unpatched (CVE-2019-17571).
+                                              Note: junit:junit is deliberately NOT banned here -
+                                              Truth depends on it transitively, so the rule could
+                                              never pass. JUnit 5 usage is a review convention.
+                                            -->
+                                            <exclude>log4j:log4j</exclude>
+                                        </excludes>
+                                    </bannedDependencies>
+                                </rules>
+                                <fail>true</fail>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
             </plugins>
         </pluginManagement>
         <plugins>
             <plugin>
                 <groupId>com.diffplug.spotless</groupId>
                 <artifactId>spotless-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
             </plugin>
         </plugins>
         <extensions>
