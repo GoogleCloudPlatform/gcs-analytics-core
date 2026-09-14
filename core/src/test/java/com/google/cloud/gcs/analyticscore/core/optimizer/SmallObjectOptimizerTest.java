@@ -44,6 +44,8 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -232,6 +234,13 @@ class SmallObjectOptimizerTest {
   }
 
   @Test
+  void readVectored_nullRelease_rejectsBeforeCheckingCache() {
+    assertThrows(
+        NullPointerException.class,
+        () -> optimizer.readVectored(List.of(), ByteBuffer::allocate, null));
+  }
+
+  @Test
   void readVectored_uninitializedFileSize_returnsOriginalRanges() throws IOException {
     optimizer.onOpen(ITEM_ID, cacheManager);
     GcsObjectRange range =
@@ -283,7 +292,7 @@ class SmallObjectOptimizerTest {
   }
 
   @Test
-  void readVectored_pastEOF_completesWithEOFException() throws IOException {
+  void readVectored_pastEOF_completesWithWrappedEOFException() throws IOException {
     optimizer.onOpen(ITEM_ID, cacheManager);
     optimizer.onOpen(FILE_INFO, cacheManager);
 
@@ -298,7 +307,8 @@ class SmallObjectOptimizerTest {
     var exception =
         assertThrows(ExecutionException.class, () -> pastEofRange.getByteBufferFuture().get());
 
-    assertThat(exception.getCause()).isInstanceOf(java.io.EOFException.class);
+    assertThat(exception.getCause()).isInstanceOf(IOException.class);
+    assertThat(exception.getCause().getCause()).isInstanceOf(java.io.EOFException.class);
   }
 
   @Test
@@ -362,7 +372,8 @@ class SmallObjectOptimizerTest {
     var exception =
         assertThrows(ExecutionException.class, () -> partialRange.getByteBufferFuture().get());
 
-    assertThat(exception.getCause()).isInstanceOf(java.io.EOFException.class);
+    assertThat(exception.getCause()).isInstanceOf(IOException.class);
+    assertThat(exception.getCause().getCause()).isInstanceOf(java.io.EOFException.class);
   }
 
   @Test
@@ -382,11 +393,95 @@ class SmallObjectOptimizerTest {
 
     ExecutionException exception =
         assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
-    assertThat(exception).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(exception).hasCauseThat().isInstanceOf(IOException.class);
+    assertThat(exception.getCause()).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
     assertThat(exception)
+        .hasCauseThat()
         .hasCauseThat()
         .hasMessageThat()
         .contains("Buffer allocation returned null");
+  }
+
+  @Test
+  void readVectored_releaseThrows_preservesFailureAndContinuesWithNextRange() throws Exception {
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
+    optimizer.read(0, ByteBuffer.allocate(1), realSource);
+    GcsObjectRange pastEofRange =
+        GcsObjectRange.builder()
+            .setOffset(ITEM_INFO.getSize())
+            .setLength(1)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+    GcsObjectRange validRange =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(1)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+    RuntimeException releaseFailure = new IllegalStateException("release failed");
+    AtomicInteger releaseCount = new AtomicInteger();
+
+    List<GcsObjectRange> remaining =
+        optimizer.readVectored(
+            List.of(pastEofRange, validRange),
+            ByteBuffer::allocate,
+            buffer -> {
+              releaseCount.incrementAndGet();
+              throw releaseFailure;
+            });
+
+    ExecutionException exception =
+        assertThrows(
+            ExecutionException.class,
+            () -> pastEofRange.getByteBufferFuture().get(1, TimeUnit.SECONDS));
+    assertThat(exception.getCause()).isInstanceOf(IOException.class);
+    assertThat(exception.getCause().getCause()).isInstanceOf(java.io.EOFException.class);
+    assertThat(exception.getCause().getCause().getSuppressed())
+        .asList()
+        .containsExactly(releaseFailure);
+    assertThat(validRange.getByteBufferFuture().get(1, TimeUnit.SECONDS).get()).isEqualTo((byte) 0);
+    assertThat(releaseCount.get()).isEqualTo(1);
+    assertThat(remaining).isEmpty();
+  }
+
+  @Test
+  void readVectored_allocatorError_completesFailedRangeAndContinues() throws Exception {
+    optimizer.onOpen(ITEM_ID, cacheManager);
+    optimizer.onOpen(FILE_INFO, cacheManager);
+    optimizer.read(0, ByteBuffer.allocate(1), realSource); // Prime the small-object cache.
+    GcsObjectRange first =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(1)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+    GcsObjectRange second =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(1)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+    OutOfMemoryError failure = new OutOfMemoryError("simulated allocation failure");
+    AtomicInteger allocationCount = new AtomicInteger();
+    AtomicInteger releaseCount = new AtomicInteger();
+
+    optimizer.readVectored(
+        List.of(first, second),
+        size -> {
+          if (allocationCount.getAndIncrement() == 0) {
+            throw failure;
+          }
+          return ByteBuffer.allocate(size);
+        },
+        buffer -> releaseCount.incrementAndGet());
+
+    ExecutionException exception =
+        assertThrows(
+            ExecutionException.class, () -> first.getByteBufferFuture().get(1, TimeUnit.SECONDS));
+    assertThat(exception.getCause()).isSameInstanceAs(failure);
+    assertThat(second.getByteBufferFuture().get(1, TimeUnit.SECONDS).get()).isEqualTo((byte) 0);
+    assertThat(releaseCount.get()).isEqualTo(0);
   }
 
   @Test

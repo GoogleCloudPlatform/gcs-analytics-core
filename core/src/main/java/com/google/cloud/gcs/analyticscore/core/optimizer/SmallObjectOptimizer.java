@@ -24,6 +24,7 @@ import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
+import com.google.cloud.gcs.analyticscore.client.VectoredIoUtil;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
@@ -34,6 +35,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.function.IntFunction;
 
 /** A {@link FormatOptimizer} that caches and serves small objects in a private buffer. */
@@ -122,6 +124,14 @@ public class SmallObjectOptimizer implements FormatOptimizer {
   @Override
   public List<GcsObjectRange> readVectored(
       List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate) throws IOException {
+    return readVectored(ranges, allocate, buffer -> {});
+  }
+
+  @Override
+  public List<GcsObjectRange> readVectored(
+      List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate, Consumer<ByteBuffer> release)
+      throws IOException {
+    checkNotNull(release, "Buffer release function must not be null");
     if (fileSize == -1 || fileSize > readOptions.getSmallObjectCacheThresholdBytes()) {
       return ranges;
     }
@@ -140,28 +150,38 @@ public class SmallObjectOptimizer implements FormatOptimizer {
 
     telemetry.recordMetric(Metric.SMALL_OBJECT_CACHE_HIT, ranges.size(), Collections.emptyMap());
     for (GcsObjectRange range : ranges) {
-      ByteBuffer dest = allocate.apply(range.getLength());
-      if (dest == null) {
-        range
-            .getByteBufferFuture()
-            .completeExceptionally(
-                new IllegalArgumentException(
-                    String.format("Buffer allocation returned null for range: %s", range)));
-        continue;
-      }
-      int bytesRead = serveFromCache(range.getOffset(), dest, cachedBuffer);
-      if (bytesRead < range.getLength()) {
-        range
-            .getByteBufferFuture()
-            .completeExceptionally(
-                new EOFException(
-                    String.format("Error while populating range: %s, unexpected EOF", range)));
-      } else {
+      ByteBuffer dest = null;
+      try {
+        dest = allocate.apply(range.getLength());
+        if (dest == null) {
+          throw new IllegalArgumentException(
+              String.format("Buffer allocation returned null for range: %s", range));
+        }
+        int bytesRead = serveFromCache(range.getOffset(), dest, cachedBuffer);
+        if (bytesRead < range.getLength()) {
+          throw new EOFException(
+              String.format("Error while populating range: %s, unexpected EOF", range));
+        }
         dest.flip();
-        range.getByteBufferFuture().complete(dest);
+        ByteBuffer result = dest;
+        dest = null; // Publication transfers ownership, even if completion throws.
+        range.getByteBufferFuture().complete(result);
+      } catch (Throwable e) {
+        if (dest != null) {
+          VectoredIoUtil.releaseOnFailure(dest, release, e);
+        }
+        range.getByteBufferFuture().completeExceptionally(toCompletionException(e, range));
       }
     }
     return Collections.emptyList();
+  }
+
+  private static Throwable toCompletionException(Throwable failure, GcsObjectRange range) {
+    if (failure instanceof Error) {
+      // Match GcsReadChannel without allocating a wrapper for allocation failures.
+      return failure;
+    }
+    return new IOException(String.format("Error while populating range: %s", range), failure);
   }
 
   private ByteBuffer ensureCached(VectoredSeekableByteChannel source) throws IOException {
