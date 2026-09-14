@@ -19,6 +19,25 @@ These properties govern the core connections, identity, and access parameters be
 | `user-project` | Project ID whose Google Cloud Project's billing account should be charged for the operation being executed. | - |
 | `decryption-key` | Decryption key for the object. | - |
 
+### Authentication and Network Proxy Options
+
+These properties configure standard Google Cloud authentication, OAuth2 token renewal, static service account impersonation, and HTTP network proxy connectivity.
+
+| Property | Description | Default Value |
+| :--- | :--- | :--- |
+| `auth.type` | Google Cloud authentication type. Supported values: `APPLICATION_DEFAULT`, `COMPUTE_ENGINE`, `SERVICE_ACCOUNT_JSON_KEYFILE`, `WORKLOAD_IDENTITY_FEDERATION_CREDENTIAL_CONFIG_FILE`, `USER_CREDENTIALS`, `UNAUTHENTICATED`. | `APPLICATION_DEFAULT` |
+| `auth.service.account.json.keyfile` | Path to a Service Account JSON keyfile. Required when `auth.type` is `SERVICE_ACCOUNT_JSON_KEYFILE`. | - |
+| `auth.workload.identity.federation.credential.config.file` | Path to a Workload Identity Federation credential configuration JSON file. Required when `auth.type` is `WORKLOAD_IDENTITY_FEDERATION_CREDENTIAL_CONFIG_FILE`. | - |
+| `auth.client.id` | OAuth2 client ID. Required when `auth.type` is `USER_CREDENTIALS`. | - |
+| `auth.client.secret` | OAuth2 client secret. Required when `auth.type` is `USER_CREDENTIALS`. | - |
+| `auth.refresh.token` | OAuth2 refresh token. Required when `auth.type` is `USER_CREDENTIALS`. | - |
+| `auth.impersonation.service.account` | Service account email to impersonate via static service account impersonation. | - |
+| `token.server.url` | Custom token server URL used to refresh OAuth2 access tokens. | - |
+| `proxy.address` | HTTP proxy address of the form `[https?://]hostname:port`. | - |
+| `proxy.username` | Username for authenticating with the HTTP proxy. | - |
+| `proxy.password` | Password for authenticating with the HTTP proxy. | - |
+| `http.read-timeout` | Socket read timeout for authentication HTTP requests in milliseconds or duration format (e.g., `5000`, `5s`). | `5000` (5s) |
+
 ### Caching and Prefetching
 
 These settings control how aggressively the library prefetches and caches metadata (like Parquet footers) and small objects in memory. Proper configuration here significantly reduces latency and redundant network calls during metadata discovery phases.
