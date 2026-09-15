@@ -85,16 +85,15 @@ class TelemetryTest {
   }
 
   @Test
-  void recordMetric_calledRepeatedly_reusesConstantUnknownOperation() {
+  void recordMetric_calledRepeatedly_reportsTheUnknownOperationId() {
     Metric testMetric = TestMetric.of("testMetric", Metric.MetricType.COUNTER);
 
     telemetry.recordMetric(testMetric, 1L, Collections.emptyMap());
     telemetry.recordMetric(testMetric, 2L, Collections.emptyMap());
 
     // A per-call id would be pure garbage: there is no operation for it to correlate with.
-    assertThat(listener.getEndedOperations().get(0).getOperationId()).isEqualTo("UNKNOWN");
-    assertThat(listener.getEndedOperations().get(1))
-        .isSameInstanceAs(listener.getEndedOperations().get(0));
+    assertThat(listener.getEndedOperations().stream().map(Operation::getOperationId))
+        .containsExactly("UNKNOWN", "UNKNOWN");
   }
 
   @Test
