@@ -116,7 +116,7 @@ public class OpenTelemetryReporter implements OperationListener {
    */
   private Attributes mergeAttributes(
       Attributes operationAttributes, Map<String, String> metricAttributes) {
-    if (metricAttributes == null || metricAttributes.isEmpty()) {
+    if (metricAttributes.isEmpty()) {
       return operationAttributes;
     }
     AttributesBuilder builder = Attributes.builder().putAll(operationAttributes);
@@ -127,7 +127,7 @@ public class OpenTelemetryReporter implements OperationListener {
   }
 
   private Attributes toOpenTelemetryAttributes(Map<String, String> attributes) {
-    if (attributes == null || attributes.isEmpty()) {
+    if (attributes.isEmpty()) {
       return Attributes.empty();
     }
     AttributesBuilder builder = Attributes.builder();

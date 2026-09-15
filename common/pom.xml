@@ -95,8 +95,9 @@ limitations under the License.
         </dependency>
         <!--
           Without a binding, SLF4J falls back to the NOP logger, which reports every level as
-          disabled. LoggingTelemetryReporter skips its work when the configured level is disabled,
-          so its tests would exercise nothing at all.
+          disabled: log statements compile and run but nothing downstream of the level check is
+          ever executed under test. A real binding keeps those paths honest. The reporter's own
+          tests inject their logger and so do not depend on how this binding is configured.
         -->
         <dependency>
             <groupId>org.slf4j</groupId>
