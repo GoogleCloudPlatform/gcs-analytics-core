@@ -36,6 +36,9 @@ public class LoggingTelemetryReporter implements OperationListener {
 
   @Override
   public void onOperationStart(Operation operation) {
+    if (!isLogLevelEnabled()) {
+      return;
+    }
     String message =
         String.format(
             "Operation started: [%s], id: [%s], attributes: %s",
@@ -45,6 +48,9 @@ public class LoggingTelemetryReporter implements OperationListener {
 
   @Override
   public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {
+    if (!isLogLevelEnabled()) {
+      return;
+    }
     String message =
         String.format(
             "Operation ended: [%s], id: [%s], attributes: %s, metrics: %s",
@@ -80,6 +86,29 @@ public class LoggingTelemetryReporter implements OperationListener {
     }
     sb.append("}");
     return sb.toString();
+  }
+
+  /**
+   * Reports whether the configured level is currently enabled on {@link #LOG}.
+   *
+   * <p>Checked before the message is built. Rendering the attribute map and the full metric map
+   * into a string is the expensive part of reporting, and it is wasted work whenever the level is
+   * filtered out downstream.
+   */
+  private boolean isLogLevelEnabled() {
+    switch (options.getLogLevel()) {
+      case TRACE:
+        return LOG.isTraceEnabled();
+      case DEBUG:
+        return LOG.isDebugEnabled();
+      case WARNING:
+        return LOG.isWarnEnabled();
+      case ERROR:
+        return LOG.isErrorEnabled();
+      case INFO:
+      default:
+        return LOG.isInfoEnabled();
+    }
   }
 
   private void logMessage(String message) {

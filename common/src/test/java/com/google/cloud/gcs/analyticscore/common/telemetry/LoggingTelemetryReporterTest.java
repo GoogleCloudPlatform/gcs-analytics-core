@@ -20,6 +20,8 @@ import static com.google.common.truth.Truth.assertThat;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -84,6 +86,42 @@ class LoggingTelemetryReporterTest {
       assertThat(formattedMetrics)
           .isAnyOf(
               "{Metric1=100, Metric2{key=value}=200}", "{Metric2{key=value}=200, Metric1=100}");
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(LoggingTelemetryOptions.LogLevel.class)
+  void onOperationStart_everyConfiguredLevel_isReportedWithoutError(
+      LoggingTelemetryOptions.LogLevel logLevel) {
+    try (LoggingTelemetryReporter reporter =
+        new LoggingTelemetryReporter(
+            LoggingTelemetryOptions.builder().setLogLevel(logLevel).build())) {
+      Operation operation = Operation.builder().setName("READ").build();
+
+      reporter.onOperationStart(operation);
+
+      assertThat(reporter.formatMetrics(Map.of())).isEqualTo("{}");
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(LoggingTelemetryOptions.LogLevel.class)
+  void onOperationEnd_everyConfiguredLevel_isReportedWithoutError(
+      LoggingTelemetryOptions.LogLevel logLevel) {
+    try (LoggingTelemetryReporter reporter =
+        new LoggingTelemetryReporter(
+            LoggingTelemetryOptions.builder().setLogLevel(logLevel).build())) {
+      Operation operation = Operation.builder().setName("READ").build();
+      Map<MetricKey, Long> metrics =
+          Map.of(
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("Metric1", Metric.MetricType.COUNTER))
+                  .build(),
+              100L);
+
+      reporter.onOperationEnd(operation, metrics);
+
+      assertThat(reporter.formatMetrics(metrics)).isEqualTo("{Metric1=100}");
     }
   }
 }
