@@ -181,13 +181,14 @@ class GcsExceptionUtil {
   }
 
   /**
-   * Creates a {@link FileNotFoundException} with an attached synthetic {@link StorageException}
-   * with HTTP status code 404 as its cause.
+   * Creates a {@link FileNotFoundException} for the given location.
    *
    * @param location the location URI string that was not found
    * @return a FileNotFoundException wrapping a 404 StorageException
    */
   private static FileNotFoundException createFileNotFoundException(String location) {
+    // Callers classify Not Found failures by unwrapping the cause via
+    // getStorageException()/getErrorType(), so attach a synthetic 404 StorageException.
     StorageException storageException =
         new StorageException(
             HttpURLConnection.HTTP_NOT_FOUND, String.format("Object %s not found", location));
