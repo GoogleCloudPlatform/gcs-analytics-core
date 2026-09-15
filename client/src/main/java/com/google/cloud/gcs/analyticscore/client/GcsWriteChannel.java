@@ -26,6 +26,7 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.channels.WritableByteChannel;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,8 +40,8 @@ public class GcsWriteChannel implements WritableByteChannel {
   private volatile WritableByteChannel sdkWriteChannel;
   private final GcsWriteOptions writeOptions;
 
-  private volatile long bytesWritten = 0;
-  private volatile boolean closed = false;
+  final AtomicLong bytesWritten = new AtomicLong(0);
+  volatile boolean closed = false;
 
   GcsWriteChannel(
       BlobWriteSession blobWriteSession,
@@ -55,22 +56,26 @@ public class GcsWriteChannel implements WritableByteChannel {
 
   @Override
   public int write(ByteBuffer src) throws IOException {
-    if (!isOpen()) {
+    // Read the delegate exactly once. A concurrent close() nulls the field, and re-reading it
+    // after the open check would surface an untranslated NullPointerException instead of the
+    // documented ClosedChannelException.
+    WritableByteChannel channel = sdkWriteChannel;
+    if (closed || channel == null || !channel.isOpen()) {
       throw new ClosedChannelException();
     }
 
     int bytesToDraft = src.remaining();
     try {
-      int written = sdkWriteChannel.write(src);
+      int written = channel.write(src);
       if (written > 0) {
-        bytesWritten += written;
+        bytesWritten.addAndGet(written);
       }
 
       LOG.trace(
           "{} bytes were written out of provided buffer of capacity {}. Total: {}",
           written,
           bytesToDraft,
-          bytesWritten);
+          bytesWritten.get());
       return written;
     } catch (StorageException | IOException e) {
       throw handleException(e, "write");
@@ -115,12 +120,12 @@ public class GcsWriteChannel implements WritableByteChannel {
     }
   }
 
-  private IOException handleException(Exception e, String context) {
+  IOException handleException(Exception e, String context) {
     return GcsExceptionUtil.translateWriteException(
-        e, context, blobInfo.getBlobId(), bytesWritten, writeOptions);
+        e, context, blobInfo.getBlobId(), getBytesWritten(), writeOptions);
   }
 
   public long getBytesWritten() {
-    return bytesWritten;
+    return bytesWritten.get();
   }
 }

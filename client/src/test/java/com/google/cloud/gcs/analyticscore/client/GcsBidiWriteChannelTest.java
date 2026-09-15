@@ -1,0 +1,287 @@
+/*
+ * Copyright 2026 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.google.cloud.gcs.analyticscore.client;
+
+import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.google.cloud.storage.BlobAppendableUpload;
+import com.google.cloud.storage.BlobAppendableUpload.AppendableUploadWriteableByteChannel;
+import com.google.cloud.storage.BlobAppendableUploadConfig;
+import com.google.cloud.storage.BlobAppendableUploadConfig.CloseAction;
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.Storage.BlobWriteOption;
+import com.google.cloud.storage.StorageException;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
+import java.nio.file.AccessDeniedException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
+
+class GcsBidiWriteChannelTest {
+
+  private static final BlobWriteOption[] NO_WRITE_OPTIONS = new BlobWriteOption[0];
+  private static final String TEST_BUCKET = "test-bucket";
+  private static final String TEST_OBJECT = "test-object";
+
+  @Mock private Storage storage;
+  @Mock private BlobAppendableUpload mockSession;
+  @Mock private AppendableUploadWriteableByteChannel mockAppendChannel;
+
+  private BlobInfo blobInfo;
+
+  @BeforeEach
+  void setUp() throws Exception {
+    MockitoAnnotations.openMocks(this);
+    blobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
+    when(storage.blobAppendableUpload(
+            any(BlobInfo.class),
+            any(BlobAppendableUploadConfig.class),
+            any(BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    when(mockSession.open()).thenReturn(mockAppendChannel);
+    when(mockAppendChannel.isOpen()).thenReturn(true);
+  }
+
+  private GcsBidiWriteChannel createChannel(GcsWriteOptions writeOptions) throws IOException {
+    return new GcsBidiWriteChannel(storage, blobInfo, writeOptions, NO_WRITE_OPTIONS);
+  }
+
+  @Test
+  void constructor_setsCloseActionBasedOnOptions_finalizeOnCloseTrue() throws Exception {
+    GcsWriteOptions optionsTrue =
+        GcsWriteOptions.builder().setBidiWriteEnabled(true).setBidiFinalizeOnClose(true).build();
+    ArgumentCaptor<BlobAppendableUploadConfig> configCaptor =
+        ArgumentCaptor.forClass(BlobAppendableUploadConfig.class);
+
+    GcsBidiWriteChannel channelTrue = createChannel(optionsTrue);
+
+    verify(storage)
+        .blobAppendableUpload(eq(blobInfo), configCaptor.capture(), any(BlobWriteOption[].class));
+    assertThat(configCaptor.getValue().getCloseAction())
+        .isEqualTo(CloseAction.FINALIZE_WHEN_CLOSING);
+    assertThat(channelTrue.isOpen()).isTrue();
+  }
+
+  @Test
+  void constructor_setsCloseActionBasedOnOptions_finalizeOnCloseFalse() throws Exception {
+    GcsWriteOptions optionsFalse =
+        GcsWriteOptions.builder().setBidiWriteEnabled(true).setBidiFinalizeOnClose(false).build();
+    ArgumentCaptor<BlobAppendableUploadConfig> configCaptorFalse =
+        ArgumentCaptor.forClass(BlobAppendableUploadConfig.class);
+
+    GcsBidiWriteChannel channelFalse = createChannel(optionsFalse);
+
+    verify(storage)
+        .blobAppendableUpload(
+            eq(blobInfo), configCaptorFalse.capture(), any(BlobWriteOption[].class));
+    assertThat(configCaptorFalse.getValue().getCloseAction())
+        .isEqualTo(CloseAction.CLOSE_WITHOUT_FINALIZING);
+    assertThat(channelFalse.isOpen()).isTrue();
+  }
+
+  @Test
+  void constructor_nullStorage_throwsNullPointerException() {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    assertThrows(
+        NullPointerException.class,
+        () -> new GcsBidiWriteChannel(null, blobInfo, options, NO_WRITE_OPTIONS));
+  }
+
+  @Test
+  void constructor_nullBlobInfo_throwsNullPointerException() {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    assertThrows(
+        NullPointerException.class,
+        () -> new GcsBidiWriteChannel(storage, null, options, NO_WRITE_OPTIONS));
+  }
+
+  @Test
+  void constructor_nullWriteOptions_throwsNullPointerException() {
+    assertThrows(
+        NullPointerException.class,
+        () -> new GcsBidiWriteChannel(storage, blobInfo, null, NO_WRITE_OPTIONS));
+  }
+
+  @Test
+  void constructor_nullSdkWriteOptions_throwsNullPointerException() {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    assertThrows(
+        NullPointerException.class,
+        () -> new GcsBidiWriteChannel(storage, blobInfo, options, null));
+  }
+
+  @Test
+  void constructor_initializationThrowsStorageException_translated() throws Exception {
+    StorageException se = new StorageException(403, "Forbidden");
+    when(storage.blobAppendableUpload(
+            any(BlobInfo.class),
+            any(BlobAppendableUploadConfig.class),
+            any(BlobWriteOption[].class)))
+        .thenThrow(se);
+
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+
+    assertThrows(AccessDeniedException.class, () -> createChannel(options));
+  }
+
+  @Test
+  void write_success_delegatesToAppendChannelAndTracksBytes() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = createChannel(options);
+
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3, 4, 5});
+    when(mockAppendChannel.write(any(ByteBuffer.class)))
+        .thenAnswer(
+            i -> {
+              ByteBuffer buf = i.getArgument(0);
+              int rem = buf.remaining();
+              buf.position(buf.position() + rem);
+              return rem;
+            });
+
+    int written = channel.write(buffer);
+
+    assertThat(written).isEqualTo(5);
+    assertThat(channel.getBytesWritten()).isEqualTo(5L);
+  }
+
+  @Test
+  void write_nullBuffer_throwsNullPointerException() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = createChannel(options);
+
+    assertThrows(NullPointerException.class, () -> channel.write(null));
+  }
+
+  @Test
+  void write_whenClosed_throwsClosedChannelException() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = createChannel(options);
+    channel.close();
+
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3});
+    assertThrows(ClosedChannelException.class, () -> channel.write(buffer));
+  }
+
+  /**
+   * Regression test for a write/close race. {@code write()} used to read the volatile delegate
+   * twice — once for the open check and again for the write — so a {@code close()} landing between
+   * the two reads produced an untranslated {@link NullPointerException}. Closing from inside the
+   * {@code isOpen()} stub reproduces that exact interleaving deterministically, without threads.
+   */
+  @Test
+  void write_whenClosedConcurrentlyDuringOpenCheck_doesNotThrowNullPointerException()
+      throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = createChannel(options);
+    when(mockAppendChannel.isOpen())
+        .thenAnswer(
+            invocation -> {
+              channel.close();
+              return true;
+            });
+    when(mockAppendChannel.write(any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buf = invocation.getArgument(0);
+              int remaining = buf.remaining();
+              buf.position(buf.position() + remaining);
+              return remaining;
+            });
+
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3});
+    int written = channel.write(buffer);
+
+    assertThat(written).isEqualTo(3);
+  }
+
+  @Test
+  void write_failure_translatesException() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = createChannel(options);
+
+    StorageException se = new StorageException(403, "Forbidden");
+    when(mockAppendChannel.write(any(ByteBuffer.class))).thenThrow(se);
+
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3});
+    assertThrows(AccessDeniedException.class, () -> channel.write(buffer));
+  }
+
+  @Test
+  void close_success_closesAppendChannelAndUpdatesIsOpen() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = createChannel(options);
+
+    assertThat(channel.isOpen()).isTrue();
+    channel.close();
+
+    verify(mockAppendChannel).close();
+    assertThat(channel.isOpen()).isFalse();
+
+    // Secondary close is no-op
+    channel.close();
+    verify(mockAppendChannel).close(); // Still called only once
+  }
+
+  @Test
+  void close_failure_translatesException() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = createChannel(options);
+
+    StorageException se = new StorageException(403, "Forbidden");
+    Mockito.doThrow(se).when(mockAppendChannel).close();
+
+    assertThrows(AccessDeniedException.class, () -> channel.close());
+    assertThat(channel.isOpen()).isFalse();
+  }
+
+  @Test
+  void write_emptyBuffer_returnsZeroAndDoesNotIncrementBytesWritten() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = createChannel(options);
+
+    ByteBuffer emptyBuffer = ByteBuffer.allocate(0);
+    int written = channel.write(emptyBuffer);
+
+    assertThat(written).isEqualTo(0);
+    assertThat(channel.getBytesWritten()).isEqualTo(0L);
+    verify(mockAppendChannel, never()).write(any(ByteBuffer.class));
+  }
+
+  @Test
+  void isOpen_whenUnderlyingChannelClosed_returnsFalse() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = createChannel(options);
+
+    when(mockAppendChannel.isOpen()).thenReturn(false);
+
+    assertThat(channel.isOpen()).isFalse();
+  }
+}
