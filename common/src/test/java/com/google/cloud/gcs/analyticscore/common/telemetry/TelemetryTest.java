@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Collections;
 import java.util.Map;
@@ -80,5 +81,112 @@ class TelemetryTest {
     assertThat(key.getMetric().getName()).isEqualTo("testMetric");
     assertThat(key.getAttributes()).isEqualTo(attributes);
     assertThat(metrics.get(key)).isEqualTo(value);
+  }
+
+  @Test
+  void measure_withoutListeners_returnsSupplierResult() throws Exception {
+    Telemetry telemetryWithoutListeners = new Telemetry(Collections.emptyList());
+
+    String result =
+        telemetryWithoutListeners.measure(
+            "READ",
+            TestMetric.of("duration", Metric.MetricType.DURATION),
+            Collections.emptyMap(),
+            recorder -> "result");
+
+    assertThat(result).isEqualTo("result");
+  }
+
+  @Test
+  void measure_withoutListeners_acceptsRecordedMetrics() throws Exception {
+    Telemetry telemetryWithoutListeners = new Telemetry(Collections.emptyList());
+    Metric counter = TestMetric.of("bytes", Metric.MetricType.COUNTER);
+
+    String result =
+        telemetryWithoutListeners.measure(
+            "READ",
+            TestMetric.of("duration", Metric.MetricType.DURATION),
+            Collections.emptyMap(),
+            recorder -> {
+              recorder.record(counter, 42L, Collections.emptyMap());
+              return "result";
+            });
+
+    assertThat(result).isEqualTo("result");
+  }
+
+  @Test
+  void measure_withoutListeners_propagatesSupplierException() {
+    Telemetry telemetryWithoutListeners = new Telemetry(Collections.emptyList());
+    IllegalStateException thrown = new IllegalStateException("boom");
+
+    IllegalStateException actual =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                telemetryWithoutListeners.measure(
+                    "READ",
+                    TestMetric.of("duration", Metric.MetricType.DURATION),
+                    Collections.emptyMap(),
+                    recorder -> {
+                      throw thrown;
+                    }));
+
+    assertThat(actual).isSameInstanceAs(thrown);
+  }
+
+  @Test
+  void measure_withExplicitOperationAndWithoutListeners_returnsSupplierResult() throws Exception {
+    Telemetry telemetryWithoutListeners = new Telemetry(Collections.emptyList());
+    Operation operation = Operation.builder().setName("READ").build();
+
+    String result = telemetryWithoutListeners.measure(operation, recorder -> "result");
+
+    assertThat(result).isEqualTo("result");
+  }
+
+  @Test
+  void measure_withExplicitOperationIdAndWithoutListeners_returnsSupplierResult() throws Exception {
+    Telemetry telemetryWithoutListeners = new Telemetry(Collections.emptyList());
+
+    String result =
+        telemetryWithoutListeners.measure(
+            "operation-id",
+            "READ",
+            TestMetric.of("duration", Metric.MetricType.DURATION),
+            Collections.emptyMap(),
+            recorder -> "result");
+
+    assertThat(result).isEqualTo("result");
+  }
+
+  @Test
+  void measure_afterClose_doesNotNotifyListener() throws Exception {
+    // close() clears the listener list, which is the observable way to reach the no-listener path
+    // while still holding a reference to the listener that would otherwise have been notified.
+    telemetry.close();
+
+    Object unused =
+        telemetry.measure(
+            "READ",
+            TestMetric.of("duration", Metric.MetricType.DURATION),
+            Collections.emptyMap(),
+            recorder -> {
+              recorder.record(
+                  TestMetric.of("bytes", Metric.MetricType.COUNTER), 42L, Collections.emptyMap());
+              return "result";
+            });
+
+    assertThat(listener.getStartedOperations()).isEmpty();
+  }
+
+  @Test
+  void recordMetric_afterClose_doesNotNotifyListener() {
+    telemetry.close();
+
+    telemetry.recordMetric(
+        TestMetric.of("testMetric", Metric.MetricType.COUNTER), 1L, Collections.emptyMap());
+
+    assertThat(listener.getEndedOperations()).isEmpty();
   }
 }
