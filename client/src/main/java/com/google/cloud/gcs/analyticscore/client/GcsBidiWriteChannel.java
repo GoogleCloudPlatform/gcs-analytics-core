@@ -38,17 +38,11 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  * <p>This channel utilizes the {@link BlobAppendableUpload} session from the GCS client library,
  * allowing incremental, bidirectional writes that can optionally be finalized on close.
  */
-public class GcsBidiWriteChannel extends GcsWriteChannel {
+class GcsBidiWriteChannel extends GcsWriteChannel {
 
   private volatile AppendableUploadWriteableByteChannel gcsAppendChannel;
 
-  public GcsBidiWriteChannel(
-      @NonNull Storage storage, @NonNull BlobInfo blobInfo, @NonNull GcsWriteOptions writeOptions)
-      throws IOException {
-    this(storage, blobInfo, writeOptions, new BlobWriteOption[0]);
-  }
-
-  public GcsBidiWriteChannel(
+  GcsBidiWriteChannel(
       @NonNull Storage storage,
       @NonNull BlobInfo blobInfo,
       @NonNull GcsWriteOptions writeOptions,
