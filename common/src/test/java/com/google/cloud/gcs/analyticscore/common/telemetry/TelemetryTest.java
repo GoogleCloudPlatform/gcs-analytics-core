@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Collections;
@@ -188,5 +189,57 @@ class TelemetryTest {
         TestMetric.of("testMetric", Metric.MetricType.COUNTER), 1L, Collections.emptyMap());
 
     assertThat(listener.getEndedOperations()).isEmpty();
+  }
+
+  @Test
+  void measure_withExplicitOperationId_propagatesIdToListener() throws Exception {
+    Object unused =
+        telemetry.measure(
+            "explicit-operation-id",
+            "READ",
+            TestMetric.of("duration", Metric.MetricType.DURATION),
+            Collections.emptyMap(),
+            recorder -> "result");
+
+    assertThat(listener.getStartedOperations().get(0).getOperationId())
+        .isEqualTo("explicit-operation-id");
+  }
+
+  @Test
+  void measure_listenerThrowsOnStart_stillReturnsSupplierResult() throws Exception {
+    Telemetry telemetryWithFailingListener =
+        new Telemetry(Collections.singletonList(new ThrowingOperationListener()));
+
+    String result =
+        telemetryWithFailingListener.measure(
+            "READ",
+            TestMetric.of("duration", Metric.MetricType.DURATION),
+            Collections.emptyMap(),
+            recorder -> "result");
+
+    assertThat(result).isEqualTo("result");
+  }
+
+  @Test
+  void recordMetric_listenerThrows_doesNotPropagate() {
+    Telemetry telemetryWithFailingListener =
+        new Telemetry(Collections.singletonList(new ThrowingOperationListener()));
+    Metric testMetric = TestMetric.of("testMetric", Metric.MetricType.COUNTER);
+
+    assertDoesNotThrow(
+        () -> telemetryWithFailingListener.recordMetric(testMetric, 1L, Collections.emptyMap()));
+  }
+
+  /** Fails on every callback, to verify that a misbehaving listener cannot break an operation. */
+  private static final class ThrowingOperationListener implements OperationListener {
+    @Override
+    public void onOperationStart(Operation operation) {
+      throw new IllegalStateException("listener failed on start");
+    }
+
+    @Override
+    public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {
+      throw new IllegalStateException("listener failed on end");
+    }
   }
 }

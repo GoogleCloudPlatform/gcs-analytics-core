@@ -93,6 +93,16 @@ limitations under the License.
             <artifactId>junit-jupiter-params</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+          Without a binding, SLF4J falls back to the NOP logger, which reports every level as
+          disabled. LoggingTelemetryReporter skips its work when the configured level is disabled,
+          so its tests would exercise nothing at all.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-junit-jupiter</artifactId>
