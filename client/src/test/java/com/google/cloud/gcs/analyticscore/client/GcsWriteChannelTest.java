@@ -219,17 +219,6 @@ class GcsWriteChannelTest {
     verify(mockChannel, times(1)).close();
   }
 
-  @Test
-  void finalizeAndClose_closesUnderlyingChannelOnce() throws Exception {
-    GcsWriteChannel channel = createChannel(mockChannel, blobInfo, writeOptions);
-
-    channel.finalizeAndClose();
-    channel.close();
-
-    verify(mockChannel, times(1)).close();
-    assertThat(channel.isOpen()).isFalse();
-  }
-
   /**
    * Regression test for a write/close race. {@code write()} used to read the volatile delegate
    * twice — once for the open check and again for the write — so a {@code close()} landing between

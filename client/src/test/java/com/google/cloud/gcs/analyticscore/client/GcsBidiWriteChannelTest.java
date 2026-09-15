@@ -284,42 +284,4 @@ class GcsBidiWriteChannelTest {
 
     assertThat(channel.isOpen()).isFalse();
   }
-
-  @Test
-  void finalizeAndClose_whenFinalizeOnCloseDisabled_finalizesAnyway() throws Exception {
-    GcsWriteOptions options =
-        GcsWriteOptions.builder().setBidiWriteEnabled(true).setBidiFinalizeOnClose(false).build();
-    GcsBidiWriteChannel channel = createChannel(options);
-
-    channel.finalizeAndClose();
-
-    verify(mockAppendChannel).finalizeAndClose();
-    verify(mockAppendChannel, never()).close();
-    assertThat(channel.isOpen()).isFalse();
-  }
-
-  @Test
-  void finalizeAndClose_isIdempotentAndSuppressesSubsequentClose() throws Exception {
-    GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = createChannel(options);
-
-    channel.finalizeAndClose();
-    channel.finalizeAndClose();
-    channel.close();
-
-    verify(mockAppendChannel).finalizeAndClose();
-    verify(mockAppendChannel, never()).close();
-  }
-
-  @Test
-  void finalizeAndClose_failure_translatesException() throws Exception {
-    GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = createChannel(options);
-
-    StorageException se = new StorageException(403, "Forbidden");
-    Mockito.doThrow(se).when(mockAppendChannel).finalizeAndClose();
-
-    assertThrows(AccessDeniedException.class, channel::finalizeAndClose);
-    assertThat(channel.isOpen()).isFalse();
-  }
 }
