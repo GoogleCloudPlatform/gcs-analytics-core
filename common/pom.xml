@@ -89,6 +89,22 @@ limitations under the License.
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          Without a binding, SLF4J falls back to the NOP logger, which reports every level as
+          disabled: log statements compile and run but nothing downstream of the level check is
+          ever executed under test. A real binding keeps those paths honest. The reporter's own
+          tests inject their logger and so do not depend on how this binding is configured.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-junit-jupiter</artifactId>
             <scope>test</scope>

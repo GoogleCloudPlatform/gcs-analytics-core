@@ -34,6 +34,16 @@ public class OpenTelemetryReporter implements OperationListener {
   private final Meter meter;
   private final Map<String, LongHistogram> histograms = new ConcurrentHashMap<>();
   private final Map<String, LongCounter> counters = new ConcurrentHashMap<>();
+
+  /**
+   * Caches the {@link AttributeKey} for each attribute name.
+   *
+   * <p>{@code AttributeKey.stringKey} allocates and computes a hash on every call, and the same
+   * handful of names recur on every single operation. The set of names is closed — they come from
+   * constants in the instrumentation, not from user data — so this cannot grow without bound.
+   */
+  private final Map<String, AttributeKey<String>> attributeKeys = new ConcurrentHashMap<>();
+
   private final OpenTelemetryProvider openTelemetryProvider;
 
   public OpenTelemetryReporter(OpenTelemetryOptions options) {
@@ -82,11 +92,7 @@ public class OpenTelemetryReporter implements OperationListener {
     for (Map.Entry<MetricKey, Long> entry : metrics.entrySet()) {
       MetricKey metricKey = entry.getKey();
       long metricValue = entry.getValue();
-      Attributes mergedAttributes =
-          Attributes.builder()
-              .putAll(operationAttributes)
-              .putAll(toOpenTelemetryAttributes(metricKey.getAttributes()))
-              .build();
+      Attributes mergedAttributes = mergeAttributes(operationAttributes, metricKey.getAttributes());
       if (metricKey.getMetric().getType() == Metric.MetricType.DURATION) {
         LongHistogram histogram =
             histograms.computeIfAbsent(
@@ -102,14 +108,36 @@ public class OpenTelemetryReporter implements OperationListener {
     }
   }
 
+  /**
+   * Combines the operation-level attributes with the attributes of a single metric.
+   *
+   * <p>Most metrics carry no attributes of their own, in which case the already-built operation
+   * attributes are returned as-is rather than copied through a new builder.
+   */
+  private Attributes mergeAttributes(
+      Attributes operationAttributes, Map<String, String> metricAttributes) {
+    if (metricAttributes.isEmpty()) {
+      return operationAttributes;
+    }
+    AttributesBuilder builder = Attributes.builder().putAll(operationAttributes);
+    for (Map.Entry<String, String> entry : metricAttributes.entrySet()) {
+      builder.put(attributeKey(entry.getKey()), entry.getValue());
+    }
+    return builder.build();
+  }
+
   private Attributes toOpenTelemetryAttributes(Map<String, String> attributes) {
-    if (attributes == null || attributes.isEmpty()) {
+    if (attributes.isEmpty()) {
       return Attributes.empty();
     }
     AttributesBuilder builder = Attributes.builder();
     for (Map.Entry<String, String> entry : attributes.entrySet()) {
-      builder.put(AttributeKey.stringKey(entry.getKey()), entry.getValue());
+      builder.put(attributeKey(entry.getKey()), entry.getValue());
     }
     return builder.build();
+  }
+
+  private AttributeKey<String> attributeKey(String name) {
+    return attributeKeys.computeIfAbsent(name, AttributeKey::stringKey);
   }
 }
