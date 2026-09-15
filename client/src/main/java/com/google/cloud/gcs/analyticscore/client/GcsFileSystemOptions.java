@@ -24,20 +24,11 @@ import java.util.Map;
 public abstract class GcsFileSystemOptions {
 
   private static final String READ_THREAD_COUNT_KEY = "analytics-core.read.thread.count";
-  private static final String CLIENT_TYPE_KEY = "client.type";
   private static final String HNS_API_ENABLED_KEY = "analytics-core.hierarchical.namespace.enable";
   private static final String METADATA_LOOKUP_PARALLEL_ENABLED_KEY =
       "analytics-core.metadata.lookup.parallel.enable";
 
-  /** Cloud Storage client to use. */
-  public enum ClientType {
-    HTTP_CLIENT,
-    GRPC_CLIENT,
-  }
-
   public abstract int getReadThreadCount();
-
-  public abstract ClientType getClientType();
 
   public abstract GcsClientOptions getGcsClientOptions();
 
@@ -55,7 +46,6 @@ public abstract class GcsFileSystemOptions {
   public static Builder builder() {
     return new AutoValue_GcsFileSystemOptions.Builder()
         .setReadThreadCount(16)
-        .setClientType(ClientType.HTTP_CLIENT)
         .setHnsApiEnabled(true)
         .setMetadataLookupParallelEnabled(true)
         .setGcsClientOptions(GcsClientOptions.builder().build())
@@ -69,10 +59,6 @@ public abstract class GcsFileSystemOptions {
     if (analyticsCoreOptions.containsKey(prefix + READ_THREAD_COUNT_KEY)) {
       optionsBuilder.setReadThreadCount(
           Integer.parseInt(analyticsCoreOptions.get(prefix + READ_THREAD_COUNT_KEY)));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + CLIENT_TYPE_KEY)) {
-      optionsBuilder.setClientType(
-          ClientType.valueOf(analyticsCoreOptions.get(prefix + CLIENT_TYPE_KEY)));
     }
     if (analyticsCoreOptions.containsKey(prefix + HNS_API_ENABLED_KEY)) {
       optionsBuilder.setHnsApiEnabled(
@@ -98,8 +84,6 @@ public abstract class GcsFileSystemOptions {
   /** Builder for {@link GcsFileSystemOptions}. */
   @AutoValue.Builder
   public abstract static class Builder {
-
-    public abstract Builder setClientType(ClientType clientType);
 
     public abstract Builder setReadThreadCount(int readThreadCount);
 

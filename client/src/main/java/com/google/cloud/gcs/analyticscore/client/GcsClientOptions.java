@@ -52,6 +52,9 @@ public abstract class GcsClientOptions {
       "channel.write.pcu.part-file.name-prefix";
   private static final String TEMPORARY_PATHS_KEY = "channel.write.temporary-paths";
 
+  private static final String CLIENT_TYPE_KEY = "analytics-core.client.type";
+  private static final ClientType DEFAULT_CLIENT_TYPE = ClientType.JSON;
+
   /**
    * Upload strategies matching the configurations offered by the google-cloud-storage Java client.
    */
@@ -68,6 +71,8 @@ public abstract class GcsClientOptions {
     NEVER,
     ON_SUCCESS
   }
+
+  public abstract ClientType getClientType();
 
   public abstract Optional<String> getProjectId();
 
@@ -101,6 +106,7 @@ public abstract class GcsClientOptions {
   // TODO: Benchmark and determine the optimal default values for write options.
   public static Builder builder() {
     return new AutoValue_GcsClientOptions.Builder()
+        .setClientType(DEFAULT_CLIENT_TYPE)
         .setGcsReadOptions(GcsReadOptions.builder().build())
         .setGcsWriteOptions(GcsWriteOptions.builder().build())
         .setUploadChunkSize(24 * MB)
@@ -115,6 +121,10 @@ public abstract class GcsClientOptions {
   public static GcsClientOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
     GcsClientOptions.Builder optionsBuilder = builder();
+    String clientTypeStr = analyticsCoreOptions.get(prefix + CLIENT_TYPE_KEY);
+    if (clientTypeStr != null) {
+      optionsBuilder.setClientType(ClientType.fromString(clientTypeStr));
+    }
     if (analyticsCoreOptions.containsKey(prefix + PROJECT_ID_KEY)) {
       optionsBuilder.setProjectId(analyticsCoreOptions.get(prefix + PROJECT_ID_KEY));
     }
@@ -166,6 +176,8 @@ public abstract class GcsClientOptions {
   /** Builder for {@link GcsClientOptions}. */
   @AutoValue.Builder
   public abstract static class Builder {
+
+    public abstract Builder setClientType(ClientType clientType);
 
     public abstract Builder setProjectId(String projectId);
 

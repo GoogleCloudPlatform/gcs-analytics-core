@@ -31,14 +31,14 @@ class GcsFileSystemOptionsTest {
     ImmutableMap<String, String> properties =
         ImmutableMap.of(
             "fs.gs.project-id", "test-project",
-            "fs.gs.client.type", "GRPC_CLIENT",
+            "fs.gs.analytics-core.client.type", "GRPC",
             "fs.gs.analytics-core.read.thread.count", "32",
             "fs.gs.analytics-core.hierarchical.namespace.enable", "true");
 
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
     assertThat(options.getGcsClientOptions().getProjectId().get()).isEqualTo("test-project");
-    assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.GRPC_CLIENT);
+    assertThat(options.getGcsClientOptions().getClientType()).isEqualTo(ClientType.GRPC);
     assertThat(options.getReadThreadCount()).isEqualTo(32);
     assertThat(options.isHnsApiEnabled()).isTrue();
   }
@@ -72,7 +72,7 @@ class GcsFileSystemOptionsTest {
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
     assertThat(options.getGcsClientOptions().getProjectId().isEmpty()).isTrue();
-    assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.HTTP_CLIENT);
+    assertThat(options.getGcsClientOptions().getClientType()).isEqualTo(ClientType.JSON);
     assertThat(options.getReadThreadCount()).isEqualTo(16);
     assertThat(options.isHnsApiEnabled()).isTrue();
 
@@ -81,6 +81,16 @@ class GcsFileSystemOptionsTest {
     assertThat(cacheOptions.getFooterCacheMaxSizeBytes()).isEqualTo(100 * MB);
     assertThat(cacheOptions.isSmallObjectCacheEnabled()).isFalse();
     assertThat(cacheOptions.getSmallObjectCacheMaxSizeBytes()).isEqualTo(200 * MB);
+  }
+
+  @Test
+  void createFromOptions_withBidiClientType_shouldParseCorrectly() {
+    ImmutableMap<String, String> properties =
+        ImmutableMap.of("fs.gs.analytics-core.client.type", "BIDI");
+
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
+
+    assertThat(options.getGcsClientOptions().getClientType()).isEqualTo(ClientType.BIDI);
   }
 
   @Test

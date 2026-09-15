@@ -473,7 +473,12 @@ class GcsClientImplTest {
   }
 
   private GcsClientImpl createClientWithMockStorage(Storage mockStorage) {
-    return new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+    return createClientWithMockStorage(mockStorage, TEST_GCS_CLIENT_OPTIONS);
+  }
+
+  private GcsClientImpl createClientWithMockStorage(
+      Storage mockStorage, GcsClientOptions clientOptions) {
+    return new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry) {
       @Override
       protected Storage createStorage(Optional<Credentials> credentials) {
         return mockStorage;
@@ -979,7 +984,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createStorage_bidiDisabled_usesHttpTransport() throws IOException {
+  void createStorage_jsonClientType_usesHttpTransport() throws IOException {
     GcsClientImpl client =
         new GcsClientImpl(
             NoCredentials.getInstance(),
@@ -994,7 +999,21 @@ class GcsClientImplTest {
     GcsClientOptions options =
         GcsClientOptions.builder()
             .setProjectId(TEST_PROJECT)
-            .setGcsReadOptions(GcsReadOptions.builder().setBidiReadEnabled(true).build())
+            .setClientType(ClientType.BIDI)
+            .build();
+
+    GcsClientImpl client =
+        new GcsClientImpl(NoCredentials.getInstance(), options, executorServiceSupplier, telemetry);
+
+    assertThat(client.storage.getOptions()).isInstanceOf(GrpcStorageOptions.class);
+  }
+
+  @Test
+  void createStorage_grpcClientType_usesGrpcTransport() throws IOException {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setClientType(ClientType.GRPC)
             .build();
 
     GcsClientImpl client =
@@ -1005,8 +1024,9 @@ class GcsClientImplTest {
 
   @Test
   void openReadChannel_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
-    GcsReadOptions readOptions =
-        GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).setBidiReadEnabled(true).build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder().setClientType(ClientType.BIDI).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).build();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_NAME).build();
     GcsItemInfo itemInfo =
@@ -1014,7 +1034,7 @@ class GcsClientImplTest {
     Storage mockStorage = mock(Storage.class);
     ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
     when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
-    GcsClient bidiClient = createClientWithMockStorage(mockStorage);
+    GcsClient bidiClient = createClientWithMockStorage(mockStorage, clientOptions);
 
     VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemInfo, readOptions);
 
@@ -1023,14 +1043,15 @@ class GcsClientImplTest {
 
   @Test
   void openReadChannel_itemId_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
-    GcsReadOptions readOptions =
-        GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).setBidiReadEnabled(true).build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder().setClientType(ClientType.BIDI).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).build();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_NAME).build();
     Storage mockStorage = mock(Storage.class);
     ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
     when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
-    GcsClient bidiClient = createClientWithMockStorage(mockStorage);
+    GcsClient bidiClient = createClientWithMockStorage(mockStorage, clientOptions);
 
     VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemId, readOptions);
 
