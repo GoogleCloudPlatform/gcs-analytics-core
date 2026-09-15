@@ -33,6 +33,7 @@ import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.StorageException;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.file.AccessDeniedException;
@@ -45,6 +46,7 @@ import org.mockito.MockitoAnnotations;
 
 class GcsBidiWriteChannelTest {
 
+  private static final BlobWriteOption[] NO_WRITE_OPTIONS = new BlobWriteOption[0];
   private static final String TEST_BUCKET = "test-bucket";
   private static final String TEST_OBJECT = "test-object";
 
@@ -67,6 +69,10 @@ class GcsBidiWriteChannelTest {
     when(mockAppendChannel.isOpen()).thenReturn(true);
   }
 
+  private GcsBidiWriteChannel createChannel(GcsWriteOptions writeOptions) throws IOException {
+    return new GcsBidiWriteChannel(storage, blobInfo, writeOptions, NO_WRITE_OPTIONS);
+  }
+
   @Test
   void constructor_setsCloseActionBasedOnOptions_finalizeOnCloseTrue() throws Exception {
     GcsWriteOptions optionsTrue =
@@ -74,7 +80,7 @@ class GcsBidiWriteChannelTest {
     ArgumentCaptor<BlobAppendableUploadConfig> configCaptor =
         ArgumentCaptor.forClass(BlobAppendableUploadConfig.class);
 
-    GcsBidiWriteChannel channelTrue = new GcsBidiWriteChannel(storage, blobInfo, optionsTrue);
+    GcsBidiWriteChannel channelTrue = createChannel(optionsTrue);
 
     verify(storage)
         .blobAppendableUpload(eq(blobInfo), configCaptor.capture(), any(BlobWriteOption[].class));
@@ -90,7 +96,7 @@ class GcsBidiWriteChannelTest {
     ArgumentCaptor<BlobAppendableUploadConfig> configCaptorFalse =
         ArgumentCaptor.forClass(BlobAppendableUploadConfig.class);
 
-    GcsBidiWriteChannel channelFalse = new GcsBidiWriteChannel(storage, blobInfo, optionsFalse);
+    GcsBidiWriteChannel channelFalse = createChannel(optionsFalse);
 
     verify(storage)
         .blobAppendableUpload(
@@ -104,19 +110,31 @@ class GcsBidiWriteChannelTest {
   void constructor_nullStorage_throwsNullPointerException() {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
     assertThrows(
-        NullPointerException.class, () -> new GcsBidiWriteChannel(null, blobInfo, options));
+        NullPointerException.class,
+        () -> new GcsBidiWriteChannel(null, blobInfo, options, NO_WRITE_OPTIONS));
   }
 
   @Test
   void constructor_nullBlobInfo_throwsNullPointerException() {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    assertThrows(NullPointerException.class, () -> new GcsBidiWriteChannel(storage, null, options));
+    assertThrows(
+        NullPointerException.class,
+        () -> new GcsBidiWriteChannel(storage, null, options, NO_WRITE_OPTIONS));
   }
 
   @Test
   void constructor_nullWriteOptions_throwsNullPointerException() {
     assertThrows(
-        NullPointerException.class, () -> new GcsBidiWriteChannel(storage, blobInfo, null));
+        NullPointerException.class,
+        () -> new GcsBidiWriteChannel(storage, blobInfo, null, NO_WRITE_OPTIONS));
+  }
+
+  @Test
+  void constructor_nullSdkWriteOptions_throwsNullPointerException() {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    assertThrows(
+        NullPointerException.class,
+        () -> new GcsBidiWriteChannel(storage, blobInfo, options, null));
   }
 
   @Test
@@ -130,14 +148,13 @@ class GcsBidiWriteChannelTest {
 
     GcsWriteOptions options = GcsWriteOptions.builder().build();
 
-    assertThrows(
-        AccessDeniedException.class, () -> new GcsBidiWriteChannel(storage, blobInfo, options));
+    assertThrows(AccessDeniedException.class, () -> createChannel(options));
   }
 
   @Test
   void write_success_delegatesToAppendChannelAndTracksBytes() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    GcsBidiWriteChannel channel = createChannel(options);
 
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3, 4, 5});
     when(mockAppendChannel.write(any(ByteBuffer.class)))
@@ -158,7 +175,7 @@ class GcsBidiWriteChannelTest {
   @Test
   void write_nullBuffer_throwsNullPointerException() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    GcsBidiWriteChannel channel = createChannel(options);
 
     assertThrows(NullPointerException.class, () -> channel.write(null));
   }
@@ -166,7 +183,7 @@ class GcsBidiWriteChannelTest {
   @Test
   void write_whenClosed_throwsClosedChannelException() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    GcsBidiWriteChannel channel = createChannel(options);
     channel.close();
 
     ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3});
@@ -183,7 +200,7 @@ class GcsBidiWriteChannelTest {
   void write_whenClosedConcurrentlyDuringOpenCheck_doesNotThrowNullPointerException()
       throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    GcsBidiWriteChannel channel = createChannel(options);
     when(mockAppendChannel.isOpen())
         .thenAnswer(
             invocation -> {
@@ -208,7 +225,7 @@ class GcsBidiWriteChannelTest {
   @Test
   void write_failure_translatesException() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    GcsBidiWriteChannel channel = createChannel(options);
 
     StorageException se = new StorageException(403, "Forbidden");
     when(mockAppendChannel.write(any(ByteBuffer.class))).thenThrow(se);
@@ -220,7 +237,7 @@ class GcsBidiWriteChannelTest {
   @Test
   void close_success_closesAppendChannelAndUpdatesIsOpen() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    GcsBidiWriteChannel channel = createChannel(options);
 
     assertThat(channel.isOpen()).isTrue();
     channel.close();
@@ -236,7 +253,7 @@ class GcsBidiWriteChannelTest {
   @Test
   void close_failure_translatesException() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    GcsBidiWriteChannel channel = createChannel(options);
 
     StorageException se = new StorageException(403, "Forbidden");
     Mockito.doThrow(se).when(mockAppendChannel).close();
@@ -248,7 +265,7 @@ class GcsBidiWriteChannelTest {
   @Test
   void write_emptyBuffer_returnsZeroAndDoesNotIncrementBytesWritten() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    GcsBidiWriteChannel channel = createChannel(options);
 
     ByteBuffer emptyBuffer = ByteBuffer.allocate(0);
     int written = channel.write(emptyBuffer);
@@ -261,7 +278,7 @@ class GcsBidiWriteChannelTest {
   @Test
   void isOpen_whenUnderlyingChannelClosed_returnsFalse() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    GcsBidiWriteChannel channel = createChannel(options);
 
     when(mockAppendChannel.isOpen()).thenReturn(false);
 
@@ -272,7 +289,7 @@ class GcsBidiWriteChannelTest {
   void finalizeAndClose_whenFinalizeOnCloseDisabled_finalizesAnyway() throws Exception {
     GcsWriteOptions options =
         GcsWriteOptions.builder().setBidiWriteEnabled(true).setBidiFinalizeOnClose(false).build();
-    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    GcsBidiWriteChannel channel = createChannel(options);
 
     channel.finalizeAndClose();
 
@@ -284,7 +301,7 @@ class GcsBidiWriteChannelTest {
   @Test
   void finalizeAndClose_isIdempotentAndSuppressesSubsequentClose() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    GcsBidiWriteChannel channel = createChannel(options);
 
     channel.finalizeAndClose();
     channel.finalizeAndClose();
@@ -297,7 +314,7 @@ class GcsBidiWriteChannelTest {
   @Test
   void finalizeAndClose_failure_translatesException() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
-    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    GcsBidiWriteChannel channel = createChannel(options);
 
     StorageException se = new StorageException(403, "Forbidden");
     Mockito.doThrow(se).when(mockAppendChannel).finalizeAndClose();
