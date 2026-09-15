@@ -56,13 +56,17 @@ public class GcsWriteChannel implements FinalizableWritableByteChannel {
 
   @Override
   public int write(ByteBuffer src) throws IOException {
-    if (!isOpen()) {
+    // Read the delegate exactly once. A concurrent close() nulls the field, and re-reading it
+    // after the open check would surface an untranslated NullPointerException instead of the
+    // documented ClosedChannelException.
+    WritableByteChannel channel = sdkWriteChannel;
+    if (closed || channel == null || !channel.isOpen()) {
       throw new ClosedChannelException();
     }
 
     int bytesToDraft = src.remaining();
     try {
-      int written = sdkWriteChannel.write(src);
+      int written = channel.write(src);
       if (written > 0) {
         bytesWritten.addAndGet(written);
       }

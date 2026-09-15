@@ -171,6 +171,38 @@ class GcsBidiWriteChannelTest {
     assertThrows(ClosedChannelException.class, () -> channel.write(buffer));
   }
 
+  /**
+   * Regression test for a write/close race. {@code write()} used to read the volatile delegate
+   * twice — once for the open check and again for the write — so a {@code close()} landing between
+   * the two reads produced an untranslated {@link NullPointerException}. Closing from inside the
+   * {@code isOpen()} stub reproduces that exact interleaving deterministically, without threads.
+   */
+  @Test
+  void write_whenClosedConcurrentlyDuringOpenCheck_doesNotThrowNullPointerException()
+      throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+    when(mockAppendChannel.isOpen())
+        .thenAnswer(
+            invocation -> {
+              channel.close();
+              return true;
+            });
+    when(mockAppendChannel.write(any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buf = invocation.getArgument(0);
+              int remaining = buf.remaining();
+              buf.position(buf.position() + remaining);
+              return remaining;
+            });
+
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3});
+    int written = channel.write(buffer);
+
+    assertThat(written).isEqualTo(3);
+  }
+
   @Test
   void write_failure_translatesException() throws Exception {
     GcsWriteOptions options = GcsWriteOptions.builder().build();

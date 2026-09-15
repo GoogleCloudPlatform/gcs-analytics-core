@@ -80,12 +80,16 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
   @Override
   public int write(@NonNull ByteBuffer src) throws IOException {
     checkNotNull(src, "src cannot be null");
-    if (!isOpen()) {
+    // Read the delegate exactly once. A concurrent close() nulls the field, and re-reading it
+    // after the open check would surface an untranslated NullPointerException instead of the
+    // documented ClosedChannelException.
+    BlobAppendableUpload.AppendableUploadWriteableByteChannel channel = gcsAppendChannel;
+    if (closed || channel == null || !channel.isOpen()) {
       throw new ClosedChannelException();
     }
 
     try {
-      int written = StorageChannelUtils.blockingEmptyTo(src, gcsAppendChannel);
+      int written = StorageChannelUtils.blockingEmptyTo(src, channel);
       if (written > 0) {
         bytesWritten.addAndGet(written);
       }
@@ -153,6 +157,9 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
 
   @Override
   public boolean isOpen() {
-    return !closed && gcsAppendChannel != null && gcsAppendChannel.isOpen();
+    // Snapshot for the same reason as write(): the null check must guard the same reference the
+    // isOpen() call is made on.
+    BlobAppendableUpload.AppendableUploadWriteableByteChannel channel = gcsAppendChannel;
+    return !closed && channel != null && channel.isOpen();
   }
 }
