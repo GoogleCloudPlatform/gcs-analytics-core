@@ -220,6 +220,17 @@ class GcsWriteChannelTest {
   }
 
   @Test
+  void finalizeAndClose_closesUnderlyingChannelOnce() throws Exception {
+    GcsWriteChannel channel = createChannel(mockChannel, blobInfo, writeOptions);
+
+    channel.finalizeAndClose();
+    channel.close();
+
+    verify(mockChannel, times(1)).close();
+    assertThat(channel.isOpen()).isFalse();
+  }
+
+  @Test
   void write_onWrappedAccessDeniedStorageException_translatesToAccessDeniedException()
       throws Exception {
     GcsWriteChannel channel = createChannel(mockChannel, blobInfo, writeOptions);
