@@ -25,10 +25,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.cloud.storage.BlobAppendableUpload;
+import com.google.cloud.storage.BlobAppendableUpload.AppendableUploadWriteableByteChannel;
 import com.google.cloud.storage.BlobAppendableUploadConfig;
+import com.google.cloud.storage.BlobAppendableUploadConfig.CloseAction;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.StorageException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
@@ -47,7 +50,7 @@ class GcsBidiWriteChannelTest {
 
   @Mock private Storage storage;
   @Mock private BlobAppendableUpload mockSession;
-  @Mock private BlobAppendableUpload.AppendableUploadWriteableByteChannel mockAppendChannel;
+  @Mock private AppendableUploadWriteableByteChannel mockAppendChannel;
 
   private BlobInfo blobInfo;
 
@@ -58,7 +61,7 @@ class GcsBidiWriteChannelTest {
     when(storage.blobAppendableUpload(
             any(BlobInfo.class),
             any(BlobAppendableUploadConfig.class),
-            any(Storage.BlobWriteOption[].class)))
+            any(BlobWriteOption[].class)))
         .thenReturn(mockSession);
     when(mockSession.open()).thenReturn(mockAppendChannel);
     when(mockAppendChannel.isOpen()).thenReturn(true);
@@ -74,10 +77,9 @@ class GcsBidiWriteChannelTest {
     GcsBidiWriteChannel channelTrue = new GcsBidiWriteChannel(storage, blobInfo, optionsTrue);
 
     verify(storage)
-        .blobAppendableUpload(
-            eq(blobInfo), configCaptor.capture(), any(Storage.BlobWriteOption[].class));
+        .blobAppendableUpload(eq(blobInfo), configCaptor.capture(), any(BlobWriteOption[].class));
     assertThat(configCaptor.getValue().getCloseAction())
-        .isEqualTo(BlobAppendableUploadConfig.CloseAction.FINALIZE_WHEN_CLOSING);
+        .isEqualTo(CloseAction.FINALIZE_WHEN_CLOSING);
     assertThat(channelTrue.isOpen()).isTrue();
   }
 
@@ -92,9 +94,9 @@ class GcsBidiWriteChannelTest {
 
     verify(storage)
         .blobAppendableUpload(
-            eq(blobInfo), configCaptorFalse.capture(), any(Storage.BlobWriteOption[].class));
+            eq(blobInfo), configCaptorFalse.capture(), any(BlobWriteOption[].class));
     assertThat(configCaptorFalse.getValue().getCloseAction())
-        .isEqualTo(BlobAppendableUploadConfig.CloseAction.CLOSE_WITHOUT_FINALIZING);
+        .isEqualTo(CloseAction.CLOSE_WITHOUT_FINALIZING);
     assertThat(channelFalse.isOpen()).isTrue();
   }
 
@@ -123,7 +125,7 @@ class GcsBidiWriteChannelTest {
     when(storage.blobAppendableUpload(
             any(BlobInfo.class),
             any(BlobAppendableUploadConfig.class),
-            any(Storage.BlobWriteOption[].class)))
+            any(BlobWriteOption[].class)))
         .thenThrow(se);
 
     GcsWriteOptions options = GcsWriteOptions.builder().build();

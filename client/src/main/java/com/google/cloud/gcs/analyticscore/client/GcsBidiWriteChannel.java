@@ -19,7 +19,9 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.cloud.storage.BlobAppendableUpload;
+import com.google.cloud.storage.BlobAppendableUpload.AppendableUploadWriteableByteChannel;
 import com.google.cloud.storage.BlobAppendableUploadConfig;
+import com.google.cloud.storage.BlobAppendableUploadConfig.CloseAction;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobWriteOption;
@@ -38,7 +40,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  */
 public class GcsBidiWriteChannel extends GcsWriteChannel {
 
-  private volatile BlobAppendableUpload.AppendableUploadWriteableByteChannel gcsAppendChannel;
+  private volatile AppendableUploadWriteableByteChannel gcsAppendChannel;
 
   public GcsBidiWriteChannel(
       @NonNull Storage storage, @NonNull BlobInfo blobInfo, @NonNull GcsWriteOptions writeOptions)
@@ -60,10 +62,10 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
     checkNotNull(storage, "storage cannot be null");
     checkNotNull(sdkWriteOptions, "sdkWriteOptions cannot be null");
 
-    BlobAppendableUploadConfig.CloseAction closeAction =
+    CloseAction closeAction =
         writeOptions.isBidiFinalizeOnClose()
-            ? BlobAppendableUploadConfig.CloseAction.FINALIZE_WHEN_CLOSING
-            : BlobAppendableUploadConfig.CloseAction.CLOSE_WITHOUT_FINALIZING;
+            ? CloseAction.FINALIZE_WHEN_CLOSING
+            : CloseAction.CLOSE_WITHOUT_FINALIZING;
 
     try {
       BlobAppendableUpload session =
@@ -83,7 +85,7 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
     // Read the delegate exactly once. A concurrent close() nulls the field, and re-reading it
     // after the open check would surface an untranslated NullPointerException instead of the
     // documented ClosedChannelException.
-    BlobAppendableUpload.AppendableUploadWriteableByteChannel channel = gcsAppendChannel;
+    AppendableUploadWriteableByteChannel channel = gcsAppendChannel;
     if (closed || channel == null || !channel.isOpen()) {
       throw new ClosedChannelException();
     }
@@ -126,7 +128,7 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
    * Closes the underlying appendable upload channel exactly once.
    *
    * @param finalizeObject when true the object is finalized regardless of the configured {@link
-   *     BlobAppendableUploadConfig.CloseAction}; when false the configured close action applies.
+   *     CloseAction}; when false the configured close action applies.
    */
   private void doClose(boolean finalizeObject) throws IOException {
     if (closed) {
@@ -138,7 +140,7 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
         return;
       }
       closed = true;
-      BlobAppendableUpload.AppendableUploadWriteableByteChannel channel = gcsAppendChannel;
+      AppendableUploadWriteableByteChannel channel = gcsAppendChannel;
       if (channel != null) {
         try {
           if (finalizeObject) {
@@ -159,7 +161,7 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
   public boolean isOpen() {
     // Snapshot for the same reason as write(): the null check must guard the same reference the
     // isOpen() call is made on.
-    BlobAppendableUpload.AppendableUploadWriteableByteChannel channel = gcsAppendChannel;
+    AppendableUploadWriteableByteChannel channel = gcsAppendChannel;
     return !closed && channel != null && channel.isOpen();
   }
 }

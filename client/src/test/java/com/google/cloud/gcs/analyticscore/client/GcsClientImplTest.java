@@ -36,6 +36,9 @@ import com.google.cloud.NoCredentials;
 import com.google.cloud.ReadChannel;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobAppendableUpload;
+import com.google.cloud.storage.BlobAppendableUpload.AppendableUploadWriteableByteChannel;
+import com.google.cloud.storage.BlobAppendableUploadConfig;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobReadSession;
@@ -1558,17 +1561,13 @@ class GcsClientImplTest {
             .build();
 
     Storage mockStorage = mock(Storage.class);
-    com.google.cloud.storage.BlobAppendableUpload mockSession =
-        mock(com.google.cloud.storage.BlobAppendableUpload.class);
-    com.google.cloud.storage.BlobAppendableUpload.AppendableUploadWriteableByteChannel
-        mockAppendChannel =
-            mock(
-                com.google.cloud.storage.BlobAppendableUpload.AppendableUploadWriteableByteChannel
-                    .class);
+    BlobAppendableUpload mockSession = mock(BlobAppendableUpload.class);
+    AppendableUploadWriteableByteChannel mockAppendChannel =
+        mock(AppendableUploadWriteableByteChannel.class);
 
     when(mockStorage.blobAppendableUpload(
             any(BlobInfo.class),
-            any(com.google.cloud.storage.BlobAppendableUploadConfig.class),
+            any(BlobAppendableUploadConfig.class),
             any(Storage.BlobWriteOption[].class)))
         .thenReturn(mockSession);
     when(mockSession.open()).thenReturn(mockAppendChannel);
