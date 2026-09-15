@@ -32,6 +32,15 @@ public class Telemetry implements AutoCloseable {
    */
   private static final MetricsRecorder NO_OP_RECORDER = (metric, value, attributes) -> {};
 
+  /**
+   * Stand-in operation for metrics recorded outside any operation scope. It is immutable and
+   * identical on every call, so it is built once rather than per metric: {@link #recordMetric} sits
+   * on the cache-hit path. A generated id would be misleading here anyway, since there is no
+   * operation for it to correlate.
+   */
+  private static final Operation UNKNOWN_OPERATION =
+      Operation.builder().setName("UNKNOWN").setOperationId("UNKNOWN").build();
+
   private final List<OperationListener> listeners = new CopyOnWriteArrayList<>();
 
   public Telemetry(List<OperationListener> listeners) {
@@ -123,7 +132,7 @@ public class Telemetry implements AutoCloseable {
       return;
     }
     notifyEnd(
-        Operation.builder().setName("UNKNOWN").build(),
+        UNKNOWN_OPERATION,
         Collections.singletonMap(
             MetricKey.builder().setMetric(metric).setAttributes(attributes).build(), value));
   }
