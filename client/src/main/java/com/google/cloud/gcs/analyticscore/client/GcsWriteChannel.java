@@ -31,7 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** A unified WritableByteChannel for writing objects to Google Cloud Storage. */
-public class GcsWriteChannel implements WritableByteChannel {
+public class GcsWriteChannel implements FinalizableWritableByteChannel {
 
   private static final Logger LOG = LoggerFactory.getLogger(GcsWriteChannel.class);
 
@@ -114,6 +114,17 @@ public class GcsWriteChannel implements WritableByteChannel {
     } finally {
       sdkWriteChannel = null;
     }
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The HTTP and gRPC upload paths always finalize the object when the channel is closed, so
+   * this is equivalent to {@link #close()}.
+   */
+  @Override
+  public void finalizeAndClose() throws IOException {
+    close();
   }
 
   IOException handleException(Exception e, String context) {

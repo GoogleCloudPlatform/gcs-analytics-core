@@ -61,7 +61,7 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
     checkNotNull(sdkWriteOptions, "sdkWriteOptions cannot be null");
 
     BlobAppendableUploadConfig.CloseAction closeAction =
-        writeOptions.isFinalizeOnClose()
+        writeOptions.isBidiFinalizeOnClose()
             ? BlobAppendableUploadConfig.CloseAction.FINALIZE_WHEN_CLOSING
             : BlobAppendableUploadConfig.CloseAction.CLOSE_WITHOUT_FINALIZING;
 
@@ -95,8 +95,36 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
     }
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Whether the object is finalized is determined by {@code
+   * gcs.channel.write.bidi.finalize-on-close}. When it is disabled the object is left unfinalized
+   * and remains appendable; use {@link #finalizeAndClose()} to finalize regardless of the
+   * configuration.
+   */
   @Override
   public void close() throws IOException {
+    doClose(/* finalizeObject= */ false);
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Finalizes the object even when {@code gcs.channel.write.bidi.finalize-on-close} is disabled.
+   */
+  @Override
+  public void finalizeAndClose() throws IOException {
+    doClose(/* finalizeObject= */ true);
+  }
+
+  /**
+   * Closes the underlying appendable upload channel exactly once.
+   *
+   * @param finalizeObject when true the object is finalized regardless of the configured {@link
+   *     BlobAppendableUploadConfig.CloseAction}; when false the configured close action applies.
+   */
+  private void doClose(boolean finalizeObject) throws IOException {
     if (closed) {
       return;
     }
@@ -106,11 +134,16 @@ public class GcsBidiWriteChannel extends GcsWriteChannel {
         return;
       }
       closed = true;
-      if (gcsAppendChannel != null) {
+      BlobAppendableUpload.AppendableUploadWriteableByteChannel channel = gcsAppendChannel;
+      if (channel != null) {
         try {
-          gcsAppendChannel.close();
+          if (finalizeObject) {
+            channel.finalizeAndClose();
+          } else {
+            channel.close();
+          }
         } catch (StorageException | IOException e) {
-          throw handleException(e, "close");
+          throw handleException(e, finalizeObject ? "finalizeAndClose" : "close");
         } finally {
           gcsAppendChannel = null;
         }

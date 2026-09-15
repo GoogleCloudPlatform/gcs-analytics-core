@@ -67,7 +67,7 @@ class GcsBidiWriteChannelTest {
   @Test
   void constructor_setsCloseActionBasedOnOptions_finalizeOnCloseTrue() throws Exception {
     GcsWriteOptions optionsTrue =
-        GcsWriteOptions.builder().setBidiWriteEnabled(true).setFinalizeOnClose(true).build();
+        GcsWriteOptions.builder().setBidiWriteEnabled(true).setBidiFinalizeOnClose(true).build();
     ArgumentCaptor<BlobAppendableUploadConfig> configCaptor =
         ArgumentCaptor.forClass(BlobAppendableUploadConfig.class);
 
@@ -84,7 +84,7 @@ class GcsBidiWriteChannelTest {
   @Test
   void constructor_setsCloseActionBasedOnOptions_finalizeOnCloseFalse() throws Exception {
     GcsWriteOptions optionsFalse =
-        GcsWriteOptions.builder().setBidiWriteEnabled(true).setFinalizeOnClose(false).build();
+        GcsWriteOptions.builder().setBidiWriteEnabled(true).setBidiFinalizeOnClose(false).build();
     ArgumentCaptor<BlobAppendableUploadConfig> configCaptorFalse =
         ArgumentCaptor.forClass(BlobAppendableUploadConfig.class);
 
@@ -231,6 +231,44 @@ class GcsBidiWriteChannelTest {
 
     when(mockAppendChannel.isOpen()).thenReturn(false);
 
+    assertThat(channel.isOpen()).isFalse();
+  }
+
+  @Test
+  void finalizeAndClose_whenFinalizeOnCloseDisabled_finalizesAnyway() throws Exception {
+    GcsWriteOptions options =
+        GcsWriteOptions.builder().setBidiWriteEnabled(true).setBidiFinalizeOnClose(false).build();
+    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+
+    channel.finalizeAndClose();
+
+    verify(mockAppendChannel).finalizeAndClose();
+    verify(mockAppendChannel, never()).close();
+    assertThat(channel.isOpen()).isFalse();
+  }
+
+  @Test
+  void finalizeAndClose_isIdempotentAndSuppressesSubsequentClose() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+
+    channel.finalizeAndClose();
+    channel.finalizeAndClose();
+    channel.close();
+
+    verify(mockAppendChannel).finalizeAndClose();
+    verify(mockAppendChannel, never()).close();
+  }
+
+  @Test
+  void finalizeAndClose_failure_translatesException() throws Exception {
+    GcsWriteOptions options = GcsWriteOptions.builder().build();
+    GcsBidiWriteChannel channel = new GcsBidiWriteChannel(storage, blobInfo, options);
+
+    StorageException se = new StorageException(403, "Forbidden");
+    Mockito.doThrow(se).when(mockAppendChannel).finalizeAndClose();
+
+    assertThrows(AccessDeniedException.class, channel::finalizeAndClose);
     assertThat(channel.isOpen()).isFalse();
   }
 }

@@ -37,14 +37,14 @@ import javax.annotation.Nullable;
 @AutoValue
 public abstract class GcsWriteOptions {
 
-  static final String CHECKSUM_VALIDATION_KEY = "channel.write.checksum-validation.enabled";
-  static final String DISABLE_GZIP_CONTENT_KEY = "channel.write.disable-gzip-content";
-  static final String OVERWRITE_EXISTING_KEY = "channel.write.overwrite-existing";
-  static final String KMS_KEY_NAME_KEY = "kms-key-name";
-  static final String USER_PROJECT_KEY = "user-project";
-  static final String ENCRYPTION_KEY_KEY = "encryption-key";
-  static final String BIDI_WRITE_ENABLED_KEY = "channel.write.bidi-write.enabled";
-  static final String FINALIZE_ON_CLOSE_KEY = "channel.write.finalize-on-close";
+  private static final String CHECKSUM_VALIDATION_KEY = "channel.write.checksum-validation.enabled";
+  private static final String DISABLE_GZIP_CONTENT_KEY = "channel.write.disable-gzip-content";
+  private static final String OVERWRITE_EXISTING_KEY = "channel.write.overwrite-existing";
+  private static final String KMS_KEY_NAME_KEY = "kms-key-name";
+  private static final String USER_PROJECT_KEY = "user-project";
+  private static final String ENCRYPTION_KEY_KEY = "encryption-key";
+  private static final String BIDI_WRITE_ENABLED_KEY = "channel.write.bidi.enabled";
+  private static final String BIDI_FINALIZE_ON_CLOSE_KEY = "channel.write.bidi.finalize-on-close";
 
   public abstract boolean isChecksumValidationEnabled();
 
@@ -52,9 +52,25 @@ public abstract class GcsWriteOptions {
 
   public abstract boolean isOverwriteExisting();
 
+  /**
+   * Returns whether appendable (bidi) writes are enabled.
+   *
+   * <p>Appendable writes are only available on zonal buckets using the Rapid storage class, and
+   * require {@code client.protocol=BIDI} on {@link GcsClientOptions}.
+   */
   public abstract boolean isBidiWriteEnabled();
 
-  public abstract boolean isFinalizeOnClose();
+  /**
+   * Returns whether closing an appendable object also finalizes it. Applies only to the bidi write
+   * path; the HTTP and gRPC paths always finalize on close.
+   *
+   * <p>Defaults to {@code false}, matching the Cloud Storage SDK and the GCS Hadoop connector. Note
+   * that an unfinalized object stays appendable <em>indefinitely</em> — there is no server-side
+   * auto-finalization — though it remains subject to lifecycle rules keyed on creation time. Use
+   * {@code finalizeAndClose()} on the returned channel to finalize a single object regardless of
+   * this setting.
+   */
+  public abstract boolean isBidiFinalizeOnClose();
 
   // Metadata/Auth Configurations
   public abstract Optional<String> getKmsKeyName();
@@ -97,9 +113,9 @@ public abstract class GcsWriteOptions {
     Optional.ofNullable(analyticsCoreOptions.get(prefix + BIDI_WRITE_ENABLED_KEY))
         .map(Boolean::parseBoolean)
         .ifPresent(optionsBuilder::setBidiWriteEnabled);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + FINALIZE_ON_CLOSE_KEY))
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + BIDI_FINALIZE_ON_CLOSE_KEY))
         .map(Boolean::parseBoolean)
-        .ifPresent(optionsBuilder::setFinalizeOnClose);
+        .ifPresent(optionsBuilder::setBidiFinalizeOnClose);
     return optionsBuilder.build();
   }
 
@@ -111,7 +127,7 @@ public abstract class GcsWriteOptions {
         .setContentType("application/octet-stream")
         .setMetadata(ImmutableMap.of())
         .setBidiWriteEnabled(false)
-        .setFinalizeOnClose(false);
+        .setBidiFinalizeOnClose(false);
   }
 
   /** Builder for {@link GcsWriteOptions}. */
@@ -132,7 +148,7 @@ public abstract class GcsWriteOptions {
 
     public abstract Builder setBidiWriteEnabled(boolean enabled);
 
-    public abstract Builder setFinalizeOnClose(boolean finalize);
+    public abstract Builder setBidiFinalizeOnClose(boolean finalizeOnClose);
 
     public abstract Builder setContentType(String contentType);
 
