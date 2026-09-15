@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
@@ -76,15 +77,11 @@ class FakeGcsClientImplTest {
   }
 
   @Test
-  void getGcsItemInfo_objectDoesNotExists_returnsNotFoundItemInfo() throws IOException {
+  void getGcsItemInfo_objectDoesNotExists_throwsFileNotFoundException() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("not-exists").build();
 
-    GcsItemInfo itemInfo = fakeGcsClient.getGcsItemInfo(itemId);
-
-    assertThat(itemInfo.getItemId()).isEqualTo(itemId);
-    assertThat(itemInfo.exists()).isFalse();
-    assertThat(itemInfo.getSize()).isEqualTo(-1L);
+    assertThrows(FileNotFoundException.class, () -> fakeGcsClient.getGcsItemInfo(itemId));
   }
 
   @Test

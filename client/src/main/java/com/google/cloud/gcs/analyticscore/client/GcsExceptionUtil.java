@@ -160,4 +160,41 @@ class GcsExceptionUtil {
             context, blobId.getBucket(), blobId.getName(), position),
         e);
   }
+
+  /**
+   * Creates a {@link FileNotFoundException} with an attached synthetic {@link StorageException}
+   * with HTTP status code 404 as its cause.
+   *
+   * @param itemId the GCS item identifier that was not found
+   * @return a FileNotFoundException wrapping a 404 StorageException
+   */
+  static FileNotFoundException createFileNotFoundException(GcsItemId itemId) {
+    String uri;
+    if (itemId.isRoot()) {
+      uri = "gs:/";
+    } else if (itemId.isBucket()) {
+      uri = "gs://" + itemId.getBucketName();
+    } else {
+      uri = BlobId.of(itemId.getBucketName(), itemId.getObjectName().orElse("")).toGsUtilUri();
+    }
+    return createFileNotFoundException(uri);
+  }
+
+  /**
+   * Creates a {@link FileNotFoundException} for the given location.
+   *
+   * @param location the location URI string that was not found
+   * @return a FileNotFoundException wrapping a 404 StorageException
+   */
+  private static FileNotFoundException createFileNotFoundException(String location) {
+    // Callers classify Not Found failures by unwrapping the cause via
+    // getStorageException()/getErrorType(), so attach a synthetic 404 StorageException.
+    StorageException storageException =
+        new StorageException(
+            HttpURLConnection.HTTP_NOT_FOUND, String.format("Object %s not found", location));
+    FileNotFoundException exception =
+        new FileNotFoundException(String.format("Location does not exist: %s", location));
+    exception.initCause(storageException);
+    return exception;
+  }
 }
