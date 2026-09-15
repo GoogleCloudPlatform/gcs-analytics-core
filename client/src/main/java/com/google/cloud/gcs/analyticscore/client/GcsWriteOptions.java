@@ -66,9 +66,7 @@ public abstract class GcsWriteOptions {
    *
    * <p>Defaults to {@code false}, matching the Cloud Storage SDK and the GCS Hadoop connector. Note
    * that an unfinalized object stays appendable <em>indefinitely</em> — there is no server-side
-   * auto-finalization — though it remains subject to lifecycle rules keyed on creation time. Use
-   * {@code finalizeAndClose()} on the returned channel to finalize a single object regardless of
-   * this setting.
+   * auto-finalization — though it remains subject to lifecycle rules keyed on creation time.
    */
   public abstract boolean isBidiFinalizeOnClose();
 

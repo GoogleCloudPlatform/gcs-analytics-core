@@ -99,32 +99,12 @@ class GcsBidiWriteChannel extends GcsWriteChannel {
    * {@inheritDoc}
    *
    * <p>Whether the object is finalized is determined by {@code
-   * gcs.channel.write.bidi.finalize-on-close}. When it is disabled the object is left unfinalized
-   * and remains appendable; use {@link #finalizeAndClose()} to finalize regardless of the
-   * configuration.
+   * gcs.channel.write.bidi.finalize-on-close}, which selects the {@link CloseAction} applied when
+   * the upload session is opened. When it is disabled the object is left unfinalized and remains
+   * appendable.
    */
   @Override
   public void close() throws IOException {
-    doClose(/* finalizeObject= */ false);
-  }
-
-  /**
-   * {@inheritDoc}
-   *
-   * <p>Finalizes the object even when {@code gcs.channel.write.bidi.finalize-on-close} is disabled.
-   */
-  @Override
-  public void finalizeAndClose() throws IOException {
-    doClose(/* finalizeObject= */ true);
-  }
-
-  /**
-   * Closes the underlying appendable upload channel exactly once.
-   *
-   * @param finalizeObject when true the object is finalized regardless of the configured {@link
-   *     CloseAction}; when false the configured close action applies.
-   */
-  private void doClose(boolean finalizeObject) throws IOException {
     if (closed) {
       return;
     }
@@ -137,13 +117,9 @@ class GcsBidiWriteChannel extends GcsWriteChannel {
       AppendableUploadWriteableByteChannel channel = gcsAppendChannel;
       if (channel != null) {
         try {
-          if (finalizeObject) {
-            channel.finalizeAndClose();
-          } else {
-            channel.close();
-          }
+          channel.close();
         } catch (StorageException | IOException e) {
-          throw handleException(e, finalizeObject ? "finalizeAndClose" : "close");
+          throw handleException(e, "close");
         } finally {
           gcsAppendChannel = null;
         }
