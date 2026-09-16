@@ -577,6 +577,64 @@ class GcsAuthOptionsTest {
     assertThrows(IllegalArgumentException.class, builder::build);
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"", "   "})
+  void build_blankImpersonationServiceAccount_isTreatedAsUnset(String blankServiceAccount) {
+    GcsAuthOptions options =
+        GcsAuthOptions.builder().setImpersonationServiceAccount(blankServiceAccount).build();
+
+    assertThat(options.getImpersonationServiceAccount()).isEmpty();
+  }
+
+  @Test
+  void build_impersonationServiceAccountWithWhitespace_isTrimmed() {
+    GcsAuthOptions options =
+        GcsAuthOptions.builder()
+            .setImpersonationServiceAccount("  sa@project.iam.gserviceaccount.com  ")
+            .build();
+
+    assertThat(options.getImpersonationServiceAccount())
+        .hasValue("sa@project.iam.gserviceaccount.com");
+  }
+
+  @Test
+  void build_unauthenticatedWithImpersonation_throwsIllegalArgumentException() {
+    GcsAuthOptions.Builder builder =
+        GcsAuthOptions.builder()
+            .setAuthType(AuthType.UNAUTHENTICATED)
+            .setImpersonationServiceAccount("sa@project.iam.gserviceaccount.com");
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .contains("analytics-core.auth.impersonation-service-account");
+  }
+
+  @Test
+  void build_unauthenticatedWithBlankImpersonation_succeeds() {
+    GcsAuthOptions options =
+        GcsAuthOptions.builder()
+            .setAuthType(AuthType.UNAUTHENTICATED)
+            .setImpersonationServiceAccount("   ")
+            .build();
+
+    assertThat(options.getImpersonationServiceAccount()).isEmpty();
+  }
+
+  @Test
+  void createFromOptions_unauthenticatedWithImpersonation_throwsIllegalArgumentException() {
+    Map<String, String> map =
+        ImmutableMap.of(
+            "analytics-core.auth.type",
+            "UNAUTHENTICATED",
+            "analytics-core.auth.impersonation-service-account",
+            "sa@project.iam.gserviceaccount.com");
+
+    assertThrows(IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, ""));
+  }
+
   private static GcsAuthOptions createOptionsWithSecrets() {
     return GcsAuthOptions.builder()
         .setAuthType(AuthType.USER_CREDENTIALS)

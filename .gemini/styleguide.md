@@ -43,7 +43,7 @@ This guide ensures code quality, performance, and maintainability for the `gcs-a
 *The project adheres strictly to Google Java Style and standards.*
 
 *   **Guava Utilities:** Use `Preconditions` for arguments and `Verify` for internal state. Do not invent custom validation logic.
-*   **Null Safety:** Strictly annotate methods and parameters with `@Nullable` or `@NonNull`. Prefer `Optional` for return types over `null` where appropriate (avoid `Optional` in performance-critical inner loops).
+*   **Null Safety:** Non-null is the default; annotate parameters, fields, and return types with `@Nullable` only when `null` is permitted. Do not annotate non-null methods or parameters with `@NonNull` or `@Nonnull`. Prefer `Optional` for return types over `null` where appropriate (avoid `Optional` in performance-critical inner loops).
 *   **Fluent APIs:** Use Builder patterns for complex object creation to improve readability.
 *   **Fail-Fast:** Validate inputs at the boundary (public methods) immediately.
 *   **Java Imports:** Never use wildcard imports (`import java.util.*`). Limit `static` imports to well-known, self-describing methods/constants from standard libraries (e.g., `Preconditions.checkNotNull`, `Truth.assertThat`). Do **NOT** statically import constants, variables, or deep-import nested enums/classes from internal or non-standard libraries where the enclosing class provides essential context (e.g., prefer `GcsAnalyticsCoreTelemetryConstants.Metric` over importing `Metric` directly). Keep imports sorted per Google Style.
