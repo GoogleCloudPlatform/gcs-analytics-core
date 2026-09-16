@@ -25,6 +25,8 @@ import com.google.api.gax.rpc.NotFoundException;
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.client.GcsClientOptions.Protocol;
 import com.google.cloud.gcs.analyticscore.client.GcsReadChannel.ItemInfoProvider;
+import com.google.cloud.gcs.analyticscore.client.auth.GcsAuthOptions;
+import com.google.cloud.gcs.analyticscore.client.auth.GcsTransportOptionsFactory;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
@@ -96,30 +98,53 @@ class GcsClientImpl implements GcsClient {
   @VisibleForTesting volatile StorageControlClient storageControlClient;
   private volatile boolean isStorageControlClientClosed = false;
 
+  private final GcsAuthOptions authOptions;
+
+  GcsClientImpl(
+      Credentials credentials,
+      GcsClientOptions clientOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry,
+      GcsAuthOptions authOptions) {
+    this(Optional.of(credentials), clientOptions, executorServiceSupplier, telemetry, authOptions);
+  }
+
   GcsClientImpl(
       Credentials credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry) {
-    this(Optional.of(credentials), clientOptions, executorServiceSupplier, telemetry);
+    this(
+        Optional.of(credentials),
+        clientOptions,
+        executorServiceSupplier,
+        telemetry,
+        GcsAuthOptions.builder().build());
   }
 
   GcsClientImpl(
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry) {
-    this(Optional.empty(), clientOptions, executorServiceSupplier, telemetry);
+    this(
+        Optional.empty(),
+        clientOptions,
+        executorServiceSupplier,
+        telemetry,
+        GcsAuthOptions.builder().build());
   }
 
   private GcsClientImpl(
       Optional<Credentials> credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry) {
+      Telemetry telemetry,
+      GcsAuthOptions authOptions) {
     this.clientOptions = clientOptions;
     this.credentials = credentials;
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
+    this.authOptions = authOptions;
     this.storage = createStorage(credentials);
   }
 
@@ -270,6 +295,7 @@ class GcsClientImpl implements GcsClient {
       throws IOException {
     StorageControlSettings.Builder builder = StorageControlSettings.newBuilder();
     credentials.ifPresent(c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
+    clientOptions.getUniverseDomain().ifPresent(builder::setUniverseDomain);
     return StorageControlClient.create(builder.build());
   }
 
@@ -417,13 +443,31 @@ class GcsClientImpl implements GcsClient {
 
   @VisibleForTesting
   protected Storage createStorage(Optional<Credentials> credentials) {
-    StorageOptions.Builder builder =
-        clientOptions.isGrpcEnabled() ? StorageOptions.grpc() : StorageOptions.newBuilder();
+    StorageOptions.Builder builder;
+    if (clientOptions.isGrpcEnabled()) {
+      if (authOptions.getProxyAddress().isPresent()) {
+        LOG.warn(
+            "analytics-core.auth.proxy.* applies only to authentication requests when"
+                + " client.protocol is {}; data requests use the JVM proxy settings.",
+            clientOptions.getProtocol());
+      }
+      builder = StorageOptions.grpc();
+    } else {
+      builder =
+          StorageOptions.newBuilder()
+              .setTransportOptions(
+                  GcsTransportOptionsFactory.createHttpTransportOptions(
+                      authOptions,
+                      clientOptions.getServiceHost().orElse(null),
+                      clientOptions.getUniverseDomain().orElse(null)));
+    }
+
     String userAgent = getUserAgent();
     builder.setHeaderProvider(FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
+    clientOptions.getUniverseDomain().ifPresent(builder::setUniverseDomain);
     credentials.ifPresent(builder::setCredentials);
     builder.setBlobWriteSessionConfig(clientOptions.generateSessionConfig());
 

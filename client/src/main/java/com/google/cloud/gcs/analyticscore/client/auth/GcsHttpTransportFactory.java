@@ -44,10 +44,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Factory for creating {@link HttpTransport} instances configured with proxies and timeouts.
  *
- * <p>A transport created here carries the socket read timeout only. The connect timeout is a
- * per-request setting in the Google HTTP client rather than a property of the transport, so callers
- * apply {@link GcsAuthOptions#getHttpConnectTimeout()} at the request layer instead, converting it
- * with {@link #toTimeoutMillis}.
+ * <p>A transport created here carries the socket read timeout only. Request timeouts are set per
+ * request in the Google HTTP client: {@link GcsTransportOptionsFactory} applies both timeouts to
+ * GCS data requests, while token requests keep the HTTP client's defaults.
  */
 final class GcsHttpTransportFactory {
 

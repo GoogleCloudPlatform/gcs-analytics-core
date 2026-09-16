@@ -14,6 +14,7 @@ These properties govern the core connections, identity, and access parameters be
 | :--- | :--- | :--- |
 | `client-lib-token` | Client library token. | - |
 | `service.host` | The GCS service host. | - |
+| `universe-domain` | The Google Cloud universe domain to send GCS requests to, such as a Trusted Partner Cloud domain. Credentials must belong to the same universe. | - |
 | `user-agent` | The user agent string. | - |
 | `project-id` | The Google Cloud project ID for the GCS client. | - |
 | `user-project` | Project ID whose Google Cloud Project's billing account should be charged for the operation being executed. | - |
@@ -21,10 +22,10 @@ These properties govern the core connections, identity, and access parameters be
 
 ### Authentication Options
 
-These properties configure standard Google Cloud authentication, OAuth2 token renewal, and static service account impersonation.
+These properties configure standard Google Cloud authentication, OAuth2 token renewal, static service account impersonation, and the HTTP proxy and timeouts.
 
 > [!WARNING]
-> `analytics-core.auth.client-secret` and `analytics-core.auth.refresh-token` are secrets. Supply them through a secret store appropriate to your deployment, such as the Hadoop credential provider or a Spark secret, rather than committing them to a properties file.
+> `analytics-core.auth.client-secret`, `analytics-core.auth.refresh-token`, and `analytics-core.auth.proxy.password` are secrets. Supply them through a secret store appropriate to your deployment, such as the Hadoop credential provider or a Spark secret, rather than committing them to a properties file.
 
 | Property | Description | Default Value |
 | :--- | :--- | :--- |
@@ -36,6 +37,11 @@ These properties configure standard Google Cloud authentication, OAuth2 token re
 | `analytics-core.auth.refresh-token` | OAuth2 refresh token. Required when `analytics-core.auth.type` is `USER_CREDENTIALS`. | - |
 | `analytics-core.auth.impersonation-service-account` | Service account email to impersonate via static service account impersonation. Cannot be used when `analytics-core.auth.type` is `UNAUTHENTICATED`. | - |
 | `analytics-core.auth.token-server-uri` | Custom token server URI used to refresh OAuth2 access tokens. Applies to `SERVICE_ACCOUNT_JSON_KEYFILE`, `USER_CREDENTIALS`, and `APPLICATION_DEFAULT` when it resolves to one of those credentials; token requests then use the JVM's default trust store instead of the bundled Google trust store. Ignored for other authentication types. | - |
+| `analytics-core.auth.proxy.address` | HTTP proxy address of the form `[https?://]hostname:port`. Used for authentication requests and, when `client.protocol` is `HTTP` (the default), for GCS requests. gRPC requests (`client.protocol` `GRPC` or `BIDI`, and folder requests on hierarchical namespace buckets) use the JVM proxy settings instead. | - |
+| `analytics-core.auth.proxy.username` | Username for the HTTP proxy. Must be set together with `analytics-core.auth.proxy.password` and requires `analytics-core.auth.proxy.address`. Proxy credentials are installed as the JVM-wide default `Authenticator`. | - |
+| `analytics-core.auth.proxy.password` | Password for the HTTP proxy. Must be set together with `analytics-core.auth.proxy.username` and requires `analytics-core.auth.proxy.address`. | - |
+| `analytics-core.auth.http.connect-timeout-ms` | Connect timeout, in milliseconds, for GCS requests when `client.protocol` is `HTTP`. Does not apply to authentication requests or gRPC requests. Must be positive. | `5000` |
+| `analytics-core.auth.http.read-timeout-ms` | Socket read timeout, in milliseconds, for GCS requests when `client.protocol` is `HTTP`. Does not apply to authentication requests or gRPC requests. Must be positive. | `5000` |
 
 ### Caching and Prefetching
 
