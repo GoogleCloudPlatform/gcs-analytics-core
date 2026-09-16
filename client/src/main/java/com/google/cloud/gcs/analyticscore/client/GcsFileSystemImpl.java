@@ -270,7 +270,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     telemetryOptions
         .getCustomTelemetryOptions()
         .ifPresent(options -> listeners.addAll(options.getOperationListeners()));
-    return new Telemetry(listeners.build());
+    // Decided once, here, rather than re-checked on every read: see NoOpTelemetry.
+    return Telemetry.create(listeners.build());
   }
 
   @VisibleForTesting
