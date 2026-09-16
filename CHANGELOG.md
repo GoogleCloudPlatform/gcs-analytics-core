@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.6.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.5.0...v1.6.0) (2026-09-16)
+
+
+### Features
+
+* Add client methods and update DTO structures for getFileInfo  ([#363](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/363)) ([408eb04](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/408eb04c8ba6e5d7dfdcb95aea0cb2c4cb75c085))
+* **client:** 1/5 Config based authentication - add authentication configuration options ([#376](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/376)) ([d58e7ae](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d58e7ae0b3e81b454cece1eb15fb7b96aea698a2))
+* Implement Cached and Lazy Executor Service for getFileInfo ([#357](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/357)) ([0c8135b](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/0c8135b819481a12a1d63edc7b7b1990f86d80a1))
+* Introduce Hns and Flat strategy and integrate with GcsFileSystem ([#311](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/311)) ([3542db3](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/3542db3dd25357a23ac3e0a5201365061c6d59ff))
+
+
+### Performance Improvements
+
+* **common:** cut telemetry allocation on the read/write path; unscoped metric ids are now UNKNOWN ([#378](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/378)) ([1784537](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/1784537f810d9a309033f5ef67fc006c6d10ac91))
+
 ## [1.5.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.4.0...v1.5.0) (2026-08-04)
 
 
