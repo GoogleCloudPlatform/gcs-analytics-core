@@ -33,8 +33,8 @@ Project conventions, architecture, and coding patterns for the `gcs-analytics-co
 ### API Design
 
 - **Visibility**: Keep classes and methods package-private unless they must be public.
-- **Javadoc**: Required for all public classes and methods. Follow Google Javadoc style.
-- **Nullability**: Use `@Nullable` and `@NonNull` (or equivalent) to document nullability expectations.
+- **Javadoc**: Required for all public classes and methods. Follow Google Javadoc style: keep comments concise and focused on what the API does, avoiding essay-style design notes, cross-repo rationale, or redundant comments on self-explanatory private helpers.
+- **Nullability**: Non-null is the default; use `@Nullable` only when `null` is permitted. Do not annotate non-null methods or parameters with `@NonNull` or `@Nonnull`.
 - **Interface Stability**: Avoid breaking public interfaces. Add default methods if extending existing interfaces.
 
 ### Naming

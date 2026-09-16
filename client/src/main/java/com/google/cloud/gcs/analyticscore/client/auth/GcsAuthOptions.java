@@ -258,11 +258,14 @@ public abstract class GcsAuthOptions {
 
     public abstract Builder setHttpReadTimeout(Duration httpReadTimeout);
 
+    abstract Optional<String> getImpersonationServiceAccount();
+
     public GcsAuthOptions build() {
       return build("");
     }
 
     GcsAuthOptions build(String prefix) {
+      normalizeImpersonationServiceAccount();
       GcsAuthOptions options = autoBuild();
       validateRequiredFields(options, prefix);
       validateProxyFields(options, prefix);
@@ -271,6 +274,14 @@ public abstract class GcsAuthOptions {
     }
 
     abstract GcsAuthOptions autoBuild();
+
+    private void normalizeImpersonationServiceAccount() {
+      setImpersonationServiceAccount(
+          getImpersonationServiceAccount()
+              .map(String::trim)
+              .filter(serviceAccount -> !serviceAccount.isEmpty())
+              .orElse(null));
+    }
 
     /**
      * Rejects proxy settings that cannot be honored together, so that a typo in one key is reported
@@ -329,11 +340,18 @@ public abstract class GcsAuthOptions {
               prefix + AUTH_TYPE_KEY,
               options.getAuthType());
           break;
+        case UNAUTHENTICATED:
+          checkArgument(
+              options.getImpersonationServiceAccount().isEmpty(),
+              "%s cannot be set when %s is %s",
+              prefix + IMPERSONATION_SERVICE_ACCOUNT_KEY,
+              prefix + AUTH_TYPE_KEY,
+              options.getAuthType());
+          break;
           // Listed rather than defaulted, so that adding an auth type without deciding which keys
           // it requires is a compile-time failure instead of silently skipped validation.
         case APPLICATION_DEFAULT:
         case COMPUTE_ENGINE:
-        case UNAUTHENTICATED:
           break;
       }
     }
