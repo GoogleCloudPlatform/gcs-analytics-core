@@ -69,27 +69,27 @@ limitations under the License.
         <maven.compiler.release>11</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- Surefire and Failsafe are released in lockstep; keep them on one version. -->
-        <maven.surefire.version>3.5.6</maven.surefire.version>
+        <maven.surefire.version>3.6.0</maven.surefire.version>
         <google.auto-value.version>1.11.1</google.auto-value.version>
-        <google.cloud-storage.bom.version>2.69.0</google.cloud-storage.bom.version>
-        <google.guava.version>33.6.0-jre</google.guava.version>
+        <google.cloud-storage.bom.version>2.73.0</google.cloud-storage.bom.version>
+        <google.guava.version>33.7.1-jre</google.guava.version>
         <google.java-format.version>1.17.0</google.java-format.version>
         <google.error-prone.version>2.16</google.error-prone.version>
         <jmh.version>1.37</jmh.version>
         <mockito.version>5.23.0</mockito.version>
         <truth.version>1.4.5</truth.version>
         <junit.jupiter.version>5.14.4</junit.jupiter.version>
-        <cloud.libraries.bom.version>26.84.0</cloud.libraries.bom.version>
+        <cloud.libraries.bom.version>26.88.1</cloud.libraries.bom.version>
         <apache.commons.version>3.20.0</apache.commons.version>
-        <apache.parquet.version>1.17.1</apache.parquet.version>
-        <apache.avro.version>1.12.1</apache.avro.version>
+        <apache.parquet.version>1.18.1</apache.parquet.version>
+        <apache.avro.version>1.12.2</apache.avro.version>
         <!-- Hadoop 3.5+ requires Java 17; keep at 3.4.x for Java 11 compatibility -->
         <!-- renovate: ignore-next-value -->
         <apache.hadoop.version>3.4.3</apache.hadoop.version>
-        <slf4j.version>2.0.18</slf4j.version>
-        <opentelemetry.version>1.63.0</opentelemetry.version>
-        <opentelemetry-contrib.version>1.54.0-alpha</opentelemetry-contrib.version>
-        <google.cloud-opentelemetry.version>0.36.0</google.cloud-opentelemetry.version>
+        <slf4j.version>2.0.19</slf4j.version>
+        <opentelemetry.version>1.66.0</opentelemetry.version>
+        <opentelemetry-contrib.version>1.60.0-alpha</opentelemetry-contrib.version>
+        <google.cloud-opentelemetry.version>0.37.0</google.cloud-opentelemetry.version>
         <caffeine.version>3.2.4</caffeine.version>
     </properties>
 
@@ -544,7 +544,7 @@ limitations under the License.
                 </plugin>
                 <plugin>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.15.0</version>
+                    <version>3.16.0</version>
                     <configuration>
                         <release>${maven.compiler.release}</release>
                         <compilerArgs>
@@ -655,12 +655,12 @@ limitations under the License.
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>build-helper-maven-plugin</artifactId>
-                    <version>3.6.1</version>
+                    <version>3.6.2</version>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>exec-maven-plugin</artifactId>
-                    <version>3.6.3</version>
+                    <version>3.6.4</version>
                 </plugin>
                 <!--
                   Default lifecycle plugins. Maven supplies these from its own super-POM, so
@@ -670,37 +670,37 @@ limitations under the License.
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-clean-plugin</artifactId>
-                    <version>3.2.0</version>
+                    <version>3.5.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-install-plugin</artifactId>
-                    <version>3.1.4</version>
+                    <version>3.2.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-deploy-plugin</artifactId>
-                    <version>3.1.4</version>
+                    <version>3.2.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-site-plugin</artifactId>
-                    <version>3.12.1</version>
+                    <version>3.22.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-jar-plugin</artifactId>
-                    <version>3.5.0</version>
+                    <version>3.5.1</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-resources-plugin</artifactId>
-                    <version>3.4.0</version>
+                    <version>3.5.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-enforcer-plugin</artifactId>
-                    <version>3.5.0</version>
+                    <version>3.6.3</version>
                     <executions>
                         <execution>
                             <id>enforce-build-invariants</id>
