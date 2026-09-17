@@ -16,6 +16,8 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.StorageException;
 import java.io.FileNotFoundException;
@@ -169,15 +171,8 @@ class GcsExceptionUtil {
    * @return a FileNotFoundException wrapping a 404 StorageException
    */
   static FileNotFoundException createFileNotFoundException(GcsItemId itemId) {
-    String uri;
-    if (itemId.isRoot()) {
-      uri = "gs:/";
-    } else if (itemId.isBucket()) {
-      uri = "gs://" + itemId.getBucketName();
-    } else {
-      uri = BlobId.of(itemId.getBucketName(), itemId.getObjectName().orElse("")).toGsUtilUri();
-    }
-    return createFileNotFoundException(uri);
+    checkNotNull(itemId, "itemId should not be null");
+    return createFileNotFoundException(UriUtil.getStringPath(itemId));
   }
 
   /**
