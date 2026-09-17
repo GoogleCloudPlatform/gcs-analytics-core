@@ -32,6 +32,7 @@ class GcsClientOptionsTest {
   void builder_withDefaultValues_returnsExpectedDefaults() {
     GcsClientOptions options = GcsClientOptions.builder().build();
 
+    assertThat(options.getClientType()).isEqualTo(ClientType.JSON);
     assertThat(options.getProjectId().isPresent()).isFalse();
     assertThat(options.getClientLibToken().isPresent()).isFalse();
     assertThat(options.getServiceHost().isPresent()).isFalse();
@@ -53,6 +54,7 @@ class GcsClientOptionsTest {
   void builder_withCustomValues_setsAllProperties() {
     GcsClientOptions options =
         GcsClientOptions.builder()
+            .setClientType(ClientType.BIDI)
             .setProjectId("test-project")
             .setClientLibToken("test-token")
             .setServiceHost("test-host")
@@ -66,6 +68,7 @@ class GcsClientOptionsTest {
             .setTemporaryPaths(ImmutableList.of("/tmp/path1", "/tmp/path2"))
             .build();
 
+    assertThat(options.getClientType()).isEqualTo(ClientType.BIDI);
     assertThat(options.getProjectId()).hasValue("test-project");
     assertThat(options.getClientLibToken()).hasValue("test-token");
     assertThat(options.getServiceHost()).hasValue("test-host");
@@ -85,6 +88,7 @@ class GcsClientOptionsTest {
   void createFromOptions_withValidProperties_parsesCorrectly() {
     Map<String, String> rawOptions =
         ImmutableMap.<String, String>builder()
+            .put("gcs.analytics-core.client.type", "GRPC")
             .put("gcs.project-id", "test-project")
             .put("gcs.client-lib-token", "test-token")
             .put("gcs.service.host", "test-host")
@@ -100,6 +104,7 @@ class GcsClientOptionsTest {
 
     GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
 
+    assertThat(options.getClientType()).isEqualTo(ClientType.GRPC);
     assertThat(options.getProjectId()).hasValue("test-project");
     assertThat(options.getClientLibToken()).hasValue("test-token");
     assertThat(options.getServiceHost()).hasValue("test-host");

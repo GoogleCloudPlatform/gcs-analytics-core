@@ -131,7 +131,7 @@ class GcsClientImpl implements GcsClient {
         gcsItemInfo.getItemId().isGcsObject(),
         "Expected GCS object to be provided. But got: " + gcsItemInfo.getItemId());
 
-    if (readOptions.isBidiReadEnabled()) {
+    if (isBidiEnabled()) {
       return new GcsBidiReadChannel(
           storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
     }
@@ -146,7 +146,7 @@ class GcsClientImpl implements GcsClient {
     checkNotNull(gcsItemId, "gcsItemId should not be null");
     checkNotNull(readOptions, "readOptions should not be null");
     ItemInfoProvider itemInfoProvider = this::getGcsItemInfo;
-    if (readOptions.isBidiReadEnabled()) {
+    if (isBidiEnabled()) {
       return new GcsBidiReadChannel(
           storage, gcsItemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider);
     } else {
@@ -406,12 +406,16 @@ class GcsClientImpl implements GcsClient {
     }
   }
 
+  private boolean isBidiEnabled() {
+    return clientOptions.getClientType() == ClientType.BIDI;
+  }
+
   @VisibleForTesting
   protected Storage createStorage(Optional<Credentials> credentials) {
     StorageOptions.Builder builder =
-        clientOptions.getGcsReadOptions().isBidiReadEnabled()
-            ? StorageOptions.grpc()
-            : StorageOptions.newBuilder();
+        clientOptions.getClientType() == ClientType.JSON
+            ? StorageOptions.newBuilder()
+            : StorageOptions.grpc();
     String userAgent = getUserAgent();
     builder.setHeaderProvider(FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
