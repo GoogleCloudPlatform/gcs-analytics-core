@@ -21,6 +21,7 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
 import java.io.FileNotFoundException;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.ArrayList;
 import java.util.List;
@@ -144,10 +145,10 @@ class GcsFileSystemImplIntegrationTest {
                         .build();
         GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(NoCredentials.getInstance(), options);
 
-        IOException exception =
-                assertThrows(IOException.class, () -> gcsFileSystem.getFileInfo(URI.create(object)));
+        AccessDeniedException exception =
+                assertThrows(AccessDeniedException.class, () -> gcsFileSystem.getFileInfo(URI.create(object)));
 
-        assertThat(exception).hasMessageThat().contains("Unable to access blob");
+        assertThat(exception).hasMessageThat().contains("Access denied to object during metadata lookup");
     }
 
     @Test

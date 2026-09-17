@@ -128,4 +128,32 @@ class UriUtilTest {
 
     assertThat(result).isNull();
   }
+
+  @Test
+  void getStringPath_gcsObject_returnsObjectPath() {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    String result = UriUtil.getStringPath(itemId);
+    assertThat(result).isEqualTo("gs://" + TEST_BUCKET + "/" + TEST_OBJECT);
+  }
+
+  @Test
+  void getStringPath_bucket_returnsBucketPath() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    String result = UriUtil.getStringPath(itemId);
+    assertThat(result).isEqualTo("gs://" + TEST_BUCKET);
+  }
+
+  @Test
+  void getStringPath_root_returnsRootPath() {
+    String result = UriUtil.getStringPath(GcsItemId.ROOT);
+    assertThat(result).isEqualTo("gs:/");
+  }
+
+  @Test
+  void getStringPath_nullItemId_throwsIllegalArgumentException() {
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> UriUtil.getStringPath(null));
+    assertThat(e).hasMessageThat().isEqualTo("itemId should not be null");
+  }
 }

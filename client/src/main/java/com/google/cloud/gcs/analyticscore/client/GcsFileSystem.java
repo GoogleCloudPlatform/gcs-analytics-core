@@ -51,10 +51,19 @@ public interface GcsFileSystem extends AutoCloseable {
    *
    * @param path The path we want Metadata about.
    * @return Metadata about the given path item.
+   * @throws FileNotFoundException if {@code path} denotes an object that does not exist
+   * @throws IOException if the metadata cannot be fetched.
    */
   GcsFileInfo getFileInfo(URI path) throws IOException;
 
-  /** Gets Metadata about the given gcs object represented by itemId. */
+  /**
+   * Gets Metadata about the given gcs object represented by itemId.
+   *
+   * @param itemId The identity of the object we want Metadata about.
+   * @return Metadata about the given object.
+   * @throws FileNotFoundException if {@code itemId} denotes an object that does not exist
+   * @throws IOException if the metadata cannot be fetched.
+   */
   GcsFileInfo getFileInfo(GcsItemId itemId) throws IOException;
 
   /** Retrieve the options that were used to create this GcsFileSystem. */

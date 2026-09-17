@@ -239,16 +239,18 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getGcsItemInfo_storageReturnsNull_returnsNotFoundItemInfo() throws IOException {
+  void getGcsItemInfo_storageReturnsNull_throwsFileNotFoundException() throws IOException {
     GcsItemId nonExistentItemId =
         GcsItemId.builder()
             .setBucketName(TEST_BUCKET_NAME)
             .setObjectName(TEST_NON_EXISTENT_OBJECT)
             .build();
 
-    GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(nonExistentItemId);
-
-    assertNotFound(itemInfo, nonExistentItemId);
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class, () -> gcsClient.getGcsItemInfo(nonExistentItemId));
+    assertThat(e.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
   }
 
   @Test
@@ -836,7 +838,37 @@ class GcsClientImplTest {
 
     IOException e = assertThrows(IOException.class, () -> clientWithMock.getGcsItemInfo(itemId));
 
-    assertThat(e).hasMessageThat().contains("Unable to access blob");
+    assertThat(e).hasMessageThat().contains("Error during metadata lookup");
+  }
+
+  @Test
+  void getGcsItemInfo_storageThrows404_throwsFileNotFoundException() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("non-existent-bucket").setObjectName(TEST_OBJECT).build();
+    when(mockStorage.get(any(BlobId.class), any(Storage.BlobGetOption[].class)))
+        .thenThrow(new StorageException(404, "Not Found"));
+
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> clientWithMock.getGcsItemInfo(itemId));
+
+    assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
+  }
+
+  @Test
+  void getGcsItemInfo_storageThrows403_throwsAccessDeniedException() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    when(mockStorage.get(any(BlobId.class), any(Storage.BlobGetOption[].class)))
+        .thenThrow(new StorageException(403, "Forbidden"));
+
+    AccessDeniedException e =
+        assertThrows(AccessDeniedException.class, () -> clientWithMock.getGcsItemInfo(itemId));
+
+    assertThat(e).hasMessageThat().contains("Access denied to object during metadata lookup");
   }
 
   @Test
