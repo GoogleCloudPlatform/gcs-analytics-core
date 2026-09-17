@@ -450,7 +450,7 @@ class GcsClientImpl implements GcsClient {
     try {
       return storage.get(blobId, Storage.BlobGetOption.fields(BLOB_METADATA_FIELDS_ARRAY));
     } catch (StorageException storageException) {
-      throw new IOException("Unable to access blob :" + blobId, storageException);
+      throw GcsExceptionUtil.translateException(storageException, "metadata lookup", blobId, 0L);
     }
   }
 

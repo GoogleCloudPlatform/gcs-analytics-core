@@ -43,16 +43,20 @@ public interface GcsClient {
       throws IOException;
 
   /**
-   * Fetches metadata for the given item.
+   * Fetches metadata for the given GCS object.
    *
-   * <p>Note that missing items are reported differently depending on the item type: a missing
-   * object raises a {@link FileNotFoundException}, whereas a missing bucket or folder is reported
-   * by returning a not-found {@link GcsItemInfo}.
+   * <p>This method supports GCS objects only. A missing object is reported by raising a {@link
+   * FileNotFoundException}, which aligns with standard Java I/O expectations.
    *
-   * @param itemId the identity of the item to fetch metadata for
-   * @return metadata for the given item
+   * <p>Buckets and folders are queried via {@link #getBucketInfo(GcsItemId)} and {@link
+   * #getFolderInfo(GcsItemId)} respectively. Those methods report a missing item differently, by
+   * returning a not-found {@link GcsItemInfo} instead of throwing.
+   *
+   * @param itemId the identity of the object to fetch metadata for
+   * @return metadata for the given object
    * @throws FileNotFoundException if {@code itemId} denotes an object that does not exist
    * @throws IOException if the metadata cannot be fetched
+   * @throws UnsupportedOperationException if {@code itemId} does not denote a GCS object
    */
   GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException;
 
