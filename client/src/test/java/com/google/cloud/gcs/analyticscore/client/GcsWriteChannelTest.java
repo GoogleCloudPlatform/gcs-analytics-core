@@ -219,6 +219,30 @@ class GcsWriteChannelTest {
     verify(mockChannel, times(1)).close();
   }
 
+  /**
+   * Regression test for a write/close race. {@code write()} used to read the volatile delegate
+   * twice — once for the open check and again for the write — so a {@code close()} landing between
+   * the two reads produced an untranslated {@link NullPointerException}. Closing from inside the
+   * {@code isOpen()} stub reproduces that exact interleaving deterministically, without threads.
+   */
+  @Test
+  void write_whenClosedConcurrentlyDuringOpenCheck_doesNotThrowNullPointerException()
+      throws Exception {
+    GcsWriteChannel channel = createChannel(mockChannel, blobInfo, writeOptions);
+    when(mockChannel.isOpen())
+        .thenAnswer(
+            invocation -> {
+              channel.close();
+              return true;
+            });
+    when(mockChannel.write(any(ByteBuffer.class))).thenReturn(3);
+
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3});
+    int written = channel.write(buffer);
+
+    assertThat(written).isEqualTo(3);
+  }
+
   @Test
   void write_onWrappedAccessDeniedStorageException_translatesToAccessDeniedException()
       throws Exception {

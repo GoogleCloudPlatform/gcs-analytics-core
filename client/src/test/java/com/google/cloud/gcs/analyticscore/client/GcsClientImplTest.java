@@ -33,8 +33,12 @@ import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
+import com.google.cloud.ReadChannel;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobAppendableUpload;
+import com.google.cloud.storage.BlobAppendableUpload.AppendableUploadWriteableByteChannel;
+import com.google.cloud.storage.BlobAppendableUploadConfig;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobReadSession;
@@ -473,7 +477,19 @@ class GcsClientImplTest {
   }
 
   private GcsClientImpl createClientWithMockStorage(Storage mockStorage) {
-    return new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+    return createClientWithMockStorage(mockStorage, TEST_GCS_CLIENT_OPTIONS);
+  }
+
+  private static GcsClientOptions bidiClientOptions() {
+    return GcsClientOptions.builder()
+        .setProjectId(TEST_PROJECT)
+        .setProtocol(GcsClientOptions.Protocol.BIDI)
+        .build();
+  }
+
+  private GcsClientImpl createClientWithMockStorage(
+      Storage mockStorage, GcsClientOptions clientOptions) {
+    return new GcsClientImpl(clientOptions, executorServiceSupplier, telemetry) {
       @Override
       protected Storage createStorage(Optional<Credentials> credentials) {
         return mockStorage;
@@ -891,9 +907,7 @@ class GcsClientImplTest {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
     StorageException e412 = new StorageException(412, "Precondition Failed");
-    BlobInfo nullOptionsBlobInfo = BlobInfo.newBuilder(BlobId.of(TEST_BUCKET, TEST_OBJECT)).build();
-    when(mockStorage.blobWriteSession(
-            eq(nullOptionsBlobInfo), any(Storage.BlobWriteOption[].class)))
+    when(mockStorage.blobWriteSession(eq(TEST_BLOB_INFO), any(Storage.BlobWriteOption[].class)))
         .thenThrow(e412);
 
     IOException exception =
@@ -990,11 +1004,11 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createStorage_bidiEnabled_usesGrpcTransport() throws IOException {
+  void createStorage_grpcProtocol_usesGrpcTransport() throws IOException {
     GcsClientOptions options =
         GcsClientOptions.builder()
             .setProjectId(TEST_PROJECT)
-            .setGcsReadOptions(GcsReadOptions.builder().setBidiReadEnabled(true).build())
+            .setProtocol(GcsClientOptions.Protocol.GRPC)
             .build();
 
     GcsClientImpl client =
@@ -1004,9 +1018,23 @@ class GcsClientImplTest {
   }
 
   @Test
-  void openReadChannel_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
-    GcsReadOptions readOptions =
-        GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).setBidiReadEnabled(true).build();
+  void createStorage_bidiProtocolWithBidiWrite_usesGrpcTransport() throws IOException {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setProtocol(GcsClientOptions.Protocol.BIDI)
+            .setGcsWriteOptions(GcsWriteOptions.builder().setBidiWriteEnabled(true).build())
+            .build();
+
+    GcsClientImpl client =
+        new GcsClientImpl(NoCredentials.getInstance(), options, executorServiceSupplier, telemetry);
+
+    assertThat(client.storage.getOptions()).isInstanceOf(GrpcStorageOptions.class);
+  }
+
+  @Test
+  void openReadChannel_bidiProtocol_returnsGcsBidiReadChannel() throws IOException {
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).build();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_NAME).build();
     GcsItemInfo itemInfo =
@@ -1014,7 +1042,7 @@ class GcsClientImplTest {
     Storage mockStorage = mock(Storage.class);
     ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
     when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
-    GcsClient bidiClient = createClientWithMockStorage(mockStorage);
+    GcsClient bidiClient = createClientWithMockStorage(mockStorage, bidiClientOptions());
 
     VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemInfo, readOptions);
 
@@ -1022,19 +1050,38 @@ class GcsClientImplTest {
   }
 
   @Test
-  void openReadChannel_itemId_bidiEnabled_returnsGcsBidiReadChannel() throws IOException {
-    GcsReadOptions readOptions =
-        GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).setBidiReadEnabled(true).build();
+  void openReadChannel_itemId_bidiProtocol_returnsGcsBidiReadChannel() throws IOException {
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).build();
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_NAME).build();
     Storage mockStorage = mock(Storage.class);
     ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
     when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
-    GcsClient bidiClient = createClientWithMockStorage(mockStorage);
+    GcsClient bidiClient = createClientWithMockStorage(mockStorage, bidiClientOptions());
 
     VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemId, readOptions);
 
     assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
+  }
+
+  @Test
+  void openReadChannel_grpcProtocol_returnsStandardGcsReadChannel() throws IOException {
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId(TEST_PROJECT).build();
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_NAME).build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setProtocol(GcsClientOptions.Protocol.GRPC)
+            .build();
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.reader(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mock(ReadChannel.class));
+    GcsClient client = createClientWithMockStorage(mockStorage, clientOptions);
+
+    VectoredSeekableByteChannel channel = client.openReadChannel(itemId, readOptions);
+
+    assertThat(channel).isNotInstanceOf(GcsBidiReadChannel.class);
   }
 
   @Test
@@ -1502,5 +1549,116 @@ class GcsClientImplTest {
     assertThat(itemInfo.getItemId()).isEqualTo(expectedItemId);
     assertThat(itemInfo.exists()).isFalse();
     assertThat(itemInfo.getSize()).isEqualTo(-1L);
+  }
+
+  @Test
+  void createWriteChannel_bidiEnabled_returnsGcsBidiWriteChannel() throws IOException {
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().setBidiWriteEnabled(true).build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket-name")
+            .setObjectName("test-object-name")
+            .build();
+
+    Storage mockStorage = mock(Storage.class);
+    BlobAppendableUpload mockSession = mock(BlobAppendableUpload.class);
+    AppendableUploadWriteableByteChannel mockAppendChannel =
+        mock(AppendableUploadWriteableByteChannel.class);
+
+    when(mockStorage.blobAppendableUpload(
+            any(BlobInfo.class),
+            any(BlobAppendableUploadConfig.class),
+            any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    when(mockSession.open()).thenReturn(mockAppendChannel);
+    when(mockAppendChannel.isOpen()).thenReturn(true);
+
+    GcsClient bidiClient = createClientWithMockStorage(mockStorage, bidiClientOptions());
+
+    try (WritableByteChannel channel = bidiClient.createWriteChannel(itemId, writeOptions)) {
+      assertThat(channel).isInstanceOf(GcsBidiWriteChannel.class);
+    }
+  }
+
+  @Test
+  void createWriteChannel_bidiWriteWithoutBidiProtocol_throwsIllegalArgumentException() {
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().setBidiWriteEnabled(true).build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket-name")
+            .setObjectName("test-object-name")
+            .build();
+    GcsClient client = createClientWithMockStorage(mock(Storage.class), TEST_GCS_CLIENT_OPTIONS);
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> client.createWriteChannel(itemId, writeOptions));
+
+    assertThat(exception).hasMessageThat().contains("client.protocol");
+  }
+
+  @Test
+  void createWriteChannel_bidiDisabled_returnsStandardGcsWriteChannel() throws IOException {
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().setBidiWriteEnabled(false).build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket-name")
+            .setObjectName("test-object-name")
+            .build();
+
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    ApiFuture<BlobInfo> mockFuture = mock(ApiFuture.class);
+
+    when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    when(mockSession.open()).thenReturn(mockChannel);
+    when(mockSession.getResult()).thenReturn(mockFuture);
+
+    GcsClient client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return mockStorage;
+          }
+        };
+
+    try (WritableByteChannel channel = client.createWriteChannel(itemId, writeOptions)) {
+      assertThat(channel).isInstanceOf(GcsWriteChannel.class);
+      assertThat(channel).isNotInstanceOf(GcsBidiWriteChannel.class);
+    }
+  }
+
+  @Test
+  void createWriteChannel_nullOptions_returnsStandardGcsWriteChannel() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("test-bucket-name")
+            .setObjectName("test-object-name")
+            .build();
+
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    ApiFuture<BlobInfo> mockFuture = mock(ApiFuture.class);
+
+    when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    when(mockSession.open()).thenReturn(mockChannel);
+    when(mockSession.getResult()).thenReturn(mockFuture);
+
+    GcsClient client =
+        new GcsClientImpl(TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry) {
+          @Override
+          protected Storage createStorage(Optional<Credentials> credentials) {
+            return mockStorage;
+          }
+        };
+
+    try (WritableByteChannel channel = client.createWriteChannel(itemId, null)) {
+      assertThat(channel).isInstanceOf(GcsWriteChannel.class);
+      assertThat(channel).isNotInstanceOf(GcsBidiWriteChannel.class);
+    }
   }
 }
