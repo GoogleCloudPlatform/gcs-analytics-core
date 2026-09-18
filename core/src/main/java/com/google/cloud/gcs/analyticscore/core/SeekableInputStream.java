@@ -15,11 +15,14 @@
  */
 package com.google.cloud.gcs.analyticscore.core;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.IntFunction;
 
 /**
@@ -91,4 +94,39 @@ public abstract class SeekableInputStream extends InputStream {
    */
   public abstract void readVectored(
       List<GcsObjectRange> fileRanges, final IntFunction<ByteBuffer> alloc) throws IOException;
+
+  /**
+   * Performs a vectored read, fetching multiple ranges in parallel. Buffers for the data are
+   * supplied by the provided allocation function.
+   *
+   * <p>Implementations supporting release invoke the callback at most once per allocated buffer,
+   * only on failure and before completing the affected futures exceptionally. The callback is never
+   * invoked on success, or for a buffer whose contents have been published to any range future,
+   * including through a slice. The callback must be thread-safe: vectored-read executor threads can
+   * invoke it concurrently for different combined ranges, including ranges from the same call.
+   *
+   * <p>Successful merged reads can return slices sharing one allocated parent buffer, rather than
+   * the parent itself. This API does not return that parent or notify the allocator when callers
+   * finish using its slices. It therefore does not provide successful-read reclamation for buffer
+   * pools that require the original allocation to be returned. Such allocators need an external
+   * ownership mechanism that keeps the parent alive until all its slices are no longer in use.
+   * Returning individual slices to a pool is not equivalent to returning the original allocation.
+   *
+   * <p>The default implementation throws {@link UnsupportedOperationException}. Implementations
+   * must override this overload to provide failure cleanup.
+   *
+   * @param fileRanges a list of {@link GcsObjectRange} ranges to be read in parallel.
+   * @param alloc a function that allocates a {@link ByteBuffer} of a given size.
+   * @param release a function that releases allocated buffers on failure.
+   * @throws IOException if any I/O error occurs during the reads.
+   */
+  public void readVectored(
+      List<GcsObjectRange> fileRanges,
+      final IntFunction<ByteBuffer> alloc,
+      final Consumer<ByteBuffer> release)
+      throws IOException {
+    checkNotNull(release, "Buffer release function must not be null");
+    throw new UnsupportedOperationException(
+        "Implementations must override readVectored to support buffer release");
+  }
 }
