@@ -475,6 +475,23 @@ class GcsAuthOptionsTest {
   }
 
   @ParameterizedTest
+  @CsvSource({
+    "socks5://foo-host:1234, HTTP proxy address 'socks5://foo-host:1234' has invalid scheme 'socks5'.",
+    ":1234, Proxy address ':1234' has no host.",
+    "foo-host, Proxy address 'foo-host' has no port.",
+    "foo-host-with-illegal-char^:1234, Invalid proxy address 'foo-host-with-illegal-char^:1234'.",
+    "foo-host:1234/some/path, Invalid proxy address 'foo-host:1234/some/path'."
+  })
+  void parseProxyAddress_invalidAddress_throwsExpectedDiagnosticMessage(
+      String invalidInput, String expectedMessageSubstring) {
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> GcsAuthOptions.parseProxyAddress(invalidInput));
+
+    assertThat(exception).hasMessageThat().contains(expectedMessageSubstring);
+  }
+
+  @ParameterizedTest
   @ValueSource(
       strings = {
         "this is not a proxy",
