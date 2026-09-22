@@ -1368,6 +1368,11 @@ class GcsClientImplTest {
           protected StorageControlClient createStorageControlClient(
               Optional<Credentials> credentials) {
             factoryInvocations.incrementAndGet();
+            try {
+              Thread.sleep(50);
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            }
             return mockClientInstance;
           }
         };

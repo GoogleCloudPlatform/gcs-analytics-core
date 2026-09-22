@@ -10,6 +10,7 @@ This guide ensures code quality, performance, and maintainability for the `gcs-a
 
 *   **License Compliance:** Every new file **MUST** start with the Apache License 2.0 header. No exceptions.
 *   **Dependency Hygiene:** Do not introduce new dependencies without license validation (Apache 2.0 preferred). Avoid dependency bloat to minimize classpath conflicts in Spark/Hadoop environments (shaded jars are preferred if internal shading is used).
+*   **Java Version Compatibility:** The project targets **JDK 11+** (`maven.compiler.release=11`). Standard library APIs from Java 9 through Java 11 are fully supported; do not flag Java 9–11 APIs for Java 8 compatibility, and do not use APIs introduced in Java 12 or later.
 *   **Binary & Semantic Compatibility:** Public APIs in `client` and `core` must maintain backward compatibility. Do not change method signatures; prefer `default` interface methods or deprecation cycles.
 *   **No Internal State Leaks:** Ensure internal classes remain package-private to prevent users from binding to unstable internals.
 *   **Security & Data Governance:** **NEVER** log, expose, or commit credentials, access tokens, or private keys. Be extremely careful about logging complete GCS URIs or object names at `INFO` level or higher if they might contain sensitive user data (PII). Sanitize exception messages to ensure they don't leak internal tokens.

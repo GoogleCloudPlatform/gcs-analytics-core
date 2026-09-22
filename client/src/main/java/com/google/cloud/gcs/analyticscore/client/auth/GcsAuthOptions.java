@@ -30,26 +30,34 @@ import java.util.Map;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
-/** Configuration options for Google Cloud Storage authentication and network proxy. */
+/**
+ * Configuration options for Google Cloud Storage authentication and network proxy.
+ *
+ * <p>Keys are namespaced under {@code analytics-core.auth.} because embedders supply a prefix of
+ * their own ({@code fs.gs.} for the Hadoop connector) and typically pass their entire configuration
+ * through. A bare {@code auth.} namespace would make keys such as {@code fs.gs.auth.type} mean one
+ * thing to the embedder and another here, and the embedder has no way to tell the two apart.
+ */
 @AutoValue
 public abstract class GcsAuthOptions {
 
-  private static final String AUTH_TYPE_KEY = "auth.type";
+  private static final String AUTH_TYPE_KEY = "analytics-core.auth.type";
   private static final String SERVICE_ACCOUNT_JSON_KEYFILE_KEY =
-      "auth.service-account-json-keyfile";
+      "analytics-core.auth.service-account-json-keyfile";
   private static final String WORKLOAD_IDENTITY_CREDENTIAL_CONFIG_FILE_KEY =
-      "auth.workload-identity-federation.credential-config-file";
-  private static final String CLIENT_ID_KEY = "auth.client-id";
-  private static final String CLIENT_SECRET_KEY = "auth.client-secret";
-  private static final String REFRESH_TOKEN_KEY = "auth.refresh-token";
+      "analytics-core.auth.workload-identity-federation.credential-config-file";
+  private static final String CLIENT_ID_KEY = "analytics-core.auth.client-id";
+  private static final String CLIENT_SECRET_KEY = "analytics-core.auth.client-secret";
+  private static final String REFRESH_TOKEN_KEY = "analytics-core.auth.refresh-token";
   private static final String IMPERSONATION_SERVICE_ACCOUNT_KEY =
-      "auth.impersonation-service-account";
-  private static final String TOKEN_SERVER_URI_KEY = "auth.token-server-uri";
-  private static final String PROXY_ADDRESS_KEY = "auth.proxy.address";
-  private static final String PROXY_USERNAME_KEY = "auth.proxy.username";
-  private static final String PROXY_PASSWORD_KEY = "auth.proxy.password";
-  private static final String HTTP_CONNECT_TIMEOUT_KEY = "auth.http.connect-timeout-ms";
-  private static final String HTTP_READ_TIMEOUT_KEY = "auth.http.read-timeout-ms";
+      "analytics-core.auth.impersonation-service-account";
+  private static final String TOKEN_SERVER_URI_KEY = "analytics-core.auth.token-server-uri";
+  private static final String PROXY_ADDRESS_KEY = "analytics-core.auth.proxy.address";
+  private static final String PROXY_USERNAME_KEY = "analytics-core.auth.proxy.username";
+  private static final String PROXY_PASSWORD_KEY = "analytics-core.auth.proxy.password";
+  private static final String HTTP_CONNECT_TIMEOUT_KEY =
+      "analytics-core.auth.http.connect-timeout-ms";
+  private static final String HTTP_READ_TIMEOUT_KEY = "analytics-core.auth.http.read-timeout-ms";
 
   private static final Duration DEFAULT_HTTP_CONNECT_TIMEOUT = Duration.ofSeconds(5);
   private static final Duration DEFAULT_HTTP_READ_TIMEOUT = Duration.ofSeconds(5);

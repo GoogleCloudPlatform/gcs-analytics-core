@@ -138,20 +138,23 @@ class GcsAuthOptionsTest {
   void createFromOptions_withPrefix_parsesAllFields() {
     Map<String, String> map =
         ImmutableMap.<String, String>builder()
-            .put("gcs.auth.type", "USER_CREDENTIALS")
-            .put("gcs.auth.service-account-json-keyfile", "/path/to/key.json")
+            .put("gcs.analytics-core.auth.type", "USER_CREDENTIALS")
+            .put("gcs.analytics-core.auth.service-account-json-keyfile", "/path/to/key.json")
             .put(
-                "gcs.auth.workload-identity-federation.credential-config-file", "/path/to/wif.json")
-            .put("gcs.auth.client-id", "client-id")
-            .put("gcs.auth.client-secret", "client-secret")
-            .put("gcs.auth.refresh-token", "refresh-token")
-            .put("gcs.auth.impersonation-service-account", "target@iam.gserviceaccount.com")
-            .put("gcs.auth.token-server-uri", "https://oauth2.googleapis.com/token")
-            .put("gcs.auth.proxy.address", "https://proxy:8443")
-            .put("gcs.auth.proxy.username", "user")
-            .put("gcs.auth.proxy.password", "pass")
-            .put("gcs.auth.http.connect-timeout-ms", "8000")
-            .put("gcs.auth.http.read-timeout-ms", "10000")
+                "gcs.analytics-core.auth.workload-identity-federation.credential-config-file",
+                "/path/to/wif.json")
+            .put("gcs.analytics-core.auth.client-id", "client-id")
+            .put("gcs.analytics-core.auth.client-secret", "client-secret")
+            .put("gcs.analytics-core.auth.refresh-token", "refresh-token")
+            .put(
+                "gcs.analytics-core.auth.impersonation-service-account",
+                "target@iam.gserviceaccount.com")
+            .put("gcs.analytics-core.auth.token-server-uri", "https://oauth2.googleapis.com/token")
+            .put("gcs.analytics-core.auth.proxy.address", "https://proxy:8443")
+            .put("gcs.analytics-core.auth.proxy.username", "user")
+            .put("gcs.analytics-core.auth.proxy.password", "pass")
+            .put("gcs.analytics-core.auth.http.connect-timeout-ms", "8000")
+            .put("gcs.analytics-core.auth.http.read-timeout-ms", "10000")
             .build();
 
     GcsAuthOptions options = GcsAuthOptions.createFromOptions(map, "gcs.");
@@ -174,7 +177,7 @@ class GcsAuthOptionsTest {
 
   @Test
   void createFromOptions_withEmptyPrefix_parsesUnprefixedKeys() {
-    Map<String, String> map = ImmutableMap.of("auth.type", "UNAUTHENTICATED");
+    Map<String, String> map = ImmutableMap.of("analytics-core.auth.type", "UNAUTHENTICATED");
 
     GcsAuthOptions options = GcsAuthOptions.createFromOptions(map, "");
 
@@ -183,7 +186,7 @@ class GcsAuthOptionsTest {
 
   @Test
   void createFromOptions_keyWithoutPrefix_isIgnored() {
-    Map<String, String> map = ImmutableMap.of("auth.type", "UNAUTHENTICATED");
+    Map<String, String> map = ImmutableMap.of("analytics-core.auth.type", "UNAUTHENTICATED");
 
     GcsAuthOptions options = GcsAuthOptions.createFromOptions(map, "gcs.");
 
@@ -191,22 +194,58 @@ class GcsAuthOptionsTest {
   }
 
   @Test
+  void createFromOptions_bareAuthKeysWithoutNamespace_areIgnored() {
+    Map<String, String> map =
+        ImmutableMap.of("auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE", "auth.client-id", "client-id");
+
+    GcsAuthOptions options = GcsAuthOptions.createFromOptions(map, "");
+
+    assertThat(options).isEqualTo(GcsAuthOptions.builder().build());
+  }
+
+  /**
+   * The Hadoop connector hands its whole {@code fs.gs.*} configuration to Analytics Core, so its
+   * auth keys must fall through to the defaults here rather than being read or rejected.
+   */
+  @ParameterizedTest
+  @CsvSource({
+    "fs.gs.auth.type, SERVICE_ACCOUNT_JSON_KEYFILE",
+    "fs.gs.auth.type, ACCESS_TOKEN_PROVIDER",
+    "fs.gs.auth.type, WORKLOAD_IDENTITY_FEDERATION_CREDENTIAL_CONFIG_FILE",
+    "fs.gs.auth.type, USER_CREDENTIALS",
+    "fs.gs.auth.type, UNAUTHENTICATED",
+    "fs.gs.auth.service.account.json.keyfile, /path/to/key.json",
+    "fs.gs.auth.client.id, client-id",
+    "fs.gs.auth.refresh.token, refresh-token",
+    "fs.gs.auth.impersonation.service.account, sa@project.iam.gserviceaccount.com",
+    "fs.gs.token.server.url, https://oauth2.googleapis.com/token",
+    "fs.gs.proxy.address, proxy.corp:3128"
+  })
+  void createFromOptions_hadoopConnectorAuthKeys_areIgnored(String key, String value) {
+    Map<String, String> map = ImmutableMap.of(key, value);
+
+    GcsAuthOptions options = GcsAuthOptions.createFromOptions(map, "fs.gs.");
+
+    assertThat(options).isEqualTo(GcsAuthOptions.builder().build());
+  }
+
+  @Test
   void createFromOptions_blankValues_areIgnored() {
     Map<String, String> map =
         ImmutableMap.<String, String>builder()
-            .put("auth.type", "   ")
-            .put("auth.service-account-json-keyfile", "   ")
-            .put("auth.workload-identity-federation.credential-config-file", "   ")
-            .put("auth.client-id", "   ")
-            .put("auth.client-secret", "   ")
-            .put("auth.refresh-token", "   ")
-            .put("auth.impersonation-service-account", "   ")
-            .put("auth.token-server-uri", "   ")
-            .put("auth.proxy.address", "   ")
-            .put("auth.proxy.username", "   ")
-            .put("auth.proxy.password", "   ")
-            .put("auth.http.connect-timeout-ms", "   ")
-            .put("auth.http.read-timeout-ms", "   ")
+            .put("analytics-core.auth.type", "   ")
+            .put("analytics-core.auth.service-account-json-keyfile", "   ")
+            .put("analytics-core.auth.workload-identity-federation.credential-config-file", "   ")
+            .put("analytics-core.auth.client-id", "   ")
+            .put("analytics-core.auth.client-secret", "   ")
+            .put("analytics-core.auth.refresh-token", "   ")
+            .put("analytics-core.auth.impersonation-service-account", "   ")
+            .put("analytics-core.auth.token-server-uri", "   ")
+            .put("analytics-core.auth.proxy.address", "   ")
+            .put("analytics-core.auth.proxy.username", "   ")
+            .put("analytics-core.auth.proxy.password", "   ")
+            .put("analytics-core.auth.http.connect-timeout-ms", "   ")
+            .put("analytics-core.auth.http.read-timeout-ms", "   ")
             .build();
 
     GcsAuthOptions options = GcsAuthOptions.createFromOptions(map, "");
@@ -216,7 +255,7 @@ class GcsAuthOptionsTest {
 
   @Test
   void createFromOptions_valuesWithWhitespace_areTrimmed() {
-    Map<String, String> map = ImmutableMap.of("auth.client-id", "  client-id  ");
+    Map<String, String> map = ImmutableMap.of("analytics-core.auth.client-id", "  client-id  ");
 
     GcsAuthOptions options = GcsAuthOptions.createFromOptions(map, "");
 
@@ -226,7 +265,8 @@ class GcsAuthOptionsTest {
   @ParameterizedTest
   @ValueSource(strings = {"not-a-number", "10s", "2500ms", "0", "-5"})
   void createFromOptions_invalidConnectTimeout_throwsIllegalArgumentException(String timeout) {
-    Map<String, String> map = ImmutableMap.of("auth.http.connect-timeout-ms", timeout);
+    Map<String, String> map =
+        ImmutableMap.of("analytics-core.auth.http.connect-timeout-ms", timeout);
 
     assertThrows(IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, ""));
   }
@@ -234,7 +274,7 @@ class GcsAuthOptionsTest {
   @ParameterizedTest
   @ValueSource(strings = {"not-a-number", "10s", "2500ms", "0", "-5"})
   void createFromOptions_invalidReadTimeout_throwsIllegalArgumentException(String timeout) {
-    Map<String, String> map = ImmutableMap.of("auth.http.read-timeout-ms", timeout);
+    Map<String, String> map = ImmutableMap.of("analytics-core.auth.http.read-timeout-ms", timeout);
 
     assertThrows(IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, ""));
   }
@@ -242,7 +282,7 @@ class GcsAuthOptionsTest {
   @ParameterizedTest
   @ValueSource(strings = {"http://invalid uri", "oauth2.googleapis.com/token", "not-a-url"})
   void createFromOptions_tokenServerUriIsNotAbsolute_throwsIllegalArgumentException(String uri) {
-    Map<String, String> map = ImmutableMap.of("auth.token-server-uri", uri);
+    Map<String, String> map = ImmutableMap.of("analytics-core.auth.token-server-uri", uri);
 
     assertThrows(IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, ""));
   }
@@ -250,7 +290,7 @@ class GcsAuthOptionsTest {
   @ParameterizedTest
   @ValueSource(strings = {"mailto:tokens@example.com", "urn:isbn:0451450523"})
   void createFromOptions_tokenServerUriHasNoHost_throwsIllegalArgumentException(String uri) {
-    Map<String, String> map = ImmutableMap.of("auth.token-server-uri", uri);
+    Map<String, String> map = ImmutableMap.of("analytics-core.auth.token-server-uri", uri);
 
     assertThrows(IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, ""));
   }
@@ -262,7 +302,7 @@ class GcsAuthOptionsTest {
 
   @Test
   void createFromOptions_nullPrefix_throwsNullPointerException() {
-    Map<String, String> map = ImmutableMap.of("auth.type", "UNAUTHENTICATED");
+    Map<String, String> map = ImmutableMap.of("analytics-core.auth.type", "UNAUTHENTICATED");
 
     assertThrows(NullPointerException.class, () -> GcsAuthOptions.createFromOptions(map, null));
   }
@@ -338,15 +378,15 @@ class GcsAuthOptionsTest {
   void createFromOptions_userCredentialsMissingSecret_reportsMissingKey() {
     Map<String, String> map =
         ImmutableMap.of(
-            "auth.type", "USER_CREDENTIALS",
-            "auth.client-id", "client-id",
-            "auth.refresh-token", "refresh-token");
+            "analytics-core.auth.type", "USER_CREDENTIALS",
+            "analytics-core.auth.client-id", "client-id",
+            "analytics-core.auth.refresh-token", "refresh-token");
 
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, ""));
 
-    assertThat(exception).hasMessageThat().contains("auth.client-secret");
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.client-secret");
   }
 
   @Test
@@ -359,7 +399,7 @@ class GcsAuthOptionsTest {
     IllegalArgumentException exception =
         assertThrows(IllegalArgumentException.class, builder::build);
 
-    assertThat(exception).hasMessageThat().contains("auth.proxy.address");
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.proxy.address");
   }
 
   @Test
@@ -372,7 +412,7 @@ class GcsAuthOptionsTest {
     IllegalArgumentException exception =
         assertThrows(IllegalArgumentException.class, builder::build);
 
-    assertThat(exception).hasMessageThat().contains("auth.proxy.password");
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.proxy.password");
   }
 
   @Test
@@ -385,7 +425,7 @@ class GcsAuthOptionsTest {
     IllegalArgumentException exception =
         assertThrows(IllegalArgumentException.class, builder::build);
 
-    assertThat(exception).hasMessageThat().contains("auth.proxy.username");
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.proxy.username");
   }
 
   @Test
@@ -396,7 +436,7 @@ class GcsAuthOptionsTest {
     IllegalArgumentException exception =
         assertThrows(IllegalArgumentException.class, builder::build);
 
-    assertThat(exception).hasMessageThat().contains("auth.proxy.address");
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.proxy.address");
   }
 
   @ParameterizedTest
@@ -407,50 +447,50 @@ class GcsAuthOptionsTest {
     IllegalArgumentException exception =
         assertThrows(IllegalArgumentException.class, builder::build);
 
-    assertThat(exception).hasMessageThat().contains("auth.proxy.address");
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.proxy.address");
   }
 
   @Test
   void createFromOptions_proxyCredentialsWithoutAddress_throwsIllegalArgumentException() {
     Map<String, String> map =
         ImmutableMap.of(
-            "auth.proxy.username", "user",
-            "auth.proxy.password", "pass");
+            "analytics-core.auth.proxy.username", "user",
+            "analytics-core.auth.proxy.password", "pass");
 
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, ""));
 
-    assertThat(exception).hasMessageThat().contains("auth.proxy.address");
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.proxy.address");
   }
 
   @Test
   void createFromOptions_withPrefix_missingRequiredFieldReportsPrefixedKey() {
     Map<String, String> map =
         ImmutableMap.of(
-            "gcs.auth.type", "USER_CREDENTIALS",
-            "gcs.auth.client-id", "client-id",
-            "gcs.auth.refresh-token", "refresh-token");
+            "gcs.analytics-core.auth.type", "USER_CREDENTIALS",
+            "gcs.analytics-core.auth.client-id", "client-id",
+            "gcs.analytics-core.auth.refresh-token", "refresh-token");
 
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, "gcs."));
 
-    assertThat(exception).hasMessageThat().contains("gcs.auth.client-secret");
+    assertThat(exception).hasMessageThat().contains("gcs.analytics-core.auth.client-secret");
   }
 
   @Test
   void createFromOptions_withPrefix_proxyCredentialsWithoutAddressReportsPrefixedKey() {
     Map<String, String> map =
         ImmutableMap.of(
-            "gcs.auth.proxy.username", "user",
-            "gcs.auth.proxy.password", "pass");
+            "gcs.analytics-core.auth.proxy.username", "user",
+            "gcs.analytics-core.auth.proxy.password", "pass");
 
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, "gcs."));
 
-    assertThat(exception).hasMessageThat().contains("gcs.auth.proxy.address");
+    assertThat(exception).hasMessageThat().contains("gcs.analytics-core.auth.proxy.address");
   }
 
   @ParameterizedTest
@@ -472,6 +512,23 @@ class GcsAuthOptionsTest {
     URI uri = GcsAuthOptions.parseProxyAddress(proxyAddress);
 
     assertThat(uri).isNull();
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "socks5://foo-host:1234, HTTP proxy address 'socks5://foo-host:1234' has invalid scheme 'socks5'.",
+    ":1234, Proxy address ':1234' has no host.",
+    "foo-host, Proxy address 'foo-host' has no port.",
+    "foo-host-with-illegal-char^:1234, Invalid proxy address 'foo-host-with-illegal-char^:1234'.",
+    "foo-host:1234/some/path, Invalid proxy address 'foo-host:1234/some/path'."
+  })
+  void parseProxyAddress_invalidAddress_throwsExpectedDiagnosticMessage(
+      String invalidInput, String expectedMessageSubstring) {
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> GcsAuthOptions.parseProxyAddress(invalidInput));
+
+    assertThat(exception).hasMessageThat().contains(expectedMessageSubstring);
   }
 
   @ParameterizedTest
