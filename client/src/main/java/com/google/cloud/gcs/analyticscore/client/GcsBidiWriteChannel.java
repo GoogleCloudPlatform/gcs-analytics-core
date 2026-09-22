@@ -104,26 +104,20 @@ class GcsBidiWriteChannel extends GcsWriteChannel {
    * appendable.
    */
   @Override
-  public void close() throws IOException {
+  public synchronized void close() throws IOException {
     if (closed) {
       return;
     }
 
-    synchronized (this) {
-      if (closed) {
-        return;
+    closed = true;
+    try {
+      if (gcsAppendChannel != null) {
+        gcsAppendChannel.close();
       }
-      closed = true;
-      AppendableUploadWriteableByteChannel channel = gcsAppendChannel;
-      if (channel != null) {
-        try {
-          channel.close();
-        } catch (StorageException | IOException e) {
-          throw handleException(e, "close");
-        } finally {
-          gcsAppendChannel = null;
-        }
-      }
+    } catch (StorageException | IOException e) {
+      throw handleException(e, "close");
+    } finally {
+      gcsAppendChannel = null;
     }
   }
 
