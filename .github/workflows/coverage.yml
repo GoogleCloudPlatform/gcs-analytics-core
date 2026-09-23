@@ -1,11 +1,22 @@
 name: coverage
-on: [push]
+# Restricted to main: PR coverage is handled by the `coverage` job in presubmit.yml. Previously
+# this ran on every push to every branch, so each PR branch push produced two identical full
+# `verify` runs and two Codecov uploads.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -13,13 +24,17 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This job only reads the repo; leaving the token on disk would
+          # expose it to anything later in the job (zizmor: artipacked).
+          persist-credentials: false
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: 'zulu'
           java-version: 11
           cache: maven
       - name: Run tests and collect coverage
-        run: ./mvnw -P coverage clean verify -Dmaven.javadoc.skip=true -Dsource.skip=true  -Dgpg.skip=true
+        run: ./mvnw -P coverage clean verify -Dmaven.javadoc.skip=true -Dsource.skip=true -Dgpg.skip=true
       - name: Upload coverage report to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:

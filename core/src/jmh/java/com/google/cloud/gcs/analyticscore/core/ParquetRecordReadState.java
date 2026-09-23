@@ -28,6 +28,6 @@ public class ParquetRecordReadState {
     @Param({ "0", "102400" })
     public String footerPrefetchSize;
 
-    @Param({"JSON", "GRPC", "BIDI"})
-    public String clientType;
+    @Param({"HTTP", "GRPC", "BIDI"})
+    public String protocol;
 }

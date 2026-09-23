@@ -17,8 +17,11 @@ package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -110,5 +113,58 @@ class OpenTelemetryReporterTest {
       assertThat(counterAttributes.get(AttributeKey.stringKey("opId"))).isEqualTo("123");
       assertThat(counterAttributes.get(AttributeKey.stringKey("status"))).isEqualTo("OK");
     }
+  }
+
+  @Test
+  void operationEnd_repeatedOperations_appliesEachOperationsOwnAttributeValues() {
+    OpenTelemetryOptions options =
+        OpenTelemetryOptions.builder()
+            .setEnabled(true)
+            .setProviderType(OpenTelemetryOptions.ProviderType.PRE_CONFIGURED)
+            .setPreconfiguredOpenTelemetryInstance(mockOpenTelemetry)
+            .build();
+    try (OpenTelemetryReporter reporter = new OpenTelemetryReporter(options)) {
+      Map<MetricKey, Long> metrics =
+          Map.of(
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("testOp.bytes", Metric.MetricType.COUNTER))
+                  .build(),
+              1L);
+
+      reporter.onOperationEnd(operationWithOpId("first"), metrics);
+      reporter.onOperationEnd(operationWithOpId("second"), metrics);
+
+      // AttributeKey instances are cached by name; the values behind them must not be.
+      ArgumentCaptor<Attributes> attrsCaptor = ArgumentCaptor.forClass(Attributes.class);
+      verify(mockCounter, times(2)).add(anyLong(), attrsCaptor.capture());
+      assertThat(attrsCaptor.getAllValues().get(0).get(AttributeKey.stringKey("opId")))
+          .isEqualTo("first");
+      assertThat(attrsCaptor.getAllValues().get(1).get(AttributeKey.stringKey("opId")))
+          .isEqualTo("second");
+    }
+  }
+
+  @Test
+  void operationEnd_emptyMetrics_recordsNothing() {
+    OpenTelemetryOptions options =
+        OpenTelemetryOptions.builder()
+            .setEnabled(true)
+            .setProviderType(OpenTelemetryOptions.ProviderType.PRE_CONFIGURED)
+            .setPreconfiguredOpenTelemetryInstance(mockOpenTelemetry)
+            .build();
+    try (OpenTelemetryReporter reporter = new OpenTelemetryReporter(options)) {
+
+      reporter.onOperationEnd(operationWithOpId("first"), Map.of());
+
+      verify(mockCounter, never()).add(anyLong(), any(Attributes.class));
+    }
+  }
+
+  private static Operation operationWithOpId(String opId) {
+    return Operation.builder()
+        .setName("testOp")
+        .setDurationMetric(TestMetric.of("testOp.duration", Metric.MetricType.DURATION))
+        .setAttributes(Map.of("opId", opId))
+        .build();
   }
 }

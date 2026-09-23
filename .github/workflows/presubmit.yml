@@ -1,10 +1,34 @@
 name: presubmits
-on: [pull_request]
+on:
+  pull_request:
+  # Lets these checks be run on demand from any branch. Without this, pushing a
+  # branch (e.g. to a fork) produces no CI feedback until a PR is opened.
+  workflow_dispatch:
+  # Post-merge verification. Scoped to main so PR branch pushes trigger only the
+  # pull_request event rather than running everything twice.
+  push:
+    branches: [main]
 permissions:
   contents: read
+
+# Superseded runs on the same PR are pointless; cancel them so the queue stays short.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  unit-tests:
+  # Reports as `unit-tests (JDK N)` per leg. The required check is the `unit-tests`
+  # aggregator below, not these, so the matrix can change without touching branch protection.
+  unit-tests-matrix:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # 11 is the supported baseline; 17 and 21 are what Spark 4 / Hadoop 3.4+ / Iceberg
+        # consumers actually run on, and are where reflective SDK access tends to break first.
+        java-version: [11, 17, 21]
+    name: unit-tests (JDK ${{ matrix.java-version }})
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -12,15 +36,75 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This job only reads the repo; leaving the token on disk would
+          # expose it to anything later in the job (zizmor: artipacked).
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: 'zulu'
+          java-version: ${{ matrix.java-version }}
+          cache: maven
+      - run: ./mvnw clean test
+
+  # Stable check name for branch protection. The matrix reports one check per JDK, so
+  # requiring those directly would mean editing the ruleset every time a JDK is added or
+  # dropped - and a required context that no longer exists blocks merges indefinitely.
+  unit-tests:
+    needs: unit-tests-matrix
+    # A skipped job never satisfies a required check, so this must still run when a matrix
+    # leg fails; the step below is what converts that failure into a failing check.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      MATRIX_RESULT: ${{ needs.unit-tests-matrix.result }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Verify every JDK passed
+        run: |
+          if [ "$MATRIX_RESULT" != "success" ]; then
+            echo "unit-tests matrix did not succeed (result: $MATRIX_RESULT)"
+            exit 1
+          fi
+
+  # The integration-test and jmh sources are only added as source roots inside their profiles,
+  # so `mvn test` never compiles them and they can rot unnoticed. This compiles both without
+  # running anything, so no GCS credentials are needed.
+  compile-all-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This job only reads the repo; leaving the token on disk would
+          # expose it to anything later in the job (zizmor: artipacked).
+          persist-credentials: false
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: 'zulu'
           java-version: 11
           cache: maven
-      - run: ./mvnw clean test
+      - name: Compile integration tests
+        run: ./mvnw -Pintegration-test clean test-compile -DskipTests
+      - name: Compile JMH benchmarks
+        run: ./mvnw -Pjmh clean test-compile -DskipTests
 
   dependency-review:
+    # The action diffs a PR's dependency manifest against its base, so it has no
+    # base/head to compare on workflow_dispatch or push and fails outright there.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -29,12 +113,18 @@ jobs:
 
       - name: 'Checkout Repository'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This job only reads the repo; leaving the token on disk would
+          # expose it to anything later in the job (zizmor: artipacked).
+          persist-credentials: false
       - name: 'Dependency Review'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
 
-
+  # Runs on PRs so Codecov can report the patch diff. The push-triggered coverage.yml covers
+  # main only, so the two no longer duplicate each other on every PR branch push.
   coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -42,13 +132,17 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This job only reads the repo; leaving the token on disk would
+          # expose it to anything later in the job (zizmor: artipacked).
+          persist-credentials: false
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: 'zulu'
           java-version: 11
           cache: maven
       - name: Run tests and collect coverage
-        run: ./mvnw -P coverage clean verify -Dmaven.javadoc.skip=true -Dsource.skip=true  -Dgpg.skip=true
+        run: ./mvnw -P coverage clean verify -Dmaven.javadoc.skip=true -Dsource.skip=true -Dgpg.skip=true
       - name: Upload coverage report to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
@@ -56,11 +150,21 @@ jobs:
 
   license-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
       - name: 'Checkout Code'
-        uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This job only reads the repo; leaving the token on disk would
+          # expose it to anything later in the job (zizmor: artipacked).
+          persist-credentials: false
       - name: 'Set up Go'
-        uses: 'actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           cache: true

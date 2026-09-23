@@ -32,11 +32,13 @@ class GcsClientOptionsTest {
   void builder_withDefaultValues_returnsExpectedDefaults() {
     GcsClientOptions options = GcsClientOptions.builder().build();
 
-    assertThat(options.getClientType()).isEqualTo(ClientType.JSON);
     assertThat(options.getProjectId().isPresent()).isFalse();
     assertThat(options.getClientLibToken().isPresent()).isFalse();
     assertThat(options.getServiceHost().isPresent()).isFalse();
     assertThat(options.getUserAgent().isPresent()).isFalse();
+    assertThat(options.getProtocol()).isEqualTo(GcsClientOptions.Protocol.HTTP);
+    assertThat(options.isBidiEnabled()).isFalse();
+    assertThat(options.isGrpcEnabled()).isFalse();
     assertThat(options.getGcsReadOptions()).isNotNull();
     assertThat(options.getGcsWriteOptions()).isNotNull();
 
@@ -54,7 +56,6 @@ class GcsClientOptionsTest {
   void builder_withCustomValues_setsAllProperties() {
     GcsClientOptions options =
         GcsClientOptions.builder()
-            .setClientType(ClientType.BIDI)
             .setProjectId("test-project")
             .setClientLibToken("test-token")
             .setServiceHost("test-host")
@@ -68,7 +69,6 @@ class GcsClientOptionsTest {
             .setTemporaryPaths(ImmutableList.of("/tmp/path1", "/tmp/path2"))
             .build();
 
-    assertThat(options.getClientType()).isEqualTo(ClientType.BIDI);
     assertThat(options.getProjectId()).hasValue("test-project");
     assertThat(options.getClientLibToken()).hasValue("test-token");
     assertThat(options.getServiceHost()).hasValue("test-host");
@@ -88,7 +88,6 @@ class GcsClientOptionsTest {
   void createFromOptions_withValidProperties_parsesCorrectly() {
     Map<String, String> rawOptions =
         ImmutableMap.<String, String>builder()
-            .put("gcs.analytics-core.client.type", "GRPC")
             .put("gcs.project-id", "test-project")
             .put("gcs.client-lib-token", "test-token")
             .put("gcs.service.host", "test-host")
@@ -104,7 +103,6 @@ class GcsClientOptionsTest {
 
     GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
 
-    assertThat(options.getClientType()).isEqualTo(ClientType.GRPC);
     assertThat(options.getProjectId()).hasValue("test-project");
     assertThat(options.getClientLibToken()).hasValue("test-token");
     assertThat(options.getServiceHost()).hasValue("test-host");
@@ -175,5 +173,85 @@ class GcsClientOptionsTest {
     Map<String, String> rawOptions = ImmutableMap.of("gcs.channel.write.temporary-paths", "   ");
     GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
     assertThat(options.getTemporaryPaths()).isEmpty();
+  }
+
+  @Test
+  void createFromOptions_withProtocol_parsesAllValues() {
+    assertThat(protocolFor("HTTP")).isEqualTo(GcsClientOptions.Protocol.HTTP);
+    assertThat(protocolFor("GRPC")).isEqualTo(GcsClientOptions.Protocol.GRPC);
+    assertThat(protocolFor("BIDI")).isEqualTo(GcsClientOptions.Protocol.BIDI);
+  }
+
+  @Test
+  void createFromOptions_withMixedCaseAndWhitespaceProtocol_parsesCorrectly() {
+    assertThat(protocolFor("  BiDi  ")).isEqualTo(GcsClientOptions.Protocol.BIDI);
+  }
+
+  @Test
+  void createFromOptions_withGrpcProtocol_enablesGrpcButNotBidi() {
+    GcsClientOptions options =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.client.protocol", "GRPC"), "gcs.");
+
+    assertThat(options.isGrpcEnabled()).isTrue();
+    assertThat(options.isBidiEnabled()).isFalse();
+  }
+
+  @Test
+  void createFromOptions_withBidiProtocol_enablesGrpcAndBidi() {
+    GcsClientOptions options =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.client.protocol", "BIDI"), "gcs.");
+
+    assertThat(options.isGrpcEnabled()).isTrue();
+    assertThat(options.isBidiEnabled()).isTrue();
+  }
+
+  @Test
+  void createFromOptions_withUnknownProtocol_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.client.protocol", "quic");
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsClientOptions.createFromOptions(rawOptions, "gcs."));
+
+    assertThat(exception).hasMessageThat().contains("QUIC");
+  }
+
+  @Test
+  void createFromOptions_withBidiWriteWithoutBidiProtocol_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.channel.write.bidi.enabled", "true");
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsClientOptions.createFromOptions(rawOptions, "gcs."));
+
+    assertThat(exception).hasMessageThat().contains("client.protocol");
+  }
+
+  @Test
+  void builder_withBidiWriteAndBidiProtocol_buildsSuccessfully() {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProtocol(GcsClientOptions.Protocol.BIDI)
+            .setGcsWriteOptions(GcsWriteOptions.builder().setBidiWriteEnabled(true).build())
+            .build();
+
+    assertThat(options.getGcsWriteOptions().isBidiWriteEnabled()).isTrue();
+  }
+
+  @Test
+  void builder_withBidiWriteAndGrpcProtocol_throwsIllegalArgumentException() {
+    GcsClientOptions.Builder builder =
+        GcsClientOptions.builder()
+            .setProtocol(GcsClientOptions.Protocol.GRPC)
+            .setGcsWriteOptions(GcsWriteOptions.builder().setBidiWriteEnabled(true).build());
+
+    assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  private static GcsClientOptions.Protocol protocolFor(String value) {
+    return GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.client.protocol", value), "gcs.")
+        .getProtocol();
   }
 }

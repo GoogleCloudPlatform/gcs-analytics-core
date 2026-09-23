@@ -43,12 +43,32 @@ public abstract class GcsWriteOptions {
   private static final String KMS_KEY_NAME_KEY = "kms-key-name";
   private static final String USER_PROJECT_KEY = "user-project";
   private static final String ENCRYPTION_KEY_KEY = "encryption-key";
+  private static final String BIDI_WRITE_ENABLED_KEY = "channel.write.bidi.enabled";
+  private static final String BIDI_FINALIZE_ON_CLOSE_KEY = "channel.write.bidi.finalize-on-close";
 
   public abstract boolean isChecksumValidationEnabled();
 
   public abstract boolean isDisableGzipContent();
 
   public abstract boolean isOverwriteExisting();
+
+  /**
+   * Returns whether appendable (bidi) writes are enabled.
+   *
+   * <p>Appendable writes are only available on zonal buckets using the Rapid storage class, and
+   * require {@code client.protocol=BIDI} on {@link GcsClientOptions}.
+   */
+  public abstract boolean isBidiWriteEnabled();
+
+  /**
+   * Returns whether closing an appendable object also finalizes it. Applies only to the bidi write
+   * path; the HTTP and gRPC paths always finalize on close.
+   *
+   * <p>Defaults to {@code false}, matching the Cloud Storage SDK and the GCS Hadoop connector. Note
+   * that an unfinalized object stays appendable <em>indefinitely</em> — there is no server-side
+   * auto-finalization — though it remains subject to lifecycle rules keyed on creation time.
+   */
+  public abstract boolean isBidiFinalizeOnClose();
 
   // Metadata/Auth Configurations
   public abstract Optional<String> getKmsKeyName();
@@ -88,6 +108,12 @@ public abstract class GcsWriteOptions {
         .ifPresent(optionsBuilder::setUserProject);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + ENCRYPTION_KEY_KEY))
         .ifPresent(optionsBuilder::setEncryptionKey);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + BIDI_WRITE_ENABLED_KEY))
+        .map(Boolean::parseBoolean)
+        .ifPresent(optionsBuilder::setBidiWriteEnabled);
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + BIDI_FINALIZE_ON_CLOSE_KEY))
+        .map(Boolean::parseBoolean)
+        .ifPresent(optionsBuilder::setBidiFinalizeOnClose);
     return optionsBuilder.build();
   }
 
@@ -97,7 +123,9 @@ public abstract class GcsWriteOptions {
         .setDisableGzipContent(true)
         .setOverwriteExisting(true)
         .setContentType("application/octet-stream")
-        .setMetadata(ImmutableMap.of());
+        .setMetadata(ImmutableMap.of())
+        .setBidiWriteEnabled(false)
+        .setBidiFinalizeOnClose(false);
   }
 
   /** Builder for {@link GcsWriteOptions}. */
@@ -115,6 +143,10 @@ public abstract class GcsWriteOptions {
     public abstract Builder setUserProject(String project);
 
     public abstract Builder setEncryptionKey(String key);
+
+    public abstract Builder setBidiWriteEnabled(boolean enabled);
+
+    public abstract Builder setBidiFinalizeOnClose(boolean finalizeOnClose);
 
     public abstract Builder setContentType(String contentType);
 

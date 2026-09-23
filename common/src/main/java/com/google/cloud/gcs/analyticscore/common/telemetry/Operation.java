@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 @AutoValue
 public abstract class Operation {
@@ -36,7 +37,27 @@ public abstract class Operation {
   public static Builder builder() {
     return new AutoValue_Operation.Builder()
         .setAttributes(Collections.emptyMap())
-        .setOperationId(UUID.randomUUID().toString());
+        .setOperationId(newOperationId());
+  }
+
+  /**
+   * Generates a random type 4 UUID, identical in form to {@link UUID#randomUUID()} but drawn from
+   * {@link ThreadLocalRandom} rather than a shared {@code SecureRandom}.
+   *
+   * <p>An operation id only has to be unique enough to correlate log lines, so the cryptographic
+   * strength of {@code SecureRandom} buys nothing here while its shared instance becomes a point of
+   * contention: an id is generated for every operation, and operations are created per read.
+   */
+  private static String newOperationId() {
+    ThreadLocalRandom random = ThreadLocalRandom.current();
+    long mostSignificantBits = random.nextLong();
+    long leastSignificantBits = random.nextLong();
+    // Apply the version (4) and IETF variant bits, exactly as UUID.randomUUID() does.
+    mostSignificantBits &= 0xffffffffffff0fffL;
+    mostSignificantBits |= 0x0000000000004000L;
+    leastSignificantBits &= 0x3fffffffffffffffL;
+    leastSignificantBits |= 0x8000000000000000L;
+    return new UUID(mostSignificantBits, leastSignificantBits).toString();
   }
 
   @AutoValue.Builder

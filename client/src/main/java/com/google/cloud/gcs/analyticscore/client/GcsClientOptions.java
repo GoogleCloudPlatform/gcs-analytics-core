@@ -15,7 +15,10 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.auto.value.AutoValue;
+import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
 import com.google.cloud.storage.BlobWriteSessionConfig;
 import com.google.cloud.storage.BlobWriteSessionConfigs;
 import com.google.cloud.storage.ParallelCompositeUploadBlobWriteSessionConfig;
@@ -27,6 +30,7 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -41,6 +45,7 @@ public abstract class GcsClientOptions {
   private static final String SERVICE_HOST_KEY = "service.host";
   private static final String USER_AGENT_KEY = "user-agent";
   static final String PROJECT_ID_KEY = "project-id";
+  private static final String CLIENT_PROTOCOL_KEY = "client.protocol";
 
   private static final String UPLOAD_CHUNK_SIZE_KEY = "channel.write.chunk-size-bytes";
   private static final String UPLOAD_TYPE_KEY = "channel.write.upload-type";
@@ -51,9 +56,6 @@ public abstract class GcsClientOptions {
   private static final String PCU_PART_FILE_NAME_PREFIX_KEY =
       "channel.write.pcu.part-file.name-prefix";
   private static final String TEMPORARY_PATHS_KEY = "channel.write.temporary-paths";
-
-  private static final String CLIENT_TYPE_KEY = "analytics-core.client.type";
-  private static final ClientType DEFAULT_CLIENT_TYPE = ClientType.JSON;
 
   /**
    * Upload strategies matching the configurations offered by the google-cloud-storage Java client.
@@ -72,7 +74,22 @@ public abstract class GcsClientOptions {
     ON_SUCCESS
   }
 
-  public abstract ClientType getClientType();
+  /**
+   * Transport protocol used by the Cloud Storage client.
+   *
+   * <p>This selects the transport for <em>all</em> operations, and additionally enables bidi reads
+   * when set to {@link #BIDI}. It deliberately does <em>not</em> enable appendable (bidi) writes —
+   * those are restricted to zonal buckets using the Rapid storage class, so they require the
+   * separate {@code channel.write.bidi.enabled} option on {@link GcsWriteOptions}.
+   */
+  public enum Protocol {
+    /** JSON over HTTP. The default. */
+    HTTP,
+    /** gRPC, without bidi streaming. */
+    GRPC,
+    /** gRPC with bidi streaming reads. Required for appendable writes. */
+    BIDI
+  }
 
   public abstract Optional<String> getProjectId();
 
@@ -81,6 +98,23 @@ public abstract class GcsClientOptions {
   public abstract Optional<String> getServiceHost();
 
   public abstract Optional<String> getUserAgent();
+
+  public abstract Protocol getProtocol();
+
+  /**
+   * Returns whether bidi streaming reads are enabled.
+   *
+   * <p>Note this does <em>not</em> imply appendable writes; see {@link
+   * GcsWriteOptions#isBidiWriteEnabled()}.
+   */
+  boolean isBidiEnabled() {
+    return getProtocol() == Protocol.BIDI;
+  }
+
+  /** Returns whether the gRPC transport should be used. */
+  boolean isGrpcEnabled() {
+    return getProtocol() == Protocol.GRPC || getProtocol() == Protocol.BIDI;
+  }
 
   public abstract GcsReadOptions getGcsReadOptions();
 
@@ -106,7 +140,7 @@ public abstract class GcsClientOptions {
   // TODO: Benchmark and determine the optimal default values for write options.
   public static Builder builder() {
     return new AutoValue_GcsClientOptions.Builder()
-        .setClientType(DEFAULT_CLIENT_TYPE)
+        .setProtocol(Protocol.HTTP)
         .setGcsReadOptions(GcsReadOptions.builder().build())
         .setGcsWriteOptions(GcsWriteOptions.builder().build())
         .setUploadChunkSize(24 * MB)
@@ -121,10 +155,6 @@ public abstract class GcsClientOptions {
   public static GcsClientOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
     GcsClientOptions.Builder optionsBuilder = builder();
-    String clientTypeStr = analyticsCoreOptions.get(prefix + CLIENT_TYPE_KEY);
-    if (clientTypeStr != null) {
-      optionsBuilder.setClientType(ClientType.fromString(clientTypeStr));
-    }
     if (analyticsCoreOptions.containsKey(prefix + PROJECT_ID_KEY)) {
       optionsBuilder.setProjectId(analyticsCoreOptions.get(prefix + PROJECT_ID_KEY));
     }
@@ -137,6 +167,10 @@ public abstract class GcsClientOptions {
     if (analyticsCoreOptions.containsKey(prefix + USER_AGENT_KEY)) {
       optionsBuilder.setUserAgent(analyticsCoreOptions.get(prefix + USER_AGENT_KEY));
     }
+
+    Optional.ofNullable(analyticsCoreOptions.get(prefix + CLIENT_PROTOCOL_KEY))
+        .map(s -> Protocol.valueOf(s.trim().toUpperCase(Locale.ROOT)))
+        .ifPresent(optionsBuilder::setProtocol);
 
     Optional.ofNullable(analyticsCoreOptions.get(prefix + UPLOAD_CHUNK_SIZE_KEY))
         .map(val -> ConfigurationUtil.safeParseInteger(prefix + UPLOAD_CHUNK_SIZE_KEY, val))
@@ -177,8 +211,6 @@ public abstract class GcsClientOptions {
   @AutoValue.Builder
   public abstract static class Builder {
 
-    public abstract Builder setClientType(ClientType clientType);
-
     public abstract Builder setProjectId(String projectId);
 
     public abstract Builder setClientLibToken(String clientLibToken);
@@ -186,6 +218,8 @@ public abstract class GcsClientOptions {
     public abstract Builder setServiceHost(String serviceHost);
 
     public abstract Builder setUserAgent(String userAgent);
+
+    public abstract Builder setProtocol(Protocol protocol);
 
     public abstract Builder setGcsReadOptions(GcsReadOptions readOptions);
 
@@ -209,7 +243,18 @@ public abstract class GcsClientOptions {
       return setTemporaryPaths(ImmutableSet.copyOf(paths));
     }
 
-    public abstract GcsClientOptions build();
+    abstract GcsClientOptions autoBuild();
+
+    public GcsClientOptions build() {
+      GcsClientOptions options = autoBuild();
+      checkArgument(
+          !options.getGcsWriteOptions().isBidiWriteEnabled()
+              || options.getProtocol() == Protocol.BIDI,
+          "Appendable writes require %s=BIDI, but was %s",
+          CLIENT_PROTOCOL_KEY,
+          options.getProtocol());
+      return options;
+    }
   }
 
   public BlobWriteSessionConfig generateSessionConfig() {

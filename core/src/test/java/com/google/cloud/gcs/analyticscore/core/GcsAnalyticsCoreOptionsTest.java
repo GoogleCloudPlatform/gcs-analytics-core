@@ -18,7 +18,6 @@ package com.google.cloud.gcs.analyticscore.core;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import com.google.cloud.gcs.analyticscore.client.ClientType;
 import com.google.cloud.gcs.analyticscore.client.GcsClientOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.common.collect.ImmutableMap;
@@ -33,7 +32,7 @@ class GcsAnalyticsCoreOptionsTest {
         ImmutableMap.of(
             appendPrefix + "analytics-core.read.thread.count",
             "32",
-            appendPrefix + "analytics-core.client.type",
+            appendPrefix + "client.protocol",
             "GRPC",
             appendPrefix + "project-id",
             "test-project",
@@ -53,7 +52,7 @@ class GcsAnalyticsCoreOptionsTest {
     GcsClientOptions clientOptions = fileSystemOptions.getGcsClientOptions();
 
     assertThat(fileSystemOptions.getReadThreadCount()).isEqualTo(32);
-    assertThat(clientOptions.getClientType()).isEqualTo(ClientType.GRPC);
+    assertThat(clientOptions.getProtocol()).isEqualTo(GcsClientOptions.Protocol.GRPC);
     assertThat(clientOptions.getProjectId().get()).isEqualTo("test-project");
     assertThat(clientOptions.getClientLibToken().get()).isEqualTo("test-token");
     assertThat(clientOptions.getServiceHost().get()).isEqualTo("test-host");
@@ -68,7 +67,7 @@ class GcsAnalyticsCoreOptionsTest {
     ImmutableMap<String, String> options =
         ImmutableMap.of(
             "analytics-core.read.thread.count", "24",
-            "analytics-core.client.type", "JSON",
+            "client.protocol", "HTTP",
             "project-id", "test-project-no-prefix",
             "client-lib-token", "test-token-no-prefix",
             "service.host", "test-host-no-prefix",
@@ -79,7 +78,7 @@ class GcsAnalyticsCoreOptionsTest {
     GcsClientOptions clientOptions = fileSystemOptions.getGcsClientOptions();
 
     assertThat(fileSystemOptions.getReadThreadCount()).isEqualTo(24);
-    assertThat(clientOptions.getClientType()).isEqualTo(ClientType.JSON);
+    assertThat(clientOptions.getProtocol()).isEqualTo(GcsClientOptions.Protocol.HTTP);
     assertThat(clientOptions.getProjectId().get()).isEqualTo("test-project-no-prefix");
     assertThat(clientOptions.getClientLibToken().get()).isEqualTo("test-token-no-prefix");
     assertThat(clientOptions.getServiceHost().get()).isEqualTo("test-host-no-prefix");
@@ -92,7 +91,7 @@ class GcsAnalyticsCoreOptionsTest {
     ImmutableMap<String, String> options =
         ImmutableMap.of(
             "wrong.prefix.analytics-core.read.thread.count", "32",
-            "wrong.prefix.analytics-core.client.type", "GRPC",
+            "wrong.prefix.client.protocol", "GRPC",
             "wrong.prefix.project-id", "test-project");
     GcsFileSystemOptions defaultOptions = GcsFileSystemOptions.builder().build();
     GcsAnalyticsCoreOptions coreOptions = new GcsAnalyticsCoreOptions(appendPrefix, options);
@@ -102,8 +101,8 @@ class GcsAnalyticsCoreOptionsTest {
 
     assertThat(fileSystemOptions.getReadThreadCount())
         .isEqualTo(defaultOptions.getReadThreadCount());
-    assertThat(clientOptions.getClientType())
-        .isEqualTo(defaultOptions.getGcsClientOptions().getClientType());
+    assertThat(clientOptions.getProtocol())
+        .isEqualTo(defaultOptions.getGcsClientOptions().getProtocol());
     assertThat(clientOptions.getProjectId().isPresent()).isFalse();
   }
 }

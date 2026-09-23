@@ -31,14 +31,15 @@ class GcsFileSystemOptionsTest {
     ImmutableMap<String, String> properties =
         ImmutableMap.of(
             "fs.gs.project-id", "test-project",
-            "fs.gs.analytics-core.client.type", "GRPC",
+            "fs.gs.client.protocol", "GRPC",
             "fs.gs.analytics-core.read.thread.count", "32",
             "fs.gs.analytics-core.hierarchical.namespace.enable", "true");
 
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
     assertThat(options.getGcsClientOptions().getProjectId().get()).isEqualTo("test-project");
-    assertThat(options.getGcsClientOptions().getClientType()).isEqualTo(ClientType.GRPC);
+    assertThat(options.getGcsClientOptions().getProtocol())
+        .isEqualTo(GcsClientOptions.Protocol.GRPC);
     assertThat(options.getReadThreadCount()).isEqualTo(32);
     assertThat(options.isHnsApiEnabled()).isTrue();
   }
@@ -72,7 +73,8 @@ class GcsFileSystemOptionsTest {
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
     assertThat(options.getGcsClientOptions().getProjectId().isEmpty()).isTrue();
-    assertThat(options.getGcsClientOptions().getClientType()).isEqualTo(ClientType.JSON);
+    assertThat(options.getGcsClientOptions().getProtocol())
+        .isEqualTo(GcsClientOptions.Protocol.HTTP);
     assertThat(options.getReadThreadCount()).isEqualTo(16);
     assertThat(options.isHnsApiEnabled()).isTrue();
 
@@ -84,13 +86,13 @@ class GcsFileSystemOptionsTest {
   }
 
   @Test
-  void createFromOptions_withBidiClientType_shouldParseCorrectly() {
-    ImmutableMap<String, String> properties =
-        ImmutableMap.of("fs.gs.analytics-core.client.type", "BIDI");
+  void createFromOptions_withBidiProtocol_shouldParseCorrectly() {
+    ImmutableMap<String, String> properties = ImmutableMap.of("fs.gs.client.protocol", "BIDI");
 
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
-    assertThat(options.getGcsClientOptions().getClientType()).isEqualTo(ClientType.BIDI);
+    assertThat(options.getGcsClientOptions().getProtocol())
+        .isEqualTo(GcsClientOptions.Protocol.BIDI);
   }
 
   @Test

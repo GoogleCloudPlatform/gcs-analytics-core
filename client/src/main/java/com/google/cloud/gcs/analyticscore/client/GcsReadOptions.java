@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
 import java.util.Map;
 import java.util.Optional;
 

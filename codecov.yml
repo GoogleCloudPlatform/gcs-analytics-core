@@ -20,6 +20,23 @@ coverage:
         target: auto #default
         threshold: 0%
         base: auto
+    # Without a `patch` status only overall coverage is checked, and since the project threshold
+    # is 0% nothing can ever fail. `patch` gates the lines actually changed by a PR, which is the
+    # signal that keeps new code tested.
+    patch:
+      default:
+        target: 80%
+        # Don't fail a PR that only deletes or moves code.
+        if_not_found: success
+
+# Test fakes, benchmarks and generated AutoValue classes are not product code; counting them
+# distorts both the percentage and the patch check.
+ignore:
+  - "test-lib/**"
+  - "**/src/jmh/**"
+  - "**/src/integrationTest/**"
+  - "**/target/generated-sources/**"
+  - "**/AutoValue_*.java"
 
 comment:
   layout: " diff, flags, files"
@@ -28,4 +45,3 @@ comment:
   require_base: false        # [true :: must have a base report to post]
   require_head: true       # [true :: must have a head report to post]
   hide_project_coverage: false # [true :: only show coverage on the git diff aka patch coverage]
-
