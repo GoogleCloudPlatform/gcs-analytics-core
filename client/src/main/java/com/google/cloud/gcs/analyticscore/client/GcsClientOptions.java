@@ -107,12 +107,12 @@ public abstract class GcsClientOptions {
    * <p>Note this does <em>not</em> imply appendable writes; see {@link
    * GcsWriteOptions#isBidiWriteEnabled()}.
    */
-  public boolean isBidiEnabled() {
+  boolean isBidiEnabled() {
     return getProtocol() == Protocol.BIDI;
   }
 
   /** Returns whether the gRPC transport should be used. */
-  public boolean isGrpcEnabled() {
+  boolean isGrpcEnabled() {
     return getProtocol() == Protocol.GRPC || getProtocol() == Protocol.BIDI;
   }
 
