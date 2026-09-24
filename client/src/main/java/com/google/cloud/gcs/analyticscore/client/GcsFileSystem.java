@@ -49,20 +49,30 @@ public interface GcsFileSystem extends AutoCloseable {
   /**
    * Gets Metadata about the given path item.
    *
+   * <p>This method supports GCS objects only, as it delegates to {@link
+   * GcsClient#getGcsItemInfo(GcsItemId)}. Buckets and folders must be queried through {@link
+   * GcsClient#getBucketInfo(GcsItemId)} and {@link GcsClient#getFolderInfo(GcsItemId)}.
+   *
    * @param path The path we want Metadata about.
    * @return Metadata about the given path item.
    * @throws FileNotFoundException if {@code path} denotes an object that does not exist
    * @throws IOException if the metadata cannot be fetched.
+   * @throws UnsupportedOperationException if {@code path} does not denote a GCS object
    */
   GcsFileInfo getFileInfo(URI path) throws IOException;
 
   /**
    * Gets Metadata about the given gcs object represented by itemId.
    *
+   * <p>This method supports GCS objects only, as it delegates to {@link
+   * GcsClient#getGcsItemInfo(GcsItemId)}. Buckets and folders must be queried through {@link
+   * GcsClient#getBucketInfo(GcsItemId)} and {@link GcsClient#getFolderInfo(GcsItemId)}.
+   *
    * @param itemId The identity of the object we want Metadata about.
    * @return Metadata about the given object.
    * @throws FileNotFoundException if {@code itemId} denotes an object that does not exist
    * @throws IOException if the metadata cannot be fetched.
+   * @throws UnsupportedOperationException if {@code itemId} does not denote a GCS object
    */
   GcsFileInfo getFileInfo(GcsItemId itemId) throws IOException;
 

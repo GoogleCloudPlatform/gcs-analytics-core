@@ -238,7 +238,10 @@ class GcsFileSystemImplTest {
 
     assertThat(e)
         .hasMessageThat()
-        .contains("Location does not exist: gs://" + TEST_BUCKET + "/non-existent-object");
+        .contains(
+            "Location does not exist or generation not found: gs://"
+                + TEST_BUCKET
+                + "/non-existent-object");
     assertThat(e.getCause()).isInstanceOf(StorageException.class);
     assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
   }
@@ -312,7 +315,10 @@ class GcsFileSystemImplTest {
 
     assertThat(e)
         .hasMessageThat()
-        .contains("Location does not exist: gs://" + TEST_BUCKET + "/non-existent-object");
+        .contains(
+            "Location does not exist or generation not found: gs://"
+                + TEST_BUCKET
+                + "/non-existent-object");
     assertThat(e.getCause()).isInstanceOf(StorageException.class);
     assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
   }

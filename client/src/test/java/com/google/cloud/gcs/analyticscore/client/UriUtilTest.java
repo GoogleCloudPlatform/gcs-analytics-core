@@ -145,6 +145,22 @@ class UriUtilTest {
   }
 
   @Test
+  void getStringPath_gcsObjectWithGeneration_omitsGeneration() {
+    // The result is passed to URI.create by GcsFileInfo.createNotFound, where a '#generation'
+    // suffix would be parsed as a fragment rather than part of the object name.
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET)
+            .setObjectName(TEST_OBJECT)
+            .setContentGeneration(1234L)
+            .build();
+
+    String result = UriUtil.getStringPath(itemId);
+
+    assertThat(result).isEqualTo("gs://" + TEST_BUCKET + "/" + TEST_OBJECT);
+  }
+
+  @Test
   void getStringPath_root_returnsRootPath() {
     String result = UriUtil.getStringPath(GcsItemId.ROOT);
     assertThat(result).isEqualTo("gs:/");

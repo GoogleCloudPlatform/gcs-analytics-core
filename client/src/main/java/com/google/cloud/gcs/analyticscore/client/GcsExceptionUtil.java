@@ -30,6 +30,13 @@ import java.util.Optional;
 /** Centralized utility for classifying GCS transport exceptions. */
 class GcsExceptionUtil {
 
+  /** Shared message format so all Not Found failures look identical to callers. */
+  private static final String NOT_FOUND_MESSAGE_FORMAT =
+      "Location does not exist or generation not found: %s";
+
+  /** Separator introducing a versioned object's content generation. */
+  private static final String GENERATION_SEPARATOR = "#";
+
   private GcsExceptionUtil() {}
 
   enum ErrorType {
@@ -113,12 +120,7 @@ class GcsExceptionUtil {
       StorageException e, String context, BlobId blobId, long position, ErrorType errorType) {
     switch (errorType) {
       case NOT_FOUND:
-        return (FileNotFoundException)
-            new FileNotFoundException(
-                    String.format(
-                        "Location does not exist or generation not found: gs://%s/%s",
-                        blobId.getBucket(), blobId.getName()))
-                .initCause(e);
+        return createFileNotFoundException(formatLocation(blobId), e);
 
       case ACCESS_DENIED:
         return (AccessDeniedException)
@@ -172,7 +174,14 @@ class GcsExceptionUtil {
    */
   static FileNotFoundException createFileNotFoundException(GcsItemId itemId) {
     checkNotNull(itemId, "itemId should not be null");
-    return createFileNotFoundException(UriUtil.getStringPath(itemId));
+    String location = formatLocation(itemId);
+    // Callers classify Not Found failures by unwrapping the cause via
+    // getStorageException()/getErrorType(), so attach a synthetic 404
+    // StorageException.
+    return createFileNotFoundException(
+        location,
+        new StorageException(
+            HttpURLConnection.HTTP_NOT_FOUND, String.format("Object %s not found", location)));
   }
 
   /**
@@ -181,15 +190,27 @@ class GcsExceptionUtil {
    * @param location the location URI string that was not found
    * @return a FileNotFoundException wrapping a 404 StorageException
    */
-  private static FileNotFoundException createFileNotFoundException(String location) {
-    // Callers classify Not Found failures by unwrapping the cause via
-    // getStorageException()/getErrorType(), so attach a synthetic 404 StorageException.
-    StorageException storageException =
-        new StorageException(
-            HttpURLConnection.HTTP_NOT_FOUND, String.format("Object %s not found", location));
-    FileNotFoundException exception =
-        new FileNotFoundException(String.format("Location does not exist: %s", location));
-    exception.initCause(storageException);
-    return exception;
+  private static FileNotFoundException createFileNotFoundException(
+      String location, StorageException cause) {
+    return (FileNotFoundException)
+        new FileNotFoundException(String.format(NOT_FOUND_MESSAGE_FORMAT, location))
+            .initCause(cause);
+  }
+
+  private static String formatLocation(GcsItemId itemId) {
+    return UriUtil.getStringPath(itemId)
+        + itemId
+            .getContentGeneration()
+            .map(generation -> GENERATION_SEPARATOR + generation)
+            .orElse("");
+  }
+
+  private static String formatLocation(BlobId blobId) {
+    GcsItemId.Builder itemId =
+        GcsItemId.builder().setBucketName(blobId.getBucket()).setObjectName(blobId.getName());
+    if (blobId.getGeneration() != null && blobId.getGeneration() > 0L) {
+      itemId.setContentGeneration(blobId.getGeneration());
+    }
+    return formatLocation(itemId.build());
   }
 }

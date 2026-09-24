@@ -391,7 +391,7 @@ class GcsExceptionUtilTest {
 
     assertThat(exception)
         .hasMessageThat()
-        .isEqualTo("Location does not exist: gs://" + BUCKET + "/" + NAME);
+        .isEqualTo("Location does not exist or generation not found: gs://" + BUCKET + "/" + NAME);
     assertThat(exception.getCause()).isInstanceOf(StorageException.class);
     StorageException se = (StorageException) exception.getCause();
     assertThat(se.getCode()).isEqualTo(404);
@@ -404,7 +404,9 @@ class GcsExceptionUtilTest {
 
     FileNotFoundException exception = GcsExceptionUtil.createFileNotFoundException(itemId);
 
-    assertThat(exception).hasMessageThat().isEqualTo("Location does not exist: gs://" + BUCKET);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Location does not exist or generation not found: gs://" + BUCKET);
     assertThat(exception.getCause()).isInstanceOf(StorageException.class);
     StorageException se = (StorageException) exception.getCause();
     assertThat(se.getCode()).isEqualTo(404);
@@ -414,10 +416,66 @@ class GcsExceptionUtilTest {
   void createFileNotFoundException_withRootItemId_returnsFileNotFoundExceptionWith404Cause() {
     FileNotFoundException exception = GcsExceptionUtil.createFileNotFoundException(GcsItemId.ROOT);
 
-    assertThat(exception).hasMessageThat().isEqualTo("Location does not exist: gs:/");
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Location does not exist or generation not found: gs:/");
     assertThat(exception.getCause()).isInstanceOf(StorageException.class);
     StorageException se = (StorageException) exception.getCause();
     assertThat(se.getCode()).isEqualTo(404);
+  }
+
+  @Test
+  void createFileNotFoundException_withGeneration_includesGenerationInMessage() {
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName(BUCKET)
+            .setObjectName(NAME)
+            .setContentGeneration(1234L)
+            .build();
+
+    FileNotFoundException exception = GcsExceptionUtil.createFileNotFoundException(itemId);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "Location does not exist or generation not found: gs://"
+                + BUCKET
+                + "/"
+                + NAME
+                + "#1234");
+  }
+
+  @Test
+  void translateException_when404WithGeneration_includesGenerationInMessage() {
+    StorageException se = new StorageException(404, "Not Found");
+
+    IOException exception =
+        GcsExceptionUtil.translateException(se, CONTEXT, BlobId.of(BUCKET, NAME, 1234L), POSITION);
+
+    assertThat(exception).isInstanceOf(FileNotFoundException.class);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "Location does not exist or generation not found: gs://"
+                + BUCKET
+                + "/"
+                + NAME
+                + "#1234");
+  }
+
+  @Test
+  void createFileNotFoundException_matchesTranslated404Exception() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(BUCKET).setObjectName(NAME).build();
+
+    FileNotFoundException created = GcsExceptionUtil.createFileNotFoundException(itemId);
+    IOException translated =
+        GcsExceptionUtil.translateException(
+            new StorageException(404, "Not Found"), CONTEXT, BlobId.of(BUCKET, NAME), POSITION);
+
+    assertThat(translated).isInstanceOf(FileNotFoundException.class);
+    assertThat(translated).hasMessageThat().isEqualTo(created.getMessage());
+    assertThat(GcsExceptionUtil.getStorageException(created).get().getCode())
+        .isEqualTo(GcsExceptionUtil.getStorageException(translated).get().getCode());
   }
 
   @Test
