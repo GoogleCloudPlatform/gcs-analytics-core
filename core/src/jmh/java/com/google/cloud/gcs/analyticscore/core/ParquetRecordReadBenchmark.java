@@ -44,7 +44,7 @@ public class ParquetRecordReadBenchmark {
               Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
                       "gcs.analytics-core.small-file.cache.max-size-bytes", "1048576",
-                      "gcs.client.protocol", state.enableBidiRead ? "BIDI" : "HTTP"), "gcs.");
+                      "gcs.client.protocol", state.protocol), "gcs.");
         String requestedSchema = "message requested_schema {\n"
                 + "required binary c_customer_id (STRING);\n"
                 + "optional binary c_first_name (STRING);\n"
