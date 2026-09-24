@@ -31,6 +31,8 @@ import com.google.cloud.NoCredentials;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.VerifyException;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -51,6 +53,13 @@ public final class GcsCredentialsFactory {
 
   private static final ImmutableList<String> CLOUD_PLATFORM_SCOPES =
       ImmutableList.of("https://www.googleapis.com/auth/cloud-platform");
+
+  /** Auth types whose credentials can use a custom token server URI. */
+  private static final ImmutableSet<AuthType> TOKEN_SERVER_URI_AUTH_TYPES =
+      Sets.immutableEnumSet(
+          AuthType.APPLICATION_DEFAULT,
+          AuthType.SERVICE_ACCOUNT_JSON_KEYFILE,
+          AuthType.USER_CREDENTIALS);
 
   private GcsCredentialsFactory() {}
 
@@ -89,12 +98,13 @@ public final class GcsCredentialsFactory {
   }
 
   /**
-   * Returns {@link TrustStoreSource#SYSTEM_DEFAULT} when a custom token server URI is configured,
-   * or {@link TrustStoreSource#GOOGLE_BUNDLED} otherwise.
+   * Returns {@link TrustStoreSource#SYSTEM_DEFAULT} when a custom token server URI is configured
+   * for an auth type that can use it, or {@link TrustStoreSource#GOOGLE_BUNDLED} otherwise.
    */
   @VisibleForTesting
   static TrustStoreSource tokenTrustStoreSource(GcsAuthOptions options) {
     return options.getTokenServerUri().isPresent()
+            && TOKEN_SERVER_URI_AUTH_TYPES.contains(options.getAuthType())
         ? TrustStoreSource.SYSTEM_DEFAULT
         : TrustStoreSource.GOOGLE_BUNDLED;
   }

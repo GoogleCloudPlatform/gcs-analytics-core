@@ -394,7 +394,7 @@ class GcsCredentialsFactoryTest {
   }
 
   @Test
-  void tokenTrustStoreSource_customTokenServerUri_isSystemDefault() {
+  void tokenTrustStoreSource_applicationDefaultWithCustomTokenServerUri_isSystemDefault() {
     GcsAuthOptions options =
         GcsAuthOptions.builder()
             .setTokenServerUri(URI.create("https://custom-auth.example.com/token"))
@@ -403,6 +403,30 @@ class GcsCredentialsFactoryTest {
     TrustStoreSource trustStoreSource = GcsCredentialsFactory.tokenTrustStoreSource(options);
 
     assertThat(trustStoreSource).isEqualTo(TrustStoreSource.SYSTEM_DEFAULT);
+  }
+
+  @Test
+  void tokenTrustStoreSource_serviceAccountKeyfileWithCustomTokenServerUri_isSystemDefault() {
+    GcsAuthOptions options =
+        serviceAccountOptions()
+            .setTokenServerUri(URI.create("https://custom-auth.example.com/token"))
+            .build();
+
+    TrustStoreSource trustStoreSource = GcsCredentialsFactory.tokenTrustStoreSource(options);
+
+    assertThat(trustStoreSource).isEqualTo(TrustStoreSource.SYSTEM_DEFAULT);
+  }
+
+  @Test
+  void tokenTrustStoreSource_workloadIdentityWithCustomTokenServerUri_isGoogleBundled() {
+    GcsAuthOptions options =
+        workloadIdentityFederationOptions()
+            .setTokenServerUri(URI.create("https://custom-auth.example.com/token"))
+            .build();
+
+    TrustStoreSource trustStoreSource = GcsCredentialsFactory.tokenTrustStoreSource(options);
+
+    assertThat(trustStoreSource).isEqualTo(TrustStoreSource.GOOGLE_BUNDLED);
   }
 
   private Credentials createCredentials(GcsAuthOptions options) throws IOException {
