@@ -29,7 +29,12 @@ public abstract class GcsFileSystemOptions {
   private static final String METADATA_LOOKUP_PARALLEL_ENABLED_KEY =
       "analytics-core.metadata.lookup.parallel.enable";
 
-  /** Cloud Storage client to use. */
+  /**
+   * Cloud Storage client to use.
+   *
+   * @deprecated Use {@link GcsClientOptions.Protocol} instead.
+   */
+  @Deprecated
   public enum ClientType {
     HTTP_CLIENT,
     GRPC_CLIENT,
@@ -37,6 +42,10 @@ public abstract class GcsFileSystemOptions {
 
   public abstract int getReadThreadCount();
 
+  /**
+   * @deprecated Use {@link GcsClientOptions#getProtocol()} instead.
+   */
+  @Deprecated
   public abstract ClientType getClientType();
 
   public abstract GcsClientOptions getGcsClientOptions();
@@ -52,6 +61,7 @@ public abstract class GcsFileSystemOptions {
 
   public abstract Builder toBuilder();
 
+  @SuppressWarnings("deprecation")
   public static Builder builder() {
     return new AutoValue_GcsFileSystemOptions.Builder()
         .setReadThreadCount(16)
@@ -63,6 +73,7 @@ public abstract class GcsFileSystemOptions {
         .setAnalyticsCoreTelemetryOptions(TelemetryOptions.builder().build());
   }
 
+  @SuppressWarnings("deprecation")
   public static GcsFileSystemOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
     GcsFileSystemOptions.Builder optionsBuilder = GcsFileSystemOptions.builder();
@@ -99,6 +110,11 @@ public abstract class GcsFileSystemOptions {
   @AutoValue.Builder
   public abstract static class Builder {
 
+    /**
+     * @deprecated Use {@link GcsClientOptions.Builder#setProtocol(GcsClientOptions.Protocol)}
+     *     instead.
+     */
+    @Deprecated
     public abstract Builder setClientType(ClientType clientType);
 
     public abstract Builder setReadThreadCount(int readThreadCount);

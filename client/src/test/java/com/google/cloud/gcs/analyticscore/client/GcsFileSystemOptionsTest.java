@@ -31,14 +31,15 @@ class GcsFileSystemOptionsTest {
     ImmutableMap<String, String> properties =
         ImmutableMap.of(
             "fs.gs.project-id", "test-project",
-            "fs.gs.client.type", "GRPC_CLIENT",
+            "fs.gs.client.protocol", "GRPC",
             "fs.gs.analytics-core.read.thread.count", "32",
             "fs.gs.analytics-core.hierarchical.namespace.enable", "true");
 
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
     assertThat(options.getGcsClientOptions().getProjectId().get()).isEqualTo("test-project");
-    assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.GRPC_CLIENT);
+    assertThat(options.getGcsClientOptions().getProtocol())
+        .isEqualTo(GcsClientOptions.Protocol.GRPC);
     assertThat(options.getReadThreadCount()).isEqualTo(32);
     assertThat(options.isHnsApiEnabled()).isTrue();
   }
@@ -72,7 +73,8 @@ class GcsFileSystemOptionsTest {
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
     assertThat(options.getGcsClientOptions().getProjectId().isEmpty()).isTrue();
-    assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.HTTP_CLIENT);
+    assertThat(options.getGcsClientOptions().getProtocol())
+        .isEqualTo(GcsClientOptions.Protocol.HTTP);
     assertThat(options.getReadThreadCount()).isEqualTo(16);
     assertThat(options.isHnsApiEnabled()).isTrue();
 
@@ -81,6 +83,16 @@ class GcsFileSystemOptionsTest {
     assertThat(cacheOptions.getFooterCacheMaxSizeBytes()).isEqualTo(100 * MB);
     assertThat(cacheOptions.isSmallObjectCacheEnabled()).isFalse();
     assertThat(cacheOptions.getSmallObjectCacheMaxSizeBytes()).isEqualTo(200 * MB);
+  }
+
+  @Test
+  void createFromOptions_withBidiProtocol_shouldParseCorrectly() {
+    ImmutableMap<String, String> properties = ImmutableMap.of("fs.gs.client.protocol", "BIDI");
+
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
+
+    assertThat(options.getGcsClientOptions().getProtocol())
+        .isEqualTo(GcsClientOptions.Protocol.BIDI);
   }
 
   @Test

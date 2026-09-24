@@ -35,11 +35,16 @@ final class UriUtil {
   // Groups 2(bucket) and 4(objects) can be used to create an instance.
   private static final Pattern GCS_PATH_PATTERN = Pattern.compile("gs://(([^/]+)(/(.+)?)?)?");
 
+  private static final String GCS_SCHEME = "gs://";
+
+  /** Canonical string form of the GCS global root. */
+  private static final String GCS_ROOT_PATH = "gs:/";
+
   /** Parses {@link GcsItemId} from specified string. */
   static GcsItemId getItemIdFromString(String path) {
     checkArgument(path != null, "path should not be null");
 
-    if (path.equals("gs:/")) {
+    if (path.equals(GCS_ROOT_PATH)) {
       return GcsItemId.ROOT;
     }
 
@@ -58,6 +63,25 @@ final class UriUtil {
       return GcsItemId.builder().setBucketName(bucketName).setObjectName(relativePath).build();
     }
     return GcsItemId.builder().setBucketName(bucketName).build();
+  }
+
+  /**
+   * Formats the given {@link GcsItemId} as a {@code gs://} path string.
+   *
+   * @param itemId the item to format
+   * @return {@code gs:/} for the root, {@code gs://bucket} for a bucket, otherwise {@code
+   *     gs://bucket/object}
+   */
+  static String getStringPath(GcsItemId itemId) {
+    checkArgument(itemId != null, "itemId should not be null");
+
+    if (itemId.isRoot()) {
+      return GCS_ROOT_PATH;
+    }
+    if (itemId.isBucket()) {
+      return GCS_SCHEME + itemId.getBucketName();
+    }
+    return GCS_SCHEME + itemId.getBucketName() + "/" + itemId.getObjectName().orElse("");
   }
 
   static String removeTrailingSlash(String path) {

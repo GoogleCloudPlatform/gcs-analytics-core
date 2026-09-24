@@ -445,7 +445,7 @@ class GcsClientImpl implements GcsClient {
     checkArgument(itemId.isGcsObject(), String.format("Expected gcs object got %s", itemId));
     Blob blob = getBlob(itemId.getBucketName(), itemId.getObjectName().get());
     if (blob == null) {
-      return GcsItemInfo.createNotFound(itemId);
+      throw GcsExceptionUtil.createFileNotFoundException(itemId);
     }
     return fromBlob(blob);
   }
@@ -457,7 +457,7 @@ class GcsClientImpl implements GcsClient {
     try {
       return storage.get(blobId, Storage.BlobGetOption.fields(BLOB_METADATA_FIELDS_ARRAY));
     } catch (StorageException storageException) {
-      throw new IOException("Unable to access blob :" + blobId, storageException);
+      throw GcsExceptionUtil.translateException(storageException, "metadata lookup", blobId, 0L);
     }
   }
 

@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.common.annotations.VisibleForTesting;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
 import java.util.Optional;
@@ -41,7 +42,22 @@ public interface GcsClient {
   WritableByteChannel createWriteChannel(GcsItemId itemId, GcsWriteOptions options)
       throws IOException;
 
-  /** Fetches object metadata. */
+  /**
+   * Fetches metadata for the given GCS object.
+   *
+   * <p>This method supports GCS objects only. A missing object is reported by raising a {@link
+   * FileNotFoundException}, which aligns with standard Java I/O expectations.
+   *
+   * <p>Buckets and folders are queried via {@link #getBucketInfo(GcsItemId)} and {@link
+   * #getFolderInfo(GcsItemId)} respectively. Those methods report a missing item differently, by
+   * returning a not-found {@link GcsItemInfo} instead of throwing.
+   *
+   * @param itemId the identity of the object to fetch metadata for
+   * @return metadata for the given object
+   * @throws FileNotFoundException if {@code itemId} denotes an object that does not exist
+   * @throws IOException if the metadata cannot be fetched
+   * @throws UnsupportedOperationException if {@code itemId} does not denote a GCS object
+   */
   GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException;
 
   /** Fetches bucket metadata. */

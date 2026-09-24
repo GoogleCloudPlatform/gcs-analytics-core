@@ -33,8 +33,10 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
+import com.google.cloud.storage.StorageException;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -229,12 +231,19 @@ class GcsFileSystemImplTest {
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("non-existent-object").build();
     URI nonExistentPath = new URI("gs://" + TEST_BUCKET + "/non-existent-object");
     when(mockClient.getGcsItemInfo(eq(nonExistentItemId)))
-        .thenThrow(new IOException("Object not found:" + nonExistentItemId));
+        .thenThrow(GcsExceptionUtil.createFileNotFoundException(nonExistentItemId));
 
-    IOException e =
-        assertThrows(IOException.class, () -> gcsFileSystem.getFileInfo(nonExistentPath));
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentPath));
 
-    assertThat(e).hasMessageThat().contains("Object not found:" + nonExistentItemId);
+    assertThat(e)
+        .hasMessageThat()
+        .contains(
+            "Location does not exist or generation not found: gs://"
+                + TEST_BUCKET
+                + "/non-existent-object");
+    assertThat(e.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
   }
 
   @Test
@@ -298,12 +307,20 @@ class GcsFileSystemImplTest {
     GcsItemId nonExistentItemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("non-existent-object").build();
     when(mockClient.getGcsItemInfo(eq(nonExistentItemId)))
-        .thenThrow(new IOException("Object not found:" + nonExistentItemId));
+        .thenThrow(GcsExceptionUtil.createFileNotFoundException(nonExistentItemId));
 
-    IOException e =
-        assertThrows(IOException.class, () -> gcsFileSystem.getFileInfo(nonExistentItemId));
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentItemId));
 
-    assertThat(e).hasMessageThat().contains("Object not found:" + nonExistentItemId);
+    assertThat(e)
+        .hasMessageThat()
+        .contains(
+            "Location does not exist or generation not found: gs://"
+                + TEST_BUCKET
+                + "/non-existent-object");
+    assertThat(e.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
   }
 
   @Test

@@ -68,6 +68,13 @@ class GcsFileInfoTest {
         Arguments.of(
             GcsItemId.builder().setBucketName(TEST_BUCKET).build(),
             URI.create("gs://" + TEST_BUCKET)),
+        Arguments.of(
+            GcsItemId.builder()
+                .setBucketName(TEST_BUCKET)
+                .setObjectName("non-existent.txt")
+                .setContentGeneration(1234L)
+                .build(),
+            URI.create("gs://" + TEST_BUCKET + "/non-existent.txt")),
         Arguments.of(GcsItemId.ROOT, GcsFileInfo.GCS_ROOT_URI));
   }
 
