@@ -29,6 +29,7 @@ import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.auth.oauth2.UserCredentials;
 import com.google.cloud.NoCredentials;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.VerifyException;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.io.InputStream;
@@ -136,7 +137,7 @@ public final class GcsCredentialsFactory {
       case UNAUTHENTICATED:
         break;
     }
-    throw new AssertionError(
+    throw new VerifyException(
         "Unauthenticated access is resolved before an auth type is looked up: "
             + options.getAuthType());
   }

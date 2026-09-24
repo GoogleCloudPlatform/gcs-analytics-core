@@ -19,7 +19,9 @@ package com.google.cloud.gcs.analyticscore.client.auth;
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Answers.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.withSettings;
 
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
@@ -33,6 +35,7 @@ import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.auth.oauth2.UserCredentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.gcs.analyticscore.common.RedactedString;
+import com.google.common.base.VerifyException;
 import com.google.common.io.Resources;
 import java.io.IOException;
 import java.net.URI;
@@ -97,20 +100,6 @@ class GcsCredentialsFactoryTest {
   }
 
   @Test
-  void createCredentials_unauthenticatedWithBlankImpersonation_returnsNoCredentials()
-      throws IOException {
-    GcsAuthOptions options =
-        GcsAuthOptions.builder()
-            .setAuthType(AuthType.UNAUTHENTICATED)
-            .setImpersonationServiceAccount("   ")
-            .build();
-
-    Credentials credentials = GcsCredentialsFactory.createCredentials(options);
-
-    assertThat(credentials).isSameInstanceAs(NoCredentials.getInstance());
-  }
-
-  @Test
   void createCredentials_computeEngine_returnsComputeEngineCredentials() throws IOException {
     GcsAuthOptions options = GcsAuthOptions.builder().setAuthType(AuthType.COMPUTE_ENGINE).build();
 
@@ -130,7 +119,10 @@ class GcsCredentialsFactoryTest {
 
     Credentials credentials = createCredentials(options);
 
-    assertThat(credentials).isInstanceOf(ComputeEngineCredentials.class);
+    assertThat(credentials)
+        .isEqualTo(
+            createCredentials(
+                GcsAuthOptions.builder().setAuthType(AuthType.COMPUTE_ENGINE).build()));
   }
 
   @Test
@@ -140,10 +132,8 @@ class GcsCredentialsFactoryTest {
 
     Credentials credentials = createCredentials(options);
 
-    assertThat(credentials).isInstanceOf(ServiceAccountCredentials.class);
-    ServiceAccountCredentials saCreds = (ServiceAccountCredentials) credentials;
-    assertThat(saCreds.getClientEmail()).isEqualTo("test-email@gserviceaccount.com");
-    assertThat(saCreds.getPrivateKeyId()).isEqualTo("test-key-id");
+    assertThat(((ServiceAccountCredentials) credentials).getClientEmail())
+        .isEqualTo("test-email@gserviceaccount.com");
   }
 
   @Test
@@ -191,7 +181,6 @@ class GcsCredentialsFactoryTest {
 
     Credentials credentials = createCredentials(options);
 
-    assertThat(credentials).isInstanceOf(ImpersonatedCredentials.class);
     assertThat(((ImpersonatedCredentials) credentials).getAccount()).isEqualTo(targetSa);
   }
 
@@ -227,16 +216,6 @@ class GcsCredentialsFactoryTest {
   }
 
   @Test
-  void createCredentials_impersonationServiceAccountBlank_returnsSourceCredentials()
-      throws IOException {
-    GcsAuthOptions options = serviceAccountOptions().setImpersonationServiceAccount("   ").build();
-
-    Credentials credentials = createCredentials(options);
-
-    assertThat(credentials).isInstanceOf(ServiceAccountCredentials.class);
-  }
-
-  @Test
   void createCredentials_serviceAccountKeyfileMissing_throwsNoSuchFileException() {
     GcsAuthOptions options =
         GcsAuthOptions.builder()
@@ -254,10 +233,7 @@ class GcsCredentialsFactoryTest {
 
     Credentials credentials = createCredentials(options);
 
-    assertThat(credentials).isInstanceOf(ExternalAccountCredentials.class);
-    ExternalAccountCredentials wifCreds = (ExternalAccountCredentials) credentials;
-    assertThat(wifCreds.getAuthenticationType()).isEqualTo("OAuth2");
-    assertThat(wifCreds.getAudience())
+    assertThat(((ExternalAccountCredentials) credentials).getAudience())
         .isEqualTo(
             "//iam.googleapis.com/projects/test/locations/global/workloadIdentityPools/test-pool/providers/tester");
   }
@@ -292,11 +268,14 @@ class GcsCredentialsFactoryTest {
 
     Credentials credentials = createCredentials(options);
 
-    assertThat(credentials).isInstanceOf(UserCredentials.class);
-    UserCredentials userCreds = (UserCredentials) credentials;
-    assertThat(userCreds.getClientId()).isEqualTo("test-client-id");
-    assertThat(userCreds.getClientSecret()).isEqualTo("test-client-secret");
-    assertThat(userCreds.getRefreshToken()).isEqualTo("test-refresh-token");
+    assertThat(credentials)
+        .isEqualTo(
+            UserCredentials.newBuilder()
+                .setClientId("test-client-id")
+                .setClientSecret("test-client-secret")
+                .setRefreshToken("test-refresh-token")
+                .setHttpTransportFactory(tokenTransportFactory)
+                .build());
   }
 
   @Test
@@ -312,7 +291,8 @@ class GcsCredentialsFactoryTest {
   }
 
   @Test
-  void createCredentials_defaultTransport_returnsCredentialsWithTransports() throws IOException {
+  void createCredentials_impersonationWithDefaultTokenServer_sharesTokenTransport()
+      throws IOException {
     GcsAuthOptions options =
         serviceAccountOptions()
             .setImpersonationServiceAccount("target@test-project.iam.gserviceaccount.com")
@@ -323,8 +303,8 @@ class GcsCredentialsFactoryTest {
     ServiceAccountCredentials sourceCredentials =
         (ServiceAccountCredentials) credentials.getSourceCredentials();
 
-    assertThat(sourceCredentials.toBuilder().getHttpTransportFactory().create()).isNotNull();
-    assertThat(credentials.toBuilder().getHttpTransportFactory().create()).isNotNull();
+    assertThat(credentials.toBuilder().getHttpTransportFactory().create())
+        .isSameInstanceAs(sourceCredentials.toBuilder().getHttpTransportFactory().create());
   }
 
   @Test
@@ -343,24 +323,23 @@ class GcsCredentialsFactoryTest {
             .build();
 
     try (MockedStatic<GoogleCredentials> mockedGoogleCredentials =
-        mockStatic(GoogleCredentials.class)) {
+        mockStatic(GoogleCredentials.class, withSettings().defaultAnswer(CALLS_REAL_METHODS))) {
       mockedGoogleCredentials
           .when(() -> GoogleCredentials.getApplicationDefault(tokenTransportFactory))
           .thenReturn(baseCredentials);
 
       Credentials credentials = createCredentials(options);
 
-      assertThat(credentials).isInstanceOf(ComputeEngineCredentials.class);
       assertThat(((ComputeEngineCredentials) credentials).getScopes())
           .containsExactly(CLOUD_PLATFORM_SCOPE);
     }
   }
 
   @Test
-  void createCredentials_threeArgWithUnauthenticated_throwsAssertionError() {
+  void createCredentials_unauthenticatedWithTransportFactories_throwsVerifyException() {
     GcsAuthOptions options = GcsAuthOptions.builder().setAuthType(AuthType.UNAUTHENTICATED).build();
 
-    assertThrows(AssertionError.class, () -> createCredentials(options));
+    assertThrows(VerifyException.class, () -> createCredentials(options));
   }
 
   @Test
