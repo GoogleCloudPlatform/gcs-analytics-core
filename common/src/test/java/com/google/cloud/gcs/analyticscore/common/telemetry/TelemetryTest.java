@@ -36,6 +36,22 @@ class TelemetryTest {
   }
 
   @Test
+  void create_withoutListeners_returnsNoOpTelemetry() {
+    Telemetry created = Telemetry.create(Collections.emptyList());
+
+    assertThat(created).isInstanceOf(NoOpTelemetry.class);
+  }
+
+  @Test
+  void create_withListeners_returnsTelemetryThatNotifiesThem() throws Exception {
+    Telemetry created = Telemetry.create(Collections.singletonList(listener));
+
+    var unused = created.measure(Operation.builder().setName("READ").build(), recorder -> "result");
+
+    assertThat(listener.getEndedOperations()).hasSize(1);
+  }
+
+  @Test
   void measure_validOperation_returnsResultAndRecordsMetrics() throws Exception {
     Metric durationMetric = TestMetric.of("duration", Metric.MetricType.DURATION);
     Operation operation =
