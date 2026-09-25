@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.6.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.5.0...v1.6.0) (2026-09-25)
+
+
+### Features
+
+* Add client methods and update DTO structures for getFileInfo  ([#363](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/363)) ([408eb04](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/408eb04c8ba6e5d7dfdcb95aea0cb2c4cb75c085))
+* **client:** 1/5 Config based authentication - add authentication configuration options ([#376](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/376)) ([d58e7ae](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d58e7ae0b3e81b454cece1eb15fb7b96aea698a2))
+* **client:** add GCS credentials factory ([#385](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/385)) ([f0e4a2a](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/f0e4a2a368c2c1a47886da217572ed5700ea643e))
+* **client:** add GcsBidiWriteChannel for bidi appendable uploads ([#366](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/366)) ([bd8e202](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/bd8e20219c0f7f5ab45eeb1bd801ca09c7ae62dd))
+* **client:** add HTTP transport factory with proxy support ([#380](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/380)) ([ecebdb6](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/ecebdb689e7cf6d20a9454fec8cdbb99d7b7e233))
+* Implement Cached and Lazy Executor Service for getFileInfo ([#357](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/357)) ([0c8135b](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/0c8135b819481a12a1d63edc7b7b1990f86d80a1))
+* Introduce Hns and Flat strategy and integrate with GcsFileSystem ([#311](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/311)) ([3542db3](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/3542db3dd25357a23ac3e0a5201365061c6d59ff))
+
+
+### Bug Fixes
+
+* **client:** namespace auth config keys under analytics-core.auth ([#383](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/383)) ([d06d3ce](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d06d3cee6050331e70af50c412fa19954e0ceaf3))
+* **client:** Throw FileNotFoundException from getGcsObjectInfo when object not found  ([#371](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/371)) ([ae0187c](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/ae0187c9ce393a890dc1426f7d0af6c2486576a1))
+
+
+### Performance Improvements
+
+* **common:** cut telemetry allocation on the read/write path; unscoped metric ids are now UNKNOWN ([#378](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/378)) ([1784537](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/1784537f810d9a309033f5ef67fc006c6d10ac91))
+
 ## [1.5.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.4.0...v1.5.0) (2026-08-04)
 
 
