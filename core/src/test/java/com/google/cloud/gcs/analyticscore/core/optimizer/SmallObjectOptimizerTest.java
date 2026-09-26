@@ -242,7 +242,7 @@ class SmallObjectOptimizerTest {
             .build();
     List<GcsObjectRange> ranges = List.of(range);
     List<GcsObjectRange> remaining =
-        optimizer.readVectored(ranges, (size) -> ByteBuffer.allocate(size));
+        optimizer.readVectored(ranges, (size) -> ByteBuffer.allocate(size), realSource);
 
     assertThat(remaining).isSameInstanceAs(ranges);
   }
@@ -294,7 +294,7 @@ class SmallObjectOptimizerTest {
             .setLength(10)
             .setByteBufferFuture(new CompletableFuture<>())
             .build();
-    optimizer.readVectored(List.of(pastEofRange), (size) -> ByteBuffer.allocate(size));
+    optimizer.readVectored(List.of(pastEofRange), (size) -> ByteBuffer.allocate(size), realSource);
     var exception =
         assertThrows(ExecutionException.class, () -> pastEofRange.getByteBufferFuture().get());
 
@@ -324,7 +324,7 @@ class SmallObjectOptimizerTest {
             .build();
     List<GcsObjectRange> ranges = List.of(range);
     List<GcsObjectRange> remaining =
-        optimizer.readVectored(ranges, (size) -> ByteBuffer.allocate(size));
+        optimizer.readVectored(ranges, (size) -> ByteBuffer.allocate(size), realSource);
 
     assertThat(remaining).isSameInstanceAs(ranges);
   }
@@ -341,7 +341,7 @@ class SmallObjectOptimizerTest {
             .build();
     List<GcsObjectRange> ranges = List.of(range);
     List<GcsObjectRange> remaining =
-        optimizer.readVectored(ranges, (size) -> ByteBuffer.allocate(size));
+        optimizer.readVectored(ranges, (size) -> ByteBuffer.allocate(size), realSource);
 
     assertThat(remaining).isSameInstanceAs(ranges);
   }
@@ -358,7 +358,7 @@ class SmallObjectOptimizerTest {
             .setLength(20) // Only 10 bytes available before EOF
             .setByteBufferFuture(new CompletableFuture<>())
             .build();
-    optimizer.readVectored(List.of(partialRange), (size) -> ByteBuffer.allocate(size));
+    optimizer.readVectored(List.of(partialRange), (size) -> ByteBuffer.allocate(size), realSource);
     var exception =
         assertThrows(ExecutionException.class, () -> partialRange.getByteBufferFuture().get());
 
@@ -378,7 +378,7 @@ class SmallObjectOptimizerTest {
             .setByteBufferFuture(new CompletableFuture<>())
             .build();
 
-    optimizer.readVectored(ImmutableList.of(range), size -> null);
+    optimizer.readVectored(ImmutableList.of(range), size -> null, realSource);
 
     ExecutionException exception =
         assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
@@ -402,7 +402,7 @@ class SmallObjectOptimizerTest {
             .setByteBufferFuture(new CompletableFuture<>())
             .build();
     List<GcsObjectRange> remaining =
-        optimizer.readVectored(List.of(validRange), ByteBuffer::allocate);
+        optimizer.readVectored(List.of(validRange), ByteBuffer::allocate, realSource);
 
     assertThat(remaining).isEmpty();
     ByteBuffer result = validRange.getByteBufferFuture().get();

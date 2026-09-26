@@ -543,10 +543,11 @@ class SmartReadChannelTest {
     List<GcsObjectRange> ranges = List.of(range);
     FormatOptimizer mockOptimizer1 = mock(FormatOptimizer.class);
     when(mockOptimizer1.isApplicable(any(GcsItemId.class))).thenReturn(true);
-    when(mockOptimizer1.readVectored(any(), any())).thenReturn(ranges);
+    when(mockOptimizer1.readVectored(any(), any(), any())).thenReturn(ranges);
     FormatOptimizer mockOptimizer2 = mock(FormatOptimizer.class);
     when(mockOptimizer2.isApplicable(any(GcsItemId.class))).thenReturn(true);
-    when(mockOptimizer2.readVectored(any(), any())).thenReturn(java.util.Collections.emptyList());
+    when(mockOptimizer2.readVectored(any(), any(), any()))
+        .thenReturn(java.util.Collections.emptyList());
     SmartReadChannel smartChannel =
         SmartReadChannel.builder()
             .setDelegate(mockDelegate)
@@ -558,8 +559,8 @@ class SmartReadChannelTest {
 
     smartChannel.readVectored(ranges, ByteBuffer::allocate);
 
-    verify(mockOptimizer1).readVectored(eq(ranges), any());
-    verify(mockOptimizer2).readVectored(eq(ranges), any());
+    verify(mockOptimizer1).readVectored(eq(ranges), any(), eq(mockDelegate));
+    verify(mockOptimizer2).readVectored(eq(ranges), any(), eq(mockDelegate));
     verify(mockDelegate, org.mockito.Mockito.never()).readVectored(any(), any());
   }
 
@@ -574,7 +575,7 @@ class SmartReadChannelTest {
     List<GcsObjectRange> ranges = List.of(range);
     FormatOptimizer mockOptimizer = mock(FormatOptimizer.class);
     when(mockOptimizer.isApplicable(any(GcsItemId.class))).thenReturn(true);
-    when(mockOptimizer.readVectored(any(), any())).thenReturn(ranges);
+    when(mockOptimizer.readVectored(any(), any(), any())).thenReturn(ranges);
     SmartReadChannel smartChannel =
         SmartReadChannel.builder()
             .setDelegate(mockDelegate)
@@ -585,7 +586,7 @@ class SmartReadChannelTest {
 
     smartChannel.readVectored(ranges, ByteBuffer::allocate);
 
-    verify(mockOptimizer).readVectored(eq(ranges), any());
+    verify(mockOptimizer).readVectored(eq(ranges), any(), eq(mockDelegate));
     verify(mockDelegate).readVectored(eq(ranges), any());
   }
 

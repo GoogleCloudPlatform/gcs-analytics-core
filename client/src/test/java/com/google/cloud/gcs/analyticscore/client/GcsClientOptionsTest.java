@@ -284,4 +284,17 @@ class GcsClientOptionsTest {
     return GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.client.protocol", value), "gcs.")
         .getProtocol();
   }
+
+  @Test
+  void builder_withDefaultValues_returnsNonNullPrefetchOptions() {
+    GcsClientOptions options = GcsClientOptions.builder().build();
+    assertThat(options.getGcsPrefetchOptions()).isNotNull();
+  }
+
+  @Test
+  void createFromOptions_withPrefetchEnabled_propagatesToPrefetchOptions() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.analytics-core.prefetch.enabled", "true");
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+    assertThat(options.getGcsPrefetchOptions().isEnabled()).isTrue();
+  }
 }

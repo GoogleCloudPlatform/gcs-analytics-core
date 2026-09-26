@@ -19,6 +19,8 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -109,6 +111,36 @@ class AnalyticsCacheManagerTest {
         new AnalyticsCacheManager(GcsCacheOptions.builder().setFooterCacheEnabled(false).build());
 
     manager.invalidateAll();
+  }
+
+  @Test
+  void getPrefetchBufferCache_prefetchDisabled_returnsEmpty() {
+    manager = new AnalyticsCacheManager(GcsCacheOptions.builder().build());
+
+    assertThat(manager.getPrefetchBufferCache()).isEmpty();
+  }
+
+  @Test
+  void getPrefetchBufferCache_prefetchEnabled_returnsCache() {
+    manager = managerWithPrefetchEnabled();
+
+    assertThat(manager.getPrefetchBufferCache()).isPresent();
+  }
+
+  @Test
+  void getFooter_footerCacheDisabledButPrefetchEnabled_callsLoaderOnce() throws IOException {
+    manager = managerWithPrefetchEnabled();
+    AtomicInteger callCount = new AtomicInteger(0);
+    AnalyticsCacheManager.FooterLoader loader =
+        itemId -> {
+          callCount.incrementAndGet();
+          return FOOTER.duplicate();
+        };
+
+    manager.getFooter(ITEM_ID, loader);
+    manager.getFooter(ITEM_ID, loader);
+
+    assertThat(callCount.get()).isEqualTo(1);
   }
 
   @Test
@@ -232,5 +264,39 @@ class AnalyticsCacheManagerTest {
         });
 
     assertThat(callCount.get()).isEqualTo(1);
+  }
+
+  @Test
+  void getSchemaAccessHistory_prefetchDisabled_returnsEmpty() {
+    manager = new AnalyticsCacheManager(GcsCacheOptions.builder().build());
+
+    assertThat(manager.getSchemaAccessHistory()).isEmpty();
+  }
+
+  @Test
+  void getSchemaAccessHistory_twoManagers_haveIsolatedHistories() {
+    manager = managerWithPrefetchEnabled();
+    AnalyticsCacheManager otherManager = managerWithPrefetchEnabled();
+
+    assertThat(otherManager.getSchemaAccessHistory().get())
+        .isNotSameInstanceAs(manager.getSchemaAccessHistory().get());
+  }
+
+  @Test
+  void invalidateAll_withSchemaAccessHistory_clearsHistory() {
+    manager = managerWithPrefetchEnabled();
+    int schemaFingerprint = 42;
+    manager.getSchemaAccessHistory().get().recordDataAccess(schemaFingerprint, "id");
+
+    manager.invalidateAll();
+
+    assertThat(manager.getSchemaAccessHistory().get().getDataColumns(schemaFingerprint)).isEmpty();
+  }
+
+  private static AnalyticsCacheManager managerWithPrefetchEnabled() {
+    return new AnalyticsCacheManager(
+        GcsCacheOptions.builder().setFooterCacheEnabled(false).build(),
+        GcsPrefetchOptions.builder().setEnabled(true).build(),
+        new Telemetry(ImmutableList.of()));
   }
 }
