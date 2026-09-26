@@ -24,6 +24,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.google.cloud.NoCredentials;
+import com.google.cloud.gcs.analyticscore.client.auth.AuthType;
+import com.google.cloud.gcs.analyticscore.client.auth.GcsAuthOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
@@ -36,13 +38,16 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.cloud.storage.StorageException;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.channels.WritableByteChannel;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -66,8 +71,16 @@ class GcsFileSystemImplTest {
   private static final String TEST_OBJECT = "test-dir/test-object.txt";
   private static final GcsClientOptions TEST_GCS_CLIENT_OPTIONS =
       GcsClientOptions.builder().setProjectId(TEST_PROJECT).build();
+  private static final GcsAuthOptions TEST_GCS_AUTH_OPTIONS =
+      GcsAuthOptions.builder().setAuthType(AuthType.UNAUTHENTICATED).build();
   private static final GcsFileSystemOptions TEST_GCS_FILESYSTEM_OPTIONS =
-      GcsFileSystemOptions.builder().setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS).build();
+      testOptionsBuilder().build();
+
+  private static GcsFileSystemOptions.Builder testOptionsBuilder() {
+    return GcsFileSystemOptions.builder()
+        .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+        .setGcsAuthOptions(TEST_GCS_AUTH_OPTIONS);
+  }
 
   @Mock private GcsClient mockClient;
 
@@ -101,11 +114,14 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void constructor_withFileSystemOptions_createsClientWithDefaultCredentials() {
+  void constructor_withFileSystemOptions_createsClientFromAuthOptions() {
     GcsClientOptions clientOptions =
         GcsClientOptions.builder().setProjectId("test-project-default").build();
     GcsFileSystemOptions fileSystemOptions =
-        GcsFileSystemOptions.builder().setGcsClientOptions(clientOptions).build();
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(clientOptions)
+            .setGcsAuthOptions(TEST_GCS_AUTH_OPTIONS)
+            .build();
 
     try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(fileSystemOptions)) {
       GcsClientImpl gcsClient = (GcsClientImpl) gcsFileSystem.getGcsClient();
@@ -130,10 +146,10 @@ class GcsFileSystemImplTest {
             (mock, context) -> {
               @SuppressWarnings("unchecked") // Safe cast due to constructor signature
               Supplier<ExecutorService> supplier =
-                  (Supplier<ExecutorService>) context.arguments().get(1);
+                  (Supplier<ExecutorService>) context.arguments().get(2);
               capturedSupplier.set(supplier);
 
-              Telemetry telemetry = (Telemetry) context.arguments().get(2);
+              Telemetry telemetry = (Telemetry) context.arguments().get(3);
               capturedTelemetry.set(telemetry);
             })) {
 
@@ -495,10 +511,7 @@ class GcsFileSystemImplTest {
     TelemetryOptions telemetryOptions =
         TelemetryOptions.builder().setCustomTelemetryOptions(customTelemetryOptions).build();
     GcsFileSystemOptions options =
-        GcsFileSystemOptions.builder()
-            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
-            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
-            .build();
+        testOptionsBuilder().setAnalyticsCoreTelemetryOptions(telemetryOptions).build();
 
     try (GcsFileSystemImpl unused = new GcsFileSystemImpl(options)) {
       verify(mockListener, times(1)).onOperationStart(any(Operation.class));
@@ -512,10 +525,7 @@ class GcsFileSystemImplTest {
     TelemetryOptions telemetryOptions =
         TelemetryOptions.builder().setLoggingTelemetryOptions(loggingOptions).build();
     GcsFileSystemOptions options =
-        GcsFileSystemOptions.builder()
-            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
-            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
-            .build();
+        testOptionsBuilder().setAnalyticsCoreTelemetryOptions(telemetryOptions).build();
 
     try (GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options)) {
       List<OperationListener> registeredListeners =
@@ -534,10 +544,7 @@ class GcsFileSystemImplTest {
     TelemetryOptions telemetryOptions =
         TelemetryOptions.builder().setLoggingTelemetryOptions(loggingOptions).build();
     GcsFileSystemOptions options =
-        GcsFileSystemOptions.builder()
-            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
-            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
-            .build();
+        testOptionsBuilder().setAnalyticsCoreTelemetryOptions(telemetryOptions).build();
 
     try (GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options)) {
       assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
@@ -551,10 +558,7 @@ class GcsFileSystemImplTest {
     TelemetryOptions telemetryOptions =
         TelemetryOptions.builder().setOpenTelemetryOptions(openTelemetryOptions).build();
     GcsFileSystemOptions options =
-        GcsFileSystemOptions.builder()
-            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
-            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
-            .build();
+        testOptionsBuilder().setAnalyticsCoreTelemetryOptions(telemetryOptions).build();
 
     try (GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options)) {
       List<OperationListener> registeredListeners =
@@ -572,10 +576,7 @@ class GcsFileSystemImplTest {
     TelemetryOptions telemetryOptions =
         TelemetryOptions.builder().setOpenTelemetryOptions(openTelemetryOptions).build();
     GcsFileSystemOptions options =
-        GcsFileSystemOptions.builder()
-            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
-            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
-            .build();
+        testOptionsBuilder().setAnalyticsCoreTelemetryOptions(telemetryOptions).build();
 
     try (GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options)) {
       assertThat(getRegisteredTelemetryListeners(fileSystem.getTelemetry())).isEmpty();
@@ -589,10 +590,7 @@ class GcsFileSystemImplTest {
     TelemetryOptions telemetryOptions =
         TelemetryOptions.builder().setOpenTelemetryOptions(openTelemetryOptions).build();
     GcsFileSystemOptions options =
-        GcsFileSystemOptions.builder()
-            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
-            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
-            .build();
+        testOptionsBuilder().setAnalyticsCoreTelemetryOptions(telemetryOptions).build();
 
     GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options);
     int listnerCountBeforeClose = getRegisteredTelemetryListeners(fileSystem.getTelemetry()).size();
@@ -610,10 +608,7 @@ class GcsFileSystemImplTest {
     TelemetryOptions telemetryOptions =
         TelemetryOptions.builder().setLoggingTelemetryOptions(loggingOptions).build();
     GcsFileSystemOptions options =
-        GcsFileSystemOptions.builder()
-            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
-            .setAnalyticsCoreTelemetryOptions(telemetryOptions)
-            .build();
+        testOptionsBuilder().setAnalyticsCoreTelemetryOptions(telemetryOptions).build();
 
     GcsFileSystemImpl fileSystem = new GcsFileSystemImpl(options);
     List<OperationListener> registeredListeners =
@@ -669,11 +664,7 @@ class GcsFileSystemImplTest {
 
   @Test
   void resolveStrategy_hnsFlagEnabledAndHnsBucket_returnsHnsStrategy() throws IOException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.builder()
-            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
-            .setHnsApiEnabled(true)
-            .build();
+    GcsFileSystemOptions options = testOptionsBuilder().setHnsApiEnabled(true).build();
     when(mockClient.isHnsBucket(TEST_BUCKET)).thenReturn(true);
 
     try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
@@ -685,11 +676,7 @@ class GcsFileSystemImplTest {
 
   @Test
   void resolveStrategy_hnsFlagDisabled_returnsFlatStrategy() throws IOException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.builder()
-            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
-            .setHnsApiEnabled(false)
-            .build();
+    GcsFileSystemOptions options = testOptionsBuilder().setHnsApiEnabled(false).build();
 
     try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
       NamespaceStrategy strategy = gcsFileSystem.resolveStrategy(TEST_BUCKET);
@@ -701,11 +688,7 @@ class GcsFileSystemImplTest {
 
   @Test
   void resolveStrategy_hnsFlagEnabledAndFlatBucket_returnsFlatStrategy() throws IOException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.builder()
-            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
-            .setHnsApiEnabled(true)
-            .build();
+    GcsFileSystemOptions options = testOptionsBuilder().setHnsApiEnabled(true).build();
     when(mockClient.isHnsBucket(TEST_BUCKET)).thenReturn(false);
 
     try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
@@ -717,11 +700,7 @@ class GcsFileSystemImplTest {
 
   @Test
   void resolveStrategy_isHnsBucketThrowsIoException_throwsIOException() throws IOException {
-    GcsFileSystemOptions options =
-        GcsFileSystemOptions.builder()
-            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
-            .setHnsApiEnabled(true)
-            .build();
+    GcsFileSystemOptions options = testOptionsBuilder().setHnsApiEnabled(true).build();
     when(mockClient.isHnsBucket(TEST_BUCKET)).thenThrow(new IOException("test exception"));
 
     try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
@@ -730,6 +709,55 @@ class GcsFileSystemImplTest {
 
       assertThat(exception).hasMessageThat().isEqualTo("test exception");
     }
+  }
+
+  @Test
+  void constructor_withUnauthenticatedAuthOption_createsClientWithNoCredentials() {
+    GcsAuthOptions authOptions =
+        GcsAuthOptions.builder().setAuthType(AuthType.UNAUTHENTICATED).build();
+    GcsFileSystemOptions options = testOptionsBuilder().setGcsAuthOptions(authOptions).build();
+
+    try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options)) {
+      GcsClientImpl gcsClientImpl = (GcsClientImpl) gcsFileSystem.getGcsClient();
+
+      assertThat(gcsClientImpl.storage.getOptions().getCredentials())
+          .isEqualTo(NoCredentials.getInstance());
+      assertThat(gcsFileSystem.getFileSystemOptions().getGcsAuthOptions().getAuthType())
+          .isEqualTo(AuthType.UNAUTHENTICATED);
+    }
+  }
+
+  @Test
+  void createFromOptions_parsesAuthOptionsAndResolvesCredentials() {
+    Map<String, String> properties =
+        ImmutableMap.of(
+            "gcs.analytics-core.auth.type", "UNAUTHENTICATED",
+            "gcs.project-id", "test-project");
+
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "gcs.");
+
+    try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options)) {
+      GcsClientImpl gcsClientImpl = (GcsClientImpl) gcsFileSystem.getGcsClient();
+
+      assertThat(options.getGcsAuthOptions().getAuthType()).isEqualTo(AuthType.UNAUTHENTICATED);
+      assertThat(gcsClientImpl.storage.getOptions().getCredentials())
+          .isEqualTo(NoCredentials.getInstance());
+    }
+  }
+
+  @Test
+  void constructor_withInvalidAuthOptions_throwsUncheckedIOException() {
+    GcsAuthOptions authOptions =
+        GcsAuthOptions.builder()
+            .setAuthType(AuthType.SERVICE_ACCOUNT_JSON_KEYFILE)
+            .setServiceAccountJsonKeyfile("/non/existent/key.json")
+            .build();
+    GcsFileSystemOptions options = testOptionsBuilder().setGcsAuthOptions(authOptions).build();
+
+    UncheckedIOException exception =
+        assertThrows(UncheckedIOException.class, () -> new GcsFileSystemImpl(options));
+
+    assertThat(exception).hasCauseThat().isInstanceOf(IOException.class);
   }
 
   @SuppressWarnings("unchecked")

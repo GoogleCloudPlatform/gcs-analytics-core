@@ -19,6 +19,29 @@ These properties govern the core connections, identity, and access parameters be
 | `user-project` | Project ID whose Google Cloud Project's billing account should be charged for the operation being executed. | - |
 | `decryption-key` | Decryption key for the object. | - |
 
+### Authentication and Network Proxy Options
+
+These properties configure standard Google Cloud authentication, OAuth2 token renewal, static service account impersonation, and HTTP network proxy connectivity.
+
+> [!WARNING]
+> `analytics-core.auth.client-secret`, `analytics-core.auth.refresh-token` and `analytics-core.auth.proxy.password` are secrets. Supply them through a secret store appropriate to your deployment, such as the Hadoop credential provider or a Spark secret, rather than committing them to a properties file.
+
+| Property | Description | Default Value |
+| :--- | :--- | :--- |
+| `analytics-core.auth.type` | Google Cloud authentication type. Supported values: `APPLICATION_DEFAULT`, `COMPUTE_ENGINE`, `SERVICE_ACCOUNT_JSON_KEYFILE`, `WORKLOAD_IDENTITY_FEDERATION`, `USER_CREDENTIALS`, `UNAUTHENTICATED`. | `APPLICATION_DEFAULT` |
+| `analytics-core.auth.service-account-json-keyfile` | Path to a Service Account JSON keyfile. Required when `analytics-core.auth.type` is `SERVICE_ACCOUNT_JSON_KEYFILE`. | - |
+| `analytics-core.auth.workload-identity-federation.credential-config-file` | Path to a Workload Identity Federation credential configuration JSON file. Required when `analytics-core.auth.type` is `WORKLOAD_IDENTITY_FEDERATION`. | - |
+| `analytics-core.auth.client-id` | OAuth2 client ID. Required when `analytics-core.auth.type` is `USER_CREDENTIALS`. | - |
+| `analytics-core.auth.client-secret` | OAuth2 client secret. Required when `analytics-core.auth.type` is `USER_CREDENTIALS`. | - |
+| `analytics-core.auth.refresh-token` | OAuth2 refresh token. Required when `analytics-core.auth.type` is `USER_CREDENTIALS`. | - |
+| `analytics-core.auth.impersonation-service-account` | Service account email to impersonate via static service account impersonation. | - |
+| `analytics-core.auth.token-server-uri` | Custom token server URI used to refresh OAuth2 access tokens. | - |
+| `analytics-core.auth.proxy.address` | HTTP proxy address of the form `[https?://]hostname:port`. | - |
+| `analytics-core.auth.proxy.username` | Username for authenticating with the HTTP proxy. | - |
+| `analytics-core.auth.proxy.password` | Password for authenticating with the HTTP proxy. | - |
+| `analytics-core.auth.http.connect-timeout-ms` | Connect timeout for authentication HTTP requests, in milliseconds. Must be positive. | `5000` |
+| `analytics-core.auth.http.read-timeout-ms` | Socket read timeout for authentication HTTP requests, in milliseconds. Must be positive. | `5000` |
+
 ### Caching and Prefetching
 
 These settings control how aggressively the library prefetches and caches metadata (like Parquet footers) and small objects in memory. Proper configuration here significantly reduces latency and redundant network calls during metadata discovery phases.
