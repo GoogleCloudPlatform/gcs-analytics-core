@@ -22,8 +22,11 @@ import com.github.benmanes.caffeine.cache.Weigher;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCache;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCacheCaffeineImpl;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCacheNoOpImpl;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -42,17 +45,36 @@ public class AnalyticsCacheManager {
   private final AnalyticsCache<GcsItemId, ByteBuffer> footerCache;
   private final AnalyticsCache<GcsItemId, ByteBuffer> smallObjectCache;
   private final AnalyticsCache<String, BucketProperties> bucketPropertiesCache;
+  private final Optional<PrefetchBufferCache> prefetchBufferCache;
+  private final Optional<SchemaAccessHistory> schemaAccessHistory;
 
   /**
-   * Creates a new {@link AnalyticsCacheManager} with the specified options.
+   * Creates a new {@link AnalyticsCacheManager} with prefetching left at its default configuration.
    *
    * @param options The configuration options for the caching layer.
    */
   public AnalyticsCacheManager(GcsCacheOptions options) {
+    this(options, GcsPrefetchOptions.builder().build(), new Telemetry(ImmutableList.of()));
+  }
+
+  /**
+   * Creates a new {@link AnalyticsCacheManager} with the specified options.
+   *
+   * <p>When predictive prefetching is enabled, the footer cache is enabled as well, because
+   * prefetching learns the Parquet layout from the cached footer.
+   *
+   * @param options The configuration options for the caching layer.
+   * @param prefetchOptions The configuration options for predictive prefetching.
+   * @param telemetry Telemetry instance used by the prefetch buffer cache.
+   */
+  public AnalyticsCacheManager(
+      GcsCacheOptions options, GcsPrefetchOptions prefetchOptions, Telemetry telemetry) {
     checkNotNull(options, "options cannot be null");
+    checkNotNull(prefetchOptions, "prefetchOptions cannot be null");
+    checkNotNull(telemetry, "telemetry cannot be null");
     Weigher<GcsItemId, ByteBuffer> weigher = (key, value) -> value.remaining();
     this.footerCache =
-        options.isFooterCacheEnabled()
+        options.isFooterCacheEnabled() || prefetchOptions.isEnabled()
             ? AnalyticsCacheCaffeineImpl.create(options.getFooterCacheMaxSizeBytes(), weigher)
             : AnalyticsCacheNoOpImpl.getInstance();
     this.smallObjectCache =
@@ -62,6 +84,41 @@ public class AnalyticsCacheManager {
     this.bucketPropertiesCache =
         AnalyticsCacheCaffeineImpl.createWithTtlOnly(
             BUCKET_PROPERTIES_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
+    this.prefetchBufferCache =
+        prefetchOptions.isEnabled()
+            ? Optional.of(
+                new PrefetchBufferCache(
+                    prefetchOptions.getBufferCacheMaxSizeBytes(),
+                    prefetchOptions.getBufferCacheTtlSeconds(),
+                    telemetry))
+            : Optional.empty();
+    this.schemaAccessHistory =
+        prefetchOptions.isEnabled() ? Optional.of(new SchemaAccessHistory()) : Optional.empty();
+  }
+
+  /**
+   * Returns the cache holding speculatively prefetched byte blocks, or {@code Optional.empty()}
+   * when predictive prefetching is disabled.
+   */
+  public Optional<PrefetchBufferCache> getPrefetchBufferCache() {
+    return prefetchBufferCache;
+  }
+
+  /**
+   * Returns the column access history shared across objects opened with this cache manager, or
+   * {@code Optional.empty()} when predictive prefetching is disabled.
+   */
+  public Optional<SchemaAccessHistory> getSchemaAccessHistory() {
+    return schemaAccessHistory;
+  }
+
+  /**
+   * Returns the cached footer for the given {@code itemId}, or {@code Optional.empty()} if it is
+   * not present in the cache.
+   */
+  public Optional<ByteBuffer> getFooter(GcsItemId itemId) {
+    checkNotNull(itemId, "itemId cannot be null");
+    return footerCache.get(itemId).map(ByteBuffer::asReadOnlyBuffer);
   }
 
   /**
@@ -141,6 +198,8 @@ public class AnalyticsCacheManager {
     footerCache.invalidateAll();
     smallObjectCache.invalidateAll();
     bucketPropertiesCache.invalidateAll();
+    prefetchBufferCache.ifPresent(PrefetchBufferCache::invalidateAll);
+    schemaAccessHistory.ifPresent(SchemaAccessHistory::invalidateAll);
   }
 
   /** A loader for GCS object footers. */

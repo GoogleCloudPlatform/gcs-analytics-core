@@ -352,6 +352,11 @@ limitations under the License.
                 <version>${apache.parquet.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-format-structures</artifactId>
+                <version>${apache.parquet.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro</artifactId>
                 <version>${apache.avro.version}</version>

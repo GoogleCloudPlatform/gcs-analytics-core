@@ -121,7 +121,10 @@ public class SmallObjectOptimizer implements FormatOptimizer {
 
   @Override
   public List<GcsObjectRange> readVectored(
-      List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate) throws IOException {
+      List<GcsObjectRange> ranges,
+      IntFunction<ByteBuffer> allocate,
+      VectoredSeekableByteChannel delegate)
+      throws IOException {
     if (fileSize == -1 || fileSize > readOptions.getSmallObjectCacheThresholdBytes()) {
       return ranges;
     }

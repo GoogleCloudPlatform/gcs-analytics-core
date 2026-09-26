@@ -126,6 +126,8 @@ public abstract class GcsClientOptions {
   /** Returns the retry settings applied to the underlying Cloud Storage client. */
   public abstract GcsRetryOptions getGcsRetryOptions();
 
+  public abstract GcsPrefetchOptions getGcsPrefetchOptions();
+
   // Upload Session configurations
   public abstract int getUploadChunkSize();
 
@@ -150,6 +152,7 @@ public abstract class GcsClientOptions {
         .setGcsReadOptions(GcsReadOptions.builder().build())
         .setGcsWriteOptions(GcsWriteOptions.builder().build())
         .setGcsRetryOptions(GcsRetryOptions.builder().build())
+        .setGcsPrefetchOptions(GcsPrefetchOptions.builder().build())
         .setUploadChunkSize(24 * MB)
         .setUploadType(UploadType.CHUNK_UPLOAD)
         .setPcuBufferCount(1)
@@ -214,6 +217,8 @@ public abstract class GcsClientOptions {
         GcsWriteOptions.createFromOptions(analyticsCoreOptions, prefix));
     optionsBuilder.setGcsRetryOptions(
         GcsRetryOptions.createFromOptions(analyticsCoreOptions, prefix));
+    optionsBuilder.setGcsPrefetchOptions(
+        GcsPrefetchOptions.createFromOptions(analyticsCoreOptions, prefix));
 
     return optionsBuilder.build();
   }
@@ -239,6 +244,8 @@ public abstract class GcsClientOptions {
     public abstract Builder setGcsWriteOptions(GcsWriteOptions writeOptions);
 
     public abstract Builder setGcsRetryOptions(GcsRetryOptions retryOptions);
+
+    public abstract Builder setGcsPrefetchOptions(GcsPrefetchOptions prefetchOptions);
 
     public abstract Builder setUploadChunkSize(int size);
 
