@@ -196,6 +196,11 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       GcsItemInfo bucketInfo = gcsClient.getBucketInfo(itemId);
       return createBucketFileInfo(bucketInfo);
     }
+    if (pathType == PathType.DIRECTORY) {
+      // No object lookup to overlap with, so resolve the directory on the calling thread.
+      return toGcsFileInfo(resolveStrategy(itemId.getBucketName()).getDirectoryInfo(itemId));
+    }
+
     // Submit directory info in background
     ExecutorService statusExecutorService = statusExecutorServiceSupplier.get();
     Future<GcsItemInfo> directoryInfoFuture =
@@ -205,19 +210,16 @@ public class GcsFileSystemImpl implements GcsFileSystem {
               return strategy.getDirectoryInfo(itemId);
             });
 
-    // Perform direct object metadata lookup if not explicit directory
-    if (pathType != PathType.DIRECTORY) {
-      try {
-        GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(itemId);
-        directoryInfoFuture.cancel(true);
-        return toGcsFileInfo(itemInfo);
-      } catch (FileNotFoundException ignored) {
-        // Direct object not found; fall through to directory info
-        LOG.debug("Item '{}' not found directly, checking for directory existence.", itemId);
-      } catch (Exception e) {
-        directoryInfoFuture.cancel(true);
-        throw e;
-      }
+    try {
+      GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(itemId);
+      directoryInfoFuture.cancel(true);
+      return toGcsFileInfo(itemInfo);
+    } catch (FileNotFoundException ignored) {
+      // Direct object not found; fall through to directory info
+      LOG.debug("Item '{}' not found directly, checking for directory existence.", itemId);
+    } catch (Exception e) {
+      directoryInfoFuture.cancel(true);
+      throw e;
     }
 
     // Await directory info and return (unwraps ExecutionException to FileNotFoundException /
