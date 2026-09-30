@@ -464,6 +464,19 @@ class GcsClientImplTest {
   }
 
   @Test
+  void getBucketProperties_storageThrows404_returnsDisabledHns() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
+    doThrow(new StorageException(404, "Not Found"))
+        .when(mockStorage)
+        .get(eq(TEST_NON_EXISTENT_BUCKET), any(BucketGetOption.class));
+
+    BucketProperties properties = localGcsClient.getBucketProperties(TEST_NON_EXISTENT_BUCKET);
+
+    assertThat(properties.isHnsEnabled()).isFalse();
+  }
+
+  @Test
   void getBucketProperties_storageThrows500_throwsIOException() {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
@@ -1133,16 +1146,17 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getBucketInfo_storageReturnsNull_returnsNotFoundItemInfo() throws IOException {
+  void getBucketInfo_storageReturnsNull_throwsFileNotFoundException() {
     GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_NON_EXISTENT_BUCKET).build();
     Storage mockStorage = mock(Storage.class);
     when(mockStorage.get(eq(TEST_NON_EXISTENT_BUCKET), any(Storage.BucketGetOption[].class)))
         .thenReturn(null);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
-    GcsItemInfo itemInfo = clientWithMock.getBucketInfo(bucketId);
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> clientWithMock.getBucketInfo(bucketId));
 
-    assertNotFound(itemInfo, bucketId);
+    assertFileNotFoundException(e, bucketId);
   }
 
   @Test
@@ -1169,16 +1183,17 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getBucketInfo_storageThrows404_returnsNotFoundItemInfo() throws IOException {
+  void getBucketInfo_storageThrows404_throwsFileNotFoundException() {
     GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
     Storage mockStorage = mock(Storage.class);
     when(mockStorage.get(eq(TEST_BUCKET), any(Storage.BucketGetOption[].class)))
         .thenThrow(new StorageException(404, "Not Found"));
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
-    GcsItemInfo itemInfo = clientWithMock.getBucketInfo(bucketId);
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> clientWithMock.getBucketInfo(bucketId));
 
-    assertNotFound(itemInfo, bucketId);
+    assertFileNotFoundException(e, bucketId);
   }
 
   @Test
@@ -1435,7 +1450,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getFolderInfo_notFound_returnsNotFoundItemInfo() throws IOException {
+  void getFolderInfo_notFound_throwsFileNotFoundException() {
     GcsItemId folderItemId =
         GcsItemId.builder()
             .setBucketName(TEST_BUCKET)
@@ -1446,9 +1461,11 @@ class GcsClientImplTest {
     when(mockControlClient.getFolder(any(GetFolderRequest.class))).thenThrow(notFoundException);
     GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
 
-    GcsItemInfo itemInfo = clientWithMockControl.getFolderInfo(folderItemId);
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class, () -> clientWithMockControl.getFolderInfo(folderItemId));
 
-    assertNotFound(itemInfo, folderItemId);
+    assertFileNotFoundException(e, folderItemId);
   }
 
   @Test
@@ -1582,10 +1599,15 @@ class GcsClientImplTest {
     return mockStorage;
   }
 
-  private static void assertNotFound(GcsItemInfo itemInfo, GcsItemId expectedItemId) {
-    assertThat(itemInfo.getItemId()).isEqualTo(expectedItemId);
-    assertThat(itemInfo.exists()).isFalse();
-    assertThat(itemInfo.getSize()).isEqualTo(-1L);
+  private static void assertFileNotFoundException(
+      FileNotFoundException exception, GcsItemId expectedItemId) {
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "Location does not exist or generation not found: "
+                + UriUtil.getStringPath(expectedItemId));
+    assertThat(exception.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) exception.getCause()).getCode()).isEqualTo(404);
   }
 
   @Test
