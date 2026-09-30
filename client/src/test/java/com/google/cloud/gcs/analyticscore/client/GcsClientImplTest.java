@@ -464,16 +464,16 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getBucketProperties_storageThrows404_returnsDisabledHns() throws Exception {
+  void getBucketProperties_storageThrows404_throwsFileNotFoundException() {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
     doThrow(new StorageException(404, "Not Found"))
         .when(mockStorage)
         .get(eq(TEST_NON_EXISTENT_BUCKET), any(BucketGetOption.class));
 
-    BucketProperties properties = localGcsClient.getBucketProperties(TEST_NON_EXISTENT_BUCKET);
-
-    assertThat(properties.isHnsEnabled()).isFalse();
+    assertThrows(
+        FileNotFoundException.class,
+        () -> localGcsClient.getBucketProperties(TEST_NON_EXISTENT_BUCKET));
   }
 
   @Test

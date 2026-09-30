@@ -383,8 +383,8 @@ class GcsClientImpl implements GcsClient {
       return BucketProperties.create(hnsEnabled);
     } catch (StorageException storageException) {
       if (storageException.getCode() == 404) {
-        LOG.warn("Bucket {} not found (404), HNS API will be disabled", bucketName);
-        return BucketProperties.create(false);
+        throw GcsExceptionUtil.createFileNotFoundException(
+            GcsItemId.builder().setBucketName(bucketName).build());
       }
       if (storageException.getCode() == 403) {
         LOG.warn("Access to bucket {} is forbidden (403), HNS API will be disabled", bucketName);

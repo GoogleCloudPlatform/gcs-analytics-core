@@ -185,20 +185,6 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
   @Override
   public GcsFileInfo getFileInfo(GcsItemId itemId) throws IOException {
-    return getFileInfoInternal(itemId, /* inferImplicitDirectories= */ true);
-  }
-
-  /**
-   * Retrieves file or directory metadata for the given {@link GcsItemId}.
-   *
-   * @param itemId the item identifier
-   * @param inferImplicitDirectories if {@code false}, does not list prefix objects to infer
-   *     implicit directories and instead only checks for an explicit placeholder directory object
-   *     (needed for operations such as rename and delete)
-   */
-  @VisibleForTesting
-  GcsFileInfo getFileInfoInternal(GcsItemId itemId, boolean inferImplicitDirectories)
-      throws IOException {
     checkNotNull(itemId, "itemId should not be null");
     PathType pathType = itemId.resolvePathType();
 
@@ -215,11 +201,6 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     Future<GcsItemInfo> directoryInfoFuture =
         statusExecutorService.submit(
             () -> {
-              if (!inferImplicitDirectories) {
-                // Do not list for implicit directories, just check for a directory placeholder
-                // object
-                return gcsClient.getGcsItemInfo(itemId.toDirectoryId());
-              }
               NamespaceStrategy strategy = resolveStrategy(itemId.getBucketName());
               return strategy.getDirectoryInfo(itemId);
             });

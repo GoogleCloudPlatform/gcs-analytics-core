@@ -510,24 +510,6 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void getFileInfoInternal_inferImplicitDirectoriesFalse_checksDirectoryPlaceholderObject()
-      throws IOException {
-    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data").build();
-    GcsItemId dirPlaceholderId = itemId.toDirectoryId();
-    GcsItemInfo placeholderInfo = GcsItemInfo.createPlaceholderDirectory(dirPlaceholderId);
-    when(mockClient.getGcsItemInfo(eq(itemId)))
-        .thenThrow(GcsExceptionUtil.createFileNotFoundException(itemId));
-    when(mockClient.getGcsItemInfo(eq(dirPlaceholderId))).thenReturn(placeholderInfo);
-
-    GcsFileInfo fileInfo =
-        ((GcsFileSystemImpl) gcsFileSystem)
-            .getFileInfoInternal(itemId, /* inferImplicitDirectories= */ false);
-
-    assertThat(fileInfo.getItemInfo()).isEqualTo(placeholderInfo);
-    verify(mockClient, never()).listFirstObjectWithPrefix(any(GcsItemId.class));
-  }
-
-  @Test
   @SuppressWarnings("unchecked")
   void getFromFuture_whenInterrupted_throwsIOExceptionAndRestoresInterrupt() throws Exception {
     Future<String> mockFuture = mock(Future.class);

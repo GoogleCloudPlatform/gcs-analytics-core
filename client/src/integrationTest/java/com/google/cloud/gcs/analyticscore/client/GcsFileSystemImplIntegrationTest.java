@@ -52,7 +52,7 @@ class GcsFileSystemImplIntegrationTest {
 
     private static final String GCS_INTEGRATION_TEST_BUCKET_PROPERTY = "gcs.integration.test.bucket";
     private static final String GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY =
-            "gcs.integration.hns.test.bucket";
+            "gcs.integration.test.hns.bucket";
     private static final String PUBLIC_BUCKET_NAME = "cloud-samples-data";
     private static final String PUBLIC_PARQUET_OBJECT = "bigquery/us-states/us-states.parquet";
     private static final String PUBLIC_CSV_OBJECT = "bigquery/us-states/us-states.csv";

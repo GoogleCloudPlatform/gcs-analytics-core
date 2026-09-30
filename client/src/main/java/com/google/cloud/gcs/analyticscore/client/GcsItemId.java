@@ -86,7 +86,7 @@ public abstract class GcsItemId {
    * Resolves the {@link PathType} of this identifier based on its string format (e.g., trailing
    * slash).
    */
-  public PathType resolvePathType() {
+  PathType resolvePathType() {
     if (isRoot()) {
       return PathType.ROOT;
     }
@@ -100,7 +100,7 @@ public abstract class GcsItemId {
   }
 
   /** Returns a new {@link GcsItemId} with the object name formatted as a directory path. */
-  public GcsItemId toDirectoryId() {
+  GcsItemId toDirectoryId() {
     if (isRoot() || isBucket()) {
       return this;
     }

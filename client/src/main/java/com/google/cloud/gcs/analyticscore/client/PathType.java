@@ -16,7 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 /** Represents the structural type of a GCS path based on its components. */
-public enum PathType {
+enum PathType {
   FILE,
   DIRECTORY,
   BUCKET,
