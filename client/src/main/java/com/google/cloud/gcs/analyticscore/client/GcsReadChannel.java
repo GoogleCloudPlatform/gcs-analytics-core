@@ -22,6 +22,7 @@ import com.google.cloud.gcs.analyticscore.client.GcsReadChannelMetadataExtractor
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Attribute;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
+import com.google.cloud.gcs.analyticscore.common.telemetry.MetricsRecorder;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Storage;
@@ -33,13 +34,19 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SeekableByteChannel;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Consumer;
 import java.util.function.IntFunction;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 class GcsReadChannel implements VectoredSeekableByteChannel {
+  private static final Logger LOG = LoggerFactory.getLogger(GcsReadChannel.class);
+
   @FunctionalInterface
   public interface ItemInfoProvider {
     GcsItemInfo getItemInfo(GcsItemId itemId) throws IOException;
@@ -246,6 +253,14 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   @Override
   public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException {
+    readVectored(ranges, allocate, buffer -> {});
+  }
+
+  @Override
+  public void readVectored(
+      List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate, Consumer<ByteBuffer> release)
+      throws IOException {
+    checkNotNull(release, "Buffer release function must not be null");
     Operation operation =
         Operation.builder()
             .setName(GcsAnalyticsCoreTelemetryConstants.Operation.VECTORED_READ.name())
@@ -265,7 +280,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       var unused =
           executorService.submit(
               () -> {
-                readCombinedRange(combinedRange, allocate, operation);
+                readCombinedRange(combinedRange, allocate, release, operation);
               });
     }
   }
@@ -273,6 +288,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   void readCombinedRange(
       GcsObjectCombinedRange combinedObjectRange,
       IntFunction<ByteBuffer> allocate,
+      Consumer<ByteBuffer> release,
       Operation operation) {
     telemetry.measure(
         operation,
@@ -283,48 +299,113 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
               readStrategy.getReadChannel(
                   combinedObjectRange.getOffset(), combinedObjectRange.getLength())) {
             validatePosition(combinedObjectRange.getOffset());
-            ByteBuffer dataBuffer = allocate.apply(combinedObjectRange.getLength());
-            if (dataBuffer == null) {
-              throw new IllegalArgumentException(
-                  String.format(
-                      "Buffer allocation returned null for combinedObjectRange: %s",
-                      combinedObjectRange));
+            PreparedCombinedRead preparedRead =
+                readCombinedRangeBuffers(
+                    channel, readStrategy, combinedObjectRange, allocate, release, recorder);
+            // Returned buffers are ready for publication. Completion and close failures must not
+            // release their parent, since a caller may already have received a slice.
+            boolean published = false;
+            for (PreparedRange preparedRange : preparedRead.ranges) {
+              published |= preparedRange.range.getByteBufferFuture().complete(preparedRange.buffer);
             }
-            int numOfBytesRead = 0;
-            while (dataBuffer.hasRemaining()) {
-              int bytesRead = channel.read(dataBuffer);
-              extractMetadataAfterRead(readStrategy);
-              if (bytesRead < 0) {
-                // EOF reached.
-                break;
+            if (!published) {
+              IllegalStateException failure =
+                  new IllegalStateException("No range future accepted the prepared buffer");
+              VectoredIoUtil.releaseOnFailure(preparedRead.parent, release, failure);
+              if (failure.getSuppressed().length > 0) {
+                LOG.warn("Failed to release an unpublished vectored read buffer", failure);
               }
-              recorder.record(Metric.READ_BYTES, bytesRead, Collections.emptyMap());
-              numOfBytesRead += bytesRead;
             }
-            if (numOfBytesRead < combinedObjectRange.getLength()) {
-              throw new EOFException(
-                  String.format(
-                      "EOF reached while reading combinedObjectRange, range: %s, item: "
-                          + "%s, numRead: %d, expected: %d",
-                      combinedObjectRange,
-                      itemId,
-                      numOfBytesRead,
-                      combinedObjectRange.getLength()));
-            }
-            // making it ready for reading
-            dataBuffer.flip();
-            for (GcsObjectRange underlyingRange : combinedObjectRange.getUnderlyingRanges()) {
-              populateGcsObjectRangeFromCombinedObjectRange(
-                  combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer);
-            }
-          } catch (Exception e) {
+          } catch (Throwable e) {
             completeWithException(combinedObjectRange, e);
+            if (e instanceof Error) {
+              LOG.error("Vectored read failed for combined range {}", combinedObjectRange, e);
+              throw (Error) e;
+            }
           }
           return null;
         });
   }
 
-  private void populateGcsObjectRangeFromCombinedObjectRange(
+  private PreparedCombinedRead readCombinedRangeBuffers(
+      ReadChannel channel,
+      ReadStrategy readStrategy,
+      GcsObjectCombinedRange combinedObjectRange,
+      IntFunction<ByteBuffer> allocate,
+      Consumer<ByteBuffer> release,
+      MetricsRecorder recorder)
+      throws IOException {
+    ByteBuffer dataBuffer = allocate.apply(combinedObjectRange.getLength());
+    if (dataBuffer == null) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Buffer allocation returned null for combinedObjectRange: %s", combinedObjectRange));
+    }
+    // This method owns the allocation until it returns all prepared slices.
+    try {
+      if (dataBuffer.capacity() < combinedObjectRange.getLength()) {
+        throw new IllegalArgumentException(
+            String.format(
+                "Allocated buffer is too small for combinedObjectRange: %s", combinedObjectRange));
+      }
+      dataBuffer.clear();
+      dataBuffer.limit(combinedObjectRange.getLength());
+      int numOfBytesRead = 0;
+      while (dataBuffer.hasRemaining()) {
+        int bytesRead = channel.read(dataBuffer);
+        extractMetadataAfterRead(readStrategy);
+        if (bytesRead < 0) {
+          break;
+        }
+        recorder.record(Metric.READ_BYTES, bytesRead, Collections.emptyMap());
+        numOfBytesRead += bytesRead;
+      }
+      if (numOfBytesRead < combinedObjectRange.getLength()) {
+        throw new EOFException(
+            String.format(
+                "EOF reached while reading combinedObjectRange, range: %s, item: "
+                    + "%s, numRead: %d, expected: %d",
+                combinedObjectRange, itemId, numOfBytesRead, combinedObjectRange.getLength()));
+      }
+      dataBuffer.flip();
+      List<PreparedRange> underlyingBuffers = new ArrayList<>();
+      // Keep preparation separate from the caller's publication loop: if any slice creation
+      // fails (including OOME), no future has received a slice of the parent we release below.
+      for (GcsObjectRange underlyingRange : combinedObjectRange.getUnderlyingRanges()) {
+        underlyingBuffers.add(
+            new PreparedRange(
+                underlyingRange,
+                getUnderlyingRangeDataFromCombinedObjectRange(
+                    combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer)));
+      }
+      return new PreparedCombinedRead(dataBuffer, underlyingBuffers);
+    } catch (IOException | RuntimeException | Error e) {
+      VectoredIoUtil.releaseOnFailure(dataBuffer, release, e);
+      throw e;
+    }
+  }
+
+  private static final class PreparedCombinedRead {
+    private final ByteBuffer parent;
+    private final List<PreparedRange> ranges;
+
+    private PreparedCombinedRead(ByteBuffer parent, List<PreparedRange> ranges) {
+      this.parent = parent;
+      this.ranges = ranges;
+    }
+  }
+
+  private static final class PreparedRange {
+    private final GcsObjectRange range;
+    private final ByteBuffer buffer;
+
+    private PreparedRange(GcsObjectRange range, ByteBuffer buffer) {
+      this.range = range;
+      this.buffer = buffer;
+    }
+  }
+
+  private ByteBuffer getUnderlyingRangeDataFromCombinedObjectRange(
       GcsObjectCombinedRange combinedObjectRange,
       GcsObjectRange objectRange,
       long numOfBytesRead,
@@ -332,10 +413,11 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       throws EOFException {
     long maxPosition = combinedObjectRange.getOffset() + numOfBytesRead;
     long objectRangeEndPosition = objectRange.getOffset() + objectRange.getLength();
+    // Purely defensive for inconsistent combined ranges. With valid, non-overflowing offsets,
+    // merging contains every child and the full-read check guarantees maxPosition >= parent end,
+    // so the EOF branch below is unreachable for ranges produced by the normal merge path.
     if (objectRangeEndPosition <= maxPosition) {
-      ByteBuffer childBuffer =
-          VectoredIoUtil.fetchUnderlyingRangeData(dataBuffer, combinedObjectRange, objectRange);
-      objectRange.getByteBufferFuture().complete(childBuffer);
+      return VectoredIoUtil.fetchUnderlyingRangeData(dataBuffer, combinedObjectRange, objectRange);
     } else {
       throw new EOFException(
           String.format(
@@ -349,6 +431,11 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private void completeWithException(GcsObjectCombinedRange combinedObjectRange, Throwable e) {
     for (GcsObjectRange child : combinedObjectRange.getUnderlyingRanges()) {
       if (!child.getByteBufferFuture().isDone()) {
+        if (e instanceof Error) {
+          // Avoid allocating a wrapper while handling allocation failures.
+          child.getByteBufferFuture().completeExceptionally(e);
+          continue;
+        }
         child
             .getByteBufferFuture()
             .completeExceptionally(

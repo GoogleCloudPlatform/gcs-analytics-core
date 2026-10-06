@@ -42,6 +42,7 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.function.IntFunction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -238,6 +239,74 @@ class SmartReadChannelTest {
     smartChannel.readVectored(ranges, allocate);
 
     verify(mockDelegate).readVectored(ranges, allocate);
+  }
+
+  @Test
+  void readVectored_nullRelease_rejectsBeforeDelegation() throws IOException {
+    SmartReadChannel channel =
+        SmartReadChannel.builder()
+            .setDelegate(mockDelegate)
+            .setItemId(ITEM_ID)
+            .setCacheManager(mockCacheManager)
+            .build();
+
+    assertThrows(
+        NullPointerException.class,
+        () -> channel.readVectored(List.of(), ByteBuffer::allocate, null));
+
+    verify(mockDelegate, never()).readVectored(any(), any(), any());
+  }
+
+  @Test
+  void readVectored_withRelease_forwardsRemainingRangesAndCallback() throws IOException {
+    SmartReadChannel channel =
+        SmartReadChannel.builder()
+            .setDelegate(mockDelegate)
+            .setItemId(ITEM_ID)
+            .setCacheManager(mockCacheManager)
+            .addOptimizer(mockOptimizer)
+            .build();
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(1)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+    List<GcsObjectRange> ranges = List.of(range);
+    IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
+    Consumer<ByteBuffer> release = buffer -> {};
+    when(mockOptimizer.readVectored(ranges, allocate, release)).thenReturn(ranges);
+
+    channel.readVectored(ranges, allocate, release);
+
+    verify(mockOptimizer).readVectored(ranges, allocate, release);
+    verify(mockDelegate).readVectored(ranges, allocate, release);
+  }
+
+  @Test
+  void readVectored_withRelease_optimizerSatisfiesRanges_skipsDelegate() throws IOException {
+    SmartReadChannel channel =
+        SmartReadChannel.builder()
+            .setDelegate(mockDelegate)
+            .setItemId(ITEM_ID)
+            .setCacheManager(mockCacheManager)
+            .addOptimizer(mockOptimizer)
+            .build();
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(1)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+    List<GcsObjectRange> ranges = List.of(range);
+    IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
+    Consumer<ByteBuffer> release = buffer -> {};
+    when(mockOptimizer.readVectored(ranges, allocate, release)).thenReturn(List.of());
+
+    channel.readVectored(ranges, allocate, release);
+
+    verify(mockOptimizer).readVectored(ranges, allocate, release);
+    verify(mockDelegate, never()).readVectored(any(), any(), any());
   }
 
   @Test

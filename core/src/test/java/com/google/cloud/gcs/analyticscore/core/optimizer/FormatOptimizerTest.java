@@ -17,17 +17,26 @@
 package com.google.cloud.gcs.analyticscore.core.optimizer;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import com.google.cloud.gcs.analyticscore.client.AnalyticsCacheManager;
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
+import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.IntFunction;
 import org.junit.jupiter.api.Test;
 
 class FormatOptimizerTest {
@@ -90,6 +99,37 @@ class FormatOptimizerTest {
     optimizer.onOpen(FILE_INFO, mockCacheManager);
 
     assertThat(capturedId[0]).isEqualTo(ITEM_ID);
+  }
+
+  @Test
+  void readVectored_nullRelease_rejectsBeforeDelegation() throws IOException {
+    FormatOptimizer optimizer = mock(FormatOptimizer.class, CALLS_REAL_METHODS);
+    List<GcsObjectRange> ranges = List.of();
+    IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
+
+    assertThrows(NullPointerException.class, () -> optimizer.readVectored(ranges, allocate, null));
+
+    verify(optimizer, never()).readVectored(ranges, allocate);
+  }
+
+  @Test
+  void readVectored_withRelease_preservesLegacyRemainingRanges() throws IOException {
+    FormatOptimizer optimizer = mock(FormatOptimizer.class, CALLS_REAL_METHODS);
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(1)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+    List<GcsObjectRange> ranges = List.of(range);
+    List<GcsObjectRange> remaining = List.of();
+    IntFunction<ByteBuffer> allocate = ByteBuffer::allocate;
+    doReturn(remaining).when(optimizer).readVectored(ranges, allocate);
+
+    List<GcsObjectRange> result = optimizer.readVectored(ranges, allocate, buffer -> {});
+
+    assertThat(result).isSameInstanceAs(remaining);
+    verify(optimizer).readVectored(ranges, allocate);
   }
 
   @Test

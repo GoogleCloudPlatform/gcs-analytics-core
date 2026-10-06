@@ -18,16 +18,37 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.common.collect.ImmutableList;
 import java.nio.ByteBuffer;
 import java.util.Comparator;
+import java.util.function.Consumer;
 
-class VectoredIoUtil {
-  public static ImmutableList<GcsObjectRange> sortGcsObjectRanges(
-      ImmutableList<GcsObjectRange> ranges) {
+/** Utilities shared by vectored read implementations. */
+public final class VectoredIoUtil {
+  private VectoredIoUtil() {}
+
+  /**
+   * Releases an unpublished buffer, suppressing cleanup failures onto the original failure.
+   *
+   * @param buffer the allocated buffer still owned by the read implementation
+   * @param release the caller's release callback
+   * @param failure the original read failure
+   */
+  public static void releaseOnFailure(
+      ByteBuffer buffer, Consumer<ByteBuffer> release, Throwable failure) {
+    try {
+      release.accept(buffer);
+    } catch (Throwable releaseException) {
+      if (releaseException != failure) {
+        failure.addSuppressed(releaseException);
+      }
+    }
+  }
+
+  static ImmutableList<GcsObjectRange> sortGcsObjectRanges(ImmutableList<GcsObjectRange> ranges) {
     return ranges.stream()
         .sorted(Comparator.comparingLong(GcsObjectRange::getOffset))
         .collect(ImmutableList.toImmutableList());
   }
 
-  public static ImmutableList<GcsObjectCombinedRange> mergeGcsObjectRanges(
+  static ImmutableList<GcsObjectCombinedRange> mergeGcsObjectRanges(
       ImmutableList<GcsObjectRange> ranges, int maxMergeGap, int maxMergeSize) {
     if (ranges == null || ranges.isEmpty()) {
       return ImmutableList.of();
@@ -63,7 +84,7 @@ class VectoredIoUtil {
     return combinedRanges.build();
   }
 
-  public static ByteBuffer fetchUnderlyingRangeData(
+  static ByteBuffer fetchUnderlyingRangeData(
       ByteBuffer dataBuffer, GcsObjectCombinedRange combinedRange, GcsObjectRange underlyingRange) {
     int requestOffset = (int) (underlyingRange.getOffset() - combinedRange.getOffset());
     int requestLength = underlyingRange.getLength();
