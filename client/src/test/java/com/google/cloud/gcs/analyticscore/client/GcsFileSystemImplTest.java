@@ -36,14 +36,19 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.cloud.storage.StorageException;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.channels.WritableByteChannel;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -225,13 +230,34 @@ class GcsFileSystemImplTest {
   }
 
   @Test
+  void getFileInfo_objectWithMetadata_populatesAttributes() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    ImmutableMap<String, byte[]> metadata =
+        ImmutableMap.of("owner", "alice".getBytes(StandardCharsets.UTF_8));
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(10L)
+            .setExtendedAttributes(metadata)
+            .build();
+    when(mockClient.getGcsItemInfo(eq(itemId))).thenReturn(itemInfo);
+
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
+
+    assertThat(fileInfo.getAttributes()).isEqualTo(metadata);
+  }
+
+  @Test
   void getFileInfo_withNonExistentPath_shouldThrowException()
       throws URISyntaxException, IOException {
     GcsItemId nonExistentItemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("non-existent-object").build();
+    GcsItemId prefixId = nonExistentItemId.toDirectoryId();
     URI nonExistentPath = new URI("gs://" + TEST_BUCKET + "/non-existent-object");
     when(mockClient.getGcsItemInfo(eq(nonExistentItemId)))
         .thenThrow(GcsExceptionUtil.createFileNotFoundException(nonExistentItemId));
+    when(mockClient.listFirstObjectWithPrefix(eq(prefixId))).thenReturn(Optional.empty());
 
     FileNotFoundException e =
         assertThrows(FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentPath));
@@ -244,6 +270,52 @@ class GcsFileSystemImplTest {
                 + "/non-existent-object");
     assertThat(e.getCause()).isInstanceOf(StorageException.class);
     assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
+  }
+
+  @Test
+  void getFileInfo_nullUri_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> gcsFileSystem.getFileInfo((URI) null));
+    assertThat(e).hasMessageThat().contains("path should not be null");
+  }
+
+  @Test
+  void getFileInfo_uriWithoutBucket_throwsIllegalArgumentException() {
+    URI uriWithoutBucket = URI.create("gs:///path");
+    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.getFileInfo(uriWithoutBucket));
+  }
+
+  @Test
+  void getFileInfo_nullItemId_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> gcsFileSystem.getFileInfo((GcsItemId) null));
+    assertThat(e).hasMessageThat().contains("itemId should not be null");
+  }
+
+  @Test
+  void getFileInfo_whenPathTypeIsRoot_returnsRootInfo() throws IOException {
+    GcsItemId rootId = GcsItemId.ROOT;
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(rootId);
+    assertThat(fileInfo).isSameInstanceAs(GcsFileInfo.ROOT_INFO);
+    assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.ROOT);
+  }
+
+  @Test
+  void getFileInfo_whenPathTypeIsBucket_returnsBucketInfo() throws IOException {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    GcsItemInfo bucketItemInfo =
+        GcsItemInfo.builder()
+            .setItemId(bucketId)
+            .setSize(0L)
+            .setItemType(GcsItemInfo.ItemType.BUCKET)
+            .build();
+    when(mockClient.getBucketInfo(eq(bucketId))).thenReturn(bucketItemInfo);
+
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(bucketId);
+
+    assertThat(fileInfo).isNotNull();
+    assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
+    assertThat(fileInfo.getUri().toString()).isEqualTo("gs://" + TEST_BUCKET);
   }
 
   @Test
@@ -303,24 +375,177 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void getFileInfo_withNonExistentItemId_shouldThrowException() throws IOException {
-    GcsItemId nonExistentItemId =
-        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("non-existent-object").build();
-    when(mockClient.getGcsItemInfo(eq(nonExistentItemId)))
-        .thenThrow(GcsExceptionUtil.createFileNotFoundException(nonExistentItemId));
+  void getFileInfo_objectLookupThrowsIOException_propagatesIOException() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    when(mockClient.getGcsItemInfo(eq(itemId)))
+        .thenThrow(new IOException("GCS object lookup failure"));
+
+    IOException e = assertThrows(IOException.class, () -> gcsFileSystem.getFileInfo(itemId));
+
+    assertThat(e).hasMessageThat().contains("GCS object lookup failure");
+  }
+
+  @Test
+  void getFileInfo_whenDirectLookupNotFound_fallsThroughAndFindsImplicitDirectory()
+      throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data.parquet").build();
+    GcsItemId prefixId = itemId.toDirectoryId();
+    GcsItemInfo childItem =
+        GcsItemInfo.builder()
+            .setItemId(
+                GcsItemId.builder()
+                    .setBucketName(TEST_BUCKET)
+                    .setObjectName("data.parquet/part-0.parquet")
+                    .build())
+            .setSize(100L)
+            .build();
+    when(mockClient.getGcsItemInfo(eq(itemId)))
+        .thenThrow(GcsExceptionUtil.createFileNotFoundException(itemId));
+    when(mockClient.listFirstObjectWithPrefix(eq(prefixId))).thenReturn(Optional.of(childItem));
+
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
+
+    assertThat(fileInfo).isNotNull();
+    assertThat(fileInfo.getItemInfo().getItemType())
+        .isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
+    assertThat(fileInfo.getUri().toString()).isEqualTo("gs://" + TEST_BUCKET + "/data.parquet/");
+  }
+
+  @Test
+  void getFileInfo_whenDirectLookupNotFound_fallsThroughAndFindsPlaceholderDirectory()
+      throws IOException {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data").build();
+    GcsItemId prefixId = itemId.toDirectoryId();
+    GcsItemInfo placeholderItem =
+        GcsItemInfo.builder()
+            .setItemId(
+                GcsItemId.builder()
+                    .setBucketName(TEST_BUCKET)
+                    .setObjectName("data/")
+                    .setContentGeneration(123L)
+                    .build())
+            .setSize(0L)
+            .setContentGeneration(123L)
+            .setItemType(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY)
+            .build();
+    when(mockClient.getGcsItemInfo(eq(itemId)))
+        .thenThrow(GcsExceptionUtil.createFileNotFoundException(itemId));
+    when(mockClient.listFirstObjectWithPrefix(eq(prefixId)))
+        .thenReturn(Optional.of(placeholderItem));
+
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
+
+    assertThat(fileInfo.getItemInfo()).isSameInstanceAs(placeholderItem);
+    assertThat(fileInfo.getUri().toString()).isEqualTo("gs://" + TEST_BUCKET + "/data/");
+  }
+
+  @Test
+  void getFileInfo_whenDirectLookupNotFoundAndNotDirectory_throwsFileNotFoundException()
+      throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data.parquet").build();
+    GcsItemId prefixId = itemId.toDirectoryId();
+    when(mockClient.getGcsItemInfo(eq(itemId)))
+        .thenThrow(GcsExceptionUtil.createFileNotFoundException(itemId));
+    when(mockClient.listFirstObjectWithPrefix(eq(prefixId))).thenReturn(Optional.empty());
 
     FileNotFoundException e =
-        assertThrows(
-            FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(nonExistentItemId));
+        assertThrows(FileNotFoundException.class, () -> gcsFileSystem.getFileInfo(itemId));
 
     assertThat(e)
         .hasMessageThat()
         .contains(
             "Location does not exist or generation not found: gs://"
                 + TEST_BUCKET
-                + "/non-existent-object");
+                + "/data.parquet");
     assertThat(e.getCause()).isInstanceOf(StorageException.class);
     assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
+  }
+
+  @Test
+  void getFileInfo_whenPathTypeIsDirectory_callsStrategyGetDirectoryInfoDirectly()
+      throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data/").build();
+    GcsItemInfo childItem =
+        GcsItemInfo.builder()
+            .setItemId(
+                GcsItemId.builder()
+                    .setBucketName(TEST_BUCKET)
+                    .setObjectName("data/part-0.parquet")
+                    .build())
+            .setSize(100L)
+            .build();
+    when(mockClient.listFirstObjectWithPrefix(eq(itemId))).thenReturn(Optional.of(childItem));
+
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
+
+    assertThat(fileInfo).isNotNull();
+    assertThat(fileInfo.getItemInfo().getItemType())
+        .isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
+    verify(mockClient, never()).getGcsItemInfo(any(GcsItemId.class));
+  }
+
+  @Test
+  void getFileInfo_whenHnsDirectory_returnsNativeFolderInfo() throws IOException {
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("my-folder/").build();
+    GcsItemInfo folderInfo =
+        GcsItemInfo.builder()
+            .setItemId(folderId)
+            .setSize(0L)
+            .setItemType(GcsItemInfo.ItemType.NATIVE_FOLDER)
+            .build();
+    when(mockClient.isHnsBucket(TEST_BUCKET)).thenReturn(true);
+    when(mockClient.getFolderInfo(eq(folderId))).thenReturn(folderInfo);
+
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(folderId);
+
+    assertThat(fileInfo).isNotNull();
+    assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
+    assertThat(fileInfo.getUri().toString()).isEqualTo("gs://" + TEST_BUCKET + "/my-folder/");
+    verify(mockClient, never()).getGcsItemInfo(any(GcsItemId.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void getFromFuture_whenInterrupted_throwsIOExceptionAndRestoresInterrupt() throws Exception {
+    Future<String> mockFuture = mock(Future.class);
+    when(mockFuture.get()).thenThrow(new InterruptedException("interrupted"));
+
+    IOException e =
+        assertThrows(IOException.class, () -> GcsFileSystemImpl.getFromFuture(mockFuture));
+
+    assertThat(e).hasMessageThat().contains("Thread interrupted while waiting on future");
+    assertThat(Thread.interrupted()).isTrue();
+    verify(mockFuture).cancel(true);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void getFromFuture_whenExecutionExceptionWithRuntimeException_wrapsInIOException()
+      throws Exception {
+    Future<String> mockFuture = mock(Future.class);
+    when(mockFuture.get())
+        .thenThrow(new ExecutionException(new RuntimeException("runtime failure")));
+
+    IOException e =
+        assertThrows(IOException.class, () -> GcsFileSystemImpl.getFromFuture(mockFuture));
+
+    assertThat(e.getCause()).isInstanceOf(RuntimeException.class);
+    assertThat(e.getCause()).hasMessageThat().contains("runtime failure");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void getFromFuture_whenExecutionExceptionWithNullCause_wrapsInIOException() throws Exception {
+    Future<String> mockFuture = mock(Future.class);
+    when(mockFuture.get()).thenThrow(new ExecutionException(null));
+    IOException e =
+        assertThrows(IOException.class, () -> GcsFileSystemImpl.getFromFuture(mockFuture));
+    assertThat(e).isNotNull();
   }
 
   @Test

@@ -47,32 +47,22 @@ public interface GcsFileSystem extends AutoCloseable {
   VectoredSeekableByteChannel open(GcsItemId gcsItemId, GcsReadOptions options) throws IOException;
 
   /**
-   * Gets Metadata about the given path item.
+   * Gets metadata for the given path, which may be an object, a directory, a bucket or the root.
    *
-   * <p>This method supports GCS objects only, as it delegates to {@link
-   * GcsClient#getGcsItemInfo(GcsItemId)}. Buckets and folders must be queried through {@link
-   * GcsClient#getBucketInfo(GcsItemId)} and {@link GcsClient#getFolderInfo(GcsItemId)}.
-   *
-   * @param path The path we want Metadata about.
-   * @return Metadata about the given path item.
-   * @throws FileNotFoundException if {@code path} denotes an object that does not exist
-   * @throws IOException if the metadata cannot be fetched.
-   * @throws UnsupportedOperationException if {@code path} does not denote a GCS object
+   * @param path the {@code gs://} path to look up
+   * @return metadata for the item at {@code path}
+   * @throws FileNotFoundException if nothing exists at {@code path}
+   * @throws IOException if the metadata cannot be fetched
    */
   GcsFileInfo getFileInfo(URI path) throws IOException;
 
   /**
-   * Gets Metadata about the given gcs object represented by itemId.
+   * Gets metadata for the given item, which may be an object, a directory, a bucket or the root.
    *
-   * <p>This method supports GCS objects only, as it delegates to {@link
-   * GcsClient#getGcsItemInfo(GcsItemId)}. Buckets and folders must be queried through {@link
-   * GcsClient#getBucketInfo(GcsItemId)} and {@link GcsClient#getFolderInfo(GcsItemId)}.
-   *
-   * @param itemId The identity of the object we want Metadata about.
-   * @return Metadata about the given object.
-   * @throws FileNotFoundException if {@code itemId} denotes an object that does not exist
-   * @throws IOException if the metadata cannot be fetched.
-   * @throws UnsupportedOperationException if {@code itemId} does not denote a GCS object
+   * @param itemId the item to look up
+   * @return metadata for the item
+   * @throws FileNotFoundException if nothing exists at {@code itemId}
+   * @throws IOException if the metadata cannot be fetched
    */
   GcsFileInfo getFileInfo(GcsItemId itemId) throws IOException;
 

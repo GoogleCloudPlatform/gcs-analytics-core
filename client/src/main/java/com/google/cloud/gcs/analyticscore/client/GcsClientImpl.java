@@ -212,7 +212,7 @@ class GcsClientImpl implements GcsClient {
       }
     }
     if (bucketInfo == null) {
-      return GcsItemInfo.createNotFound(itemId);
+      throw GcsExceptionUtil.createFileNotFoundException(itemId);
     }
     return fromBucketInfo(bucketInfo);
   }
@@ -239,7 +239,7 @@ class GcsClientImpl implements GcsClient {
       Folder folder = lazyGetStorageControlClient().getFolder(request);
       return fromFolder(folder, itemId);
     } catch (NotFoundException e) {
-      return GcsItemInfo.createNotFound(itemId);
+      throw GcsExceptionUtil.createFileNotFoundException(itemId);
     } catch (Exception e) {
       throw new IOException("Failed to get folder info for: " + itemId, e);
     }
@@ -321,7 +321,9 @@ class GcsClientImpl implements GcsClient {
     Optional.ofNullable(blob.getContentEncoding()).ifPresent(infoBuilder::setContentEncoding);
     Optional.ofNullable(blob.getMetageneration()).ifPresent(infoBuilder::setMetaGeneration);
 
-    if (blob.isDirectory()) {
+    // A real 0-byte "dir/" object is not reported by Blob.isDirectory() (only delimiter prefixes
+    // are), so also treat any object name ending with '/' as a placeholder directory.
+    if (blob.isDirectory() || blob.getName().endsWith("/")) {
       infoBuilder.setItemType(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY);
     }
 
@@ -371,8 +373,8 @@ class GcsClientImpl implements GcsClient {
               bucketName,
               Storage.BucketGetOption.fields(Storage.BucketField.HIERARCHICAL_NAMESPACE));
       if (bucketInfo == null) {
-        LOG.warn("Bucket {} not found, HNS API will be disabled", bucketName);
-        return BucketProperties.create(false);
+        throw GcsExceptionUtil.createFileNotFoundException(
+            GcsItemId.builder().setBucketName(bucketName).build());
       }
       boolean hnsEnabled =
           Optional.ofNullable(bucketInfo.getHierarchicalNamespace())
@@ -380,6 +382,10 @@ class GcsClientImpl implements GcsClient {
               .orElse(false);
       return BucketProperties.create(hnsEnabled);
     } catch (StorageException storageException) {
+      if (storageException.getCode() == 404) {
+        throw GcsExceptionUtil.createFileNotFoundException(
+            GcsItemId.builder().setBucketName(bucketName).build());
+      }
       if (storageException.getCode() == 403) {
         LOG.warn("Access to bucket {} is forbidden (403), HNS API will be disabled", bucketName);
         return BucketProperties.create(false);

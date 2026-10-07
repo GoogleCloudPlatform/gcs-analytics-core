@@ -49,8 +49,7 @@ public interface GcsClient {
    * FileNotFoundException}, which aligns with standard Java I/O expectations.
    *
    * <p>Buckets and folders are queried via {@link #getBucketInfo(GcsItemId)} and {@link
-   * #getFolderInfo(GcsItemId)} respectively. Those methods report a missing item differently, by
-   * returning a not-found {@link GcsItemInfo} instead of throwing.
+   * #getFolderInfo(GcsItemId)} respectively.
    *
    * @param itemId the identity of the object to fetch metadata for
    * @return metadata for the given object
@@ -60,10 +59,20 @@ public interface GcsClient {
    */
   GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException;
 
-  /** Fetches bucket metadata. */
+  /**
+   * Fetches bucket metadata.
+   *
+   * @throws FileNotFoundException if {@code itemId} denotes a bucket that does not exist
+   * @throws IOException if the metadata cannot be fetched
+   */
   GcsItemInfo getBucketInfo(GcsItemId itemId) throws IOException;
 
-  /** Fetches folder metadata for HNS buckets. */
+  /**
+   * Fetches folder metadata for HNS buckets.
+   *
+   * @throws FileNotFoundException if {@code itemId} denotes a folder that does not exist
+   * @throws IOException if the metadata cannot be fetched
+   */
   GcsItemInfo getFolderInfo(GcsItemId itemId) throws IOException;
 
   /**

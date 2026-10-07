@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,23 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.google.cloud.gcs.analyticscore.client;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.io.IOException;
-
-final class HierarchicalNamespaceStrategyImpl implements NamespaceStrategy {
-  private final GcsClient gcsClient;
-
-  HierarchicalNamespaceStrategyImpl(GcsClient gcsClient) {
-    this.gcsClient = gcsClient;
-  }
-
-  @Override
-  public GcsItemInfo getDirectoryInfo(GcsItemId id) throws IOException {
-    checkNotNull(id, "Item ID must not be null.");
-    return gcsClient.getFolderInfo(id.toDirectoryId());
-  }
+/** Represents the structural type of a GCS path based on its components. */
+enum PathType {
+  FILE,
+  DIRECTORY,
+  BUCKET,
+  ROOT,
+  UNKNOWN
 }
