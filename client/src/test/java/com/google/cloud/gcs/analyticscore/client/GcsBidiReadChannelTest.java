@@ -342,11 +342,11 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testDummyReadStrategy_getSdkReadChannel_throwsUnsupported() {
+  void testDummyReadStrategy_getSdkReadChannel_returnsNull() {
     ReadStrategy strategy =
         reader.createReadStrategy(storage, itemId, GcsReadOptions.builder().build(), null);
 
-    assertThrows(UnsupportedOperationException.class, strategy::getSdkReadChannel);
+    assertThat(strategy.getSdkReadChannel()).isNull();
   }
 
   @Test
@@ -689,5 +689,28 @@ class GcsBidiReadChannelTest {
     int bytesRead = seekableReader.read(dst);
 
     assertThat(bytesRead).isEqualTo(-1);
+  }
+
+  @Test
+  void size_sessionNotFound_throwsFileNotFoundException() throws Exception {
+    reset(sessionFuture);
+    when(sessionFuture.get(anyLong(), any()))
+        .thenThrow(new ExecutionException(new StorageException(404, "Not found")));
+
+    assertThrows(FileNotFoundException.class, () -> reader.size());
+  }
+
+  @Test
+  void size_sessionFailsAndNoItemInfoSource_throwsIOExceptionWithSuppressedSessionFailure()
+      throws Exception {
+    reset(sessionFuture);
+    when(sessionFuture.get(anyLong(), any()))
+        .thenThrow(new ExecutionException(new StorageException(500, "Internal Server Error")));
+
+    IOException e = assertThrows(IOException.class, () -> reader.size());
+
+    assertThat(e).hasMessageThat().contains("ItemInfo is not initialized");
+    assertThat(e.getSuppressed()).hasLength(1);
+    assertThat(e.getSuppressed()[0]).hasMessageThat().contains("Failed to get BlobReadSession");
   }
 }
