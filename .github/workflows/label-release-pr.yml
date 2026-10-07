@@ -1,0 +1,37 @@
+name: Label Release Please PR for Kokoro
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+
+# Least privilege at the workflow level; the job declares write access below.
+permissions:
+  contents: read
+
+jobs:
+  label-release-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      startsWith(github.head_ref, 'release-please--') &&
+      !endsWith(github.event.pull_request.title, '-SNAPSHOT')
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Add kokoro:run label
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh label create "kokoro:run" --repo "$REPO" --color "ededed" --description "Triggers Kokoro presubmit tests" --force
+          gh pr edit "$PR_URL" --remove-label "kokoro:run" || true
+          gh pr edit "$PR_URL" --add-label "kokoro:run"
