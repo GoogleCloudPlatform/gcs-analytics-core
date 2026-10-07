@@ -57,6 +57,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntFunction;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 class GcsReadChannelTest {
@@ -1260,7 +1261,7 @@ class GcsReadChannelTest {
   }
 
   @Test
-  void size_withoutItemInfo_metadataExtractionFails_secondCallDoesNotRetry() throws IOException {
+  void size_withoutItemInfo_beforeAnyRead_doesNotConsumeExtractionAttempt() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
     Storage mockStorage = Mockito.mock(Storage.class);
@@ -1279,7 +1280,7 @@ class GcsReadChannelTest {
     assertThrows(IOException.class, gcsReadChannel::size);
     assertThrows(IOException.class, gcsReadChannel::size);
 
-    Mockito.verify(mockReadChannel, Mockito.times(1)).getStorageObject();
+    Mockito.verify(mockReadChannel, Mockito.times(2)).getStorageObject();
   }
 
   @Test
@@ -1338,6 +1339,473 @@ class GcsReadChannelTest {
     assertThat(getGcsObjectRangeData(ranges.get(1))).isEqualTo("world");
     assertThat(gcsReadChannel.getItemInfo()).isNull();
     Mockito.verify(mockReadChannel, Mockito.times(1)).getStorageObject();
+  }
+
+  @Test
+  void size_withoutPriorRead_doesNotIssueReadRequest_fallsBackToItemInfoProvider()
+      throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "hello world";
+    StorageObject storageObject =
+        new StorageObject().setSize(BigInteger.valueOf(objectData.length())).setGeneration(123L);
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReflectiveReadChannel mockReadChannel = Mockito.mock(ReflectiveReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    AtomicInteger readCount = new AtomicInteger(0);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              readCount.incrementAndGet();
+              ByteBuffer buf = invocation.getArgument(0);
+              if (!buf.hasRemaining()) {
+                return 0;
+              }
+              int bytesToRead = Math.min(buf.remaining(), objectData.length());
+              buf.put(objectData.substring(0, bytesToRead).getBytes(StandardCharsets.UTF_8));
+              return bytesToRead;
+            });
+    Mockito.when(mockReadChannel.getStorageObject())
+        .thenAnswer(invocation -> readCount.get() > 0 ? storageObject : null);
+    AtomicInteger providerCallCount = new AtomicInteger(0);
+    GcsReadChannel.ItemInfoProvider provider =
+        id -> {
+          providerCallCount.incrementAndGet();
+          return GcsItemInfo.builder().setItemId(id).setSize(4242).build();
+        };
+
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            mockStorage,
+            itemId,
+            TEST_GCS_READ_OPTIONS,
+            executorServiceSupplier,
+            telemetry,
+            provider);
+
+    assertThat(gcsReadChannel.size()).isEqualTo(4242);
+    assertThat(providerCallCount.get()).isEqualTo(1);
+    Mockito.verify(mockReadChannel, Mockito.never()).read(Mockito.any(ByteBuffer.class));
+    assertThat(gcsReadChannel.position()).isEqualTo(0);
+  }
+
+  @Test
+  void size_afterRead_reusesMetadataExtractedDuringRead_doesNotCallItemInfoProvider()
+      throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "hello world";
+    StorageObject storageObject =
+        new StorageObject().setSize(BigInteger.valueOf(objectData.length())).setGeneration(123L);
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReflectiveReadChannel mockReadChannel = Mockito.mock(ReflectiveReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buf = invocation.getArgument(0);
+              if (!buf.hasRemaining()) {
+                return 0;
+              }
+              int bytesToRead = Math.min(buf.remaining(), 5);
+              buf.put(objectData.substring(0, bytesToRead).getBytes(StandardCharsets.UTF_8));
+              return bytesToRead;
+            });
+    Mockito.when(mockReadChannel.getStorageObject()).thenReturn(storageObject);
+    AtomicInteger providerCallCount = new AtomicInteger(0);
+    GcsReadChannel.ItemInfoProvider provider =
+        id -> {
+          providerCallCount.incrementAndGet();
+          return GcsItemInfo.builder().setItemId(id).setSize(4242).build();
+        };
+
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            mockStorage,
+            itemId,
+            TEST_GCS_READ_OPTIONS,
+            executorServiceSupplier,
+            telemetry,
+            provider);
+    int bytesRead = gcsReadChannel.read(ByteBuffer.allocate(5));
+
+    assertThat(bytesRead).isEqualTo(5);
+    assertThat(gcsReadChannel.getItemInfo().getSize()).isEqualTo(objectData.length());
+    assertThat(gcsReadChannel.size()).isEqualTo(objectData.length());
+    assertThat(providerCallCount.get()).isEqualTo(0);
+    Mockito.verify(mockReadChannel, Mockito.times(1)).getStorageObject();
+  }
+
+  @Test
+  void size_metadataNotExposedByChannel_fallsBackToItemInfoProvider() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReflectiveReadChannel mockReadChannel = Mockito.mock(ReflectiveReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    Mockito.when(mockReadChannel.getStorageObject()).thenReturn(null);
+    AtomicInteger providerCallCount = new AtomicInteger(0);
+    GcsReadChannel.ItemInfoProvider provider =
+        id -> {
+          providerCallCount.incrementAndGet();
+          return GcsItemInfo.builder().setItemId(id).setSize(4242).build();
+        };
+
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            mockStorage,
+            itemId,
+            TEST_GCS_READ_OPTIONS,
+            executorServiceSupplier,
+            telemetry,
+            provider);
+
+    assertThat(gcsReadChannel.size()).isEqualTo(4242);
+    assertThat(gcsReadChannel.size()).isEqualTo(4242);
+    assertThat(providerCallCount.get()).isEqualTo(1);
+  }
+
+  @Test
+  void read_metadataNeverExposedByChannel_stopsAttemptingExtraction() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReflectiveReadChannel mockReadChannel = Mockito.mock(ReflectiveReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    Mockito.when(mockReadChannel.getStorageObject()).thenReturn(null);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buf = invocation.getArgument(0);
+              int bytesToRead = buf.remaining();
+              buf.position(buf.position() + bytesToRead);
+              return bytesToRead;
+            });
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            mockStorage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+
+    for (int i = 0; i < 20; i++) {
+      int unused = gcsReadChannel.read(ByteBuffer.allocate(4));
+    }
+
+    Mockito.verify(mockReadChannel, Mockito.times(1)).getStorageObject();
+  }
+
+  @Test
+  void size_beforeFirstReadWithoutProvider_doesNotConsumeExtractionAttempt() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "hello world";
+    StorageObject storageObject =
+        new StorageObject().setSize(BigInteger.valueOf(objectData.length())).setGeneration(123L);
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReflectiveReadChannel mockReadChannel = Mockito.mock(ReflectiveReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    AtomicInteger readCount = new AtomicInteger(0);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              readCount.incrementAndGet();
+              ByteBuffer buf = invocation.getArgument(0);
+              int bytesToRead = Math.min(buf.remaining(), 5);
+              buf.put(objectData.substring(0, bytesToRead).getBytes(StandardCharsets.UTF_8));
+              return bytesToRead;
+            });
+    Mockito.when(mockReadChannel.getStorageObject())
+        .thenAnswer(invocation -> readCount.get() > 0 ? storageObject : null);
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            mockStorage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+    assertThrows(IOException.class, gcsReadChannel::size);
+
+    int unused = gcsReadChannel.read(ByteBuffer.allocate(5));
+
+    assertThat(gcsReadChannel.size()).isEqualTo(objectData.length());
+  }
+
+  @Test
+  void read_objectNotFound_throwsFileNotFoundException() throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("missing").build();
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            notFoundStorage(), itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+
+    assertThrows(FileNotFoundException.class, () -> gcsReadChannel.read(ByteBuffer.allocate(5)));
+  }
+
+  @Test
+  void readVectored_objectNotFound_failsRangeWithFileNotFoundException() throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("missing").build();
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            notFoundStorage(), itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+    ImmutableList<GcsObjectRange> ranges = createRanges(ImmutableMap.of(0L, 5));
+
+    gcsReadChannel.readVectored(ranges, ByteBuffer::allocate);
+
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> ranges.get(0).getByteBufferFuture().get());
+    assertThat(e.getCause()).isInstanceOf(FileNotFoundException.class);
+  }
+
+  @Test
+  void read_sdkReadFailsWithNonNotFoundError_propagatesOriginalException() throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    StorageException failure = new StorageException(500, "Internal error");
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReflectiveReadChannel mockReadChannel = Mockito.mock(ReflectiveReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class))).thenThrow(failure);
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            mockStorage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+
+    StorageException thrown =
+        assertThrows(StorageException.class, () -> gcsReadChannel.read(ByteBuffer.allocate(5)));
+
+    assertThat(thrown).isSameInstanceAs(failure);
+  }
+
+  @Test
+  void read_strategyThrowsFileNotFound_propagatesSameException() throws Exception {
+    FileNotFoundException notFound = new FileNotFoundException("already translated");
+    ReadStrategy failingStrategy = Mockito.mock(ReadStrategy.class);
+    Mockito.when(failingStrategy.getReadChannel(Mockito.anyLong(), Mockito.anyInt()))
+        .thenThrow(notFound);
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            storage,
+            createItemInfoWith(100),
+            TEST_GCS_READ_OPTIONS,
+            executorServiceSupplier,
+            telemetry) {
+          @Override
+          protected ReadStrategy createReadStrategy(
+              Storage storage, GcsItemId itemId, GcsReadOptions readOptions, GcsItemInfo itemInfo) {
+            return failingStrategy;
+          }
+        };
+
+    FileNotFoundException thrown =
+        assertThrows(
+            FileNotFoundException.class, () -> gcsReadChannel.read(ByteBuffer.allocate(5)));
+
+    assertThat(thrown).isSameInstanceAs(notFound);
+  }
+
+  @Test
+  void read_randomPattern_afterMetadataExtraction_reopensSdkChannelWithPinnedGeneration()
+      throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    GcsReadOptions readOptions =
+        TEST_GCS_READ_OPTIONS.toBuilder().setFileAccessPattern(FileAccessPattern.RANDOM).build();
+    StorageObject storageObject =
+        new StorageObject().setSize(BigInteger.valueOf(1024 * 1024)).setGeneration(123L);
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReflectiveReadChannel mockReadChannel = Mockito.mock(ReflectiveReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buf = invocation.getArgument(0);
+              int bytesToRead = buf.remaining();
+              buf.position(buf.limit());
+              return bytesToRead;
+            });
+    Mockito.when(mockReadChannel.getStorageObject()).thenReturn(storageObject);
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(mockStorage, itemId, readOptions, executorServiceSupplier, telemetry);
+    gcsReadChannel.read(ByteBuffer.allocate(5));
+    gcsReadChannel.position(512 * 1024);
+
+    gcsReadChannel.read(ByteBuffer.allocate(5));
+
+    ArgumentCaptor<BlobId> blobIdCaptor = ArgumentCaptor.forClass(BlobId.class);
+    Mockito.verify(mockStorage, Mockito.times(2))
+        .reader(blobIdCaptor.capture(), Mockito.any(Storage.BlobSourceOption[].class));
+    assertThat(blobIdCaptor.getAllValues().get(0).getGeneration()).isNull();
+    assertThat(blobIdCaptor.getAllValues().get(1).getGeneration()).isEqualTo(123L);
+  }
+
+  @Test
+  void read_sdkStreamEndsBeforeExtractedSize_throwsIOException() throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            storageReturningFiveBytesThenEof(/* objectSize= */ 100),
+            itemId,
+            TEST_GCS_READ_OPTIONS,
+            executorServiceSupplier,
+            telemetry);
+
+    IOException e =
+        assertThrows(IOException.class, () -> gcsReadChannel.read(ByteBuffer.allocate(10)));
+
+    assertThat(e).hasMessageThat().contains("Received end of stream signal before all");
+  }
+
+  @Test
+  void read_sdkStreamEndsAtExtractedSize_returnsBytesReadSoFar() throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            storageReturningFiveBytesThenEof(/* objectSize= */ 5),
+            itemId,
+            TEST_GCS_READ_OPTIONS,
+            executorServiceSupplier,
+            telemetry);
+
+    int bytesRead = gcsReadChannel.read(ByteBuffer.allocate(10));
+
+    assertThat(bytesRead).isEqualTo(5);
+  }
+
+  @Test
+  void readVectored_childAlreadyCompleted_isNotOverwrittenWhenCombinedRangeFails()
+      throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    String objectData = "hello world";
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(objectData.length())
+            .setContentGeneration(0L)
+            .build();
+    StorageTestUtils.createBlobInStorage(
+        storage, BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+    GcsReadOptions readOptions =
+        TEST_GCS_READ_OPTIONS.toBuilder()
+            .setGcsVectoredReadOptions(GcsVectoredReadOptions.builder().setMaxMergeGap(10).build())
+            .build();
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+    ImmutableList<GcsObjectRange> ranges = createRanges(ImmutableMap.of(0L, 5, 6L, 5));
+    ByteBuffer alreadyCompleted = ByteBuffer.allocate(0);
+    ranges.get(0).getByteBufferFuture().complete(alreadyCompleted);
+
+    gcsReadChannel.readVectored(ranges, size -> null);
+
+    assertThrows(ExecutionException.class, () -> ranges.get(1).getByteBufferFuture().get());
+    assertThat(ranges.get(0).getByteBufferFuture().get()).isSameInstanceAs(alreadyCompleted);
+  }
+
+  @Test
+  void read_providerReturnsUnresolvedSize_doesNotPushItemInfoToStrategy() throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    StorageTestUtils.createBlobInStorage(
+        storage,
+        BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L),
+        "hello world");
+    GcsItemInfo unresolvedItemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(-1L).build();
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            storage,
+            itemId,
+            TEST_GCS_READ_OPTIONS,
+            executorServiceSupplier,
+            telemetry,
+            id -> unresolvedItemInfo);
+    long unused = gcsReadChannel.size();
+
+    int bytesRead = gcsReadChannel.read(ByteBuffer.allocate(5));
+
+    assertThat(bytesRead).isEqualTo(5);
+  }
+
+  @Test
+  void read_sdkStreamEndsWithoutKnownSize_returnsMinusOne() throws Exception {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class))).thenReturn(-1);
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            mockStorage, itemId, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+
+    int bytesRead = gcsReadChannel.read(ByteBuffer.allocate(5));
+
+    assertThat(bytesRead).isEqualTo(-1);
+  }
+
+  private static Storage storageReturningFiveBytesThenEof(long objectSize) throws IOException {
+    StorageObject storageObject =
+        new StorageObject().setSize(BigInteger.valueOf(objectSize)).setGeneration(123L);
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReflectiveReadChannel mockReadChannel = Mockito.mock(ReflectiveReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    Mockito.when(mockReadChannel.getStorageObject()).thenReturn(storageObject);
+    AtomicInteger readCount = new AtomicInteger(0);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              if (readCount.getAndIncrement() > 0) {
+                return -1;
+              }
+              ByteBuffer buf = invocation.getArgument(0);
+              buf.position(buf.position() + 5);
+              return 5;
+            });
+    return mockStorage;
+  }
+
+  private static Storage notFoundStorage() throws IOException {
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReflectiveReadChannel mockReadChannel = Mockito.mock(ReflectiveReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(
+                Mockito.any(BlobId.class), Mockito.any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class)))
+        .thenThrow(new StorageException(404, "Not Found"));
+    return mockStorage;
   }
 
   private String getGcsObjectRangeData(GcsObjectRange range)

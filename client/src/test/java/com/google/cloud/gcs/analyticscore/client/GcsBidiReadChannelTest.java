@@ -342,11 +342,11 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void testDummyReadStrategy_getSdkReadChannel_throwsUnsupported() {
+  void testDummyReadStrategy_getSdkReadChannel_returnsNull() {
     ReadStrategy strategy =
         reader.createReadStrategy(storage, itemId, GcsReadOptions.builder().build(), null);
 
-    assertThrows(UnsupportedOperationException.class, strategy::getSdkReadChannel);
+    assertThat(strategy.getSdkReadChannel()).isNull();
   }
 
   @Test
@@ -645,6 +645,43 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
+  void size_sessionBlobInfoWithoutGeneration_keepsPinnedGeneration() throws Exception {
+    GcsItemId pinnedItemId =
+        GcsItemId.builder()
+            .setBucketName(itemId.getBucketName())
+            .setObjectName(itemId.getObjectName().get())
+            .setContentGeneration(123L)
+            .build();
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(pinnedItemId).setSize(-1L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+    BlobInfo mockBlobInfo = mock(BlobInfo.class);
+    when(mockBlobInfo.getSize()).thenReturn(150L);
+    when(mockBlobInfo.getGeneration()).thenReturn(null);
+    when(blobReadSession.getBlobInfo()).thenReturn(mockBlobInfo);
+
+    long unused = seekableReader.size();
+
+    assertThat(seekableReader.getItemInfo().getItemId().getContentGeneration()).hasValue(123L);
+  }
+
+  @Test
+  void size_sessionBlobInfoWithoutSize_fallsBackToSuperSize() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+    BlobInfo mockBlobInfo = mock(BlobInfo.class);
+    when(mockBlobInfo.getSize()).thenReturn(null);
+    when(blobReadSession.getBlobInfo()).thenReturn(mockBlobInfo);
+
+    long resultSize = seekableReader.size();
+
+    assertThat(resultSize).isEqualTo(100L);
+  }
+
+  @Test
   void size_blobInfoReturnsNull_fallsBackToSuperSize() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
@@ -689,5 +726,59 @@ class GcsBidiReadChannelTest {
     int bytesRead = seekableReader.read(dst);
 
     assertThat(bytesRead).isEqualTo(-1);
+  }
+
+  @Test
+  void size_sessionNotFound_throwsFileNotFoundException() throws Exception {
+    reset(sessionFuture);
+    when(sessionFuture.get(anyLong(), any()))
+        .thenThrow(new ExecutionException(new StorageException(404, "Not found")));
+
+    assertThrows(FileNotFoundException.class, () -> reader.size());
+  }
+
+  @Test
+  void size_sessionFailsAndNoItemInfoSource_throwsIOExceptionWithSuppressedSessionFailure()
+      throws Exception {
+    reset(sessionFuture);
+    when(sessionFuture.get(anyLong(), any()))
+        .thenThrow(new ExecutionException(new StorageException(500, "Internal Server Error")));
+
+    IOException e = assertThrows(IOException.class, () -> reader.size());
+
+    assertThat(e).hasMessageThat().contains("ItemInfo is not initialized");
+    assertThat(e.getSuppressed()).hasLength(1);
+    assertThat(e.getSuppressed()[0]).hasMessageThat().contains("Failed to get BlobReadSession");
+  }
+
+  @Test
+  void size_sessionBlobInfoWithNegativeSize_fallsBackToSuperSize() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+    BlobInfo mockBlobInfo = mock(BlobInfo.class);
+    when(mockBlobInfo.getSize()).thenReturn(-1L);
+    when(blobReadSession.getBlobInfo()).thenReturn(mockBlobInfo);
+
+    long resultSize = seekableReader.size();
+
+    assertThat(resultSize).isEqualTo(100L);
+  }
+
+  @Test
+  void size_itemInfoAlreadyResolved_doesNotReplaceItemInfoWithSessionMetadata() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+    BlobInfo mockBlobInfo = mock(BlobInfo.class);
+    when(mockBlobInfo.getSize()).thenReturn(100L);
+    when(mockBlobInfo.getGeneration()).thenReturn(123L);
+    when(blobReadSession.getBlobInfo()).thenReturn(mockBlobInfo);
+
+    long unused = seekableReader.size();
+
+    assertThat(seekableReader.getItemInfo()).isSameInstanceAs(itemInfo);
   }
 }

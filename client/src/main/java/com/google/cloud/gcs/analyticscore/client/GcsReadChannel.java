@@ -29,6 +29,7 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.EOFException;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
@@ -58,6 +59,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private volatile boolean isGcsReadChannelOpen = true;
   private volatile boolean metadataExtractionAttempted = false;
   protected final ItemInfoProvider itemInfoProvider;
+  private GcsItemInfo itemInfoAppliedToStrategy;
 
   GcsReadChannel(
       Storage storage,
@@ -126,6 +128,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     this.telemetry = telemetry;
     this.itemInfoProvider = null;
     this.strategy = createReadStrategy(storage, itemId, readOptions, itemInfo);
+    this.itemInfoAppliedToStrategy = itemInfo;
   }
 
   protected ReadStrategy createReadStrategy(
@@ -153,9 +156,17 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   }
 
   private int readNextChunk(ByteBuffer dst) throws IOException {
-    ReadChannel sdkChannel = strategy.getReadChannel(gcsReadChannelPosition, dst.remaining());
-    int bytesRead = sdkChannel.read(dst);
+    syncStrategyItemInfo();
+    int bytesRead;
+    try {
+      ReadChannel sdkChannel = strategy.getReadChannel(gcsReadChannelPosition, dst.remaining());
+      bytesRead = sdkChannel.read(dst);
+    } catch (IOException | RuntimeException e) {
+      rethrowIfNotFound(e);
+      throw e;
+    }
     if (bytesRead >= 0) {
+      extractMetadataAfterRead(this.strategy, /* responseReceived= */ true);
       gcsReadChannelPosition += bytesRead;
       strategy.position(gcsReadChannelPosition);
       return bytesRead;
@@ -204,15 +215,15 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public long size() throws IOException {
-    if (itemInfo != null || extractMetadataAfterRead(this.strategy)) {
+    if (itemInfo != null
+        || extractMetadataAfterRead(this.strategy, /* responseReceived= */ false)) {
       return itemInfo.getSize();
     }
     if (itemInfoProvider == null) {
       throw new IOException("ItemInfo is not initialized and no ItemInfoProvider was provided.");
     }
 
-    itemInfo = itemInfoProvider.getItemInfo(itemId);
-    itemId = itemInfo.getItemId();
+    applyItemInfo(itemInfoProvider.getItemInfo(itemId));
     return itemInfo.getSize();
   }
 
@@ -293,7 +304,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             int numOfBytesRead = 0;
             while (dataBuffer.hasRemaining()) {
               int bytesRead = channel.read(dataBuffer);
-              extractMetadataAfterRead(readStrategy);
+              extractMetadataAfterRead(readStrategy, /* responseReceived= */ true);
               if (bytesRead < 0) {
                 // EOF reached.
                 break;
@@ -318,7 +329,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
                   combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer);
             }
           } catch (Exception e) {
-            completeWithException(combinedObjectRange, e);
+            completeWithException(combinedObjectRange, isNotFound(e) ? notFound(e) : e);
           }
           return null;
         });
@@ -348,17 +359,49 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   private void completeWithException(GcsObjectCombinedRange combinedObjectRange, Throwable e) {
     for (GcsObjectRange child : combinedObjectRange.getUnderlyingRanges()) {
-      if (!child.getByteBufferFuture().isDone()) {
-        child
-            .getByteBufferFuture()
-            .completeExceptionally(
-                new IOException(
-                    String.format(
-                        "Error while populating childRange: %s from combinedRange: %s",
-                        child, combinedObjectRange),
-                    e));
+      if (child.getByteBufferFuture().isDone()) {
+        continue;
       }
+      Throwable failure =
+          e instanceof FileNotFoundException
+              ? e
+              : new IOException(
+                  String.format(
+                      "Error while populating childRange: %s from combinedRange: %s",
+                      child, combinedObjectRange),
+                  e);
+      child.getByteBufferFuture().completeExceptionally(failure);
     }
+  }
+
+  private static boolean isNotFound(Exception e) {
+    if (e instanceof FileNotFoundException) {
+      return false;
+    }
+    return GcsExceptionUtil.getStorageException(e)
+        .map(se -> GcsExceptionUtil.getErrorType(se) == GcsExceptionUtil.ErrorType.NOT_FOUND)
+        .orElse(false);
+  }
+
+  private FileNotFoundException notFound(Exception cause) {
+    FileNotFoundException notFound = GcsExceptionUtil.createFileNotFoundException(itemId);
+    notFound.addSuppressed(cause);
+    return notFound;
+  }
+
+  private void rethrowIfNotFound(Exception e) throws FileNotFoundException {
+    if (isNotFound(e)) {
+      throw notFound(e);
+    }
+  }
+
+  private void syncStrategyItemInfo() {
+    GcsItemInfo current = itemInfo;
+    if (current == null || current == itemInfoAppliedToStrategy || current.getSize() < 0) {
+      return;
+    }
+    strategy.updateItemInfo(current);
+    itemInfoAppliedToStrategy = current;
   }
 
   private void validatePosition(long position) throws IOException {
@@ -369,7 +412,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
-  private boolean extractMetadataAfterRead(ReadStrategy strategy) {
+  private boolean extractMetadataAfterRead(ReadStrategy strategy, boolean responseReceived) {
     if (itemInfo != null || metadataExtractionAttempted) {
       return itemInfo != null;
     }
@@ -382,12 +425,14 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       if (metadata != null) {
         updateGcsItemMetadata(metadata);
       }
-      metadataExtractionAttempted = true;
+      if (responseReceived) {
+        metadataExtractionAttempted = true;
+      }
       return metadata != null;
     }
   }
 
-  private void updateGcsItemMetadata(ExtractedMetadata metadata) {
+  protected void updateGcsItemMetadata(ExtractedMetadata metadata) {
     long genToSet =
         metadata.getGeneration() >= 0
             ? metadata.getGeneration()
@@ -403,7 +448,11 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       itemInfoBuilder.setContentGeneration(genToSet);
     }
 
-    itemId = itemIdBuilder.build();
-    itemInfo = itemInfoBuilder.setItemId(itemId).build();
+    applyItemInfo(itemInfoBuilder.setItemId(itemIdBuilder.build()).build());
+  }
+
+  private void applyItemInfo(GcsItemInfo resolvedItemInfo) {
+    itemInfo = resolvedItemInfo;
+    itemId = resolvedItemInfo.getItemId();
   }
 }
