@@ -37,10 +37,13 @@ final class GcsReadChannelMetadataExtractor {
 
   private static final ImmutableList<String> METADATA_METHOD_NAMES =
       ImmutableList.of(
-          "getObject", "getResolvedObject", "getBlobInfo", "getBlob", "getStorageObject");
+          "getResolvedObject", "getObject", "getBlobInfo", "getBlob", "getStorageObject");
 
   private static final ImmutableList<String> METADATA_FIELD_NAMES =
-      ImmutableList.of("storageObject", "blobInfo", "object", "result");
+      ImmutableList.of("blobInfo", "storageObject", "object", "result");
+
+  private static final String SDK_CHANNEL_DECORATOR_SIMPLE_NAME = "OtelDecoratedReadChannel";
+  private static final String SDK_CHANNEL_DECORATOR_FIELD_NAME = "reader";
 
   private GcsReadChannelMetadataExtractor() {}
 
@@ -67,7 +70,7 @@ final class GcsReadChannelMetadataExtractor {
     if (sdkChannel == null) {
       return null;
     }
-    Object resolvedMetadata = resolveMetadataObject(sdkChannel);
+    Object resolvedMetadata = resolveMetadataObject(unwrapSdkDecorator(sdkChannel));
     if (resolvedMetadata == null) {
       return null;
     }
@@ -79,33 +82,66 @@ final class GcsReadChannelMetadataExtractor {
     return new ExtractedMetadata(extractedSize, extractedGeneration);
   }
 
+  private static Object unwrapSdkDecorator(Object channel) {
+    if (!SDK_CHANNEL_DECORATOR_SIMPLE_NAME.equals(channel.getClass().getSimpleName())) {
+      return channel;
+    }
+    Object delegate = readDeclaredField(channel, SDK_CHANNEL_DECORATOR_FIELD_NAME);
+    return delegate != null ? delegate : channel;
+  }
+
   @Nullable
-  private static Object resolveMetadataObject(ReadChannel sdkChannel) {
-    Class<?> clazz = sdkChannel.getClass();
-    while (clazz != null) {
+  private static Object readDeclaredField(Object target, String fieldName) {
+    try {
+      Field field = target.getClass().getDeclaredField(fieldName);
+      field.setAccessible(true);
+      return field.get(target);
+    } catch (ReflectiveOperationException | RuntimeException e) {
+      LOG.debug("Failed reading field {} on {}", fieldName, target.getClass().getName(), e);
+      return null;
+    }
+  }
+
+  private static boolean hasValidMetadata(@Nullable Object obj) {
+    if (obj == null) {
+      return false;
+    }
+    return extractLongProperty(obj, "getSize", "size") >= 0;
+  }
+
+  @Nullable
+  private static Object resolveMetadataObject(Object target) {
+    Class<?> clazz = target.getClass();
+
+    while (clazz != null && clazz != Object.class) {
       for (String methodName : METADATA_METHOD_NAMES) {
         try {
           Method method = clazz.getDeclaredMethod(methodName);
           method.setAccessible(true);
-          Object resolvedMetadata = resolveFutureIfNeeded(method.invoke(sdkChannel));
-          if (resolvedMetadata != null) {
+          Object raw = method.invoke(target);
+          Object resolvedMetadata = resolveFutureIfNeeded(raw);
+          if (hasValidMetadata(resolvedMetadata)) {
             return resolvedMetadata;
           }
-        } catch (ReflectiveOperationException | RuntimeException ignored) {
-          LOG.debug(
-              "Method {} not present or inaccessible on class {}", methodName, clazz.getName());
+        } catch (NoSuchMethodException ignored) {
+          // Expected: the candidate accessor does not exist on this class; try the next one.
+        } catch (ReflectiveOperationException | RuntimeException e) {
+          LOG.debug("Failed invoking method {} on {}", methodName, clazz.getName(), e);
         }
       }
       for (String fieldName : METADATA_FIELD_NAMES) {
         try {
           Field field = clazz.getDeclaredField(fieldName);
           field.setAccessible(true);
-          Object resolvedMetadata = resolveFutureIfNeeded(field.get(sdkChannel));
-          if (resolvedMetadata != null) {
+          Object raw = field.get(target);
+          Object resolvedMetadata = resolveFutureIfNeeded(raw);
+          if (hasValidMetadata(resolvedMetadata)) {
             return resolvedMetadata;
           }
-        } catch (ReflectiveOperationException | RuntimeException ignored) {
-          LOG.debug("Field {} not present or inaccessible on class {}", fieldName, clazz.getName());
+        } catch (NoSuchFieldException ignored) {
+          // Expected: the candidate field does not exist on this class; try the next one.
+        } catch (ReflectiveOperationException | RuntimeException e) {
+          LOG.debug("Failed reading field {} on {}", fieldName, clazz.getName(), e);
         }
       }
       clazz = clazz.getSuperclass();
@@ -116,6 +152,9 @@ final class GcsReadChannelMetadataExtractor {
   @Nullable
   private static Object resolveFutureIfNeeded(@Nullable Object obj)
       throws ReflectiveOperationException {
+    if (obj == null) {
+      return null;
+    }
     if (!(obj instanceof Future)) {
       return obj;
     }
@@ -125,10 +164,8 @@ final class GcsReadChannelMetadataExtractor {
     }
     try {
       return future.get();
-    } catch (CancellationException | ExecutionException ignored) {
-      // If the future failed or was cancelled, it is safe to fallback to null and attempt
-      // field-based metadata extraction instead.
-      LOG.debug("Future execution failed or was cancelled", ignored);
+    } catch (CancellationException | ExecutionException e) {
+      LOG.debug("Future execution failed or was cancelled", e);
       return null;
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -166,7 +203,7 @@ final class GcsReadChannelMetadataExtractor {
       if (value instanceof Number) {
         return ((Number) value).longValue();
       }
-    } catch (ReflectiveOperationException | RuntimeException ignored) {
+    } catch (ReflectiveOperationException | RuntimeException e) {
       LOG.debug(
           "Getter invocation failed or inaccessible for method {} on target {}",
           method.getName(),
