@@ -283,7 +283,17 @@ class GcsBidiReadChannel extends GcsReadChannel {
         BlobReadSession session = getBlobReadSession();
         BlobInfo blobInfo = (session != null) ? session.getBlobInfo() : null;
 
-        this.objectSize = blobInfo == null ? super.size() : blobInfo.getSize();
+        if (blobInfo == null || blobInfo.getSize() == null || blobInfo.getSize() < 0) {
+          this.objectSize = super.size();
+        } else {
+          this.objectSize = blobInfo.getSize();
+          if (itemInfo == null || itemInfo.getSize() < 0) {
+            Long generation = blobInfo.getGeneration();
+            updateGcsItemMetadata(
+                new GcsReadChannelMetadataExtractor.ExtractedMetadata(
+                    this.objectSize, generation != null ? generation : -1L));
+          }
+        }
       } catch (FileNotFoundException e) {
         throw e;
       } catch (IOException e) {

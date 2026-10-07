@@ -35,6 +35,20 @@ interface ReadStrategy {
   ReadChannel getSdkReadChannel();
 
   /**
+   * Updates the strategy with object metadata that was resolved after the strategy was created,
+   * typically from the first read response when the channel was opened without a {@link
+   * GcsItemInfo}.
+   *
+   * <p>Implementations should use the size to detect end-of-file and, when {@code itemInfo}'s item
+   * id carries a content generation, pin that generation for every SDK channel they open from then
+   * on so that all reads observe the same object version. {@code itemInfo} must have a non-negative
+   * size. The default implementation ignores the update.
+   *
+   * @param itemInfo the resolved item metadata
+   */
+  default void updateItemInfo(GcsItemInfo itemInfo) {}
+
+  /**
    * Updates the strategy's current read position.
    *
    * @param newPosition the new read position

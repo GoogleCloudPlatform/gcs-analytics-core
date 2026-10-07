@@ -59,6 +59,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private volatile boolean isGcsReadChannelOpen = true;
   private volatile boolean metadataExtractionAttempted = false;
   protected final ItemInfoProvider itemInfoProvider;
+  private GcsItemInfo itemInfoAppliedToStrategy;
 
   GcsReadChannel(
       Storage storage,
@@ -127,6 +128,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     this.telemetry = telemetry;
     this.itemInfoProvider = null;
     this.strategy = createReadStrategy(storage, itemId, readOptions, itemInfo);
+    this.itemInfoAppliedToStrategy = itemInfo;
   }
 
   protected ReadStrategy createReadStrategy(
@@ -154,6 +156,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   }
 
   private int readNextChunk(ByteBuffer dst) throws IOException {
+    syncStrategyItemInfo();
     int bytesRead;
     try {
       ReadChannel sdkChannel = strategy.getReadChannel(gcsReadChannelPosition, dst.remaining());
@@ -220,8 +223,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       throw new IOException("ItemInfo is not initialized and no ItemInfoProvider was provided.");
     }
 
-    itemInfo = itemInfoProvider.getItemInfo(itemId);
-    itemId = itemInfo.getItemId();
+    applyItemInfo(itemInfoProvider.getItemInfo(itemId));
     return itemInfo.getSize();
   }
 
@@ -393,6 +395,15 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
+  private void syncStrategyItemInfo() {
+    GcsItemInfo current = itemInfo;
+    if (current == null || current == itemInfoAppliedToStrategy || current.getSize() < 0) {
+      return;
+    }
+    strategy.updateItemInfo(current);
+    itemInfoAppliedToStrategy = current;
+  }
+
   private void validatePosition(long position) throws IOException {
     if (position < 0) {
       throw new EOFException(
@@ -421,7 +432,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
-  private void updateGcsItemMetadata(ExtractedMetadata metadata) {
+  protected void updateGcsItemMetadata(ExtractedMetadata metadata) {
     long genToSet =
         metadata.getGeneration() >= 0
             ? metadata.getGeneration()
@@ -437,7 +448,11 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       itemInfoBuilder.setContentGeneration(genToSet);
     }
 
-    itemId = itemIdBuilder.build();
-    itemInfo = itemInfoBuilder.setItemId(itemId).build();
+    applyItemInfo(itemInfoBuilder.setItemId(itemIdBuilder.build()).build());
+  }
+
+  private void applyItemInfo(GcsItemInfo resolvedItemInfo) {
+    itemInfo = resolvedItemInfo;
+    itemId = resolvedItemInfo.getItemId();
   }
 }
