@@ -373,8 +373,8 @@ class GcsClientImpl implements GcsClient {
               bucketName,
               Storage.BucketGetOption.fields(Storage.BucketField.HIERARCHICAL_NAMESPACE));
       if (bucketInfo == null) {
-        LOG.warn("Bucket {} not found, HNS API will be disabled", bucketName);
-        return BucketProperties.create(false);
+        throw GcsExceptionUtil.createFileNotFoundException(
+            GcsItemId.builder().setBucketName(bucketName).build());
       }
       boolean hnsEnabled =
           Optional.ofNullable(bucketInfo.getHierarchicalNamespace())
