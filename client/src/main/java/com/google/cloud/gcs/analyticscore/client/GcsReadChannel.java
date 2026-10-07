@@ -163,6 +163,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       throw e;
     }
     if (bytesRead >= 0) {
+      extractMetadataAfterRead(this.strategy, /* responseReceived= */ true);
       gcsReadChannelPosition += bytesRead;
       strategy.position(gcsReadChannelPosition);
       return bytesRead;
@@ -211,7 +212,8 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public long size() throws IOException {
-    if (itemInfo != null || extractMetadataAfterRead(this.strategy)) {
+    if (itemInfo != null
+        || extractMetadataAfterRead(this.strategy, /* responseReceived= */ false)) {
       return itemInfo.getSize();
     }
     if (itemInfoProvider == null) {
@@ -300,7 +302,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
             int numOfBytesRead = 0;
             while (dataBuffer.hasRemaining()) {
               int bytesRead = channel.read(dataBuffer);
-              extractMetadataAfterRead(readStrategy);
+              extractMetadataAfterRead(readStrategy, /* responseReceived= */ true);
               if (bytesRead < 0) {
                 // EOF reached.
                 break;
@@ -399,7 +401,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
-  private boolean extractMetadataAfterRead(ReadStrategy strategy) {
+  private boolean extractMetadataAfterRead(ReadStrategy strategy, boolean responseReceived) {
     if (itemInfo != null || metadataExtractionAttempted) {
       return itemInfo != null;
     }
@@ -412,7 +414,9 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       if (metadata != null) {
         updateGcsItemMetadata(metadata);
       }
-      metadataExtractionAttempted = true;
+      if (responseReceived) {
+        metadataExtractionAttempted = true;
+      }
       return metadata != null;
     }
   }
