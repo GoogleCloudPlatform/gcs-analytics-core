@@ -55,6 +55,23 @@ class ConfigurationUtilTest {
   }
 
   @Test
+  void safeParseLong_validString_returnsLong() {
+    long actual = ConfigurationUtil.safeParseLong("key", "1234567890123");
+
+    assertThat(actual).isEqualTo(1234567890123L);
+  }
+
+  @Test
+  void safeParseLong_invalidValue_throwsIllegalArgumentException() {
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> ConfigurationUtil.safeParseLong("my.key", "not-a-long"));
+
+    assertThat(exception).hasMessageThat().contains("Invalid long value for my.key: not-a-long");
+  }
+
+  @Test
   void getTrimmedValue_presentNonEmptyValue_returnsTrimmedValue() {
     Map<String, String> options = ImmutableMap.of("my.key", "  value  ");
 

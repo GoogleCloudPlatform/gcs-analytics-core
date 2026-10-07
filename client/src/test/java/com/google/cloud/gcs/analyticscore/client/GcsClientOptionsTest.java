@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -50,6 +51,7 @@ class GcsClientOptionsTest {
         .isEqualTo(GcsClientOptions.PartFileCleanupType.ALWAYS);
     assertThat(options.getPcuPartFileNamePrefix()).isEmpty();
     assertThat(options.getTemporaryPaths()).isEmpty();
+    assertThat(options.getMaxWaitTimeForEmptyObjectCreation()).isEqualTo(Duration.ofSeconds(3));
   }
 
   @Test
@@ -67,6 +69,7 @@ class GcsClientOptionsTest {
             .setPcuPartFileCleanupType(GcsClientOptions.PartFileCleanupType.ON_SUCCESS)
             .setPcuPartFileNamePrefix("temp-prefix-")
             .setTemporaryPaths(ImmutableList.of("/tmp/path1", "/tmp/path2"))
+            .setMaxWaitTimeForEmptyObjectCreation(Duration.ofMillis(1500))
             .build();
 
     assertThat(options.getProjectId()).hasValue("test-project");
@@ -82,6 +85,7 @@ class GcsClientOptionsTest {
         .isEqualTo(GcsClientOptions.PartFileCleanupType.ON_SUCCESS);
     assertThat(options.getPcuPartFileNamePrefix()).isEqualTo("temp-prefix-");
     assertThat(options.getTemporaryPaths()).containsExactly("/tmp/path1", "/tmp/path2").inOrder();
+    assertThat(options.getMaxWaitTimeForEmptyObjectCreation()).isEqualTo(Duration.ofMillis(1500));
   }
 
   @Test
@@ -99,6 +103,7 @@ class GcsClientOptionsTest {
             .put("gcs.channel.write.pcu.part-file.cleanup-type", "on_success")
             .put("gcs.channel.write.pcu.part-file.name-prefix", "temp-prefix-")
             .put("gcs.channel.write.temporary-paths", "/tmp/path1, /tmp/path2")
+            .put("gcs.max.wait.for.empty.object.creation-ms", "5000")
             .build();
 
     GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
@@ -116,6 +121,7 @@ class GcsClientOptionsTest {
         .isEqualTo(GcsClientOptions.PartFileCleanupType.ON_SUCCESS);
     assertThat(options.getPcuPartFileNamePrefix()).isEqualTo("temp-prefix-");
     assertThat(options.getTemporaryPaths()).containsExactly("/tmp/path1", "/tmp/path2").inOrder();
+    assertThat(options.getMaxWaitTimeForEmptyObjectCreation()).isEqualTo(Duration.ofMillis(5000));
   }
 
   @Test

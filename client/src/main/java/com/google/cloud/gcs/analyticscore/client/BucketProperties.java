@@ -19,14 +19,21 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.auto.value.AutoValue;
 
 /**
- * Describes GCS bucket metadata properties, such as whether Hierarchical Namespace (HNS) is
- * enabled. These properties influence query routing and optimization strategies.
+ * Describes GCS bucket metadata properties, such as whether Hierarchical Namespace (HNS) is enabled
+ * and whether it uses the RAPID storage class. These properties influence query routing and
+ * optimization strategies.
  */
 @AutoValue
 public abstract class BucketProperties {
   public abstract boolean isHnsEnabled();
 
+  public abstract boolean isRapid();
+
+  public static BucketProperties create(boolean hnsEnabled, boolean isRapid) {
+    return new AutoValue_BucketProperties(hnsEnabled, isRapid);
+  }
+
   public static BucketProperties create(boolean hnsEnabled) {
-    return new AutoValue_BucketProperties(hnsEnabled);
+    return create(hnsEnabled, /* isRapid= */ false);
   }
 }
