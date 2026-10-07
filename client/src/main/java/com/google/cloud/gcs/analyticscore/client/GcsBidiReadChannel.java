@@ -44,6 +44,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.IntFunction;
+import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -120,10 +121,14 @@ class GcsBidiReadChannel extends GcsReadChannel {
         return true;
       }
 
+      /**
+       * Bidi sessions have no SDK {@link ReadChannel}; metadata comes from {@link
+       * BlobReadSession#getBlobInfo()} in {@link #ensureMetadataInitialized()} instead.
+       */
       @Override
+      @Nullable
       public ReadChannel getSdkReadChannel() {
-        throw new UnsupportedOperationException(
-            "Standard read is not supported on Bidi channel yet.");
+        return null;
       }
 
       @Override
@@ -271,13 +276,34 @@ class GcsBidiReadChannel extends GcsReadChannel {
       return;
     }
     synchronized (this) {
+      if (metadataInitialized) {
+        return;
+      }
       try {
         BlobReadSession session = getBlobReadSession();
         BlobInfo blobInfo = (session != null) ? session.getBlobInfo() : null;
 
-        this.objectSize = blobInfo == null ? super.size() : blobInfo.getSize();
+        if (blobInfo == null || blobInfo.getSize() == null || blobInfo.getSize() < 0) {
+          this.objectSize = super.size();
+        } else {
+          this.objectSize = blobInfo.getSize();
+          if (itemInfo == null || itemInfo.getSize() < 0) {
+            Long generation = blobInfo.getGeneration();
+            updateGcsItemMetadata(
+                new GcsReadChannelMetadataExtractor.ExtractedMetadata(
+                    this.objectSize, generation != null ? generation : -1L));
+          }
+        }
+      } catch (FileNotFoundException e) {
+        throw e;
       } catch (IOException e) {
-        this.objectSize = super.size();
+        logger.debug("Falling back to item info lookup for {}", blobId, e);
+        try {
+          this.objectSize = super.size();
+        } catch (IOException fallbackFailure) {
+          fallbackFailure.addSuppressed(e);
+          throw fallbackFailure;
+        }
       }
       this.metadataInitialized = true;
     }

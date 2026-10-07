@@ -25,6 +25,7 @@ import com.google.cloud.gcs.analyticscore.core.channel.SmartReadChannel;
 import com.google.cloud.gcs.analyticscore.core.optimizer.GcsFooterOptimizer;
 import com.google.cloud.gcs.analyticscore.core.optimizer.SmallObjectOptimizer;
 import com.google.cloud.storage.BlobId;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import java.io.EOFException;
 import java.io.IOException;
@@ -44,12 +45,15 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   private final VectoredSeekableByteChannel channel;
   private long position;
   private final URI gcsPath;
-  private GcsItemId gcsItemId;
   private final ImmutableMap<String, String> commonAttributes;
 
   private volatile boolean closed;
 
-  private GcsFileInfo gcsFileInfo;
+  // Lazily resolved when the stream is opened from a bare GcsItemId. Volatile because readFully
+  // may run concurrently with read() per the PositionedReadable contract, and either may resolve
+  // (and the other observe) the metadata.
+  private volatile GcsItemId gcsItemId;
+  private volatile GcsFileInfo gcsFileInfo;
 
   public static GoogleCloudStorageInputStream create(
       GcsFileSystem gcsFileSystem, GcsFileInfo gcsFileInfo) throws IOException {
@@ -93,6 +97,48 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   @Override
   public long getPos() {
     return position;
+  }
+
+  @VisibleForTesting
+  long size() throws IOException {
+    checkNotClosed("Cannot get size: already closed");
+    if (gcsFileInfo != null) {
+      return gcsFileInfo.getItemInfo().getSize();
+    }
+    long size = channel.size();
+    adoptResolvedItemInfo(channel);
+    return size;
+  }
+
+  /**
+   * Adopts the item info that {@code source} resolved lazily (from a read response or a metadata
+   * lookup) so that later {@link #size()} calls and the channels opened by {@link #readFully} and
+   * {@link #readTail} reuse it instead of issuing another metadata request.
+   *
+   * <p>{@link #readFully} may run concurrently with {@link #read}, so the first resolution wins
+   * under the lock and {@link #gcsItemId}/{@link #gcsFileInfo} are written together; the volatile
+   * fast path on {@link #gcsFileInfo} keeps the steady state lock-free.
+   */
+  private void adoptResolvedItemInfo(VectoredSeekableByteChannel source) {
+    if (gcsFileInfo != null) {
+      return;
+    }
+    GcsItemInfo resolvedItemInfo = source.getItemInfo();
+    if (resolvedItemInfo == null || resolvedItemInfo.getSize() < 0) {
+      return;
+    }
+    synchronized (this) {
+      if (gcsFileInfo != null) {
+        return;
+      }
+      gcsItemId = resolvedItemInfo.getItemId();
+      gcsFileInfo =
+          GcsFileInfo.builder()
+              .setItemInfo(resolvedItemInfo)
+              .setUri(gcsPath)
+              .setAttributes(ImmutableMap.of())
+              .build();
+    }
   }
 
   @Override
@@ -144,6 +190,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
                   position);
 
               int bytesRead = channel.read(byteBuffer);
+              adoptResolvedItemInfo(channel);
               if (bytesRead > 0) {
                 position += bytesRead;
                 recorder.record(Metric.READ_BYTES, bytesRead, Collections.emptyMap());
@@ -202,6 +249,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
                   openReadChannel(gcsFileSystem, gcsItemId, gcsFileInfo)) {
                 byteChannel.position(position);
                 int numberOfBytesRead = byteChannel.read(ByteBuffer.wrap(buffer, offset, length));
+                adoptResolvedItemInfo(byteChannel);
                 if (numberOfBytesRead < length) {
                   throw new EOFException(
                       "Reached the end of stream with "
@@ -223,12 +271,9 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             Metric.READ_DURATION,
             commonAttributes,
             recorder -> {
-              if (gcsFileInfo == null) {
-                gcsFileInfo = gcsFileSystem.getFileInfo(gcsItemId);
-              }
+              long size = size();
               try (VectoredSeekableByteChannel byteChannel =
                   openReadChannel(gcsFileSystem, gcsItemId, gcsFileInfo)) {
-                long size = gcsFileInfo.getItemInfo().getSize();
                 long startPosition = Math.max(0, size - length);
                 byteChannel.position(startPosition);
                 int bytesRead = byteChannel.read(ByteBuffer.wrap(buffer, offset, length));

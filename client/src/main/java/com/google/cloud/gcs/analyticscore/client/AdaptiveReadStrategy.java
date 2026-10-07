@@ -68,6 +68,12 @@ class AdaptiveReadStrategy extends AbstractReadStrategy {
   }
 
   @Override
+  public void updateItemInfo(GcsItemInfo itemInfo) {
+    super.updateItemInfo(itemInfo);
+    currentStrategy.updateItemInfo(itemInfo);
+  }
+
+  @Override
   public long getLimit() {
     return currentStrategy.getLimit();
   }
