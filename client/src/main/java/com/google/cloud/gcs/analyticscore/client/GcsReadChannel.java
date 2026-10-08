@@ -159,7 +159,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       ReadChannel sdkChannel = strategy.getReadChannel(gcsReadChannelPosition, dst.remaining());
       bytesRead = sdkChannel.read(dst);
     } catch (IOException | RuntimeException e) {
-      rethrowIfNotFound(e);
+      rethrowAsFileNotFoundIf404(e);
       throw e;
     }
     if (bytesRead >= 0) {
@@ -325,7 +325,9 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
                   combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer);
             }
           } catch (Exception e) {
-            completeWithException(combinedObjectRange, isNotFound(e) ? notFound(e) : e);
+            completeWithException(
+                combinedObjectRange,
+                isNotFoundStorageException(e) ? createFileNotFoundException(e) : e);
           }
           return null;
         });
@@ -370,7 +372,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
-  private static boolean isNotFound(Exception e) {
+  private static boolean isNotFoundStorageException(Exception e) {
     if (e instanceof FileNotFoundException) {
       return false;
     }
@@ -379,15 +381,15 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
         .orElse(false);
   }
 
-  private FileNotFoundException notFound(Exception cause) {
+  private FileNotFoundException createFileNotFoundException(Exception cause) {
     FileNotFoundException notFound = GcsExceptionUtil.createFileNotFoundException(itemId);
     notFound.addSuppressed(cause);
     return notFound;
   }
 
-  private void rethrowIfNotFound(Exception e) throws FileNotFoundException {
-    if (isNotFound(e)) {
-      throw notFound(e);
+  private void rethrowAsFileNotFoundIf404(Exception e) throws FileNotFoundException {
+    if (isNotFoundStorageException(e)) {
+      throw createFileNotFoundException(e);
     }
   }
 
