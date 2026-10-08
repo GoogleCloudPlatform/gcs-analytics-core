@@ -324,6 +324,49 @@ class GcsReadChannelMetadataExtractorTest {
     assertThat(metadata.getGeneration()).isEqualTo(1000L);
   }
 
+  @Test
+  void extract_otelDecoratedChannel_unwrapsDelegateAndReturnsMetadata() {
+    BlobInfo blobInfo = Mockito.mock(BlobInfo.class);
+    Mockito.when(blobInfo.getSize()).thenReturn(300L);
+    Mockito.when(blobInfo.getGeneration()).thenReturn(400L);
+    ReflectiveBlobInfoChannel delegate = Mockito.mock(ReflectiveBlobInfoChannel.class);
+    Mockito.when(delegate.getBlobInfo()).thenReturn(blobInfo);
+    ReadChannel channel = new OtelDecoratedReadChannel(delegate);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNotNull();
+    assertThat(metadata.getSize()).isEqualTo(300L);
+    assertThat(metadata.getGeneration()).isEqualTo(400L);
+  }
+
+  @Test
+  void extract_otelDecoratedChannelWithoutReaderField_inspectsDecoratorItself() {
+    BlobInfo blobInfo = Mockito.mock(BlobInfo.class);
+    Mockito.when(blobInfo.getSize()).thenReturn(500L);
+    Mockito.when(blobInfo.getGeneration()).thenReturn(600L);
+    ReadChannel channel = new LegacySdk.OtelDecoratedReadChannel(blobInfo);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNotNull();
+    assertThat(metadata.getSize()).isEqualTo(500L);
+    assertThat(metadata.getGeneration()).isEqualTo(600L);
+  }
+
+  @Test
+  void extract_metadataAccessorThrows_returnsNull() {
+    ReflectiveBlobInfoChannel channel = Mockito.mock(ReflectiveBlobInfoChannel.class);
+    Mockito.when(channel.getBlobInfo()).thenThrow(new IllegalStateException("not ready"));
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNull();
+  }
+
   static class ThrowingModel {
     public long getSize() {
       throw new RuntimeException("size retrieval failed");
@@ -386,6 +429,56 @@ class GcsReadChannelMetadataExtractorTest {
     @Override
     public RestorableState<ReadChannel> capture() {
       return null;
+    }
+  }
+
+  abstract static class NoOpReadChannel implements ReadChannel {
+    @Override
+    public void close() {}
+
+    @Override
+    public boolean isOpen() {
+      return true;
+    }
+
+    @Override
+    public int read(ByteBuffer dst) {
+      return -1;
+    }
+
+    @Override
+    public void seek(long position) {}
+
+    @Override
+    public void setChunkSize(int chunkSize) {}
+
+    @Override
+    public RestorableState<ReadChannel> capture() {
+      return null;
+    }
+  }
+
+  /** Same simple name and {@code reader} field as the SDK's OpenTelemetry decorator. */
+  static class OtelDecoratedReadChannel extends NoOpReadChannel {
+    private final ReadChannel reader;
+
+    OtelDecoratedReadChannel(ReadChannel reader) {
+      this.reader = reader;
+    }
+  }
+
+  /** Holder for a same-named decorator that lacks the {@code reader} field. */
+  static class LegacySdk {
+    static class OtelDecoratedReadChannel extends NoOpReadChannel {
+      private final BlobInfo blobInfo;
+
+      OtelDecoratedReadChannel(BlobInfo blobInfo) {
+        this.blobInfo = blobInfo;
+      }
+
+      BlobInfo getBlobInfo() {
+        return blobInfo;
+      }
     }
   }
 
