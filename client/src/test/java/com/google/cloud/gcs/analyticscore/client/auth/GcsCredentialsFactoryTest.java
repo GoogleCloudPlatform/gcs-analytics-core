@@ -336,6 +336,77 @@ class GcsCredentialsFactoryTest {
   }
 
   @Test
+  void createCredentials_applicationDefaultUnavailable_throwsIOException() {
+    GcsAuthOptions options =
+        GcsAuthOptions.builder().setAuthType(AuthType.APPLICATION_DEFAULT).build();
+
+    try (MockedStatic<GoogleCredentials> mockedGoogleCredentials =
+        mockStatic(GoogleCredentials.class, withSettings().defaultAnswer(CALLS_REAL_METHODS))) {
+      mockedGoogleCredentials
+          .when(() -> GoogleCredentials.getApplicationDefault(tokenTransportFactory))
+          .thenThrow(new IOException("ADC not available"));
+
+      assertThrows(IOException.class, () -> createCredentials(options));
+    }
+  }
+
+  @Test
+  void createCredentials_authTypeUnsetAndAdcAvailable_returnsScopedApplicationDefaultCredentials()
+      throws IOException {
+    GcsAuthOptions options = GcsAuthOptions.builder().build();
+    GoogleCredentials baseCredentials =
+        ComputeEngineCredentials.newBuilder()
+            .setHttpTransportFactory(tokenTransportFactory)
+            .build();
+
+    try (MockedStatic<GoogleCredentials> mockedGoogleCredentials =
+        mockStatic(GoogleCredentials.class, withSettings().defaultAnswer(CALLS_REAL_METHODS))) {
+      mockedGoogleCredentials
+          .when(() -> GoogleCredentials.getApplicationDefault(tokenTransportFactory))
+          .thenReturn(baseCredentials);
+
+      Credentials credentials = createCredentials(options);
+
+      assertThat(((ComputeEngineCredentials) credentials).getScopes())
+          .containsExactly(CLOUD_PLATFORM_SCOPE);
+    }
+  }
+
+  @Test
+  void createCredentials_authTypeUnsetAndAdcUnavailable_fallsBackToNoCredentials()
+      throws IOException {
+    GcsAuthOptions options = GcsAuthOptions.builder().build();
+
+    try (MockedStatic<GoogleCredentials> mockedGoogleCredentials =
+        mockStatic(GoogleCredentials.class, withSettings().defaultAnswer(CALLS_REAL_METHODS))) {
+      mockedGoogleCredentials
+          .when(() -> GoogleCredentials.getApplicationDefault(tokenTransportFactory))
+          .thenThrow(new IOException("ADC not available"));
+
+      Credentials credentials = createCredentials(options);
+
+      assertThat(credentials).isSameInstanceAs(NoCredentials.getInstance());
+    }
+  }
+
+  @Test
+  void createCredentials_authTypeUnsetWithImpersonationAndAdcUnavailable_throwsIOException() {
+    GcsAuthOptions options =
+        GcsAuthOptions.builder()
+            .setImpersonationServiceAccount("target@test-project.iam.gserviceaccount.com")
+            .build();
+
+    try (MockedStatic<GoogleCredentials> mockedGoogleCredentials =
+        mockStatic(GoogleCredentials.class, withSettings().defaultAnswer(CALLS_REAL_METHODS))) {
+      mockedGoogleCredentials
+          .when(() -> GoogleCredentials.getApplicationDefault(tokenTransportFactory))
+          .thenThrow(new IOException("ADC not available"));
+
+      assertThrows(IOException.class, () -> createCredentials(options));
+    }
+  }
+
+  @Test
   void createCredentials_unauthenticatedWithTransportFactories_throwsVerifyException() {
     GcsAuthOptions options = GcsAuthOptions.builder().setAuthType(AuthType.UNAUTHENTICATED).build();
 

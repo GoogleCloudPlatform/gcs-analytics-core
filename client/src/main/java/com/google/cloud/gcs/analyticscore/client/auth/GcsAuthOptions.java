@@ -62,7 +62,18 @@ public abstract class GcsAuthOptions {
   private static final Duration DEFAULT_HTTP_CONNECT_TIMEOUT = Duration.ofSeconds(5);
   private static final Duration DEFAULT_HTTP_READ_TIMEOUT = Duration.ofSeconds(5);
 
-  public abstract AuthType getAuthType();
+  /**
+   * Returns the configured authentication type, or empty if not explicitly set (in which case
+   * Application Default Credentials are tried first with a fallback to unauthenticated access).
+   */
+  public abstract Optional<AuthType> getAuthType();
+
+  /**
+   * Returns the configured authentication type, or {@link AuthType#APPLICATION_DEFAULT} if unset.
+   */
+  AuthType effectiveAuthType() {
+    return getAuthType().orElse(AuthType.APPLICATION_DEFAULT);
+  }
 
   public abstract Optional<String> getServiceAccountJsonKeyfile();
 
@@ -92,7 +103,6 @@ public abstract class GcsAuthOptions {
 
   public static Builder builder() {
     return new AutoValue_GcsAuthOptions.Builder()
-        .setAuthType(AuthType.APPLICATION_DEFAULT)
         .setHttpConnectTimeout(DEFAULT_HTTP_CONNECT_TIMEOUT)
         .setHttpReadTimeout(DEFAULT_HTTP_READ_TIMEOUT);
   }
@@ -229,7 +239,7 @@ public abstract class GcsAuthOptions {
   @AutoValue.Builder
   public abstract static class Builder {
 
-    public abstract Builder setAuthType(AuthType authType);
+    public abstract Builder setAuthType(@Nullable AuthType authType);
 
     public abstract Builder setServiceAccountJsonKeyfile(
         @Nullable String serviceAccountJsonKeyfile);
@@ -308,37 +318,35 @@ public abstract class GcsAuthOptions {
     }
 
     private static void validateRequiredFields(GcsAuthOptions options, String prefix) {
-      switch (options.getAuthType()) {
+      AuthType authType = options.effectiveAuthType();
+      switch (authType) {
         case SERVICE_ACCOUNT_JSON_KEYFILE:
           checkRequiredField(
               options.getServiceAccountJsonKeyfile(),
               prefix + SERVICE_ACCOUNT_JSON_KEYFILE_KEY,
               prefix + AUTH_TYPE_KEY,
-              options.getAuthType());
+              authType);
           break;
         case WORKLOAD_IDENTITY_FEDERATION:
           checkRequiredField(
               options.getWorkloadIdentityCredentialConfigFile(),
               prefix + WORKLOAD_IDENTITY_CREDENTIAL_CONFIG_FILE_KEY,
               prefix + AUTH_TYPE_KEY,
-              options.getAuthType());
+              authType);
           break;
         case USER_CREDENTIALS:
           checkRequiredField(
-              options.getClientId(),
-              prefix + CLIENT_ID_KEY,
-              prefix + AUTH_TYPE_KEY,
-              options.getAuthType());
+              options.getClientId(), prefix + CLIENT_ID_KEY, prefix + AUTH_TYPE_KEY, authType);
           checkRequiredField(
               options.getClientSecret(),
               prefix + CLIENT_SECRET_KEY,
               prefix + AUTH_TYPE_KEY,
-              options.getAuthType());
+              authType);
           checkRequiredField(
               options.getRefreshToken(),
               prefix + REFRESH_TOKEN_KEY,
               prefix + AUTH_TYPE_KEY,
-              options.getAuthType());
+              authType);
           break;
         case UNAUTHENTICATED:
           checkArgument(
@@ -346,7 +354,7 @@ public abstract class GcsAuthOptions {
               "%s cannot be set when %s is %s",
               prefix + IMPERSONATION_SERVICE_ACCOUNT_KEY,
               prefix + AUTH_TYPE_KEY,
-              options.getAuthType());
+              authType);
           break;
           // Listed rather than defaulted, so that adding an auth type without deciding which keys
           // it requires is a compile-time failure instead of silently skipped validation.

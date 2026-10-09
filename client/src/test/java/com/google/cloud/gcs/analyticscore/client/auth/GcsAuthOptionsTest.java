@@ -41,7 +41,7 @@ class GcsAuthOptionsTest {
   void builder_defaults_areSetCorrectly() {
     GcsAuthOptions options = GcsAuthOptions.builder().build();
 
-    assertThat(options.getAuthType()).isEqualTo(AuthType.APPLICATION_DEFAULT);
+    assertThat(options.getAuthType()).isEmpty();
     assertThat(options.getHttpConnectTimeout()).isEqualTo(Duration.ofSeconds(5));
     assertThat(options.getHttpReadTimeout()).isEqualTo(Duration.ofSeconds(5));
     assertThat(options.getServiceAccountJsonKeyfile()).isEmpty();
@@ -75,7 +75,7 @@ class GcsAuthOptionsTest {
             .setHttpReadTimeout(Duration.ofSeconds(15))
             .build();
 
-    assertThat(options.getAuthType()).isEqualTo(AuthType.SERVICE_ACCOUNT_JSON_KEYFILE);
+    assertThat(options.getAuthType()).hasValue(AuthType.SERVICE_ACCOUNT_JSON_KEYFILE);
     assertThat(options.getServiceAccountJsonKeyfile()).hasValue("/path/to/key.json");
     assertThat(options.getWorkloadIdentityCredentialConfigFile()).hasValue("/path/to/wif.json");
     assertThat(options.getClientId()).hasValue("client-123");
@@ -103,9 +103,9 @@ class GcsAuthOptionsTest {
     GcsAuthOptions modified =
         original.toBuilder().setAuthType(AuthType.UNAUTHENTICATED).setProxyAddress(null).build();
 
-    assertThat(modified.getAuthType()).isEqualTo(AuthType.UNAUTHENTICATED);
+    assertThat(modified.getAuthType()).hasValue(AuthType.UNAUTHENTICATED);
     assertThat(modified.getProxyAddress()).isEmpty();
-    assertThat(original.getAuthType()).isEqualTo(AuthType.COMPUTE_ENGINE);
+    assertThat(original.getAuthType()).hasValue(AuthType.COMPUTE_ENGINE);
     assertThat(original.getProxyAddress()).hasValue("proxy:8080");
   }
 
@@ -159,7 +159,7 @@ class GcsAuthOptionsTest {
 
     GcsAuthOptions options = GcsAuthOptions.createFromOptions(map, "gcs.");
 
-    assertThat(options.getAuthType()).isEqualTo(AuthType.USER_CREDENTIALS);
+    assertThat(options.getAuthType()).hasValue(AuthType.USER_CREDENTIALS);
     assertThat(options.getServiceAccountJsonKeyfile()).hasValue("/path/to/key.json");
     assertThat(options.getWorkloadIdentityCredentialConfigFile()).hasValue("/path/to/wif.json");
     assertThat(options.getClientId()).hasValue("client-id");
@@ -181,7 +181,7 @@ class GcsAuthOptionsTest {
 
     GcsAuthOptions options = GcsAuthOptions.createFromOptions(map, "");
 
-    assertThat(options.getAuthType()).isEqualTo(AuthType.UNAUTHENTICATED);
+    assertThat(options.getAuthType()).hasValue(AuthType.UNAUTHENTICATED);
   }
 
   @Test
@@ -190,7 +190,21 @@ class GcsAuthOptionsTest {
 
     GcsAuthOptions options = GcsAuthOptions.createFromOptions(map, "gcs.");
 
-    assertThat(options.getAuthType()).isEqualTo(AuthType.APPLICATION_DEFAULT);
+    assertThat(options.getAuthType()).isEmpty();
+  }
+
+  @Test
+  void effectiveAuthType_whenUnset_returnsApplicationDefault() {
+    GcsAuthOptions options = GcsAuthOptions.builder().build();
+
+    assertThat(options.effectiveAuthType()).isEqualTo(AuthType.APPLICATION_DEFAULT);
+  }
+
+  @Test
+  void effectiveAuthType_whenSet_returnsConfiguredType() {
+    GcsAuthOptions options = GcsAuthOptions.builder().setAuthType(AuthType.UNAUTHENTICATED).build();
+
+    assertThat(options.effectiveAuthType()).isEqualTo(AuthType.UNAUTHENTICATED);
   }
 
   @Test
@@ -371,7 +385,7 @@ class GcsAuthOptionsTest {
   void build_computeEngineWithoutCredentialFields_succeeds() {
     GcsAuthOptions options = GcsAuthOptions.builder().setAuthType(AuthType.COMPUTE_ENGINE).build();
 
-    assertThat(options.getAuthType()).isEqualTo(AuthType.COMPUTE_ENGINE);
+    assertThat(options.getAuthType()).hasValue(AuthType.COMPUTE_ENGINE);
   }
 
   @Test
