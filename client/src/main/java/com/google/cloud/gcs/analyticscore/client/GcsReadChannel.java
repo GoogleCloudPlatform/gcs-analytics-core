@@ -29,6 +29,7 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.EOFException;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
@@ -153,8 +154,14 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   }
 
   private int readNextChunk(ByteBuffer dst) throws IOException {
-    ReadChannel sdkChannel = strategy.getReadChannel(gcsReadChannelPosition, dst.remaining());
-    int bytesRead = sdkChannel.read(dst);
+    int bytesRead;
+    try {
+      ReadChannel sdkChannel = strategy.getReadChannel(gcsReadChannelPosition, dst.remaining());
+      bytesRead = sdkChannel.read(dst);
+    } catch (IOException | RuntimeException e) {
+      rethrowAsFileNotFoundIf404(e);
+      throw e;
+    }
     if (bytesRead >= 0) {
       gcsReadChannelPosition += bytesRead;
       strategy.position(gcsReadChannelPosition);
@@ -318,7 +325,9 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
                   combinedObjectRange, underlyingRange, numOfBytesRead, dataBuffer);
             }
           } catch (Exception e) {
-            completeWithException(combinedObjectRange, e);
+            completeWithException(
+                combinedObjectRange,
+                isNotFoundStorageException(e) ? createFileNotFoundException(e) : e);
           }
           return null;
         });
@@ -348,16 +357,39 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   private void completeWithException(GcsObjectCombinedRange combinedObjectRange, Throwable e) {
     for (GcsObjectRange child : combinedObjectRange.getUnderlyingRanges()) {
-      if (!child.getByteBufferFuture().isDone()) {
-        child
-            .getByteBufferFuture()
-            .completeExceptionally(
-                new IOException(
-                    String.format(
-                        "Error while populating childRange: %s from combinedRange: %s",
-                        child, combinedObjectRange),
-                    e));
+      if (child.getByteBufferFuture().isDone()) {
+        continue;
       }
+      Throwable failure =
+          e instanceof FileNotFoundException
+              ? e
+              : new IOException(
+                  String.format(
+                      "Error while populating childRange: %s from combinedRange: %s",
+                      child, combinedObjectRange),
+                  e);
+      child.getByteBufferFuture().completeExceptionally(failure);
+    }
+  }
+
+  private static boolean isNotFoundStorageException(Exception e) {
+    if (e instanceof FileNotFoundException) {
+      return false;
+    }
+    return GcsExceptionUtil.getStorageException(e)
+        .map(se -> GcsExceptionUtil.getErrorType(se) == GcsExceptionUtil.ErrorType.NOT_FOUND)
+        .orElse(false);
+  }
+
+  private FileNotFoundException createFileNotFoundException(Exception cause) {
+    FileNotFoundException notFound = GcsExceptionUtil.createFileNotFoundException(itemId);
+    notFound.addSuppressed(cause);
+    return notFound;
+  }
+
+  private void rethrowAsFileNotFoundIf404(Exception e) throws FileNotFoundException {
+    if (isNotFoundStorageException(e)) {
+      throw createFileNotFoundException(e);
     }
   }
 
