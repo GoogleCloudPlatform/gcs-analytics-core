@@ -40,7 +40,7 @@ public class TestInputStreamInputFile implements InputFile {
     @Override
     public long getLength() throws IOException {
         if (size == null) {
-            size = gcsFileSystem.getFileInfo(fileUri).getItemInfo().getSize();
+            size = gcsFileSystem.getFileInfoObject(fileUri).getItemInfo().getSize();
         }
         return size;
     }

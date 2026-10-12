@@ -126,7 +126,7 @@ class GcsFileSystemImplIntegrationTest {
     @Test
     void open_publicObject_canReadContent() throws IOException {
         String gcsObject = PUBLIC_CSV_URI_STRING;
-        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(URI.create(gcsObject));
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfoObject(URI.create(gcsObject));
         GcsReadOptions readOptions = GcsReadOptions.builder().build();
 
         try (VectoredSeekableByteChannel channel = gcsFileSystem.open(fileInfo, readOptions)) {
@@ -387,7 +387,7 @@ class GcsFileSystemImplIntegrationTest {
             }
         }
 
-        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(ctx.uri);
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfoObject(ctx.uri);
         assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) content.length);
     }
 
@@ -442,7 +442,7 @@ class GcsFileSystemImplIntegrationTest {
             }
         }
 
-            GcsFileInfo fileInfo = pcuFileSystem.getFileInfo(ctx.uri);
+            GcsFileInfo fileInfo = pcuFileSystem.getFileInfoObject(ctx.uri);
         assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) content.length);
         }
     }
