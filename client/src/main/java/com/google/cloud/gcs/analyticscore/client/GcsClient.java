@@ -70,6 +70,9 @@ public interface GcsClient {
   /**
    * Fetches folder metadata for HNS buckets.
    *
+   * <p>{@code itemId} may name the folder with or without a trailing slash. The returned metadata
+   * always uses the directory form of the ID (ending in {@code /}).
+   *
    * @throws FileNotFoundException if {@code itemId} denotes a folder that does not exist
    * @throws IOException if the metadata cannot be fetched
    */

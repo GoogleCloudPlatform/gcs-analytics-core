@@ -185,6 +185,36 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
   @Override
   public GcsFileInfo getFileInfo(GcsItemId itemId) throws IOException {
+    return getFileInfoInternal(itemId, /* inferImplicitDirectories= */ true);
+  }
+
+  @Override
+  public GcsFileInfo getFileInfoObject(URI path) throws IOException {
+    checkNotNull(path, "path should not be null");
+    return getFileInfoObject(UriUtil.getItemIdFromString(path.toString()));
+  }
+
+  @Override
+  public GcsFileInfo getFileInfoObject(GcsItemId itemId) throws IOException {
+    checkNotNull(itemId, "itemId should not be null");
+    checkArgument(
+        itemId.isGcsObject() && itemId.resolvePathType() != PathType.DIRECTORY,
+        "Expected GCS object to be provided. But got: %s",
+        itemId);
+    return toGcsFileInfo(gcsClient.getGcsItemInfo(itemId));
+  }
+
+  /**
+   * Retrieves file or directory metadata for the given {@link GcsItemId}.
+   *
+   * @param itemId the item identifier
+   * @param inferImplicitDirectories if {@code false}, does not list prefix objects to infer
+   *     implicit directories and instead only checks for an explicit placeholder directory object
+   *     (needed for operations such as rename and delete)
+   */
+  @VisibleForTesting
+  GcsFileInfo getFileInfoInternal(GcsItemId itemId, boolean inferImplicitDirectories)
+      throws IOException {
     checkNotNull(itemId, "itemId should not be null");
     PathType pathType = itemId.resolvePathType();
 
@@ -196,30 +226,33 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       GcsItemInfo bucketInfo = gcsClient.getBucketInfo(itemId);
       return createBucketFileInfo(bucketInfo);
     }
-    if (pathType == PathType.DIRECTORY) {
-      // No object lookup to overlap with, so resolve the directory on the calling thread.
-      return toGcsFileInfo(resolveStrategy(itemId.getBucketName()).getDirectoryInfo(itemId));
-    }
-
     // Submit directory info in background
     ExecutorService statusExecutorService = statusExecutorServiceSupplier.get();
     Future<GcsItemInfo> directoryInfoFuture =
         statusExecutorService.submit(
             () -> {
+              if (!inferImplicitDirectories) {
+                // Do not list for implicit directories, just check for a directory placeholder
+                // object
+                return gcsClient.getGcsItemInfo(itemId.toDirectoryId());
+              }
               NamespaceStrategy strategy = resolveStrategy(itemId.getBucketName());
               return strategy.getDirectoryInfo(itemId);
             });
 
-    try {
-      GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(itemId);
-      directoryInfoFuture.cancel(true);
-      return toGcsFileInfo(itemInfo);
-    } catch (FileNotFoundException ignored) {
-      // Direct object not found; fall through to directory info
-      LOG.debug("Item '{}' not found directly, checking for directory existence.", itemId);
-    } catch (Exception e) {
-      directoryInfoFuture.cancel(true);
-      throw e;
+    // Perform direct object metadata lookup if not explicit directory
+    if (pathType != PathType.DIRECTORY) {
+      try {
+        GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(itemId);
+        directoryInfoFuture.cancel(true);
+        return toGcsFileInfo(itemInfo);
+      } catch (FileNotFoundException ignored) {
+        // Direct object not found; fall through to directory info
+        LOG.debug("Item '{}' not found directly, checking for directory existence.", itemId);
+      } catch (Exception e) {
+        directoryInfoFuture.cancel(true);
+        throw e;
+      }
     }
 
     // Await directory info and return (unwraps ExecutionException to FileNotFoundException /

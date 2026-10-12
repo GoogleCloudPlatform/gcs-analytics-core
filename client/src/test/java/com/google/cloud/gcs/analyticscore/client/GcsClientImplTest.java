@@ -31,6 +31,8 @@ import static org.mockito.Mockito.when;
 import com.google.api.core.ApiFuture;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.NotFoundException;
+import com.google.api.gax.rpc.PermissionDeniedException;
+import com.google.api.gax.rpc.UnauthenticatedException;
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.ReadChannel;
@@ -1210,6 +1212,28 @@ class GcsClientImplTest {
   }
 
   @Test
+  void getBucketInfo_storageThrows403_throwsAccessDeniedException() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.get(eq(TEST_BUCKET), any(Storage.BucketGetOption[].class)))
+        .thenThrow(new StorageException(403, "Forbidden"));
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    assertThrows(AccessDeniedException.class, () -> clientWithMock.getBucketInfo(bucketId));
+  }
+
+  @Test
+  void getBucketInfo_storageThrows401_throwsAccessDeniedException() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.get(eq(TEST_BUCKET), any(Storage.BucketGetOption[].class)))
+        .thenThrow(new StorageException(401, "Unauthorized"));
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    assertThrows(AccessDeniedException.class, () -> clientWithMock.getBucketInfo(bucketId));
+  }
+
+  @Test
   void getFolderInfo_nullItemId_throwsNullPointerException() {
     NullPointerException e =
         assertThrows(NullPointerException.class, () -> gcsClient.getFolderInfo(null));
@@ -1272,6 +1296,25 @@ class GcsClientImplTest {
         .isEqualTo(Instant.ofEpochSecond(1000, 500).toEpochMilli());
     assertThat(itemInfo.getModificationTime())
         .isEqualTo(Instant.ofEpochSecond(2000, 500).toEpochMilli());
+  }
+
+  @Test
+  void getFolderInfo_idWithoutTrailingSlash_returnsDirectoryItemId() throws IOException {
+    GcsItemId folderItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_FOLDER_NAME).build();
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.getFolder(any(GetFolderRequest.class)))
+        .thenReturn(createMockFolder(TEST_BUCKET, TEST_FOLDER_NAME));
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    GcsItemInfo itemInfo = clientWithMockControl.getFolderInfo(folderItemId);
+
+    assertThat(itemInfo.getItemId())
+        .isEqualTo(
+            GcsItemId.builder()
+                .setBucketName(TEST_BUCKET)
+                .setObjectName(TEST_FOLDER_NAME + "/")
+                .build());
   }
 
   @Test
@@ -1469,6 +1512,28 @@ class GcsClientImplTest {
   }
 
   @Test
+  void getFolderInfo_permissionDenied_throwsAccessDeniedException() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.getFolder(any(GetFolderRequest.class)))
+        .thenThrow(mock(PermissionDeniedException.class));
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    assertThrows(
+        AccessDeniedException.class, () -> clientWithMockControl.getFolderInfo(TEST_ITEM_ID));
+  }
+
+  @Test
+  void getFolderInfo_unauthenticated_throwsAccessDeniedException() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.getFolder(any(GetFolderRequest.class)))
+        .thenThrow(mock(UnauthenticatedException.class));
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    assertThrows(
+        AccessDeniedException.class, () -> clientWithMockControl.getFolderInfo(TEST_ITEM_ID));
+  }
+
+  @Test
   void getFolderInfo_otherRpcException_throwsIOException() throws IOException {
     StorageControlClient mockControlClient = mock(StorageControlClient.class);
     when(mockControlClient.getFolder(any(GetFolderRequest.class)))
@@ -1546,6 +1611,22 @@ class GcsClientImplTest {
   }
 
   @Test
+  void listFirstObjectWithPrefix_storageThrows404_keepsStorageExceptionAsCause() {
+    Storage mockStorage = mock(Storage.class);
+    StorageException notFound = new StorageException(404, "The specified bucket does not exist.");
+    when(mockStorage.list(eq(TEST_BUCKET), any(Storage.BlobListOption[].class)))
+        .thenThrow(notFound);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> clientWithMock.listFirstObjectWithPrefix(TEST_ITEM_ID));
+
+    assertThat(e).hasCauseThat().isSameInstanceAs(notFound);
+  }
+
+  @Test
   void listFirstObjectWithPrefix_storageThrows500_throwsIOException() {
     Storage mockStorage = mock(Storage.class);
     when(mockStorage.list(eq(TEST_BUCKET), any(Storage.BlobListOption[].class)))
@@ -1559,6 +1640,17 @@ class GcsClientImplTest {
     assertThat(e)
         .hasMessageThat()
         .contains("Failed to list the first object for prefix: " + TEST_ITEM_ID);
+  }
+
+  @Test
+  void listFirstObjectWithPrefix_storageThrows403_throwsAccessDeniedException() {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.list(eq(TEST_BUCKET), any(Storage.BlobListOption[].class)))
+        .thenThrow(new StorageException(403, "Forbidden"));
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    assertThrows(
+        AccessDeniedException.class, () -> clientWithMock.listFirstObjectWithPrefix(TEST_ITEM_ID));
   }
 
   private static Blob createMockBlob(String bucket, String name) {

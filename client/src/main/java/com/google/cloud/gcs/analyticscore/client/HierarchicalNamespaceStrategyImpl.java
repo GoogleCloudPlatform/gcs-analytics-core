@@ -30,6 +30,8 @@ final class HierarchicalNamespaceStrategyImpl implements NamespaceStrategy {
   @Override
   public GcsItemInfo getDirectoryInfo(GcsItemId id) throws IOException {
     checkNotNull(id, "Item ID must not be null.");
-    return gcsClient.getFolderInfo(id.toDirectoryId());
+    // Pass the ID as given: getFolderInfo accepts it with or without a trailing slash, so a
+    // not-found error names the path the caller asked for, as in FlatNamespaceStrategyImpl.
+    return gcsClient.getFolderInfo(id);
   }
 }

@@ -58,7 +58,7 @@ class HierarchicalNamespaceStrategyImplTest {
             .setSize(0L)
             .setItemType(GcsItemInfo.ItemType.NATIVE_FOLDER)
             .build();
-    when(mockClient.getFolderInfo(eq(folderDirId))).thenReturn(folderInfo);
+    when(mockClient.getFolderInfo(eq(folderId))).thenReturn(folderInfo);
 
     GcsItemInfo result = strategy.getDirectoryInfo(folderId);
 
@@ -69,29 +69,27 @@ class HierarchicalNamespaceStrategyImplTest {
   void getDirectoryInfo_folderNotFound_throwsFileNotFoundException() throws IOException {
     GcsItemId folderId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_FOLDER).build();
-    GcsItemId folderDirId = folderId.toDirectoryId();
-    when(mockClient.getFolderInfo(eq(folderDirId)))
-        .thenThrow(GcsExceptionUtil.createFileNotFoundException(folderDirId));
+    when(mockClient.getFolderInfo(eq(folderId)))
+        .thenThrow(GcsExceptionUtil.createFileNotFoundException(folderId));
 
     FileNotFoundException e =
         assertThrows(FileNotFoundException.class, () -> strategy.getDirectoryInfo(folderId));
 
     assertThat(e)
         .hasMessageThat()
-        .contains(
+        .isEqualTo(
             "Location does not exist or generation not found: gs://"
                 + TEST_BUCKET
                 + "/"
-                + TEST_FOLDER
-                + "/");
-    verify(mockClient).getFolderInfo(folderDirId);
+                + TEST_FOLDER);
+    verify(mockClient).getFolderInfo(folderId);
   }
 
   @Test
   void getDirectoryInfo_getFolderInfoThrowsIOException_throwsIOException() throws IOException {
     GcsItemId folderId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_FOLDER).build();
-    when(mockClient.getFolderInfo(eq(folderId.toDirectoryId())))
+    when(mockClient.getFolderInfo(eq(folderId)))
         .thenThrow(new IOException("GCS folder lookup failure"));
 
     IOException e = assertThrows(IOException.class, () -> strategy.getDirectoryInfo(folderId));

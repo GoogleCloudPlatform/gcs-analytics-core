@@ -66,6 +66,38 @@ public interface GcsFileSystem extends AutoCloseable {
    */
   GcsFileInfo getFileInfo(GcsItemId itemId) throws IOException;
 
+  /**
+   * Gets metadata for the object at the given path, without checking for a directory there.
+   *
+   * <p>Unlike {@link #getFileInfo(URI)}, this sends a single object metadata request and never
+   * infers a directory. Use it when only an object is acceptable, for example before opening a file
+   * for reading.
+   *
+   * @param path the {@code gs://} path of the object to look up
+   * @return metadata for the object at {@code path}
+   * @throws IllegalArgumentException if {@code path} is the root, a bucket or a directory path
+   *     (ending in {@code /})
+   * @throws FileNotFoundException if no object exists at {@code path}
+   * @throws IOException if the metadata cannot be fetched
+   */
+  GcsFileInfo getFileInfoObject(URI path) throws IOException;
+
+  /**
+   * Gets metadata for the given object, without checking for a directory at its path.
+   *
+   * <p>Unlike {@link #getFileInfo(GcsItemId)}, this sends a single object metadata request and
+   * never infers a directory. Use it when only an object is acceptable, for example before opening
+   * a file for reading.
+   *
+   * @param itemId the object to look up
+   * @return metadata for the object
+   * @throws IllegalArgumentException if {@code itemId} is the root, a bucket or a directory (its
+   *     object name ends in {@code /})
+   * @throws FileNotFoundException if no object exists at {@code itemId}
+   * @throws IOException if the metadata cannot be fetched
+   */
+  GcsFileInfo getFileInfoObject(GcsItemId itemId) throws IOException;
+
   /** Retrieve the options that were used to create this GcsFileSystem. */
   GcsFileSystemOptions getFileSystemOptions();
 

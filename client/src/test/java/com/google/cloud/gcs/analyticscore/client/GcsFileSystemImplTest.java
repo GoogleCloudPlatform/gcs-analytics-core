@@ -293,6 +293,103 @@ class GcsFileSystemImplTest {
   }
 
   @Test
+  void getFileInfoObject_existingObject_returnsObjectInfo() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(10L).build();
+    when(mockClient.getGcsItemInfo(eq(itemId))).thenReturn(itemInfo);
+
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfoObject(itemId);
+
+    assertThat(fileInfo.getItemInfo()).isSameInstanceAs(itemInfo);
+  }
+
+  @Test
+  void getFileInfoObject_existingObject_sendsOnlyObjectLookup() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    when(mockClient.getGcsItemInfo(eq(itemId)))
+        .thenReturn(GcsItemInfo.builder().setItemId(itemId).setSize(10L).build());
+
+    gcsFileSystem.getFileInfoObject(itemId);
+
+    verify(mockClient).getGcsItemInfo(itemId);
+    verifyNoMoreInteractions(mockClient);
+  }
+
+  @Test
+  void getFileInfoObject_missingObject_throwsFileNotFoundException() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("missing-object").build();
+    when(mockClient.getGcsItemInfo(eq(itemId)))
+        .thenThrow(GcsExceptionUtil.createFileNotFoundException(itemId));
+
+    assertThrows(FileNotFoundException.class, () -> gcsFileSystem.getFileInfoObject(itemId));
+  }
+
+  @Test
+  void getFileInfoObject_missingObject_doesNotLookUpDirectory() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("test-dir").build();
+    when(mockClient.getGcsItemInfo(eq(itemId)))
+        .thenThrow(GcsExceptionUtil.createFileNotFoundException(itemId));
+
+    assertThrows(FileNotFoundException.class, () -> gcsFileSystem.getFileInfoObject(itemId));
+
+    verify(mockClient).getGcsItemInfo(itemId);
+    verifyNoMoreInteractions(mockClient);
+  }
+
+  @Test
+  void getFileInfoObject_directoryPath_throwsIllegalArgumentException() {
+    GcsItemId dirId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("test-dir/").build();
+
+    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.getFileInfoObject(dirId));
+  }
+
+  @Test
+  void getFileInfoObject_bucket_throwsIllegalArgumentException() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+
+    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.getFileInfoObject(bucketId));
+  }
+
+  @Test
+  void getFileInfoObject_root_throwsIllegalArgumentException() {
+    assertThrows(
+        IllegalArgumentException.class, () -> gcsFileSystem.getFileInfoObject(GcsItemId.ROOT));
+  }
+
+  @Test
+  void getFileInfoObject_withUri_returnsObjectInfo() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(10L).build();
+    when(mockClient.getGcsItemInfo(eq(itemId))).thenReturn(itemInfo);
+
+    GcsFileInfo fileInfo =
+        gcsFileSystem.getFileInfoObject(URI.create("gs://" + TEST_BUCKET + "/" + TEST_OBJECT));
+
+    assertThat(fileInfo.getItemInfo()).isSameInstanceAs(itemInfo);
+  }
+
+  @Test
+  void getFileInfoObject_nullUri_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> gcsFileSystem.getFileInfoObject((URI) null));
+    assertThat(e).hasMessageThat().contains("path should not be null");
+  }
+
+  @Test
+  void getFileInfoObject_nullItemId_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class, () -> gcsFileSystem.getFileInfoObject((GcsItemId) null));
+    assertThat(e).hasMessageThat().contains("itemId should not be null");
+  }
+
+  @Test
   void getFileInfo_whenPathTypeIsRoot_returnsRootInfo() throws IOException {
     GcsItemId rootId = GcsItemId.ROOT;
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(rootId);

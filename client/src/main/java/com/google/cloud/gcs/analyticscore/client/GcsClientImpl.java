@@ -22,6 +22,8 @@ import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.api.gax.rpc.NotFoundException;
+import com.google.api.gax.rpc.PermissionDeniedException;
+import com.google.api.gax.rpc.UnauthenticatedException;
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.client.GcsClientOptions.Protocol;
 import com.google.cloud.gcs.analyticscore.client.GcsReadChannel.ItemInfoProvider;
@@ -50,7 +52,6 @@ import com.google.storage.control.v2.FolderName;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
 import com.google.storage.control.v2.StorageControlSettings;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
 import java.time.Instant;
@@ -207,6 +208,9 @@ class GcsClientImpl implements GcsClient {
     } catch (StorageException e) {
       if (e.getCode() == 404) {
         bucketInfo = null;
+      } else if (GcsExceptionUtil.getErrorType(e) == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
+        throw GcsExceptionUtil.createAccessDeniedException(
+            UriUtil.getStringPath(itemId), "bucket lookup", e);
       } else {
         throw new IOException("Unable to access bucket: " + itemId.getBucketName(), e);
       }
@@ -237,9 +241,14 @@ class GcsClientImpl implements GcsClient {
             .build();
     try {
       Folder folder = lazyGetStorageControlClient().getFolder(request);
-      return fromFolder(folder, itemId);
+      // itemId may come with or without a trailing slash; always return the directory form.
+      // A not-found error below names itemId as the caller gave it.
+      return fromFolder(folder, itemId.toDirectoryId());
     } catch (NotFoundException e) {
       throw GcsExceptionUtil.createFileNotFoundException(itemId);
+    } catch (PermissionDeniedException | UnauthenticatedException e) {
+      throw GcsExceptionUtil.createAccessDeniedException(
+          UriUtil.getStringPath(itemId), "folder lookup", e);
     } catch (Exception e) {
       throw new IOException("Failed to get folder info for: " + itemId, e);
     }
@@ -289,8 +298,14 @@ class GcsClientImpl implements GcsClient {
       Blob blob = Iterables.getFirst(page.getValues(), null);
       return Optional.ofNullable(blob).map(b -> fromBlob(b));
     } catch (StorageException e) {
+      // list() returns an empty page when the prefix does not exist, so GCS returns 404 here only
+      // when the bucket itself does not exist.
       if (e.getCode() == 404) {
-        throw new FileNotFoundException("Bucket not found: " + prefixId.getBucketName());
+        throw GcsExceptionUtil.createBucketNotFoundException(prefixId.getBucketName(), e);
+      }
+      if (GcsExceptionUtil.getErrorType(e) == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
+        throw GcsExceptionUtil.createAccessDeniedException(
+            UriUtil.getStringPath(prefixId), "list", e);
       }
       throw new IOException("Failed to list the first object for prefix: " + prefixId, e);
     }
