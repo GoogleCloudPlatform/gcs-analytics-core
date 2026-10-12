@@ -35,6 +35,13 @@ interface ReadStrategy {
   ReadChannel getSdkReadChannel();
 
   /**
+   * Updates the strategy with object metadata resolved after the strategy was created.
+   *
+   * @param itemInfo the resolved item metadata with a non-negative size
+   */
+  default void updateItemInfo(GcsItemInfo itemInfo) {}
+
+  /**
    * Updates the strategy's current read position.
    *
    * @param newPosition the new read position
