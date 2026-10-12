@@ -60,23 +60,6 @@ public final class ConfigurationUtil {
   }
 
   /**
-   * Parses a string configuration value into a {@code long}.
-   *
-   * @param key The configuration property key, used in error messages.
-   * @param valueStr The string value to parse.
-   * @return The parsed {@code long} value.
-   * @throws IllegalArgumentException If the value is not a valid {@code long}.
-   */
-  public static long safeParseLong(String key, String valueStr) {
-    try {
-      return Long.parseLong(valueStr);
-    } catch (NumberFormatException e) {
-      throw new IllegalArgumentException(
-          String.format("Invalid long value for %s: %s", key, valueStr), e);
-    }
-  }
-
-  /**
    * Reads a property from a configuration map, trimming surrounding whitespace and treating blank
    * values as absent.
    *

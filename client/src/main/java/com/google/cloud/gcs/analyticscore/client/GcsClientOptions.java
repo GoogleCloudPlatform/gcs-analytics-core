@@ -27,7 +27,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -57,8 +56,6 @@ public abstract class GcsClientOptions {
   private static final String PCU_PART_FILE_NAME_PREFIX_KEY =
       "channel.write.pcu.part-file.name-prefix";
   private static final String TEMPORARY_PATHS_KEY = "channel.write.temporary-paths";
-  private static final String EMPTY_OBJECT_CREATION_MAX_WAIT_TIME_KEY =
-      "max.wait.for.empty.object.creation-ms";
 
   /**
    * Upload strategies matching the configurations offered by the google-cloud-storage Java client.
@@ -138,8 +135,6 @@ public abstract class GcsClientOptions {
 
   public abstract ImmutableSet<String> getTemporaryPaths();
 
-  public abstract Duration getMaxWaitTimeForEmptyObjectCreation();
-
   public abstract Builder toBuilder();
 
   // TODO: Benchmark and determine the optimal default values for write options.
@@ -154,8 +149,7 @@ public abstract class GcsClientOptions {
         .setPcuBufferCapacity(32 * MB)
         .setPcuPartFileCleanupType(PartFileCleanupType.ALWAYS)
         .setPcuPartFileNamePrefix("")
-        .setTemporaryPaths(ImmutableSet.of())
-        .setMaxWaitTimeForEmptyObjectCreation(Duration.ofSeconds(3));
+        .setTemporaryPaths(ImmutableSet.of());
   }
 
   public static GcsClientOptions createFromOptions(
@@ -204,13 +198,6 @@ public abstract class GcsClientOptions {
                     .filter(s -> !s.isEmpty())
                     .collect(Collectors.toList()))
         .ifPresent(optionsBuilder::setTemporaryPaths);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + EMPTY_OBJECT_CREATION_MAX_WAIT_TIME_KEY))
-        .map(
-            val ->
-                ConfigurationUtil.safeParseLong(
-                    prefix + EMPTY_OBJECT_CREATION_MAX_WAIT_TIME_KEY, val))
-        .map(Duration::ofMillis)
-        .ifPresent(optionsBuilder::setMaxWaitTimeForEmptyObjectCreation);
 
     optionsBuilder.setGcsReadOptions(
         GcsReadOptions.createFromOptions(analyticsCoreOptions, prefix));
@@ -255,8 +242,6 @@ public abstract class GcsClientOptions {
     public Builder setTemporaryPaths(Collection<String> paths) {
       return setTemporaryPaths(ImmutableSet.copyOf(paths));
     }
-
-    public abstract Builder setMaxWaitTimeForEmptyObjectCreation(Duration maxWaitTime);
 
     abstract GcsClientOptions autoBuild();
 
