@@ -321,22 +321,19 @@ class GcsFooterOptimizerTest {
   @Test
   void read_smallFile_prefetchSizeIsCappedByFileSize_servesWholeObjectFromFooter()
       throws IOException {
-    byte[] smallData = Arrays.copyOf(testData, 50);
-    GcsItemInfo smallInfo =
-        GcsItemInfo.builder().setItemId(ITEM_ID).setSize(smallData.length).build();
+    GcsItemInfo smallInfo = GcsItemInfo.builder().setItemId(ITEM_ID).setSize(50).build();
     optimizer.onOpen(FILE_INFO.toBuilder().setItemInfo(smallInfo).build(), mockCacheManager);
     when(mockCacheManager.getFooter(eq(ITEM_ID), any()))
         .thenAnswer(
             invocation ->
                 invocation.getArgument(1, AnalyticsCacheManager.FooterLoader.class).load(ITEM_ID));
-    VectoredSeekableByteChannel mockSource =
-        fakeChannel(smallData, new AtomicInteger(0), smallInfo);
+    VectoredSeekableByteChannel mockSource = fakeChannel(50, new AtomicInteger(0), smallInfo);
     ByteBuffer dst = ByteBuffer.allocate(10);
 
     int bytesRead = optimizer.read(0, dst, mockSource);
 
     assertThat(bytesRead).isEqualTo(10);
-    assertThat(dst.array()).isEqualTo(Arrays.copyOfRange(smallData, 0, 10));
+    assertThat(dst.array()).isEqualTo(Arrays.copyOfRange(testData, 0, 10));
   }
 
   @Test
@@ -462,15 +459,12 @@ class GcsFooterOptimizerTest {
   }
 
   @Test
-  void read_metadataNeverResolves_fallsBackToChannelSize_andStopsSpeculating() throws IOException {
+  void read_metadataNeverResolves_fallsBackToChannelSize_andReusesPrefetchedBytes()
+      throws IOException {
     optimizer.onOpen(ITEM_ID, mockCacheManager);
-    when(mockCacheManager.getFooter(eq(ITEM_ID), any()))
-        .thenAnswer(
-            invocation ->
-                invocation.getArgument(1, AnalyticsCacheManager.FooterLoader.class).load(ITEM_ID));
     AtomicInteger dataReadCount = new AtomicInteger(0);
     VectoredSeekableByteChannel mockSource =
-        fakeChannel(testData, dataReadCount, /* itemInfo= */ null);
+        fakeChannel(testData.length, dataReadCount, /* itemInfo= */ null);
     when(mockSource.size()).thenReturn((long) testData.length);
 
     int firstBytesRead = optimizer.read(992, ByteBuffer.allocate(8), mockSource);
@@ -480,55 +474,72 @@ class GcsFooterOptimizerTest {
     assertThat(firstBytesRead).isEqualTo(8);
     assertThat(secondBytesRead).isEqualTo(8);
     assertThat(thirdBytesRead).isEqualTo(8);
+    assertThat(dataReadCount.get()).isEqualTo(1);
     verify(mockSource, times(1)).size();
   }
 
   @Test
   void read_speculativeWindowNotAtEndOfObject_laterFooterReadIsNotShort() throws IOException {
-    byte[] largeData = new byte[5000];
-    for (int i = 0; i < largeData.length; i++) {
-      largeData[i] = (byte) (i % 256);
-    }
-    GcsItemInfo largeItemInfo =
-        GcsItemInfo.builder().setItemId(ITEM_ID).setSize(largeData.length).build();
+    GcsItemInfo largeItemInfo = GcsItemInfo.builder().setItemId(ITEM_ID).setSize(5000).build();
     optimizer.onOpen(ITEM_ID, mockCacheManager);
     when(mockCacheManager.getFooter(eq(ITEM_ID), any()))
         .thenAnswer(
             invocation ->
                 invocation.getArgument(1, AnalyticsCacheManager.FooterLoader.class).load(ITEM_ID));
     AtomicInteger dataReadCount = new AtomicInteger(0);
-    VectoredSeekableByteChannel mockSource = fakeChannel(largeData, dataReadCount, largeItemInfo);
+    VectoredSeekableByteChannel mockSource = fakeChannel(5000, dataReadCount, largeItemInfo);
     int unused = optimizer.read(4450, ByteBuffer.allocate(8), mockSource);
 
     ByteBuffer dst = ByteBuffer.allocate(100);
     int bytesRead = optimizer.read(4900, dst, mockSource);
 
     assertThat(bytesRead).isEqualTo(100);
-    assertThat(dst.array()).isEqualTo(Arrays.copyOfRange(largeData, 4900, 5000));
+    assertThat(dst.array()).isEqualTo(bytesAt(4900, 100));
+    assertThat(dataReadCount.get()).isEqualTo(2);
   }
 
   @Test
   void read_fileSizeUnknown_objectLargerThanSpeculativeWindow_servesReadFromPrefetchedBytes()
       throws IOException {
-    byte[] largeData = new byte[5000];
-    for (int i = 0; i < largeData.length; i++) {
-      largeData[i] = (byte) (i % 256);
-    }
     GcsItemInfo largeItemInfo =
         GcsItemInfo.builder()
             .setItemId(PINNED_ITEM_ID)
-            .setSize(largeData.length)
+            .setSize(5000)
             .setContentGeneration(7L)
             .build();
     optimizer.onOpen(ITEM_ID, mockCacheManager);
     AtomicInteger dataReadCount = new AtomicInteger(0);
-    VectoredSeekableByteChannel mockSource = fakeChannel(largeData, dataReadCount, largeItemInfo);
+    VectoredSeekableByteChannel mockSource = fakeChannel(5000, dataReadCount, largeItemInfo);
     ByteBuffer dst = ByteBuffer.allocate(8);
 
     int bytesRead = optimizer.read(4450, dst, mockSource);
 
     assertThat(bytesRead).isEqualTo(8);
-    assertThat(dst.array()).isEqualTo(Arrays.copyOfRange(largeData, 4450, 4458));
+    assertThat(dst.array()).isEqualTo(bytesAt(4450, 8));
+    verify(mockCacheManager, never()).getFooter(any(), any());
+  }
+
+  @Test
+  void read_fileSizeUnknown_largeFile_retainsPrefetchedTailWhenPrefetchSizeExceedsWindow()
+      throws IOException {
+    long largeSize = 2 * GB;
+    GcsItemInfo largeItemInfo =
+        GcsItemInfo.builder()
+            .setItemId(PINNED_ITEM_ID)
+            .setSize(largeSize)
+            .setContentGeneration(7L)
+            .build();
+    optimizer.onOpen(ITEM_ID, mockCacheManager);
+    AtomicInteger dataReadCount = new AtomicInteger(0);
+    VectoredSeekableByteChannel mockSource = fakeChannel(largeSize, dataReadCount, largeItemInfo);
+    int unused = optimizer.read(largeSize - 8, ByteBuffer.allocate(8), mockSource);
+
+    ByteBuffer dst = ByteBuffer.allocate(40);
+    int bytesRead = optimizer.read(largeSize - 48, dst, mockSource);
+
+    assertThat(bytesRead).isEqualTo(40);
+    assertThat(dst.array()).isEqualTo(bytesAt(largeSize - 48, 40));
+    assertThat(dataReadCount.get()).isEqualTo(1);
     verify(mockCacheManager, never()).getFooter(any(), any());
   }
 
@@ -537,7 +548,7 @@ class GcsFooterOptimizerTest {
       throws IOException {
     optimizer.onOpen(ITEM_ID, mockCacheManager);
     AtomicInteger dataReadCount = new AtomicInteger(0);
-    VectoredSeekableByteChannel mockSource = fakeChannel(testData, dataReadCount, ITEM_INFO);
+    VectoredSeekableByteChannel mockSource = fakeChannel(testData.length, dataReadCount, ITEM_INFO);
 
     int bytesRead = optimizer.read(992, ByteBuffer.allocate(8), mockSource);
     int secondBytesRead = optimizer.read(900, ByteBuffer.allocate(4), mockSource);
@@ -592,14 +603,65 @@ class GcsFooterOptimizerTest {
   }
 
   @Test
-  void read_fileSizeUnknown_positionBeyondEndOfObject_passesThroughToDelegate() throws IOException {
+  void read_cachedFooterDoesNotCoverPosition_doesNotRecordFooterCacheHit() throws IOException {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    ByteBuffer cachedFooter = ByteBuffer.wrap(Arrays.copyOfRange(testData, 960, 1000));
+    when(mockCacheManager.getFooter(eq(ITEM_ID), any())).thenReturn(cachedFooter);
+    VectoredSeekableByteChannel mockSource = mock(VectoredSeekableByteChannel.class);
+
+    int unused = optimizer.read(920, ByteBuffer.allocate(8), mockSource);
+
+    verify(telemetry, never()).recordMetric(eq(Metric.FOOTER_CACHE_HIT), anyLong(), any());
+  }
+
+  @Test
+  void read_fileSizeUnknown_positionBeyondEndOfObject_resolvesSizeAndReturnsMinusOne()
+      throws IOException {
     optimizer.onOpen(ITEM_ID, mockCacheManager);
-    VectoredSeekableByteChannel mockSource = lazyMetadataChannel(new AtomicInteger(0));
+    AtomicInteger dataReadCount = new AtomicInteger(0);
+    VectoredSeekableByteChannel mockSource = lazyMetadataChannel(dataReadCount);
     ByteBuffer dst = ByteBuffer.allocate(8);
 
     int bytesRead = optimizer.read(1050, dst, mockSource);
 
+    assertThat(bytesRead).isEqualTo(-1);
+    assertThat(dataReadCount.get()).isEqualTo(1);
+  }
+
+  @Test
+  void read_fileSizeUnknown_readAtEndOfObject_returnsMinusOneAndKeepsFooterForLaterReads()
+      throws IOException {
+    optimizer.onOpen(ITEM_ID, mockCacheManager);
+    when(mockCacheManager.getFooter(eq(PINNED_ITEM_ID), any()))
+        .thenAnswer(
+            invocation ->
+                invocation
+                    .getArgument(1, AnalyticsCacheManager.FooterLoader.class)
+                    .load(PINNED_ITEM_ID));
+    AtomicInteger dataReadCount = new AtomicInteger(0);
+    VectoredSeekableByteChannel mockSource = lazyMetadataChannel(dataReadCount);
+
+    int eofBytesRead = optimizer.read(1000, ByteBuffer.allocate(8), mockSource);
+    int footerBytesRead = optimizer.read(990, ByteBuffer.allocate(10), mockSource);
+
+    assertThat(eofBytesRead).isEqualTo(-1);
+    assertThat(footerBytesRead).isEqualTo(10);
+    assertThat(dataReadCount.get()).isEqualTo(1);
+  }
+
+  @Test
+  void read_fileSizeUnknown_speculativeReadBeyondEndOfObject_metadataUnresolved_passesThrough()
+      throws IOException {
+    optimizer.onOpen(ITEM_ID, mockCacheManager);
+    AtomicInteger dataReadCount = new AtomicInteger(0);
+    VectoredSeekableByteChannel mockSource =
+        fakeChannel(testData.length, dataReadCount, /* itemInfo= */ null);
+    ByteBuffer dst = ByteBuffer.allocate(8);
+
+    int bytesRead = optimizer.read(1200, dst, mockSource);
+
     assertThat(bytesRead).isEqualTo(0);
+    assertThat(dataReadCount.get()).isEqualTo(0);
   }
 
   @Test
@@ -613,7 +675,7 @@ class GcsFooterOptimizerTest {
                     .load(invocation.getArgument(0)));
     AtomicBoolean sizeCalled = new AtomicBoolean(false);
     VectoredSeekableByteChannel mockSource =
-        fakeChannel(testData, new AtomicInteger(0), /* itemInfo= */ null);
+        fakeChannel(testData.length, new AtomicInteger(0), /* itemInfo= */ null);
     when(mockSource.size())
         .thenAnswer(
             invocation -> {
@@ -674,11 +736,11 @@ class GcsFooterOptimizerTest {
 
   private VectoredSeekableByteChannel lazyMetadataChannel(AtomicInteger dataReadCount)
       throws IOException {
-    return fakeChannel(testData, dataReadCount, PINNED_ITEM_INFO);
+    return fakeChannel(testData.length, dataReadCount, PINNED_ITEM_INFO);
   }
 
   private VectoredSeekableByteChannel fakeChannel(
-      byte[] data, AtomicInteger dataReadCount, GcsItemInfo itemInfo) throws IOException {
+      long size, AtomicInteger dataReadCount, GcsItemInfo itemInfo) throws IOException {
     long[] channelPosition = {0};
     VectoredSeekableByteChannel mockSource = mock(VectoredSeekableByteChannel.class);
     when(mockSource.position()).thenAnswer(invocation -> channelPosition[0]);
@@ -694,17 +756,25 @@ class GcsFooterOptimizerTest {
         .thenAnswer(
             invocation -> {
               ByteBuffer dst = invocation.getArgument(0);
-              int startPosition = (int) channelPosition[0];
-              int length = Math.min(dst.remaining(), data.length - startPosition);
+              long startPosition = channelPosition[0];
+              int length = (int) Math.min(dst.remaining(), size - startPosition);
               if (length <= 0) {
                 return -1;
               }
               dataReadCount.incrementAndGet();
-              dst.put(data, startPosition, length);
+              dst.put(bytesAt(startPosition, length));
               channelPosition[0] = startPosition + length;
               return length;
             });
 
     return mockSource;
+  }
+
+  private static byte[] bytesAt(long position, int length) {
+    byte[] bytes = new byte[length];
+    for (int i = 0; i < length; i++) {
+      bytes[i] = (byte) ((position + i) % 256);
+    }
+    return bytes;
   }
 }

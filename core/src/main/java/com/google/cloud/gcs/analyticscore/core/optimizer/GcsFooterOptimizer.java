@@ -51,6 +51,8 @@ public class GcsFooterOptimizer implements FormatOptimizer {
   private ByteBuffer localFooterBuffer;
   private long localBufferStartPosition = -1;
   private boolean speculativeReadAttempted = false;
+  private ByteBuffer pendingSpeculativeBuffer;
+  private long pendingSpeculativeStartPosition = -1;
 
   public GcsFooterOptimizer(GcsReadOptions readOptions, Telemetry telemetry) {
     this.readOptions = checkNotNull(readOptions, "readOptions cannot be null");
@@ -95,13 +97,14 @@ public class GcsFooterOptimizer implements FormatOptimizer {
       }
       resolveFileSizeExplicitly(source);
     }
-
-    if (prefetchSize <= 0 || position < fileSize - prefetchSize) {
-      return 0;
-    }
+    adoptPendingSpeculativeBuffer();
 
     if (position >= fileSize) {
       return -1;
+    }
+
+    if (prefetchSize <= 0 || position < fileSize - prefetchSize) {
+      return 0;
     }
 
     if (bufferCovers(position)) {
@@ -120,12 +123,13 @@ public class GcsFooterOptimizer implements FormatOptimizer {
               return loadFooter(source);
             });
     adoptFooterBuffer(footer);
+    int bytesRead = serveFromBuffer(position, dst);
 
-    if (!isMiss.get()) {
+    if (!isMiss.get() && bytesRead > 0) {
       telemetry.recordMetric(Metric.FOOTER_CACHE_HIT, 1L, Collections.emptyMap());
     }
 
-    return serveFromBuffer(position, dst);
+    return bytesRead;
   }
 
   private void adoptFooterBuffer(ByteBuffer footer) {
@@ -147,19 +151,40 @@ public class GcsFooterOptimizer implements FormatOptimizer {
     ByteBuffer prefetchedBuffer = readToEndOfObject(startPosition, estimatedPrefetchSize, source);
     resolveFileSizeFromItemInfo(source);
     if (prefetchedBuffer == null) {
-      return 0;
+      return fileSize != -1 && position >= fileSize ? -1 : 0;
     }
 
-    ByteBuffer canonicalFooter = toCanonicalFooter(startPosition, prefetchedBuffer);
-    if (canonicalFooter == null) {
+    pendingSpeculativeBuffer = prefetchedBuffer;
+    pendingSpeculativeStartPosition = startPosition;
+    if (fileSize == -1) {
       return copyOut(prefetchedBuffer, startPosition, position, dst);
+    }
+    adoptPendingSpeculativeBuffer();
+    if (position >= fileSize) {
+      return -1;
+    }
+
+    return bufferCovers(position)
+        ? serveFromBuffer(position, dst)
+        : copyOut(prefetchedBuffer, startPosition, position, dst);
+  }
+
+  private void adoptPendingSpeculativeBuffer() throws IOException {
+    ByteBuffer prefetchedBuffer = pendingSpeculativeBuffer;
+    if (prefetchedBuffer == null) {
+      return;
+    }
+    pendingSpeculativeBuffer = null;
+    long startPosition = pendingSpeculativeStartPosition;
+    if (prefetchSize <= 0 || startPosition + prefetchedBuffer.limit() != fileSize) {
+      return;
     }
 
     // A network fetch happened regardless of whether the shared cache already held this footer.
     telemetry.recordMetric(Metric.FOOTER_CACHE_MISS, 1L, Collections.emptyMap());
-    adoptFooterBuffer(shareFooterIfGenerationKnown(canonicalFooter));
-
-    return serveFromBuffer(position, dst);
+    ByteBuffer canonicalFooter = toCanonicalFooter(startPosition, prefetchedBuffer);
+    adoptFooterBuffer(
+        canonicalFooter == null ? prefetchedBuffer : shareFooterIfGenerationKnown(canonicalFooter));
   }
 
   private ByteBuffer shareFooterIfGenerationKnown(ByteBuffer canonicalFooter) throws IOException {
@@ -188,16 +213,13 @@ public class GcsFooterOptimizer implements FormatOptimizer {
   }
 
   @Nullable
-  private ByteBuffer toCanonicalFooter(long startPosition, ByteBuffer buffer) {
-    if (fileSize == -1 || prefetchSize <= 0) {
-      return null;
-    }
+  private ByteBuffer toCanonicalFooter(long startPosition, ByteBuffer eofAnchoredBuffer) {
     long canonicalStartPosition = fileSize - prefetchSize;
-    if (startPosition > canonicalStartPosition || startPosition + buffer.limit() != fileSize) {
+    if (startPosition > canonicalStartPosition) {
       return null;
     }
 
-    ByteBuffer footerView = buffer.duplicate();
+    ByteBuffer footerView = eofAnchoredBuffer.duplicate();
     footerView.position(Math.toIntExact(canonicalStartPosition - startPosition));
     ByteBuffer canonicalFooter = ByteBuffer.allocate(Math.toIntExact(prefetchSize));
     canonicalFooter.put(footerView);
