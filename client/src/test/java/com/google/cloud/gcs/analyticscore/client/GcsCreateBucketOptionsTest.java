@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
@@ -64,5 +65,18 @@ class GcsCreateBucketOptionsTest {
     assertThat(modified.getLocation()).hasValue("us-east1");
     assertThat(modified.isHierarchicalNamespaceEnabled()).isTrue();
     assertThat(modified.getStorageClass()).hasValue("STANDARD");
+  }
+
+  @Test
+  void build_withSubDayOrNegativeTtl_throwsIllegalArgumentException() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> GcsCreateBucketOptions.builder().setTtl(Duration.ofHours(12)).build());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> GcsCreateBucketOptions.builder().setTtl(Duration.ZERO).build());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> GcsCreateBucketOptions.builder().setTtl(Duration.ofDays(-1)).build());
   }
 }

@@ -32,8 +32,4 @@ public abstract class BucketProperties {
   public static BucketProperties create(boolean hnsEnabled, boolean isRapid) {
     return new AutoValue_BucketProperties(hnsEnabled, isRapid);
   }
-
-  public static BucketProperties create(boolean hnsEnabled) {
-    return create(hnsEnabled, /* isRapid= */ false);
-  }
 }

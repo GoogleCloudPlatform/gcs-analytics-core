@@ -117,33 +117,62 @@ class GcsClientImpl implements GcsClient {
   private final Optional<Credentials> credentials;
   private Supplier<ExecutorService> executorServiceSupplier;
   private final Telemetry telemetry;
+  private final AnalyticsCacheManager cacheManager;
   @VisibleForTesting volatile StorageControlClient storageControlClient;
-  private volatile boolean isStorageControlClientClosed = false;
+  private volatile boolean isClosed = false;
 
   GcsClientImpl(
       Credentials credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry) {
-    this(Optional.of(credentials), clientOptions, executorServiceSupplier, telemetry);
+    this(
+        credentials,
+        clientOptions,
+        executorServiceSupplier,
+        telemetry,
+        new AnalyticsCacheManager(GcsCacheOptions.builder().build()));
+  }
+
+  GcsClientImpl(
+      Credentials credentials,
+      GcsClientOptions clientOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry,
+      AnalyticsCacheManager cacheManager) {
+    this(Optional.of(credentials), clientOptions, executorServiceSupplier, telemetry, cacheManager);
   }
 
   GcsClientImpl(
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry) {
-    this(Optional.empty(), clientOptions, executorServiceSupplier, telemetry);
+    this(
+        clientOptions,
+        executorServiceSupplier,
+        telemetry,
+        new AnalyticsCacheManager(GcsCacheOptions.builder().build()));
+  }
+
+  GcsClientImpl(
+      GcsClientOptions clientOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry,
+      AnalyticsCacheManager cacheManager) {
+    this(Optional.empty(), clientOptions, executorServiceSupplier, telemetry, cacheManager);
   }
 
   private GcsClientImpl(
       Optional<Credentials> credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry) {
+      Telemetry telemetry,
+      AnalyticsCacheManager cacheManager) {
     this.clientOptions = clientOptions;
     this.credentials = credentials;
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
+    this.cacheManager = checkNotNull(cacheManager, "cacheManager cannot be null");
     this.storage = createStorage(credentials);
   }
 
@@ -264,6 +293,8 @@ class GcsClientImpl implements GcsClient {
       return fromFolder(folder, itemId);
     } catch (NotFoundException e) {
       return GcsItemInfo.createNotFound(itemId);
+    } catch (IOException e) {
+      throw e;
     } catch (Exception e) {
       throw new IOException("Failed to get folder info for: " + itemId, e);
     }
@@ -271,13 +302,13 @@ class GcsClientImpl implements GcsClient {
 
   @VisibleForTesting
   StorageControlClient lazyGetStorageControlClient() throws IOException {
-    if (isStorageControlClientClosed) {
+    if (isClosed) {
       throw new IOException("StorageControlClient is closed");
     }
     StorageControlClient result = this.storageControlClient;
     if (result == null) {
       synchronized (this) {
-        if (isStorageControlClientClosed) {
+        if (isClosed) {
           throw new IOException("StorageControlClient is closed");
         }
         result = this.storageControlClient;
@@ -387,7 +418,8 @@ class GcsClientImpl implements GcsClient {
         : 0L;
   }
 
-  BucketProperties getBucketProperties(String bucketName) throws IOException {
+  @Override
+  public BucketProperties getBucketProperties(String bucketName) throws IOException {
     checkNotNull(bucketName, "bucketName cannot be null");
     try {
       BucketInfo bucketInfo =
@@ -420,7 +452,7 @@ class GcsClientImpl implements GcsClient {
 
   @Override
   public boolean isHnsBucket(String bucketName) throws IOException {
-    return getBucketProperties(bucketName).isHnsEnabled();
+    return cacheManager.getBucketProperties(bucketName, this::getBucketProperties).isHnsEnabled();
   }
 
   @Override
@@ -431,6 +463,10 @@ class GcsClientImpl implements GcsClient {
       LOG.debug("Exception while closing storage instance", e);
     }
     synchronized (this) {
+      if (isClosed) {
+        return;
+      }
+      isClosed = true;
       if (grpcStorage != null) {
         try {
           grpcStorage.close();
@@ -439,10 +475,6 @@ class GcsClientImpl implements GcsClient {
         }
         grpcStorage = null;
       }
-      if (isStorageControlClientClosed) {
-        return;
-      }
-      isStorageControlClientClosed = true;
       if (storageControlClient != null) {
         try {
           storageControlClient.close();
@@ -491,7 +523,9 @@ class GcsClientImpl implements GcsClient {
                     ImmutableList.of(
                         new LifecycleRule(
                             LifecycleAction.newDeleteAction(),
-                            LifecycleCondition.newBuilder().setAge((int) ttl.toDays()).build()))));
+                            LifecycleCondition.newBuilder()
+                                .setAge(Math.toIntExact(ttl.toDays()))
+                                .build()))));
     try {
       storage.create(bucketInfoBuilder.build());
     } catch (StorageException e) {
@@ -516,14 +550,16 @@ class GcsClientImpl implements GcsClient {
     try {
       createEmptyObjectInternal(itemId, options);
     } catch (StorageException e) {
-      Optional<Blob> existing = lookUpAfterFailedCreate(e, itemId);
+      Optional<Blob> existing = lookUpAfterFailedCreate(e, itemId, options);
       if (existing.isPresent() && isZeroByte(existing.get())) {
         LOG.debug("Ignored exception while creating empty object {}", itemId, e);
         return;
       }
       boolean alreadyExists =
           e.getCode() == 409
-              || (e.getCode() == 412 && (!itemId.isDirectory() || existing.isPresent()));
+              || (e.getCode() == 412
+                  && shouldNotOverwrite(itemId, options)
+                  && (!itemId.isDirectory() || existing.isPresent()));
       if (alreadyExists) {
         throw (FileAlreadyExistsException)
             new FileAlreadyExistsException("Object already exists: " + itemId).initCause(e);
@@ -532,20 +568,9 @@ class GcsClientImpl implements GcsClient {
     }
   }
 
-  private BlobInfo buildEmptyBlobInfo(GcsItemId itemId, GcsWriteOptions options) {
-    BlobInfo.Builder blobInfoBuilder =
-        BlobInfo.newBuilder(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()));
-    if (!options.getMetadata().isEmpty()) {
-      blobInfoBuilder.setMetadata(GcsItemInfo.encodeMetadata(options.getMetadata()));
-    }
-    options.getContentType().ifPresent(blobInfoBuilder::setContentType);
-    options.getContentEncoding().ifPresent(blobInfoBuilder::setContentEncoding);
-    return blobInfoBuilder.build();
-  }
-
   private void createEmptyObjectInternal(GcsItemId itemId, GcsWriteOptions options)
       throws IOException {
-    BlobInfo blobInfo = buildEmptyBlobInfo(itemId, options);
+    BlobInfo blobInfo = createBlobInfo(itemId, options);
     if (isRapidBucket(itemId.getBucketName())) {
       createAppendableEmptyObject(itemId, blobInfo, options);
       return;
@@ -555,10 +580,10 @@ class GcsClientImpl implements GcsClient {
     if (options.isDisableGzipContent()) {
       targetOptions.add(BlobTargetOption.disableGzipContent());
     }
-    if (itemId.getContentGeneration().isPresent()) {
-      targetOptions.add(BlobTargetOption.generationMatch(itemId.getContentGeneration().get()));
-    } else if (itemId.isDirectory() || !options.isOverwriteExisting()) {
+    if (shouldNotOverwrite(itemId, options)) {
       targetOptions.add(BlobTargetOption.doesNotExist());
+    } else if (itemId.getContentGeneration().isPresent()) {
+      targetOptions.add(BlobTargetOption.generationMatch(itemId.getContentGeneration().get()));
     }
     options.getKmsKeyName().map(BlobTargetOption::kmsKeyName).ifPresent(targetOptions::add);
     options.getEncryptionKey().map(BlobTargetOption::encryptionKey).ifPresent(targetOptions::add);
@@ -567,17 +592,14 @@ class GcsClientImpl implements GcsClient {
   }
 
   private boolean isRapidBucket(String bucketName) throws IOException {
-    return getBucketProperties(bucketName).isRapid();
+    return cacheManager.getBucketProperties(bucketName, this::getBucketProperties).isRapid();
   }
 
   private void createAppendableEmptyObject(
       GcsItemId itemId, BlobInfo blobInfo, GcsWriteOptions options) throws IOException {
-    boolean mustNotExist =
-        itemId.getContentGeneration().isEmpty()
-            && (itemId.isDirectory() || !options.isOverwriteExisting());
     BlobWriteOption[] writeOptions =
         options.toBuilder()
-            .setOverwriteExisting(!mustNotExist)
+            .setOverwriteExisting(!shouldNotOverwrite(itemId, options))
             .build()
             .generateWriteOptions(itemId);
     try {
@@ -607,14 +629,19 @@ class GcsClientImpl implements GcsClient {
    * case for directories. Metadata lookups are always retried.
    */
   private Optional<Blob> lookUpAfterFailedCreate(
-      StorageException exceptionOnCreate, GcsItemId itemId) throws IOException {
+      StorageException exceptionOnCreate, GcsItemId itemId, GcsWriteOptions options)
+      throws IOException {
     int code = exceptionOnCreate.getCode();
     if (IGNORABLE_EMPTY_OBJECT_CREATE_ERROR_CODES.contains(code)
-        || (itemId.isDirectory() && code == 412)) {
+        || (code == 412 && itemId.isDirectory() && shouldNotOverwrite(itemId, options))) {
+      BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().orElse(""));
+      List<Storage.BlobGetOption> getOptions = new ArrayList<>();
+      getOptions.add(Storage.BlobGetOption.fields(BlobField.SIZE));
+      options.getUserProject().map(Storage.BlobGetOption::userProject).ifPresent(getOptions::add);
       try {
         return Optional.ofNullable(
-            getBlob(itemId.getBucketName(), itemId.getObjectName().orElse("")));
-      } catch (IOException e) {
+            storage.get(blobId, getOptions.toArray(new Storage.BlobGetOption[0])));
+      } catch (StorageException e) {
         exceptionOnCreate.addSuppressed(e);
         throw new IOException(
             "Failed to verify existence of 0-byte object " + itemId + " after creation failed",
@@ -622,6 +649,11 @@ class GcsClientImpl implements GcsClient {
       }
     }
     return Optional.empty();
+  }
+
+  private static boolean shouldNotOverwrite(GcsItemId itemId, GcsWriteOptions options) {
+    return !options.isOverwriteExisting()
+        || (itemId.isDirectory() && itemId.getContentGeneration().isEmpty());
   }
 
   private static boolean isZeroByte(Blob blob) {
@@ -646,19 +678,27 @@ class GcsClientImpl implements GcsClient {
     } catch (AlreadyExistsException e) {
       throw (FileAlreadyExistsException)
           new FileAlreadyExistsException("Folder already exists: " + itemId).initCause(e);
+    } catch (IOException e) {
+      throw e;
     } catch (Exception e) {
       throw new IOException("Failed to create folder: " + itemId, e);
     }
   }
 
   @VisibleForTesting
-  Storage lazyGetGrpcStorage() {
+  Storage lazyGetGrpcStorage() throws IOException {
+    if (isClosed) {
+      throw new IOException("GrpcStorage is closed");
+    }
     if (clientOptions.isGrpcEnabled()) {
       return this.storage;
     }
     Storage result = this.grpcStorage;
     if (result == null) {
       synchronized (this) {
+        if (isClosed) {
+          throw new IOException("GrpcStorage is closed");
+        }
         result = this.grpcStorage;
         if (result == null) {
           this.grpcStorage = result = createGrpcStorage(this.credentials);

@@ -87,6 +87,9 @@ public interface GcsClient {
   /** Creates a folder in HNS buckets. */
   void createFolder(GcsItemId itemId, boolean recursive) throws IOException;
 
+  /** Fetches bucket capability properties (such as HNS and Rapid storage class). */
+  BucketProperties getBucketProperties(String bucketName) throws IOException;
+
   boolean isHnsBucket(String bucketName) throws IOException;
 
   /** Close the client. */

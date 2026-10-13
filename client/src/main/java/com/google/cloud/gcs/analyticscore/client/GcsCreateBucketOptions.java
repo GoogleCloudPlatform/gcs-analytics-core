@@ -15,6 +15,8 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import com.google.auto.value.AutoValue;
 import java.time.Duration;
 import java.util.Optional;
@@ -61,6 +63,16 @@ public abstract class GcsCreateBucketOptions {
 
     public abstract Builder setZonalPlacement(String zonalPlacement);
 
-    public abstract GcsCreateBucketOptions build();
+    abstract GcsCreateBucketOptions autoBuild();
+
+    public GcsCreateBucketOptions build() {
+      GcsCreateBucketOptions options = autoBuild();
+      options
+          .getTtl()
+          .ifPresent(
+              ttl ->
+                  checkArgument(ttl.toDays() >= 1, "TTL must be at least 1 day, but got: %s", ttl));
+      return options;
+    }
   }
 }

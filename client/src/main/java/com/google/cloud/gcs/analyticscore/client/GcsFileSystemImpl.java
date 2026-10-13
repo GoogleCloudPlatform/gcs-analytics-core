@@ -83,7 +83,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
                 new GcsClientImpl(
                     fileSystemOptions.getGcsClientOptions(),
                     readExecutorServiceSupplier,
-                    telemetry));
+                    telemetry,
+                    cacheManager));
     this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
     this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
   }
@@ -104,7 +105,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
                     credentials,
                     fileSystemOptions.getGcsClientOptions(),
                     readExecutorServiceSupplier,
-                    telemetry));
+                    telemetry,
+                    cacheManager));
     this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
     this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
   }
@@ -142,8 +144,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     }
 
     BucketProperties properties =
-        cacheManager.getBucketProperties(
-            bucketName, name -> BucketProperties.create(gcsClient.isHnsBucket(name)));
+        cacheManager.getBucketProperties(bucketName, gcsClient::getBucketProperties);
 
     if (properties.isHnsEnabled()) {
       return hnsStrategy;

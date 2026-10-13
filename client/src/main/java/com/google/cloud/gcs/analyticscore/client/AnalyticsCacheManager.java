@@ -34,7 +34,8 @@ public class AnalyticsCacheManager {
 
   /**
    * TTL for bucket properties cache in minutes. A 10-minute TTL is used because a bucket's
-   * Hierarchical Namespace configuration is immutable unless the bucket is deleted and re-created.
+   * Hierarchical Namespace and Rapid (Zonal) storage class configurations are immutable unless the
+   * bucket is deleted and re-created.
    */
   private static final long BUCKET_PROPERTIES_CACHE_TTL_MINUTES = 10;
 
