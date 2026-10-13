@@ -19,6 +19,7 @@ import com.google.common.annotations.VisibleForTesting;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 
 @VisibleForTesting
@@ -72,25 +73,72 @@ public interface GcsClient {
    */
   Optional<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) throws IOException;
 
-  /** Creates a GCS bucket with default options. */
+  /**
+   * Creates a GCS bucket with {@link GcsCreateBucketOptions#DEFAULT}.
+   *
+   * @param bucketName name of the bucket to create
+   * @throws FileAlreadyExistsException if a bucket with {@code bucketName} already exists
+   * @throws IOException if an I/O error occurs while creating the bucket
+   */
   void createBucket(String bucketName) throws IOException;
 
-  /** Creates a GCS bucket with the specified options. */
+  /**
+   * Creates a GCS bucket with the specified options.
+   *
+   * @param bucketName name of the bucket to create
+   * @param options bucket creation options (location, storage class, HNS, zonal placement, TTL)
+   * @throws FileAlreadyExistsException if a bucket with {@code bucketName} already exists
+   * @throws IOException if an I/O error occurs while creating the bucket
+   */
   void createBucket(String bucketName, GcsCreateBucketOptions options) throws IOException;
 
-  /** Creates a 0-byte empty object (used for flat directory markers). */
+  /**
+   * Creates a 0-byte empty object (such as a flat-namespace directory marker) with default write
+   * options.
+   *
+   * <p>For directory items ({@link GcsItemId#isDirectory()}) without an explicit content
+   * generation, creation uses a {@code doesNotExist} precondition and is idempotent if a 0-byte
+   * marker already exists; if a non-empty object already exists at {@code itemId}, {@link
+   * FileAlreadyExistsException} is thrown.
+   *
+   * @param itemId the identity of the 0-byte GCS object to create
+   * @throws FileAlreadyExistsException if a conflicting object already exists
+   * @throws IOException if an I/O error occurs while creating the object
+   */
   void createEmptyObject(GcsItemId itemId) throws IOException;
 
-  /** Creates a 0-byte empty object with write options. */
+  /**
+   * Creates a 0-byte empty object with the specified write options.
+   *
+   * <p>When {@link GcsWriteOptions#isOverwriteExisting()} is {@code false}, or when {@code itemId}
+   * is a directory without an explicit content generation, creation uses a {@code doesNotExist}
+   * precondition. If a 0-byte object already exists at {@code itemId} on a concurrent directory
+   * marker creation, the conflict is ignored; otherwise, conflicts throw {@link
+   * FileAlreadyExistsException}.
+   *
+   * @param itemId the identity of the 0-byte GCS object to create
+   * @param options write options controlling overwrite behavior, headers, and encryption
+   * @throws FileAlreadyExistsException if overwrite is disabled (or {@code itemId} is a directory
+   *     with a non-empty existing object) and the target object already exists
+   * @throws IOException if an I/O error occurs while creating the object
+   */
   void createEmptyObject(GcsItemId itemId, GcsWriteOptions options) throws IOException;
 
-  /** Creates a folder in HNS buckets. */
+  /**
+   * Creates a native folder resource in a Hierarchical Namespace (HNS) enabled bucket.
+   *
+   * <p>This operation only applies to buckets with Hierarchical Namespace enabled.
+   *
+   * @param itemId the identity of the folder to create
+   * @param recursive if {@code true}, automatically creates any missing parent folders along the
+   *     path; if {@code false}, requires the immediate parent folder to already exist
+   * @throws FileAlreadyExistsException if the target folder already exists
+   * @throws IOException if an I/O error occurs while creating the folder
+   */
   void createFolder(GcsItemId itemId, boolean recursive) throws IOException;
 
   /** Fetches bucket capability properties (such as HNS and Rapid storage class). */
   BucketProperties getBucketProperties(String bucketName) throws IOException;
-
-  boolean isHnsBucket(String bucketName) throws IOException;
 
   /** Close the client. */
   void close();

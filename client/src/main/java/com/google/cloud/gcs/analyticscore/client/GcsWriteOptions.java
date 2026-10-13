@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.storage.Storage.BlobTargetOption;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
@@ -202,5 +203,27 @@ public abstract class GcsWriteOptions {
     this.getUserProject().map(BlobWriteOption::userProject).ifPresent(sdkWriteOptions::add);
 
     return sdkWriteOptions.toArray(new BlobWriteOption[0]);
+  }
+
+  public BlobTargetOption[] generateTargetOptions(GcsItemId itemId) {
+    List<BlobTargetOption> sdkTargetOptions = new ArrayList<>();
+
+    if (this.isDisableGzipContent()) {
+      sdkTargetOptions.add(BlobTargetOption.disableGzipContent());
+    }
+
+    // If overwrite is disabled, the target MUST NOT exist over the wire (ifGenerationMatch = 0L).
+    // Otherwise, we conditionally match a targeted generation if present.
+    Optional<BlobTargetOption> preconditionOption =
+        !this.isOverwriteExisting()
+            ? Optional.of(BlobTargetOption.doesNotExist())
+            : itemId.getContentGeneration().map(BlobTargetOption::generationMatch);
+    preconditionOption.ifPresent(sdkTargetOptions::add);
+
+    this.getKmsKeyName().map(BlobTargetOption::kmsKeyName).ifPresent(sdkTargetOptions::add);
+    this.getEncryptionKey().map(BlobTargetOption::encryptionKey).ifPresent(sdkTargetOptions::add);
+    this.getUserProject().map(BlobTargetOption::userProject).ifPresent(sdkTargetOptions::add);
+
+    return sdkTargetOptions.toArray(new BlobTargetOption[0]);
   }
 }

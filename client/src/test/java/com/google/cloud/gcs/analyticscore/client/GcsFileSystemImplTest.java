@@ -124,7 +124,7 @@ class GcsFileSystemImplTest {
   void constructor_withValidOptions_passesMemorizedExecutorServiceAndTelemetryToGcsClient() {
     final AtomicReference<Supplier<ExecutorService>> capturedSupplier = new AtomicReference<>();
     final AtomicReference<Telemetry> capturedTelemetry = new AtomicReference<>();
-    final AtomicReference<AnalyticsCacheManager> capturedCacheManager = new AtomicReference<>();
+    final AtomicReference<Object> capturedBucketPropertiesCache = new AtomicReference<>();
     try (MockedConstruction<GcsClientImpl> mockGcsClientConstruction =
         Mockito.mockConstruction(
             GcsClientImpl.class,
@@ -137,9 +137,7 @@ class GcsFileSystemImplTest {
               Telemetry telemetry = (Telemetry) context.arguments().get(2);
               capturedTelemetry.set(telemetry);
 
-              AnalyticsCacheManager cacheManager =
-                  (AnalyticsCacheManager) context.arguments().get(3);
-              capturedCacheManager.set(cacheManager);
+              capturedBucketPropertiesCache.set(context.arguments().get(3));
             })) {
 
       try (GcsFileSystemImpl fs = new GcsFileSystemImpl(TEST_GCS_FILESYSTEM_OPTIONS)) {
@@ -152,7 +150,8 @@ class GcsFileSystemImplTest {
         assertThat(executorService1).isEqualTo(executorService2);
         assertThat(capturedTelemetry.get()).isNotNull();
         assertThat(capturedTelemetry.get()).isSameInstanceAs(fs.getTelemetry());
-        assertThat(capturedCacheManager.get()).isSameInstanceAs(fs.getCacheManager());
+        assertThat(capturedBucketPropertiesCache.get())
+            .isSameInstanceAs(fs.getCacheManager().getBucketPropertiesCache());
         assertThat(fs.getFlatStrategy()).isNotNull();
         assertThat(fs.getHnsStrategy()).isNotNull();
       }

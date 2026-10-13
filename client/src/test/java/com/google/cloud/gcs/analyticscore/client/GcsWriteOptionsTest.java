@@ -19,6 +19,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.google.cloud.storage.Storage.BlobTargetOption;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.common.collect.ImmutableMap;
 import java.util.Arrays;
@@ -179,5 +180,64 @@ class GcsWriteOptionsTest {
     List<BlobWriteOption> optionList = Arrays.asList(sdkOptions);
     assertThat(optionList).contains(BlobWriteOption.generationMatch(12345L));
     assertThat(optionList).doesNotContain(BlobWriteOption.doesNotExist());
+  }
+
+  @Test
+  void generateTargetOptions_whenOverwriteExistingIsFalse_addsDoesNotExistOption() {
+    GcsWriteOptions options = GcsWriteOptions.builder().setOverwriteExisting(false).build();
+    GcsItemId itemId = GcsItemId.builder().setBucketName("bucket").setObjectName("object").build();
+
+    BlobTargetOption[] sdkOptions = options.generateTargetOptions(itemId);
+
+    List<BlobTargetOption> optionList = Arrays.asList(sdkOptions);
+    assertThat(optionList).contains(BlobTargetOption.doesNotExist());
+  }
+
+  @Test
+  void
+      generateTargetOptions_whenOverwriteExistingIsFalseWithGeneration_addsDoesNotExistOptionAndIgnoresGeneration() {
+    GcsWriteOptions options = GcsWriteOptions.builder().setOverwriteExisting(false).build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("bucket")
+            .setObjectName("object")
+            .setContentGeneration(12345L)
+            .build();
+
+    BlobTargetOption[] sdkOptions = options.generateTargetOptions(itemId);
+
+    List<BlobTargetOption> optionList = Arrays.asList(sdkOptions);
+    assertThat(optionList).contains(BlobTargetOption.doesNotExist());
+    assertThat(optionList).doesNotContain(BlobTargetOption.generationMatch(12345L));
+  }
+
+  @Test
+  void generateTargetOptions_whenOverwriteExistingIsTrueWithGeneration_addsGenerationMatchOption() {
+    String base64Key = "dGVzdC1lbmNyeXB0aW9uLWtleQ==";
+    GcsWriteOptions options =
+        GcsWriteOptions.builder()
+            .setOverwriteExisting(true)
+            .setDisableGzipContent(true)
+            .setKmsKeyName("kms-key")
+            .setEncryptionKey(base64Key)
+            .setUserProject("user-proj")
+            .build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("bucket")
+            .setObjectName("object")
+            .setContentGeneration(12345L)
+            .build();
+
+    BlobTargetOption[] sdkOptions = options.generateTargetOptions(itemId);
+
+    assertThat(Arrays.asList(sdkOptions))
+        .containsExactly(
+            BlobTargetOption.disableGzipContent(),
+            BlobTargetOption.generationMatch(12345L),
+            BlobTargetOption.kmsKeyName("kms-key"),
+            BlobTargetOption.encryptionKey(base64Key),
+            BlobTargetOption.userProject("user-proj"))
+        .inOrder();
   }
 }
