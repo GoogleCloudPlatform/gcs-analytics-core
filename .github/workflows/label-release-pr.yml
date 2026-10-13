@@ -1,3 +1,17 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 name: Label Release Please PR for Kokoro
 
 # Kokoro runs the correctness-test presubmit only when a PR has the kokoro:run label. This adds the
@@ -22,14 +36,15 @@ jobs:
   label-release-pr:
     name: label-release-pr
     # Release PRs from this repo only (fork PRs get a read-only token), never -SNAPSHOT bump PRs,
-    # and not when the label is already on the PR: Kokoro already reads it for this event.
+    # and not when the label is already on the PR: Kokoro reads the PR's labels on these events, so
+    # a label left over from an earlier commit already starts correctness-test for this one.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.head_ref, 'release-please--') &&
       !endsWith(github.event.pull_request.title, '-SNAPSHOT') &&
       !contains(github.event.pull_request.labels.*.name, 'kokoro:run')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     permissions:
       pull-requests: write # add the label
       statuses: read # see which Kokoro presubmits have started
@@ -44,7 +59,7 @@ jobs:
       AUTO_STARTED_CONTEXTS: |-
         presubmits / compilation
         presubmits / integration-tests
-      WAIT_TIMEOUT_SECONDS: 1200
+      WAIT_TIMEOUT_SECONDS: 300
       POLL_INTERVAL_SECONDS: 20
     defaults:
       run:
@@ -75,8 +90,8 @@ jobs:
             waiting_for=$(printf '"%s", ' "${missing[@]}")
             waiting_for=${waiting_for%, }
             if (( SECONDS >= deadline )); then
-              echo "::warning::Timed out waiting for ${waiting_for}; labeling anyway may start them twice."
-              exit 0
+              echo "::error::Timed out waiting for ${waiting_for}. Not adding $LABEL, which would start them a second time; add it by hand once they have started."
+              exit 1
             fi
             echo "Waiting for Kokoro to start ${waiting_for}"
             sleep "$POLL_INTERVAL_SECONDS"
@@ -87,14 +102,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          current_sha=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
-          labels=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.labels[].name')
-          contexts=$(gh api "repos/$REPO/commits/$HEAD_SHA/status" --jq '.statuses[].context')
+          # Retries, so a brief API error after the wait above does not fail the run.
+          fetch() {
+            local body
+            for _ in 1 2 3; do
+              if body=$(gh api "$1"); then
+                printf '%s\n' "$body"
+                return 0
+              fi
+              sleep 5
+            done
+            return 1
+          }
+          pull=$(fetch "repos/$REPO/pulls/$PR_NUMBER")
+          contexts=$(fetch "repos/$REPO/commits/$HEAD_SHA/status" | jq -r '.statuses[].context')
+          current_sha=$(jq -r '.head.sha' <<< "$pull")
+          labels=$(jq -r '.labels[].name' <<< "$pull")
           reason=""
           if [[ "$current_sha" != "$HEAD_SHA" ]]; then
             reason="the PR has a newer commit, and the run for that push handles it"
           elif grep -qxF "$LABEL" <<< "$labels"; then
-            reason="$LABEL is already on the PR"
+            reason="$LABEL was added by hand while this run waited"
           elif grep -qxF "$CORRECTNESS_CONTEXT" <<< "$contexts"; then
             reason="correctness-test already ran on this commit"
           fi
@@ -109,4 +137,4 @@ jobs:
         if: steps.check.outputs.add-label == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api --method POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=$LABEL" --silent
+        run: gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL"
