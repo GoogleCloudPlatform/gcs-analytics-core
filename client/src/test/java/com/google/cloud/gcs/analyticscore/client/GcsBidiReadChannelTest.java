@@ -753,6 +753,24 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
+  void read_unresolvedItemInfoAndSessionFails_throwsIOExceptionInsteadOfEof() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(-1L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.blobReadSession(any(BlobId.class)))
+        .thenReturn(ApiFutures.immediateFailedFuture(new IOException("Failed to get session")));
+    GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(
+            mockStorage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+
+    IOException e =
+        assertThrows(IOException.class, () -> seekableReader.read(ByteBuffer.allocate(10)));
+
+    assertThat(e).hasMessageThat().contains("ItemInfo is not initialized");
+    assertThat(e.getSuppressed()[0]).hasMessageThat().contains("Failed to get BlobReadSession");
+  }
+
+  @Test
   void size_sessionBlobInfoWithNegativeSize_fallsBackToSuperSize() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100L).build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();

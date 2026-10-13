@@ -295,7 +295,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
         this.objectSize = resolveSizeFromItemInfo(sessionFailure);
       } else {
         this.objectSize = blobInfo.getSize();
-        if (itemInfo == null || itemInfo.getSize() < 0) {
+        if (!hasResolvedSize(itemInfo)) {
           Long generation = blobInfo.getGeneration();
           updateGcsItemMetadata(
               new GcsReadChannelMetadataExtractor.ExtractedMetadata(
@@ -308,7 +308,11 @@ class GcsBidiReadChannel extends GcsReadChannel {
 
   private long resolveSizeFromItemInfo(@Nullable IOException sessionFailure) throws IOException {
     try {
-      return super.size();
+      long size = super.size();
+      if (size < 0) {
+        throw new IOException("Unable to resolve object size for " + blobId);
+      }
+      return size;
     } catch (IOException fallbackFailure) {
       if (sessionFailure != null) {
         fallbackFailure.addSuppressed(sessionFailure);

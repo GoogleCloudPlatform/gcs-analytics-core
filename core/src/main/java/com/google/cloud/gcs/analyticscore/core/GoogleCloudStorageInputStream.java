@@ -233,6 +233,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             Metric.READ_DURATION,
             commonAttributes,
             recorder -> {
+              adoptResolvedItemInfo(channel);
               try (VectoredSeekableByteChannel byteChannel =
                   openReadChannel(gcsFileSystem, gcsItemId, gcsFileInfo)) {
                 byteChannel.position(position);
