@@ -16,10 +16,35 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 final class HierarchicalNamespaceStrategyImpl implements NamespaceStrategy {
+  private static final Logger LOG =
+      LoggerFactory.getLogger(HierarchicalNamespaceStrategyImpl.class);
+
   private final GcsClient gcsClient;
 
   HierarchicalNamespaceStrategyImpl(GcsClient gcsClient) {
     this.gcsClient = gcsClient;
+  }
+
+  @Override
+  public void createDirectory(GcsItemId id) throws IOException {
+    checkNotNull(id, "id must not be null");
+    checkArgument(id.isGcsObject(), "Expected a directory folder itemId but got: %s", id);
+    String folderName = UriUtil.removeTrailingSlash(id.getObjectName().orElse(""));
+    GcsItemId folderItemId =
+        GcsItemId.builder().setBucketName(id.getBucketName()).setObjectName(folderName).build();
+    try {
+      gcsClient.createFolder(folderItemId, /* recursive= */ true);
+    } catch (FileAlreadyExistsException e) {
+      LOG.debug("Folder already exists for item: {}", folderItemId, e);
+    }
   }
 }

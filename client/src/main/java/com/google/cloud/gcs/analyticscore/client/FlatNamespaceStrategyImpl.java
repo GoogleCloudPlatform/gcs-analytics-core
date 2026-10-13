@@ -16,10 +16,34 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
+  private static final Logger LOG = LoggerFactory.getLogger(FlatNamespaceStrategyImpl.class);
+
   private final GcsClient gcsClient;
 
   FlatNamespaceStrategyImpl(GcsClient gcsClient) {
     this.gcsClient = gcsClient;
+  }
+
+  @Override
+  public void createDirectory(GcsItemId id) throws IOException {
+    checkNotNull(id, "id must not be null");
+    checkArgument(id.isGcsObject(), "Expected a directory object itemId but got: %s", id);
+    String objectName = UriUtil.toDirectoryPath(id.getObjectName().orElse(""));
+    GcsItemId dirItemId =
+        GcsItemId.builder().setBucketName(id.getBucketName()).setObjectName(objectName).build();
+    try {
+      gcsClient.createEmptyObject(dirItemId);
+    } catch (FileAlreadyExistsException e) {
+      LOG.debug("Directory marker already exists for item: {}", dirItemId, e);
+    }
   }
 }
