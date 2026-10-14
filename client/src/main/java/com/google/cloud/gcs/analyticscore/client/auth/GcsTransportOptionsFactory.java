@@ -25,6 +25,7 @@ import com.google.cloud.http.HttpTransportOptions;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import javax.annotation.Nullable;
@@ -41,6 +42,10 @@ import javax.annotation.Nullable;
 public final class GcsTransportOptionsFactory {
 
   private static final String GOOGLE_DEFAULT_UNIVERSE_DOMAIN = "googleapis.com";
+
+  /** The default GCS host, with or without a trailing slash. */
+  private static final ImmutableSet<String> GOOGLE_DEFAULT_STORAGE_HOSTS =
+      ImmutableSet.of("https://storage.googleapis.com", "https://storage.googleapis.com/");
 
   private GcsTransportOptionsFactory() {}
 
@@ -74,12 +79,14 @@ public final class GcsTransportOptionsFactory {
 
   /**
    * Returns whether requests go to a custom endpoint or a non-default universe domain, whose
-   * certificates may not be in Google's bundled trust store.
+   * certificates may not be in Google's bundled trust store. The default GCS host is not a custom
+   * endpoint.
    */
   @VisibleForTesting
   static boolean usesNonGoogleEndpoint(
       @Nullable String storageEndpoint, @Nullable String universeDomain) {
-    if (!isNullOrEmpty(storageEndpoint)) {
+    if (!isNullOrEmpty(storageEndpoint)
+        && !GOOGLE_DEFAULT_STORAGE_HOSTS.contains(storageEndpoint.trim())) {
       return true;
     }
     return !isNullOrEmpty(universeDomain)

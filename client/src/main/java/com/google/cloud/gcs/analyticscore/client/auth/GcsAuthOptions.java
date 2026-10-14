@@ -106,8 +106,10 @@ public abstract class GcsAuthOptions {
 
   public abstract Optional<RedactedString> getProxyPassword();
 
+  /** Returns the HTTP connect timeout, where zero means no timeout. */
   public abstract Duration getHttpConnectTimeout();
 
+  /** Returns the HTTP read timeout, where zero means no timeout. */
   public abstract Duration getHttpReadTimeout();
 
   public abstract Builder toBuilder();
@@ -206,7 +208,7 @@ public abstract class GcsAuthOptions {
       throw new IllegalArgumentException(
           String.format("%s=%s is not a valid number of milliseconds", key, value), e);
     }
-    checkArgument(timeoutMillis > 0, "%s=%s must be positive", key, value);
+    checkArgument(timeoutMillis >= 0, "%s=%s must not be negative", key, value);
     return Duration.ofMillis(timeoutMillis);
   }
 
@@ -413,14 +415,13 @@ public abstract class GcsAuthOptions {
 
     private static void validateTimeouts(GcsAuthOptions options, String prefix) {
       checkArgument(
-          !options.getHttpConnectTimeout().isNegative()
-              && !options.getHttpConnectTimeout().isZero(),
-          "%s must be positive, got: %s",
+          !options.getHttpConnectTimeout().isNegative(),
+          "%s must not be negative, got: %s",
           prefix + HTTP_CONNECT_TIMEOUT_KEY,
           options.getHttpConnectTimeout());
       checkArgument(
-          !options.getHttpReadTimeout().isNegative() && !options.getHttpReadTimeout().isZero(),
-          "%s must be positive, got: %s",
+          !options.getHttpReadTimeout().isNegative(),
+          "%s must not be negative, got: %s",
           prefix + HTTP_READ_TIMEOUT_KEY,
           options.getHttpReadTimeout());
     }

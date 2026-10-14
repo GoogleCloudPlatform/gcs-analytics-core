@@ -40,8 +40,8 @@ These properties configure standard Google Cloud authentication, OAuth2 token re
 | `analytics-core.auth.proxy.address` | HTTP proxy address of the form `[https?://]hostname:port`. Used for authentication requests and, when `client.protocol` is `HTTP` (the default), for GCS requests. gRPC requests (`client.protocol` `GRPC` or `BIDI`, and folder requests on hierarchical namespace buckets) use the JVM proxy settings instead. | - |
 | `analytics-core.auth.proxy.username` | Username for the HTTP proxy. Must be set together with `analytics-core.auth.proxy.password` and requires `analytics-core.auth.proxy.address`. Proxy credentials are installed as the JVM-wide default `Authenticator`. | - |
 | `analytics-core.auth.proxy.password` | Password for the HTTP proxy. Must be set together with `analytics-core.auth.proxy.username` and requires `analytics-core.auth.proxy.address`. | - |
-| `analytics-core.auth.http.connect-timeout-ms` | Connect timeout, in milliseconds, for GCS requests when `client.protocol` is `HTTP`. Does not apply to authentication requests or gRPC requests. Must be positive. | `5000` |
-| `analytics-core.auth.http.read-timeout-ms` | Socket read timeout, in milliseconds, for GCS requests when `client.protocol` is `HTTP`. Does not apply to authentication requests or gRPC requests. Must be positive. | `5000` |
+| `analytics-core.auth.http.connect-timeout-ms` | Connect timeout, in milliseconds, for GCS requests when `client.protocol` is `HTTP`. Does not apply to authentication requests or gRPC requests. `0` means no timeout. | `5000` |
+| `analytics-core.auth.http.read-timeout-ms` | Socket read timeout, in milliseconds, for GCS requests when `client.protocol` is `HTTP`. Does not apply to authentication requests or gRPC requests. `0` means no timeout. | `5000` |
 
 ### Caching and Prefetching
 

@@ -92,7 +92,8 @@ final class GcsHttpTransportFactory {
    * @param proxyAddress The HTTP proxy address of the form {@code [https?://]hostname:port}.
    * @param proxyUsername The HTTP proxy username.
    * @param proxyPassword The HTTP proxy password.
-   * @param readTimeout The socket read timeout to apply to HTTP requests, which must be positive.
+   * @param readTimeout The socket read timeout to apply to HTTP requests, where zero means no
+   *     timeout.
    * @param trustStoreSource The certificate trust store to validate TLS certificates against.
    * @return The resulting {@link HttpTransport}.
    * @throws IllegalArgumentException If proxy or timeout configuration parameters are invalid.
@@ -142,11 +143,11 @@ final class GcsHttpTransportFactory {
    *
    * @param proxyUri The parsed proxy address, or {@code null} to connect directly.
    * @param proxyAuth The proxy credentials, or {@code null} if the proxy needs no authentication.
-   * @param readTimeout The socket read timeout, which must be positive.
+   * @param readTimeout The socket read timeout, where zero means no timeout.
    * @param trustStoreSource The certificate trust store to validate TLS certificates against.
    * @return The resulting {@link NetHttpTransport}.
    * @throws IllegalArgumentException If proxyAuth is set without a proxyUri, or if readTimeout is
-   *     not positive.
+   *     negative.
    * @throws IOException If an error occurs initializing the certificate trust store.
    * @throws GeneralSecurityException If the certificate trust store cannot be loaded.
    */
@@ -232,7 +233,7 @@ final class GcsHttpTransportFactory {
    * Creates the {@link NetHttpTransport.Builder} that backs every transport this factory returns.
    *
    * @param proxyUri The parsed proxy address, or {@code null} to connect directly.
-   * @param readTimeout The socket read timeout, which must be positive.
+   * @param readTimeout The socket read timeout, where zero means no timeout.
    * @param trustStoreSource The certificate trust store to validate TLS certificates against.
    * @return The configured builder.
    * @throws IOException If an error occurs initializing the certificate trust store.
@@ -272,41 +273,41 @@ final class GcsHttpTransportFactory {
   }
 
   /**
-   * Converts a socket read timeout into the positive milliseconds accepted by {@link
-   * Socket#setSoTimeout}.
+   * Converts a socket read timeout into the milliseconds accepted by {@link Socket#setSoTimeout},
+   * where zero means no timeout.
    *
-   * @param readTimeout The socket read timeout, which must be positive.
-   * @return The positive timeout in milliseconds.
-   * @throws IllegalArgumentException If the timeout is zero, negative, shorter than a millisecond,
-   *     or overflows an int.
+   * @param readTimeout The socket read timeout, where zero means no timeout.
+   * @return The timeout in milliseconds.
+   * @throws IllegalArgumentException If the timeout is negative, shorter than a millisecond but not
+   *     zero, or overflows an int.
    */
   static int toReadTimeoutMillis(Duration readTimeout) {
     return toTimeoutMillis(readTimeout, "readTimeout");
   }
 
   /**
-   * Converts a timeout duration into positive milliseconds.
+   * Converts a timeout duration into milliseconds, where zero means no timeout.
    *
-   * <p>Consistent with {@link GcsAuthOptions}, timeouts must be strictly positive (at least 1
-   * millisecond and at most {@link Integer#MAX_VALUE} milliseconds). Zero and sub-millisecond
-   * durations are rejected rather than rounded down to zero.
+   * <p>Consistent with {@link GcsAuthOptions}, timeouts must not be negative. A positive duration
+   * shorter than a millisecond is rejected rather than rounded down to zero, which would mean no
+   * timeout.
    *
-   * @param timeout The timeout duration, which must be positive.
+   * @param timeout The timeout duration, where zero means no timeout.
    * @param timeoutName The name of the timeout parameter for error reporting.
-   * @return The positive timeout in milliseconds.
-   * @throws IllegalArgumentException If the timeout is zero, negative, shorter than a millisecond,
-   *     or overflows an int.
+   * @return The timeout in milliseconds.
+   * @throws IllegalArgumentException If the timeout is negative, shorter than a millisecond but not
+   *     zero, or overflows an int.
    */
   static int toTimeoutMillis(Duration timeout, String timeoutName) {
     checkNotNull(timeout, "%s cannot be null", timeoutName);
     checkArgument(
-        !timeout.isNegative() && !timeout.isZero(),
-        "%s must be positive, but was %s",
-        timeoutName,
-        timeout);
+        !timeout.isNegative(), "%s must not be negative, but was %s", timeoutName, timeout);
     long timeoutMillis = timeout.toMillis();
     checkArgument(
-        timeoutMillis > 0, "%s must be at least 1 millisecond, but was %s", timeoutName, timeout);
+        timeout.isZero() || timeoutMillis > 0,
+        "%s must be zero or at least 1 millisecond, but was %s",
+        timeoutName,
+        timeout);
     checkArgument(
         timeoutMillis <= Integer.MAX_VALUE,
         "%s must not exceed %s milliseconds, but was %s",
@@ -325,12 +326,13 @@ final class GcsHttpTransportFactory {
 
     /**
      * @param wrappedSocketFactory The socket factory to delegate socket creation to.
-     * @param readTimeoutMillis The positive socket read timeout in milliseconds.
+     * @param readTimeoutMillis The socket read timeout in milliseconds, where zero means no
+     *     timeout.
      */
     KeepAliveSslSocketFactory(SSLSocketFactory wrappedSocketFactory, int readTimeoutMillis) {
       checkArgument(
-          readTimeoutMillis > 0,
-          "readTimeoutMillis must be positive, but was %s",
+          readTimeoutMillis >= 0,
+          "readTimeoutMillis must not be negative, but was %s",
           readTimeoutMillis);
       this.wrappedSocketFactory = wrappedSocketFactory;
       this.readTimeoutMillis = readTimeoutMillis;
@@ -342,7 +344,7 @@ final class GcsHttpTransportFactory {
       return wrappedSocketFactory;
     }
 
-    /** Returns the positive read timeout in milliseconds applied to created sockets. */
+    /** Returns the read timeout in milliseconds applied to created sockets. */
     @VisibleForTesting
     int getReadTimeoutMillis() {
       return readTimeoutMillis;

@@ -49,6 +49,23 @@ class GcsTransportOptionsFactoryTest {
   }
 
   @Test
+  void createHttpTransportOptions_zeroTimeouts_appliesNoTimeouts() {
+    GcsAuthOptions options =
+        GcsAuthOptions.builder()
+            .setHttpConnectTimeout(Duration.ZERO)
+            .setHttpReadTimeout(Duration.ZERO)
+            .build();
+
+    HttpTransportOptions transportOptions =
+        GcsTransportOptionsFactory.createHttpTransportOptions(
+            options, /* storageEndpoint= */ null, /* universeDomain= */ null);
+
+    assertThat(new int[] {transportOptions.getConnectTimeout(), transportOptions.getReadTimeout()})
+        .asList()
+        .containsExactly(0, 0);
+  }
+
+  @Test
   void createHttpTransportOptions_withoutProxy_keepsDefaultTransportFactory() {
     HttpTransportOptions transportOptions =
         GcsTransportOptionsFactory.createHttpTransportOptions(
@@ -90,6 +107,9 @@ class GcsTransportOptionsFactoryTest {
         "null, googleapis.com, false",
         "null, ' GoogleAPIs.com ', false",
         "https://localhost:8443, null, true",
+        "https://storage.googleapis.com, null, false",
+        "https://storage.googleapis.com/, null, false",
+        "https://restricted.googleapis.com, null, true",
         "null, apis-tpclp.goog, true",
       },
       nullValues = "null")

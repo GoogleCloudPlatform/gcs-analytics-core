@@ -424,12 +424,14 @@ class GcsHttpTransportFactoryTest {
   }
 
   @Test
-  void createHttpTransport_zeroReadTimeout_throwsIllegalArgumentException() {
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            GcsHttpTransportFactory.createHttpTransport(
-                null, null, null, Duration.ZERO, TrustStoreSource.GOOGLE_BUNDLED));
+  void createNetHttpTransportBuilder_zeroReadTimeout_appliesNoSocketTimeout()
+      throws IOException, GeneralSecurityException {
+    NetHttpTransport.Builder builder =
+        GcsHttpTransportFactory.createNetHttpTransportBuilder(
+            null, Duration.ZERO, TrustStoreSource.GOOGLE_BUNDLED);
+
+    assertThat(((KeepAliveSslSocketFactory) builder.getSslSocketFactory()).getReadTimeoutMillis())
+        .isEqualTo(0);
   }
 
   @Test
@@ -486,10 +488,10 @@ class GcsHttpTransportFactoryTest {
   }
 
   @Test
-  void keepAliveSslSocketFactory_nonPositiveTimeout_throwsIllegalArgumentException() {
+  void keepAliveSslSocketFactory_negativeTimeout_throwsIllegalArgumentException() {
     assertThrows(
         IllegalArgumentException.class,
-        () -> new KeepAliveSslSocketFactory(new FakeSslSocketFactory(), 0));
+        () -> new KeepAliveSslSocketFactory(new FakeSslSocketFactory(), -1));
   }
 
   @ParameterizedTest(name = "createSocket overload: {0}")
