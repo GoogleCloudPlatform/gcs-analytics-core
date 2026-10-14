@@ -496,6 +496,22 @@ class GcsClientImplTest {
     assertThat(client.storage.getOptions()).isInstanceOf(GrpcStorageOptions.class);
   }
 
+  @ParameterizedTest
+  @CsvSource(
+      value = {
+        "configured.goog, environment.goog, configured.goog",
+        "null, environment.goog, environment.goog",
+        "null, ' environment.goog ', environment.goog",
+        "null, '  ', null",
+        "null, null, null",
+      },
+      nullValues = "null")
+  void resolveUniverseDomain_prefersConfiguredValueThenEnvironment(
+      String configured, String environment, String expected) {
+    assertThat(GcsClientImpl.resolveUniverseDomain(Optional.ofNullable(configured), environment))
+        .isEqualTo(Optional.ofNullable(expected));
+  }
+
   @Test
   void createStorageControlClient_withUniverseDomain_setsUniverseDomain() throws IOException {
     GcsClientOptions clientOptions =

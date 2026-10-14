@@ -14,7 +14,7 @@ These properties govern the core connections, identity, and access parameters be
 | :--- | :--- | :--- |
 | `client-lib-token` | Client library token. | - |
 | `service.host` | The GCS service host. | - |
-| `universe-domain` | The Google Cloud universe domain to send GCS requests to, such as a Trusted Partner Cloud domain. Credentials must belong to the same universe. | - |
+| `universe-domain` | The Google Cloud universe domain to send GCS requests to, such as a Trusted Partner Cloud domain. When unset, the `GOOGLE_CLOUD_UNIVERSE_DOMAIN` environment variable is used. Credentials must belong to the same universe. | `googleapis.com` |
 | `user-agent` | The user agent string. | - |
 | `project-id` | The Google Cloud project ID for the GCS client. | - |
 | `user-project` | Project ID whose Google Cloud Project's billing account should be charged for the operation being executed. | - |

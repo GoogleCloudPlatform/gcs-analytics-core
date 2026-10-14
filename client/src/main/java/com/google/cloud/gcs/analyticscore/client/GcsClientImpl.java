@@ -59,6 +59,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
+import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -89,6 +90,7 @@ class GcsClientImpl implements GcsClient {
         BucketField.STORAGE_CLASS
       };
   private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
+  private static final String UNIVERSE_DOMAIN_ENV_VAR = "GOOGLE_CLOUD_UNIVERSE_DOMAIN";
 
   @VisibleForTesting Storage storage;
   private final GcsClientOptions clientOptions;
@@ -99,6 +101,7 @@ class GcsClientImpl implements GcsClient {
   private volatile boolean isStorageControlClientClosed = false;
 
   private final GcsAuthOptions authOptions;
+  private final Optional<String> universeDomain;
 
   GcsClientImpl(
       Credentials credentials,
@@ -145,7 +148,24 @@ class GcsClientImpl implements GcsClient {
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
     this.authOptions = authOptions;
+    this.universeDomain =
+        resolveUniverseDomain(
+            clientOptions.getUniverseDomain(), System.getenv(UNIVERSE_DOMAIN_ENV_VAR));
     this.storage = createStorage(credentials);
+  }
+
+  /**
+   * Returns the configured universe domain, or else the {@code GOOGLE_CLOUD_UNIVERSE_DOMAIN}
+   * environment variable when it is set and not blank.
+   */
+  @VisibleForTesting
+  static Optional<String> resolveUniverseDomain(
+      Optional<String> configuredUniverseDomain, @Nullable String environmentUniverseDomain) {
+    return configuredUniverseDomain.or(
+        () ->
+            Optional.ofNullable(environmentUniverseDomain)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty()));
   }
 
   @Override
@@ -295,7 +315,7 @@ class GcsClientImpl implements GcsClient {
       throws IOException {
     StorageControlSettings.Builder builder = StorageControlSettings.newBuilder();
     credentials.ifPresent(c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
-    clientOptions.getUniverseDomain().ifPresent(builder::setUniverseDomain);
+    universeDomain.ifPresent(builder::setUniverseDomain);
     return StorageControlClient.create(builder.build());
   }
 
@@ -459,7 +479,7 @@ class GcsClientImpl implements GcsClient {
                   GcsTransportOptionsFactory.createHttpTransportOptions(
                       authOptions,
                       clientOptions.getServiceHost().orElse(null),
-                      clientOptions.getUniverseDomain().orElse(null)));
+                      universeDomain.orElse(null)));
     }
 
     String userAgent = getUserAgent();
@@ -467,7 +487,7 @@ class GcsClientImpl implements GcsClient {
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
-    clientOptions.getUniverseDomain().ifPresent(builder::setUniverseDomain);
+    universeDomain.ifPresent(builder::setUniverseDomain);
     credentials.ifPresent(builder::setCredentials);
     builder.setBlobWriteSessionConfig(clientOptions.generateSessionConfig());
 
