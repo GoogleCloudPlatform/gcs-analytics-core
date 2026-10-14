@@ -59,6 +59,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   private volatile boolean isGcsReadChannelOpen = true;
   private volatile boolean metadataExtractionAttempted = false;
   protected final ItemInfoProvider itemInfoProvider;
+  private GcsItemInfo itemInfoAppliedToStrategy;
 
   GcsReadChannel(
       Storage storage,
@@ -127,6 +128,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     this.telemetry = telemetry;
     this.itemInfoProvider = null;
     this.strategy = createReadStrategy(storage, itemId, readOptions, itemInfo);
+    this.itemInfoAppliedToStrategy = itemInfo;
   }
 
   protected ReadStrategy createReadStrategy(
@@ -154,6 +156,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   }
 
   private int readNextChunk(ByteBuffer dst) throws IOException {
+    syncStrategyItemInfo();
     int bytesRead;
     try {
       ReadChannel sdkChannel = strategy.getReadChannel(gcsReadChannelPosition, dst.remaining());
@@ -162,12 +165,13 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       rethrowAsFileNotFoundIf404(e);
       throw e;
     }
+    extractMetadataAfterRead(this.strategy, /* responseReceived= */ true);
     if (bytesRead >= 0) {
-      extractMetadataAfterRead(this.strategy, /* responseReceived= */ true);
       gcsReadChannelPosition += bytesRead;
       strategy.position(gcsReadChannelPosition);
       return bytesRead;
     }
+    syncStrategyItemInfo();
     if (strategy.isEof(gcsReadChannelPosition)) {
       return -1;
     }
@@ -212,17 +216,23 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
 
   @Override
   public long size() throws IOException {
-    if (itemInfo != null
+    if (hasResolvedSize(itemInfo)
         || extractMetadataAfterRead(this.strategy, /* responseReceived= */ false)) {
       return itemInfo.getSize();
     }
     if (itemInfoProvider == null) {
       throw new IOException("ItemInfo is not initialized and no ItemInfoProvider was provided.");
     }
-
-    itemInfo = itemInfoProvider.getItemInfo(itemId);
-    itemId = itemInfo.getItemId();
-    return itemInfo.getSize();
+    synchronized (this) {
+      if (!hasResolvedSize(itemInfo)) {
+        GcsItemInfo fetchedItemInfo = itemInfoProvider.getItemInfo(itemId);
+        if (!hasResolvedSize(fetchedItemInfo)) {
+          throw new IOException("Unable to resolve object size for " + itemId);
+        }
+        applyItemInfo(fetchedItemInfo);
+      }
+      return itemInfo.getSize();
+    }
   }
 
   @Override
@@ -395,6 +405,19 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
+  private void syncStrategyItemInfo() {
+    GcsItemInfo current = itemInfo;
+    if (!hasResolvedSize(current) || current == itemInfoAppliedToStrategy) {
+      return;
+    }
+    strategy.updateItemInfo(current);
+    itemInfoAppliedToStrategy = current;
+  }
+
+  static boolean hasResolvedSize(@Nullable GcsItemInfo itemInfo) {
+    return itemInfo != null && itemInfo.getSize() >= 0;
+  }
+
   private void validatePosition(long position) throws IOException {
     if (position < 0) {
       throw new EOFException(
@@ -404,12 +427,12 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
   }
 
   private boolean extractMetadataAfterRead(ReadStrategy strategy, boolean responseReceived) {
-    if (itemInfo != null || metadataExtractionAttempted) {
-      return itemInfo != null;
+    if (hasResolvedSize(itemInfo) || metadataExtractionAttempted) {
+      return hasResolvedSize(itemInfo);
     }
     synchronized (this) {
-      if (itemInfo != null || metadataExtractionAttempted) {
-        return itemInfo != null;
+      if (hasResolvedSize(itemInfo) || metadataExtractionAttempted) {
+        return hasResolvedSize(itemInfo);
       }
       ExtractedMetadata metadata =
           GcsReadChannelMetadataExtractor.extract(strategy.getSdkReadChannel());
@@ -423,7 +446,7 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
-  private void updateGcsItemMetadata(ExtractedMetadata metadata) {
+  protected void updateGcsItemMetadata(ExtractedMetadata metadata) {
     long genToSet =
         metadata.getGeneration() >= 0
             ? metadata.getGeneration()
@@ -439,7 +462,11 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
       itemInfoBuilder.setContentGeneration(genToSet);
     }
 
-    itemId = itemIdBuilder.build();
-    itemInfo = itemInfoBuilder.setItemId(itemId).build();
+    applyItemInfo(itemInfoBuilder.setItemId(itemIdBuilder.build()).build());
+  }
+
+  private void applyItemInfo(GcsItemInfo resolvedItemInfo) {
+    itemInfo = resolvedItemInfo;
+    itemId = resolvedItemInfo.getItemId();
   }
 }
