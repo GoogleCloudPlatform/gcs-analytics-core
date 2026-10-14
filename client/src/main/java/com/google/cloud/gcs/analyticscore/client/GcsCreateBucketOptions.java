@@ -37,10 +37,17 @@ public abstract class GcsCreateBucketOptions {
   /** Returns whether Hierarchical Namespace (HNS) is enabled for the bucket. */
   public abstract boolean isHierarchicalNamespaceEnabled();
 
-  /** Returns the bucket retention period (TTL). */
+  /**
+   * Returns the object time-to-live (TTL) duration used to configure a bucket lifecycle {@code
+   * Delete} rule (deleting objects after the specified age in days), rather than a GCS retention
+   * policy.
+   */
   public abstract Optional<Duration> getTtl();
 
-  /** Returns the zone for a zonal bucket. */
+  /**
+   * Returns the zone for a zonal bucket. Zonal buckets require Hierarchical Namespace (HNS) to be
+   * enabled, default the storage class to {@code RAPID}, and do not support TTL.
+   */
   public abstract Optional<String> getZonalPlacement();
 
   public abstract Builder toBuilder();
@@ -59,8 +66,16 @@ public abstract class GcsCreateBucketOptions {
 
     public abstract Builder setHierarchicalNamespaceEnabled(boolean enabled);
 
+    /**
+     * Sets the object time-to-live (TTL) duration used to configure a bucket lifecycle {@code
+     * Delete} rule (minimum 1 day).
+     */
     public abstract Builder setTtl(Duration ttl);
 
+    /**
+     * Sets the zone for a zonal bucket. Zonal buckets require Hierarchical Namespace (HNS) to be
+     * enabled, default the storage class to {@code RAPID}, and do not support TTL.
+     */
     public abstract Builder setZonalPlacement(String zonalPlacement);
 
     abstract GcsCreateBucketOptions autoBuild();

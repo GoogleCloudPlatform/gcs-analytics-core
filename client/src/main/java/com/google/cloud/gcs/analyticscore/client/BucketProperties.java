@@ -29,7 +29,32 @@ public abstract class BucketProperties {
 
   public abstract boolean isRapid();
 
+  public abstract Builder toBuilder();
+
+  /**
+   * Creates a {@link BucketProperties} instance with the given HNS setting and {@code isRapid}
+   * defaulting to {@code false}.
+   */
+  public static BucketProperties create(boolean hnsEnabled) {
+    return create(hnsEnabled, false);
+  }
+
+  /** Creates a {@link BucketProperties} instance with the given HNS and RAPID settings. */
   public static BucketProperties create(boolean hnsEnabled, boolean isRapid) {
-    return new AutoValue_BucketProperties(hnsEnabled, isRapid);
+    return builder().setHnsEnabled(hnsEnabled).setRapid(isRapid).build();
+  }
+
+  public static Builder builder() {
+    return new AutoValue_BucketProperties.Builder().setHnsEnabled(false).setRapid(false);
+  }
+
+  /** Builder for {@link BucketProperties}. */
+  @AutoValue.Builder
+  public abstract static class Builder {
+    public abstract Builder setHnsEnabled(boolean hnsEnabled);
+
+    public abstract Builder setRapid(boolean isRapid);
+
+    public abstract BucketProperties build();
   }
 }

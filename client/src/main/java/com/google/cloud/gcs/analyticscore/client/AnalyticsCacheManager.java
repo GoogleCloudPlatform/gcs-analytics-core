@@ -131,6 +131,11 @@ public class AnalyticsCacheManager {
     bucketPropertiesCache.invalidate(bucketName);
   }
 
+  /** Returns the cache used for bucket properties. */
+  AnalyticsCache<String, BucketProperties> getBucketPropertiesCache() {
+    return bucketPropertiesCache;
+  }
+
   /** Invalidates all cached entries. */
   public void invalidateAll() {
     footerCache.invalidateAll();

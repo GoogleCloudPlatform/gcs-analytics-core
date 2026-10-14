@@ -16,11 +16,14 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import java.io.IOException;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 class AdaptiveReadStrategyTest {
 
@@ -296,6 +299,54 @@ class AdaptiveReadStrategyTest {
     strategy.getReadChannel(400, 200);
 
     assertThat(strategy.getLimit()).isEqualTo(Long.MAX_VALUE);
+  }
+
+  @Test
+  void updateItemInfo_propagatesSizeToDelegateStrategy() throws IOException {
+    createBlobInStorage("a".repeat(1000));
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(storage, itemId, options, /* itemInfo= */ null);
+    GcsItemInfo resolvedItemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(1000).build();
+
+    strategy.updateItemInfo(resolvedItemInfo);
+
+    assertThat(strategy.getDelegateStrategy().isEof(999)).isFalse();
+  }
+
+  @Test
+  void updateItemInfo_withGeneration_pinsGenerationWhenSwitchingStrategy() throws IOException {
+    createBlobInStorage("a".repeat(1000));
+    Storage spyStorage = Mockito.spy(storage);
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(spyStorage, itemId, options, /* itemInfo= */ null);
+    GcsItemId pinnedItemId =
+        GcsItemId.builder()
+            .setBucketName(itemId.getBucketName())
+            .setObjectName(itemId.getObjectName().get())
+            .setContentGeneration(123L)
+            .build();
+    GcsItemInfo resolvedItemInfo =
+        GcsItemInfo.builder()
+            .setItemId(pinnedItemId)
+            .setSize(1000)
+            .setContentGeneration(123L)
+            .build();
+    strategy.updateItemInfo(resolvedItemInfo);
+
+    strategy.getReadChannel(200, 10);
+
+    Mockito.verify(spyStorage)
+        .reader(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 123L));
+  }
+
+  @Test
+  void updateItemInfo_negativeSize_throwsIllegalArgumentException() throws IOException {
+    createBlobInStorage("a".repeat(1000));
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(storage, itemId, options, /* itemInfo= */ null);
+    GcsItemInfo unresolvedItemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(-1).build();
+
+    assertThrows(IllegalArgumentException.class, () -> strategy.updateItemInfo(unresolvedItemInfo));
   }
 
   private void createBlobInStorage(String content) {

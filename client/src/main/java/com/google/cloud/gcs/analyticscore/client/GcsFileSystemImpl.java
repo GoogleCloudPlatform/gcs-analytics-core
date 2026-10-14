@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Strings.isNullOrEmpty;
 
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.client.auth.GcsCredentialsFactory;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
@@ -37,6 +38,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.FileAlreadyExistsException;
@@ -80,28 +82,35 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   private final FlatNamespaceStrategyImpl flatStrategy;
   private final HierarchicalNamespaceStrategyImpl hnsStrategy;
 
+  /**
+   * Creates a file system whose credentials are resolved from {@code fileSystemOptions}.
+   *
+   * @param fileSystemOptions The file system options, including the authentication options.
+   * @throws UncheckedIOException If credentials cannot be resolved from the authentication options.
+   */
   public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
-    this.fileSystemOptions = fileSystemOptions;
-    this.readExecutorServiceSupplier = initializeReadExecutionServiceSupplier();
-    this.statusExecutorServiceSupplier = initializeStatusExecutionServiceSupplier();
-    this.telemetry = createTelemetry(fileSystemOptions.getAnalyticsCoreTelemetryOptions());
-    this.cacheManager = new AnalyticsCacheManager(fileSystemOptions.getGcsCacheOptions());
-    this.gcsClient =
-        telemetry.measure(
-            GcsAnalyticsCoreTelemetryConstants.Operation.GCS_CLIENT_CREATE.name(),
-            GcsAnalyticsCoreTelemetryConstants.Metric.GCS_CLIENT_CREATE_DURATION,
-            Collections.emptyMap(),
-            recorder ->
-                new GcsClientImpl(
-                    fileSystemOptions.getGcsClientOptions(),
-                    readExecutorServiceSupplier,
-                    telemetry,
-                    cacheManager));
-    this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
-    this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
+    this(createCredentials(fileSystemOptions), fileSystemOptions);
   }
 
+  private static Credentials createCredentials(GcsFileSystemOptions fileSystemOptions) {
+    checkNotNull(fileSystemOptions, "fileSystemOptions should not be null");
+    try {
+      return GcsCredentialsFactory.createCredentials(fileSystemOptions.getGcsAuthOptions());
+    } catch (IOException e) {
+      throw new UncheckedIOException("Failed to create credentials from auth options", e);
+    }
+  }
+
+  /**
+   * Creates a file system that uses {@code credentials} instead of resolving credentials from the
+   * authentication options in {@code fileSystemOptions}.
+   *
+   * @param credentials The credentials for GCS requests.
+   * @param fileSystemOptions The file system options.
+   */
   public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions) {
+    checkNotNull(credentials, "credentials should not be null");
+    checkNotNull(fileSystemOptions, "fileSystemOptions should not be null");
     this.fileSystemOptions = fileSystemOptions;
     this.readExecutorServiceSupplier = initializeReadExecutionServiceSupplier();
     this.statusExecutorServiceSupplier = initializeStatusExecutionServiceSupplier();
@@ -118,7 +127,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
                     fileSystemOptions.getGcsClientOptions(),
                     readExecutorServiceSupplier,
                     telemetry,
-                    cacheManager));
+                    cacheManager.getBucketPropertiesCache()));
     this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
     this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
   }
@@ -155,8 +164,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       return flatStrategy;
     }
 
-    BucketProperties properties =
-        cacheManager.getBucketProperties(bucketName, gcsClient::getBucketProperties);
+    BucketProperties properties = gcsClient.getBucketProperties(bucketName);
 
     if (properties.isHnsEnabled()) {
       return hnsStrategy;

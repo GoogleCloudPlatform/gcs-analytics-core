@@ -18,6 +18,10 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.NotFoundException;
+import com.google.api.gax.rpc.PermissionDeniedException;
+import com.google.api.gax.rpc.UnauthenticatedException;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.StorageException;
 import java.io.FileNotFoundException;
@@ -163,6 +167,61 @@ class GcsExceptionUtil {
             "Error during %s to GCS for gs://%s/%s at position %d",
             context, blobId.getBucket(), blobId.getName(), position),
         e);
+  }
+
+  /**
+   * Translates a {@link StorageException} thrown during an item-level or bucket-level operation
+   * into the appropriate {@link IOException} subtype ({@link FileNotFoundException}, {@link
+   * AccessDeniedException}, {@link FileAlreadyExistsException}, or a generic {@link IOException}
+   * with {@code fallbackMessage}).
+   */
+  static IOException translateStorageException(
+      StorageException e, GcsItemId itemId, String fallbackMessage) {
+    checkNotNull(e, "StorageException should not be null");
+    checkNotNull(itemId, "itemId should not be null");
+    String location = formatLocation(itemId);
+    switch (getErrorType(e)) {
+      case NOT_FOUND:
+        return createFileNotFoundException(location, e);
+      case ACCESS_DENIED:
+        return (AccessDeniedException)
+            new AccessDeniedException(location, null, e.getMessage()).initCause(e);
+      case ALREADY_EXISTS:
+        return (FileAlreadyExistsException)
+            new FileAlreadyExistsException(location, null, e.getMessage()).initCause(e);
+      default:
+        return new IOException(fallbackMessage, e);
+    }
+  }
+
+  /**
+   * Translates an exception thrown by the Storage Control API into the appropriate {@link
+   * IOException} subtype ({@link FileAlreadyExistsException}, {@link FileNotFoundException}, {@link
+   * AccessDeniedException}, or a generic {@link IOException} with {@code fallbackMessage}).
+   */
+  static IOException translateControlException(
+      Exception e, GcsItemId itemId, String fallbackMessage) {
+    checkNotNull(e, "Exception should not be null");
+    checkNotNull(itemId, "itemId should not be null");
+    if (e instanceof IOException) {
+      return (IOException) e;
+    }
+    String location = formatLocation(itemId);
+    if (e instanceof AlreadyExistsException) {
+      return (FileAlreadyExistsException)
+          new FileAlreadyExistsException(location, null, e.getMessage()).initCause(e);
+    }
+    if (e instanceof NotFoundException) {
+      return createFileNotFoundException(
+          location,
+          new StorageException(
+              HttpURLConnection.HTTP_NOT_FOUND, String.format("Object %s not found", location), e));
+    }
+    if (e instanceof PermissionDeniedException || e instanceof UnauthenticatedException) {
+      return (AccessDeniedException)
+          new AccessDeniedException(location, null, e.getMessage()).initCause(e);
+    }
+    return new IOException(fallbackMessage, e);
   }
 
   /**

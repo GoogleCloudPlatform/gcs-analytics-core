@@ -19,6 +19,10 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.ErrorType;
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.NotFoundException;
+import com.google.api.gax.rpc.PermissionDeniedException;
+import com.google.api.gax.rpc.UnauthenticatedException;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.StorageException;
 import java.io.FileNotFoundException;
@@ -29,6 +33,7 @@ import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 class GcsExceptionUtilTest {
 
@@ -476,6 +481,76 @@ class GcsExceptionUtilTest {
     assertThat(translated).hasMessageThat().isEqualTo(created.getMessage());
     assertThat(GcsExceptionUtil.getStorageException(created).get().getCode())
         .isEqualTo(GcsExceptionUtil.getStorageException(translated).get().getCode());
+  }
+
+  @Test
+  void translateStorageException_mapsStatusCodesCorrectly() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(BUCKET).setObjectName(NAME).build();
+
+    IOException notFound =
+        GcsExceptionUtil.translateStorageException(
+            new StorageException(404, "Not Found"), itemId, "fallback");
+    assertThat(notFound).isInstanceOf(FileNotFoundException.class);
+
+    IOException forbidden =
+        GcsExceptionUtil.translateStorageException(
+            new StorageException(403, "Forbidden"), itemId, "fallback");
+    assertThat(forbidden).isInstanceOf(AccessDeniedException.class);
+
+    IOException unauthorized =
+        GcsExceptionUtil.translateStorageException(
+            new StorageException(401, "Unauthorized"), itemId, "fallback");
+    assertThat(unauthorized).isInstanceOf(AccessDeniedException.class);
+
+    IOException conflict =
+        GcsExceptionUtil.translateStorageException(
+            new StorageException(409, "Conflict"), itemId, "fallback");
+    assertThat(conflict).isInstanceOf(FileAlreadyExistsException.class);
+
+    IOException preconditionFailed =
+        GcsExceptionUtil.translateStorageException(
+            new StorageException(412, "Precondition Failed"), itemId, "fallback");
+    assertThat(preconditionFailed).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(preconditionFailed).hasMessageThat().isEqualTo("fallback");
+
+    IOException internalError =
+        GcsExceptionUtil.translateStorageException(
+            new StorageException(500, "Internal Error"), itemId, "fallback");
+    assertThat(internalError).hasMessageThat().isEqualTo("fallback");
+  }
+
+  @Test
+  void translateControlException_mapsExceptionsCorrectly() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(BUCKET).setObjectName(NAME).build();
+
+    IOException directIoe = new IOException("direct");
+    assertThat(GcsExceptionUtil.translateControlException(directIoe, itemId, "fallback"))
+        .isSameInstanceAs(directIoe);
+
+    IOException alreadyExists =
+        GcsExceptionUtil.translateControlException(
+            Mockito.mock(AlreadyExistsException.class), itemId, "fallback");
+    assertThat(alreadyExists).isInstanceOf(FileAlreadyExistsException.class);
+
+    IOException notFound =
+        GcsExceptionUtil.translateControlException(
+            Mockito.mock(NotFoundException.class), itemId, "fallback");
+    assertThat(notFound).isInstanceOf(FileNotFoundException.class);
+
+    IOException permissionDenied =
+        GcsExceptionUtil.translateControlException(
+            Mockito.mock(PermissionDeniedException.class), itemId, "fallback");
+    assertThat(permissionDenied).isInstanceOf(AccessDeniedException.class);
+
+    IOException unauthenticated =
+        GcsExceptionUtil.translateControlException(
+            Mockito.mock(UnauthenticatedException.class), itemId, "fallback");
+    assertThat(unauthenticated).isInstanceOf(AccessDeniedException.class);
+
+    IOException generic =
+        GcsExceptionUtil.translateControlException(
+            new RuntimeException("boom"), itemId, "fallback");
+    assertThat(generic).hasMessageThat().isEqualTo("fallback");
   }
 
   @Test
