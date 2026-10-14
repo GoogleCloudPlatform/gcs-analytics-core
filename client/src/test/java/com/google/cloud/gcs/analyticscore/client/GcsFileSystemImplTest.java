@@ -598,13 +598,20 @@ class GcsFileSystemImplTest {
                     .build())
             .setSize(100L)
             .build();
-    when(mockClient.listFirstObjectWithPrefix(eq(itemId))).thenReturn(Optional.of(childItem));
+    AtomicReference<Thread> executionThread = new AtomicReference<>();
+    when(mockClient.listFirstObjectWithPrefix(eq(itemId)))
+        .thenAnswer(
+            invocation -> {
+              executionThread.set(Thread.currentThread());
+              return Optional.of(childItem);
+            });
 
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
 
     assertThat(fileInfo).isNotNull();
     assertThat(fileInfo.getItemInfo().getItemType())
         .isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
+    assertThat(executionThread.get()).isSameInstanceAs(Thread.currentThread());
     verify(mockClient, never()).getGcsItemInfo(any(GcsItemId.class));
   }
 
@@ -618,15 +625,68 @@ class GcsFileSystemImplTest {
             .setSize(0L)
             .setItemType(GcsItemInfo.ItemType.NATIVE_FOLDER)
             .build();
+    AtomicReference<Thread> executionThread = new AtomicReference<>();
     when(mockClient.isHnsBucket(TEST_BUCKET)).thenReturn(true);
-    when(mockClient.getFolderInfo(eq(folderId))).thenReturn(folderInfo);
+    when(mockClient.getFolderInfo(eq(folderId)))
+        .thenAnswer(
+            invocation -> {
+              executionThread.set(Thread.currentThread());
+              return folderInfo;
+            });
 
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(folderId);
 
     assertThat(fileInfo).isNotNull();
     assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
     assertThat(fileInfo.getUri().toString()).isEqualTo("gs://" + TEST_BUCKET + "/my-folder/");
+    assertThat(executionThread.get()).isSameInstanceAs(Thread.currentThread());
     verify(mockClient, never()).getGcsItemInfo(any(GcsItemId.class));
+  }
+
+  @Test
+  void getFileInfoInternal_whenInferImplicitDirectoriesFalseAndDirectoryPath_checksPlaceholderOnly()
+      throws IOException {
+    GcsItemId dirId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data/").build();
+    GcsItemInfo placeholderInfo =
+        GcsItemInfo.builder()
+            .setItemId(dirId)
+            .setSize(0L)
+            .setContentGeneration(42L)
+            .setItemType(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY)
+            .build();
+    when(mockClient.getGcsItemInfo(eq(dirId))).thenReturn(placeholderInfo);
+
+    GcsFileInfo fileInfo =
+        ((GcsFileSystemImpl) gcsFileSystem)
+            .getFileInfoInternal(dirId, /* inferImplicitDirectories= */ false);
+
+    assertThat(fileInfo.getItemInfo()).isSameInstanceAs(placeholderInfo);
+    verify(mockClient).getGcsItemInfo(eq(dirId));
+    verify(mockClient, never()).listFirstObjectWithPrefix(any(GcsItemId.class));
+  }
+
+  @Test
+  void getFileInfoInternal_whenInferImplicitDirectoriesFalseAndUnknownPath_checksPlaceholderOnly()
+      throws IOException {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data").build();
+    GcsItemId dirId = itemId.toDirectoryId();
+    GcsItemInfo placeholderInfo =
+        GcsItemInfo.builder()
+            .setItemId(dirId)
+            .setSize(0L)
+            .setContentGeneration(42L)
+            .setItemType(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY)
+            .build();
+    when(mockClient.getGcsItemInfo(eq(itemId)))
+        .thenThrow(GcsExceptionUtil.createFileNotFoundException(itemId));
+    when(mockClient.getGcsItemInfo(eq(dirId))).thenReturn(placeholderInfo);
+
+    GcsFileInfo fileInfo =
+        ((GcsFileSystemImpl) gcsFileSystem)
+            .getFileInfoInternal(itemId, /* inferImplicitDirectories= */ false);
+
+    assertThat(fileInfo.getItemInfo()).isSameInstanceAs(placeholderInfo);
+    verify(mockClient, never()).listFirstObjectWithPrefix(any(GcsItemId.class));
   }
 
   @Test
@@ -645,17 +705,43 @@ class GcsFileSystemImplTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  void getFromFuture_whenExecutionExceptionWithRuntimeException_wrapsInIOException()
+  void getFromFuture_whenExecutionExceptionWithRuntimeException_rethrowsRuntimeException()
       throws Exception {
     Future<String> mockFuture = mock(Future.class);
-    when(mockFuture.get())
-        .thenThrow(new ExecutionException(new RuntimeException("runtime failure")));
+    RuntimeException expected = new IllegalStateException("runtime failure");
+    when(mockFuture.get()).thenThrow(new ExecutionException(expected));
 
-    IOException e =
+    RuntimeException actual =
+        assertThrows(RuntimeException.class, () -> GcsFileSystemImpl.getFromFuture(mockFuture));
+
+    assertThat(actual).isSameInstanceAs(expected);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void getFromFuture_whenExecutionExceptionWithError_rethrowsError() throws Exception {
+    Future<String> mockFuture = mock(Future.class);
+    AssertionError expected = new AssertionError("assertion failure");
+    when(mockFuture.get()).thenThrow(new ExecutionException(expected));
+
+    AssertionError actual =
+        assertThrows(AssertionError.class, () -> GcsFileSystemImpl.getFromFuture(mockFuture));
+
+    assertThat(actual).isSameInstanceAs(expected);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void getFromFuture_whenExecutionExceptionWithCheckedException_wrapsInIOException()
+      throws Exception {
+    Future<String> mockFuture = mock(Future.class);
+    Exception checkedCause = new Exception("checked failure");
+    when(mockFuture.get()).thenThrow(new ExecutionException(checkedCause));
+
+    IOException actual =
         assertThrows(IOException.class, () -> GcsFileSystemImpl.getFromFuture(mockFuture));
 
-    assertThat(e.getCause()).isInstanceOf(RuntimeException.class);
-    assertThat(e.getCause()).hasMessageThat().contains("runtime failure");
+    assertThat(actual.getCause()).isSameInstanceAs(checkedCause);
   }
 
   @Test

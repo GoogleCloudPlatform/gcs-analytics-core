@@ -32,6 +32,7 @@ import com.google.cloud.storage.BlobId;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.FileNotFoundException;
@@ -236,38 +237,42 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       GcsItemInfo bucketInfo = gcsClient.getBucketInfo(itemId);
       return createBucketFileInfo(bucketInfo);
     }
+
+    if (pathType == PathType.DIRECTORY) {
+      return toGcsFileInfo(lookupDirectoryInfo(itemId, inferImplicitDirectories));
+    }
+
     // Submit directory info in background
     ExecutorService statusExecutorService = statusExecutorServiceSupplier.get();
     Future<GcsItemInfo> directoryInfoFuture =
-        statusExecutorService.submit(
-            () -> {
-              if (!inferImplicitDirectories) {
-                // Do not list for implicit directories, just check for a directory placeholder
-                // object
-                return gcsClient.getGcsItemInfo(itemId.toDirectoryId());
-              }
-              NamespaceStrategy strategy = resolveStrategy(itemId.getBucketName());
-              return strategy.getDirectoryInfo(itemId);
-            });
+        statusExecutorService.submit(() -> lookupDirectoryInfo(itemId, inferImplicitDirectories));
 
-    // Perform direct object metadata lookup if not explicit directory
-    if (pathType != PathType.DIRECTORY) {
-      try {
-        GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(itemId);
-        directoryInfoFuture.cancel(true);
-        return toGcsFileInfo(itemInfo);
-      } catch (FileNotFoundException ignored) {
-        // Direct object not found; fall through to directory info
-        LOG.debug("Item '{}' not found directly, checking for directory existence.", itemId);
-      } catch (Exception e) {
-        directoryInfoFuture.cancel(true);
-        throw e;
-      }
+    // Perform direct object metadata lookup
+    try {
+      GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(itemId);
+      directoryInfoFuture.cancel(true);
+      return toGcsFileInfo(itemInfo);
+    } catch (FileNotFoundException ignored) {
+      // Direct object not found; fall through to directory info
+      LOG.debug("Item '{}' not found directly, checking for directory existence.", itemId);
+    } catch (Exception e) {
+      directoryInfoFuture.cancel(true);
+      throw e;
     }
 
     // Await directory info and return (unwraps ExecutionException to FileNotFoundException /
     // IOException)
     return toGcsFileInfo(getFromFuture(directoryInfoFuture));
+  }
+
+  private GcsItemInfo lookupDirectoryInfo(GcsItemId itemId, boolean inferImplicitDirectories)
+      throws IOException {
+    if (!inferImplicitDirectories) {
+      // Do not list for implicit directories; only check for an explicit placeholder object.
+      return gcsClient.getGcsItemInfo(itemId.toDirectoryId());
+    }
+    NamespaceStrategy strategy = resolveStrategy(itemId.getBucketName());
+    return strategy.getDirectoryInfo(itemId);
   }
 
   static <T> T getFromFuture(Future<T> future) throws IOException {
@@ -279,9 +284,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       throw new IOException("Thread interrupted while waiting on future", e);
     } catch (ExecutionException e) {
       Throwable cause = e.getCause() != null ? e.getCause() : e;
-      if (cause instanceof IOException) {
-        throw (IOException) cause;
-      }
+      Throwables.throwIfInstanceOf(cause, IOException.class);
+      Throwables.throwIfUnchecked(cause);
       throw new IOException(cause);
     }
   }
