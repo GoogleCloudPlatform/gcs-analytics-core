@@ -87,6 +87,10 @@ public interface GcsClient {
    *
    * @param bucketName name of the bucket to create
    * @param options bucket creation options (location, storage class, HNS, zonal placement, TTL)
+   * @throws UnsupportedOperationException if zonal placement is configured without HNS enabled,
+   *     with a non-{@code RAPID} storage class, or with a TTL
+   * @throws IllegalArgumentException if {@code bucketName} is empty or a non-zonal storage class is
+   *     unrecognized
    * @throws FileAlreadyExistsException if a bucket with {@code bucketName} already exists
    * @throws IOException if an I/O error occurs while creating the bucket
    */

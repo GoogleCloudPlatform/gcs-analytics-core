@@ -72,6 +72,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
@@ -482,34 +483,46 @@ class GcsClientImpl implements GcsClient {
     checkNotNull(options, "options must not be null");
     BucketInfo.Builder bucketInfoBuilder = BucketInfo.newBuilder(bucketName);
     options.getLocation().ifPresent(bucketInfoBuilder::setLocation);
-    options
-        .getStorageClass()
-        .ifPresent(sc -> bucketInfoBuilder.setStorageClass(StorageClass.valueOf(sc)));
-    if (options.isHierarchicalNamespaceEnabled()) {
+    if (options.getZonalPlacement().isPresent()) {
+      if (!options.isHierarchicalNamespaceEnabled()) {
+        throw new UnsupportedOperationException("Zonal buckets must have HNS Enabled.");
+      }
+      if (options.getStorageClass().isPresent()
+          && !RAPID_STORAGE_CLASS.equalsIgnoreCase(options.getStorageClass().get())) {
+        throw new UnsupportedOperationException("Zonal bucket storage class must be RAPID");
+      }
+      if (options.getTtl().isPresent()) {
+        throw new UnsupportedOperationException("Zonal buckets do not support TTL");
+      }
       bucketInfoBuilder
-          .setIamConfiguration(
-              IamConfiguration.newBuilder().setIsUniformBucketLevelAccessEnabled(true).build())
-          .setHierarchicalNamespace(HierarchicalNamespace.newBuilder().setEnabled(true).build());
+          .setCustomPlacementConfig(
+              CustomPlacementConfig.newBuilder()
+                  .setDataLocations(ImmutableList.of(options.getZonalPlacement().get()))
+                  .build())
+          .setStorageClass(StorageClass.valueOf(RAPID_STORAGE_CLASS));
+      enableHns(bucketInfoBuilder);
+    } else {
+      options
+          .getStorageClass()
+          .ifPresent(
+              sc ->
+                  bucketInfoBuilder.setStorageClass(
+                      StorageClass.valueOfStrict(sc.toUpperCase(Locale.ROOT))));
+      if (options.isHierarchicalNamespaceEnabled()) {
+        enableHns(bucketInfoBuilder);
+      }
+      options
+          .getTtl()
+          .ifPresent(
+              ttl ->
+                  bucketInfoBuilder.setLifecycleRules(
+                      ImmutableList.of(
+                          new LifecycleRule(
+                              LifecycleAction.newDeleteAction(),
+                              LifecycleCondition.newBuilder()
+                                  .setAge(Math.toIntExact(ttl.toDays()))
+                                  .build()))));
     }
-    options
-        .getZonalPlacement()
-        .ifPresent(
-            zone ->
-                bucketInfoBuilder.setCustomPlacementConfig(
-                    CustomPlacementConfig.newBuilder()
-                        .setDataLocations(ImmutableList.of(zone))
-                        .build()));
-    options
-        .getTtl()
-        .ifPresent(
-            ttl ->
-                bucketInfoBuilder.setLifecycleRules(
-                    ImmutableList.of(
-                        new LifecycleRule(
-                            LifecycleAction.newDeleteAction(),
-                            LifecycleCondition.newBuilder()
-                                .setAge(Math.toIntExact(ttl.toDays()))
-                                .build()))));
     try {
       storage.create(bucketInfoBuilder.build());
     } catch (StorageException e) {
@@ -520,6 +533,13 @@ class GcsClientImpl implements GcsClient {
     } finally {
       bucketPropertiesCache.invalidate(bucketName);
     }
+  }
+
+  private static void enableHns(BucketInfo.Builder bucketInfoBuilder) {
+    bucketInfoBuilder
+        .setIamConfiguration(
+            IamConfiguration.newBuilder().setIsUniformBucketLevelAccessEnabled(true).build())
+        .setHierarchicalNamespace(HierarchicalNamespace.newBuilder().setEnabled(true).build());
   }
 
   @Override
@@ -580,6 +600,8 @@ class GcsClientImpl implements GcsClient {
         channel.finalizeAndClose();
       }
     } catch (IOException e) {
+      // In google-cloud-storage, open() throws StorageException directly and write() /
+      // finalizeAndClose() coalesce any gRPC ApiException into a StorageException as e.getCause().
       if (e.getCause() instanceof StorageException) {
         throw (StorageException) e.getCause();
       }
@@ -595,7 +617,10 @@ class GcsClientImpl implements GcsClient {
    * precondition {@code doesNotExist()} is set on a directory marker) or transient GCS errors (408,
    * 429, 500, 502, 503, 504) can cause object creation to fail even when the 0-byte object exists.
    * The SDK retries creation only when a generation precondition is present, which is always the
-   * case for directories. Metadata lookups are always retried.
+   * case for directories. Metadata lookups are always retried. A single lookup is intentional
+   * (unlike hadoop-connectors' {@code canIgnoreExceptionForEmptyObject}): object metadata is
+   * strongly consistent, and transient errors surface only after the SDK exhausts its retries of
+   * the precondition-guarded create.
    */
   private Optional<Blob> lookUpAfterFailedCreate(
       StorageException exceptionOnCreate, GcsItemId itemId, GcsWriteOptions options)

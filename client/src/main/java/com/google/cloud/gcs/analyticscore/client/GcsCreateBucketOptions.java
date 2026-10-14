@@ -44,7 +44,10 @@ public abstract class GcsCreateBucketOptions {
    */
   public abstract Optional<Duration> getTtl();
 
-  /** Returns the zone for a zonal bucket. */
+  /**
+   * Returns the zone for a zonal bucket. Zonal buckets require Hierarchical Namespace (HNS) to be
+   * enabled, default the storage class to {@code RAPID}, and do not support TTL.
+   */
   public abstract Optional<String> getZonalPlacement();
 
   public abstract Builder toBuilder();
@@ -69,6 +72,10 @@ public abstract class GcsCreateBucketOptions {
      */
     public abstract Builder setTtl(Duration ttl);
 
+    /**
+     * Sets the zone for a zonal bucket. Zonal buckets require Hierarchical Namespace (HNS) to be
+     * enabled, default the storage class to {@code RAPID}, and do not support TTL.
+     */
     public abstract Builder setZonalPlacement(String zonalPlacement);
 
     abstract GcsCreateBucketOptions autoBuild();
