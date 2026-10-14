@@ -279,23 +279,45 @@ class GcsBidiReadChannel extends GcsReadChannel {
       if (metadataInitialized) {
         return;
       }
+      BlobInfo blobInfo = null;
+      IOException sessionFailure = null;
       try {
         BlobReadSession session = getBlobReadSession();
-        BlobInfo blobInfo = (session != null) ? session.getBlobInfo() : null;
-
-        this.objectSize = blobInfo == null ? super.size() : blobInfo.getSize();
+        blobInfo = (session != null) ? session.getBlobInfo() : null;
       } catch (FileNotFoundException e) {
         throw e;
       } catch (IOException e) {
         logger.debug("Falling back to item info lookup for {}", blobId, e);
-        try {
-          this.objectSize = super.size();
-        } catch (IOException fallbackFailure) {
-          fallbackFailure.addSuppressed(e);
-          throw fallbackFailure;
+        sessionFailure = e;
+      }
+
+      if (blobInfo == null || blobInfo.getSize() == null || blobInfo.getSize() < 0) {
+        this.objectSize = resolveSizeFromItemInfo(sessionFailure);
+      } else {
+        this.objectSize = blobInfo.getSize();
+        if (!hasResolvedSize(itemInfo)) {
+          Long generation = blobInfo.getGeneration();
+          updateGcsItemMetadata(
+              new GcsReadChannelMetadataExtractor.ExtractedMetadata(
+                  this.objectSize, generation != null ? generation : -1L));
         }
       }
       this.metadataInitialized = true;
+    }
+  }
+
+  private long resolveSizeFromItemInfo(@Nullable IOException sessionFailure) throws IOException {
+    try {
+      long size = super.size();
+      if (size < 0) {
+        throw new IOException("Unable to resolve object size for " + blobId);
+      }
+      return size;
+    } catch (IOException fallbackFailure) {
+      if (sessionFailure != null) {
+        fallbackFailure.addSuppressed(sessionFailure);
+      }
+      throw fallbackFailure;
     }
   }
 

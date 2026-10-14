@@ -24,6 +24,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -41,6 +42,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockitoAnnotations;
 
 class GoogleCloudStorageInputStreamTest {
@@ -127,6 +129,31 @@ class GoogleCloudStorageInputStreamTest {
         GoogleCloudStorageInputStream.create(fakeFileSystem, testGcsItemId);
 
     assertThat(googleCloudStorageInputStream.getPos()).isEqualTo(0);
+  }
+
+  @Test
+  void size_withGcsFileInfo_returnsSizeFromFileInfo() throws IOException {
+    GcsFileInfo fileInfo = fakeFileSystem.getFileInfo(testUri);
+    googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(fakeFileSystem, fileInfo);
+
+    assertThat(googleCloudStorageInputStream.size()).isEqualTo(fileSize);
+  }
+
+  @Test
+  void size_withGcsItemId_resolvesSizeFromChannel() throws IOException {
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(fakeFileSystem, testGcsItemId);
+
+    assertThat(googleCloudStorageInputStream.size()).isEqualTo(fileSize);
+  }
+
+  @Test
+  void size_afterClose_throwsIOException() throws IOException {
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(fakeFileSystem, testGcsItemId);
+    googleCloudStorageInputStream.close();
+
+    assertThrows(IOException.class, () -> googleCloudStorageInputStream.size());
   }
 
   @Test
@@ -457,6 +484,76 @@ class GoogleCloudStorageInputStreamTest {
   }
 
   @Test
+  void readFully_withGcsItemId_adoptsResolvedItemInfo() throws IOException {
+    GcsItemInfo resolvedItemInfo = mock(GcsItemInfo.class);
+    when(resolvedItemInfo.getItemId()).thenReturn(testGcsItemId);
+    when(resolvedItemInfo.getSize()).thenReturn(1000L);
+    VectoredSeekableByteChannel streamChannel = mock(VectoredSeekableByteChannel.class);
+    VectoredSeekableByteChannel readFullyChannel = mock(VectoredSeekableByteChannel.class);
+    when(readFullyChannel.read(any(ByteBuffer.class))).thenReturn(10);
+    when(readFullyChannel.getItemInfo()).thenReturn(resolvedItemInfo);
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
+    when(mockFileSystem.getCacheManager()).thenReturn(fakeFileSystem.getCacheManager());
+    when(mockFileSystem.open(any(GcsItemId.class), any()))
+        .thenReturn(streamChannel, readFullyChannel);
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(mockFileSystem, testGcsItemId);
+
+    googleCloudStorageInputStream.readFully(0, new byte[10], 0, 10);
+
+    assertThat(googleCloudStorageInputStream.size()).isEqualTo(1000L);
+    verify(streamChannel, never()).size();
+  }
+
+  @Test
+  void readFully_withItemInfoResolvedOnStreamChannel_opensChannelWithFileInfo() throws IOException {
+    GcsItemInfo resolvedItemInfo =
+        GcsItemInfo.builder().setItemId(testGcsItemId).setSize(fileSize).build();
+    VectoredSeekableByteChannel streamChannel = mock(VectoredSeekableByteChannel.class);
+    when(streamChannel.getItemInfo()).thenReturn(resolvedItemInfo);
+    VectoredSeekableByteChannel readFullyChannel = mock(VectoredSeekableByteChannel.class);
+    when(readFullyChannel.read(any(ByteBuffer.class))).thenReturn(10);
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
+    when(mockFileSystem.getCacheManager()).thenReturn(fakeFileSystem.getCacheManager());
+    when(mockFileSystem.open(any(GcsItemId.class), any())).thenReturn(streamChannel);
+    when(mockFileSystem.open(any(GcsFileInfo.class), any())).thenReturn(readFullyChannel);
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(mockFileSystem, testGcsItemId);
+
+    googleCloudStorageInputStream.readFully(0, new byte[10], 0, 10);
+
+    ArgumentCaptor<GcsFileInfo> fileInfoCaptor = ArgumentCaptor.forClass(GcsFileInfo.class);
+    verify(mockFileSystem).open(fileInfoCaptor.capture(), any());
+    assertThat(fileInfoCaptor.getValue().getItemInfo()).isEqualTo(resolvedItemInfo);
+  }
+
+  @Test
+  void size_channelItemInfoHasNegativeSize_doesNotAdoptItemInfo() throws IOException {
+    GcsItemInfo unresolvedItemInfo =
+        GcsItemInfo.builder().setItemId(testGcsItemId).setSize(-1L).build();
+    VectoredSeekableByteChannel streamChannel = mock(VectoredSeekableByteChannel.class);
+    when(streamChannel.size()).thenReturn(1000L);
+    when(streamChannel.getItemInfo()).thenReturn(unresolvedItemInfo);
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
+    when(mockFileSystem.getCacheManager()).thenReturn(fakeFileSystem.getCacheManager());
+    when(mockFileSystem.open(any(GcsItemId.class), any())).thenReturn(streamChannel);
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(mockFileSystem, testGcsItemId);
+
+    long firstSize = googleCloudStorageInputStream.size();
+    long secondSize = googleCloudStorageInputStream.size();
+
+    assertThat(ImmutableList.of(firstSize, secondSize)).containsExactly(1000L, 1000L);
+    verify(streamChannel, times(2)).size();
+  }
+
+  @Test
   void readTail_withInitializedFileInfo_reusesFileInfo() throws IOException {
     GcsReadOptions readOptions = GcsReadOptions.builder().build();
     googleCloudStorageInputStream = createStream(readOptions);
@@ -468,6 +565,34 @@ class GoogleCloudStorageInputStreamTest {
     int bytesRead = googleCloudStorageInputStream.readTail(buffer, 0, 10);
 
     assertThat(bytesRead).isEqualTo(10);
+  }
+
+  @Test
+  void readTail_withGcsItemId_opensTailChannelWithFileInfoAdoptedFromRead() throws IOException {
+    GcsItemInfo resolvedItemInfo =
+        GcsItemInfo.builder().setItemId(testGcsItemId).setSize(fileSize).build();
+    VectoredSeekableByteChannel streamChannel = mock(VectoredSeekableByteChannel.class);
+    when(streamChannel.read(any(ByteBuffer.class))).thenReturn(1);
+    when(streamChannel.getItemInfo()).thenReturn(resolvedItemInfo);
+    VectoredSeekableByteChannel tailChannel = mock(VectoredSeekableByteChannel.class);
+    when(tailChannel.read(any(ByteBuffer.class))).thenReturn(10);
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
+    when(mockFileSystem.getCacheManager()).thenReturn(fakeFileSystem.getCacheManager());
+    when(mockFileSystem.open(any(GcsItemId.class), any())).thenReturn(streamChannel);
+    when(mockFileSystem.open(any(GcsFileInfo.class), any())).thenReturn(tailChannel);
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(mockFileSystem, testGcsItemId);
+    googleCloudStorageInputStream.read();
+
+    googleCloudStorageInputStream.readTail(new byte[10], 0, 10);
+
+    ArgumentCaptor<GcsFileInfo> fileInfoCaptor = ArgumentCaptor.forClass(GcsFileInfo.class);
+    verify(mockFileSystem).open(fileInfoCaptor.capture(), any());
+    assertThat(fileInfoCaptor.getValue().getItemInfo()).isEqualTo(resolvedItemInfo);
+    verify(tailChannel).position(fileSize - 10);
+    verify(streamChannel, never()).size();
   }
 
   @Test
@@ -488,14 +613,14 @@ class GoogleCloudStorageInputStreamTest {
   }
 
   @Test
-  void readTail_streamFromGcsItemId_usesObjectOnlyLookup() throws IOException {
+  void readTail_streamFromGcsItemId_doesNotLookUpFileInfo() throws IOException {
     GcsFileSystem spyFileSystem = spy(fakeFileSystem);
     googleCloudStorageInputStream =
         GoogleCloudStorageInputStream.create(spyFileSystem, testGcsItemId);
 
     googleCloudStorageInputStream.readTail(new byte[10], 0, 10);
 
-    verify(spyFileSystem).getFileInfoObject(testGcsItemId);
+    verify(spyFileSystem, never()).getFileInfoObject(any(GcsItemId.class));
     verify(spyFileSystem, never()).getFileInfo(any(GcsItemId.class));
   }
 
