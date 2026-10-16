@@ -35,6 +35,7 @@ class GcsClientOptionsTest {
     assertThat(options.getProjectId().isPresent()).isFalse();
     assertThat(options.getClientLibToken().isPresent()).isFalse();
     assertThat(options.getServiceHost().isPresent()).isFalse();
+    assertThat(options.getUniverseDomain()).isEmpty();
     assertThat(options.getUserAgent().isPresent()).isFalse();
     assertThat(options.getProtocol()).isEqualTo(GcsClientOptions.Protocol.HTTP);
     assertThat(options.isBidiEnabled()).isFalse();
@@ -59,6 +60,7 @@ class GcsClientOptionsTest {
             .setProjectId("test-project")
             .setClientLibToken("test-token")
             .setServiceHost("test-host")
+            .setUniverseDomain("test-universe.goog")
             .setUserAgent("test-agent")
             .setUploadChunkSize(1024)
             .setUploadType(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
@@ -72,6 +74,7 @@ class GcsClientOptionsTest {
     assertThat(options.getProjectId()).hasValue("test-project");
     assertThat(options.getClientLibToken()).hasValue("test-token");
     assertThat(options.getServiceHost()).hasValue("test-host");
+    assertThat(options.getUniverseDomain()).hasValue("test-universe.goog");
     assertThat(options.getUserAgent()).hasValue("test-agent");
     assertThat(options.getUploadChunkSize()).isEqualTo(1024);
     assertThat(options.getUploadType())
@@ -91,6 +94,7 @@ class GcsClientOptionsTest {
             .put("gcs.project-id", "test-project")
             .put("gcs.client-lib-token", "test-token")
             .put("gcs.service.host", "test-host")
+            .put("gcs.universe-domain", "  test-universe.goog  ")
             .put("gcs.user-agent", "test-agent")
             .put("gcs.channel.write.chunk-size-bytes", "1024")
             .put("gcs.channel.write.upload-type", "parallel_composite_upload")
@@ -106,6 +110,7 @@ class GcsClientOptionsTest {
     assertThat(options.getProjectId()).hasValue("test-project");
     assertThat(options.getClientLibToken()).hasValue("test-token");
     assertThat(options.getServiceHost()).hasValue("test-host");
+    assertThat(options.getUniverseDomain()).hasValue("test-universe.goog");
     assertThat(options.getUserAgent()).hasValue("test-agent");
     assertThat(options.getUploadChunkSize()).isEqualTo(1024);
     assertThat(options.getUploadType())

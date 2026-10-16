@@ -27,6 +27,8 @@ import com.google.api.gax.rpc.UnauthenticatedException;
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.client.GcsClientOptions.Protocol;
 import com.google.cloud.gcs.analyticscore.client.GcsReadChannel.ItemInfoProvider;
+import com.google.cloud.gcs.analyticscore.client.auth.GcsAuthOptions;
+import com.google.cloud.gcs.analyticscore.client.auth.GcsTransportOptionsFactory;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
@@ -58,6 +60,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
+import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -88,6 +91,7 @@ class GcsClientImpl implements GcsClient {
         BucketField.STORAGE_CLASS
       };
   private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
+  private static final String UNIVERSE_DOMAIN_ENV_VAR = "GOOGLE_CLOUD_UNIVERSE_DOMAIN";
 
   @VisibleForTesting Storage storage;
   private final GcsClientOptions clientOptions;
@@ -97,31 +101,72 @@ class GcsClientImpl implements GcsClient {
   @VisibleForTesting volatile StorageControlClient storageControlClient;
   private volatile boolean isStorageControlClientClosed = false;
 
+  private final GcsAuthOptions authOptions;
+  private final Optional<String> universeDomain;
+
+  GcsClientImpl(
+      Credentials credentials,
+      GcsClientOptions clientOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry,
+      GcsAuthOptions authOptions) {
+    this(Optional.of(credentials), clientOptions, executorServiceSupplier, telemetry, authOptions);
+  }
+
   GcsClientImpl(
       Credentials credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry) {
-    this(Optional.of(credentials), clientOptions, executorServiceSupplier, telemetry);
+    this(
+        Optional.of(credentials),
+        clientOptions,
+        executorServiceSupplier,
+        telemetry,
+        GcsAuthOptions.builder().build());
   }
 
   GcsClientImpl(
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry) {
-    this(Optional.empty(), clientOptions, executorServiceSupplier, telemetry);
+    this(
+        Optional.empty(),
+        clientOptions,
+        executorServiceSupplier,
+        telemetry,
+        GcsAuthOptions.builder().build());
   }
 
   private GcsClientImpl(
       Optional<Credentials> credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry) {
+      Telemetry telemetry,
+      GcsAuthOptions authOptions) {
     this.clientOptions = clientOptions;
     this.credentials = credentials;
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
+    this.authOptions = authOptions;
+    this.universeDomain =
+        resolveUniverseDomain(
+            clientOptions.getUniverseDomain(), System.getenv(UNIVERSE_DOMAIN_ENV_VAR));
     this.storage = createStorage(credentials);
+  }
+
+  /**
+   * Returns the configured universe domain, or else the {@code GOOGLE_CLOUD_UNIVERSE_DOMAIN}
+   * environment variable when it is set and not blank.
+   */
+  @VisibleForTesting
+  static Optional<String> resolveUniverseDomain(
+      Optional<String> configuredUniverseDomain, @Nullable String environmentUniverseDomain) {
+    return configuredUniverseDomain.or(
+        () ->
+            Optional.ofNullable(environmentUniverseDomain)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty()));
   }
 
   @Override
@@ -279,6 +324,7 @@ class GcsClientImpl implements GcsClient {
       throws IOException {
     StorageControlSettings.Builder builder = StorageControlSettings.newBuilder();
     credentials.ifPresent(c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
+    universeDomain.ifPresent(builder::setUniverseDomain);
     return StorageControlClient.create(builder.build());
   }
 
@@ -438,13 +484,31 @@ class GcsClientImpl implements GcsClient {
 
   @VisibleForTesting
   protected Storage createStorage(Optional<Credentials> credentials) {
-    StorageOptions.Builder builder =
-        clientOptions.isGrpcEnabled() ? StorageOptions.grpc() : StorageOptions.newBuilder();
+    StorageOptions.Builder builder;
+    if (clientOptions.isGrpcEnabled()) {
+      if (authOptions.getProxyAddress().isPresent()) {
+        LOG.warn(
+            "analytics-core.auth.proxy.* applies only to authentication requests when"
+                + " client.protocol is {}; data requests use the JVM proxy settings.",
+            clientOptions.getProtocol());
+      }
+      builder = StorageOptions.grpc();
+    } else {
+      builder =
+          StorageOptions.newBuilder()
+              .setTransportOptions(
+                  GcsTransportOptionsFactory.createHttpTransportOptions(
+                      authOptions,
+                      clientOptions.getServiceHost().orElse(null),
+                      universeDomain.orElse(null)));
+    }
+
     String userAgent = getUserAgent();
     builder.setHeaderProvider(FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
+    universeDomain.ifPresent(builder::setUniverseDomain);
     credentials.ifPresent(builder::setCredentials);
     builder.setBlobWriteSessionConfig(clientOptions.generateSessionConfig());
 

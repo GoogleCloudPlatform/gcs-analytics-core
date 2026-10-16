@@ -122,7 +122,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
                     credentials,
                     fileSystemOptions.getGcsClientOptions(),
                     readExecutorServiceSupplier,
-                    telemetry));
+                    telemetry,
+                    fileSystemOptions.getGcsAuthOptions()));
     this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
     this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
   }
