@@ -15,8 +15,10 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.cloud.gcs.analyticscore.client.UriUtil.PATH_DELIMITER;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Strings.isNullOrEmpty;
 
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.client.auth.GcsCredentialsFactory;
@@ -34,17 +36,27 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.FileAlreadyExistsException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class GcsFileSystemImpl implements GcsFileSystem {
+
+  private static final Logger LOG = LoggerFactory.getLogger(GcsFileSystemImpl.class);
 
   /**
    * Using a 30-second keep-alive enables efficient thread reuse during intermittent spikes in
@@ -115,6 +127,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
                     fileSystemOptions.getGcsClientOptions(),
                     readExecutorServiceSupplier,
                     telemetry,
+                    cacheManager.getBucketPropertiesCache(),
                     fileSystemOptions.getGcsAuthOptions()));
     this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
     this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
@@ -152,9 +165,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       return flatStrategy;
     }
 
-    BucketProperties properties =
-        cacheManager.getBucketProperties(
-            bucketName, name -> BucketProperties.create(gcsClient.isHnsBucket(name)));
+    BucketProperties properties = gcsClient.getBucketProperties(bucketName);
 
     if (properties.isHnsEnabled()) {
       return hnsStrategy;
@@ -166,7 +177,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   public VectoredSeekableByteChannel open(GcsFileInfo gcsFileInfo, GcsReadOptions readOptions)
       throws IOException {
     checkNotNull(gcsFileInfo, "fileInfo should not be null");
-    GcsItemId itemId = UriUtil.getItemIdFromString(gcsFileInfo.getUri().toString());
+    GcsItemId itemId = UriUtil.getItemIdFromUri(gcsFileInfo.getUri());
     checkArgument(itemId.isGcsObject(), "Expected GCS object to be provided. But got: " + itemId);
     return gcsClient.openReadChannel(gcsFileInfo.getItemInfo(), readOptions);
   }
@@ -183,7 +194,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   @Override
   public GcsFileInfo getFileInfo(URI path) throws IOException {
     checkNotNull(path, "path should not be null");
-    GcsItemId itemId = UriUtil.getItemIdFromString(path.toString());
+    GcsItemId itemId = UriUtil.getItemIdFromUri(path);
     return getFileInfo(itemId);
   }
 
@@ -265,6 +276,146 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
     // Delegate the actual SDK interaction and exception handling to the internal client
     return gcsClient.createWriteChannel(itemId, writeOptions);
+  }
+
+  @Override
+  public void mkdirs(URI path) throws IOException {
+    checkNotNull(path, "path should not be null");
+    mkdirs(UriUtil.getItemIdFromUri(path));
+  }
+
+  @Override
+  public void mkdirs(GcsItemId itemId) throws IOException {
+    checkNotNull(itemId, "itemId should not be null");
+    if (itemId.isRoot()) {
+      // Root path always exists.
+      return;
+    }
+    if (itemId.isBucket()) {
+      try {
+        gcsClient.createBucket(itemId.getBucketName());
+      } catch (FileAlreadyExistsException e) {
+        LOG.debug("Bucket {} already exists.", itemId.getBucketName(), e);
+      }
+      return;
+    }
+
+    GcsItemId dirItemId =
+        GcsItemId.builder()
+            .setBucketName(itemId.getBucketName())
+            .setObjectName(UriUtil.toDirectoryPath(itemId.getObjectName().orElse("")))
+            .build();
+
+    if (fileSystemOptions.isEnsureNoConflictingItems()) {
+      checkNoFilesConflictingWithDirs(dirItemId);
+    }
+
+    NamespaceStrategy strategy = resolveStrategy(itemId.getBucketName());
+    strategy.createDirectory(dirItemId);
+  }
+
+  @VisibleForTesting
+  void checkNoFilesConflictingWithDirs(GcsItemId itemId) throws IOException {
+    String objectName = itemId.getObjectName().orElse("");
+    List<String> dirs = getDirs(objectName);
+    if (dirs.isEmpty()) {
+      return;
+    }
+    if (dirs.size() == 1) {
+      GcsItemId fileId =
+          GcsItemId.builder()
+              .setBucketName(itemId.getBucketName())
+              .setObjectName(dirs.get(0))
+              .build();
+      if (doesObjectExist(fileId)) {
+        throw new FileAlreadyExistsException(
+            String.format(
+                "Cannot create directory '%s' because of existing file '%s'", itemId, fileId));
+      }
+      return;
+    }
+
+    ExecutorService statusExecutor = statusExecutorServiceSupplier.get();
+    List<GcsItemId> fileIds = new ArrayList<>(dirs.size());
+    List<Future<Boolean>> futures = new ArrayList<>(dirs.size());
+    try {
+      for (String dir : dirs) {
+        GcsItemId fileId =
+            GcsItemId.builder().setBucketName(itemId.getBucketName()).setObjectName(dir).build();
+        fileIds.add(fileId);
+        futures.add(statusExecutor.submit(() -> doesObjectExist(fileId)));
+      }
+
+      for (int i = 0; i < futures.size(); i++) {
+        if (getFromFuture(futures.get(i))) {
+          throw new FileAlreadyExistsException(
+              String.format(
+                  "Cannot create directory '%s' because of existing file '%s'",
+                  itemId, fileIds.get(i)));
+        }
+      }
+    } finally {
+      for (Future<Boolean> future : futures) {
+        future.cancel(true);
+      }
+    }
+  }
+
+  private boolean doesObjectExist(GcsItemId fileId) throws IOException {
+    try {
+      GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(fileId);
+      return itemInfo != null && itemInfo.exists();
+    } catch (FileNotFoundException e) {
+      return false;
+    }
+  }
+
+  static <T> T getFromFuture(Future<T> future) throws IOException {
+    try {
+      return future.get();
+    } catch (InterruptedException e) {
+      future.cancel(true);
+      Thread.currentThread().interrupt();
+      throw new IOException("Thread interrupted while waiting on future", e);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause() != null ? e.getCause() : e;
+      if (cause instanceof IOException) {
+        throw (IOException) cause;
+      }
+      throw new IOException(cause);
+    }
+  }
+
+  /**
+   * For objects whose name looks like a path (e.g. {@code "a/b/c"} or {@code "a/b/c/"}), returns
+   * all parent/intermediate directory paths.
+   *
+   * <p>For example:
+   *
+   * <ul>
+   *   <li>a/b/c => returns: ["a", "a/b"]
+   *   <li>a/b/c/ => returns: ["a", "a/b", "a/b/c"]
+   *   <li>a => returns: []
+   * </ul>
+   *
+   * @param objectName Name of an object.
+   * @return List of subdirectory like paths.
+   */
+  @VisibleForTesting
+  static ImmutableList<String> getDirs(String objectName) {
+    if (isNullOrEmpty(objectName)) {
+      return ImmutableList.of();
+    }
+    ImmutableList.Builder<String> dirs = ImmutableList.builder();
+    int index = 0;
+    while ((index = objectName.indexOf(PATH_DELIMITER, index)) >= 0) {
+      String dir = objectName.substring(0, index);
+      if (!dir.isEmpty()) {
+        dirs.add(dir);
+      }
+      index += PATH_DELIMITER.length();
+    }
+    return dirs.build();
   }
 
   @VisibleForTesting

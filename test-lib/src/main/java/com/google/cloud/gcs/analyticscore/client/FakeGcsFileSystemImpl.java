@@ -16,6 +16,7 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCache;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -25,20 +26,30 @@ import java.util.concurrent.Executors;
 
 public class FakeGcsFileSystemImpl extends GcsFileSystemImpl {
   public FakeGcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
-    this(fileSystemOptions, new Telemetry(ImmutableList.of()));
-  }
-
-  private FakeGcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions, Telemetry telemetry) {
-    super(
-        initializeGcsClient(fileSystemOptions, telemetry),
+    this(
         fileSystemOptions,
-        telemetry,
+        new Telemetry(ImmutableList.of()),
         new AnalyticsCacheManager(fileSystemOptions.getGcsCacheOptions()));
   }
 
-  private static GcsClient initializeGcsClient(GcsFileSystemOptions options, Telemetry telemetry) {
+  private FakeGcsFileSystemImpl(
+      GcsFileSystemOptions fileSystemOptions,
+      Telemetry telemetry,
+      AnalyticsCacheManager cacheManager) {
+    super(
+        initializeGcsClient(fileSystemOptions, telemetry, cacheManager.getBucketPropertiesCache()),
+        fileSystemOptions,
+        telemetry,
+        cacheManager);
+  }
+
+  private static GcsClient initializeGcsClient(
+      GcsFileSystemOptions options,
+      Telemetry telemetry,
+      AnalyticsCache<String, BucketProperties> bucketPropertiesCache) {
     Supplier<ExecutorService> executorServiceSupplier =
         Suppliers.ofInstance(Executors.newCachedThreadPool());
-    return new FakeGcsClientImpl(options.getGcsClientOptions(), executorServiceSupplier, telemetry);
+    return new FakeGcsClientImpl(
+        options.getGcsClientOptions(), executorServiceSupplier, telemetry, bucketPropertiesCache);
   }
 }

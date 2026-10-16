@@ -16,10 +16,12 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -48,6 +50,7 @@ import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.FileAlreadyExistsException;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -74,6 +77,7 @@ class GcsFileSystemImplTest {
   private static final String TEST_PROJECT = "test-project";
   private static final String TEST_BUCKET = "test-bucket";
   private static final String TEST_OBJECT = "test-dir/test-object.txt";
+  private static final String TEST_SUBDIR = "dir/subdir/";
   private static final GcsClientOptions TEST_GCS_CLIENT_OPTIONS =
       GcsClientOptions.builder().setProjectId(TEST_PROJECT).build();
   private static final GcsFileSystemOptions TEST_GCS_FILESYSTEM_OPTIONS =
@@ -150,6 +154,7 @@ class GcsFileSystemImplTest {
   void constructor_withValidOptions_passesMemorizedExecutorServiceAndTelemetryToGcsClient() {
     final AtomicReference<Supplier<ExecutorService>> capturedSupplier = new AtomicReference<>();
     final AtomicReference<Telemetry> capturedTelemetry = new AtomicReference<>();
+    final AtomicReference<Object> capturedBucketPropertiesCache = new AtomicReference<>();
     try (MockedConstruction<GcsClientImpl> mockGcsClientConstruction =
         Mockito.mockConstruction(
             GcsClientImpl.class,
@@ -161,6 +166,8 @@ class GcsFileSystemImplTest {
 
               Telemetry telemetry = (Telemetry) context.arguments().get(3);
               capturedTelemetry.set(telemetry);
+
+              capturedBucketPropertiesCache.set(context.arguments().get(4));
             })) {
 
       try (GcsFileSystemImpl fs = new GcsFileSystemImpl(TEST_GCS_FILESYSTEM_OPTIONS)) {
@@ -173,6 +180,8 @@ class GcsFileSystemImplTest {
         assertThat(executorService1).isEqualTo(executorService2);
         assertThat(capturedTelemetry.get()).isNotNull();
         assertThat(capturedTelemetry.get()).isSameInstanceAs(fs.getTelemetry());
+        assertThat(capturedBucketPropertiesCache.get())
+            .isSameInstanceAs(fs.getCacheManager().getBucketPropertiesCache());
         assertThat(fs.getFlatStrategy()).isNotNull();
         assertThat(fs.getHnsStrategy()).isNotNull();
       }
@@ -675,7 +684,8 @@ class GcsFileSystemImplTest {
   @Test
   void resolveStrategy_hnsFlagEnabledAndHnsBucket_returnsHnsStrategy() throws IOException {
     GcsFileSystemOptions options = testOptionsBuilder().setHnsApiEnabled(true).build();
-    when(mockClient.isHnsBucket(TEST_BUCKET)).thenReturn(true);
+    when(mockClient.getBucketProperties(TEST_BUCKET))
+        .thenReturn(BucketProperties.create(true, false));
 
     try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
       NamespaceStrategy strategy = gcsFileSystem.resolveStrategy(TEST_BUCKET);
@@ -692,14 +702,15 @@ class GcsFileSystemImplTest {
       NamespaceStrategy strategy = gcsFileSystem.resolveStrategy(TEST_BUCKET);
 
       assertThat(strategy).isInstanceOf(FlatNamespaceStrategyImpl.class);
-      verify(mockClient, never()).isHnsBucket(anyString());
+      verify(mockClient, never()).getBucketProperties(anyString());
     }
   }
 
   @Test
   void resolveStrategy_hnsFlagEnabledAndFlatBucket_returnsFlatStrategy() throws IOException {
     GcsFileSystemOptions options = testOptionsBuilder().setHnsApiEnabled(true).build();
-    when(mockClient.isHnsBucket(TEST_BUCKET)).thenReturn(false);
+    when(mockClient.getBucketProperties(TEST_BUCKET))
+        .thenReturn(BucketProperties.create(false, false));
 
     try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
       NamespaceStrategy strategy = gcsFileSystem.resolveStrategy(TEST_BUCKET);
@@ -709,15 +720,210 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void resolveStrategy_isHnsBucketThrowsIoException_throwsIOException() throws IOException {
+  void resolveStrategy_getBucketPropertiesThrowsIoException_throwsIOException() throws IOException {
     GcsFileSystemOptions options = testOptionsBuilder().setHnsApiEnabled(true).build();
-    when(mockClient.isHnsBucket(TEST_BUCKET)).thenThrow(new IOException("test exception"));
+    when(mockClient.getBucketProperties(TEST_BUCKET)).thenThrow(new IOException("test exception"));
 
     try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(mockClient, options)) {
       IOException exception =
           assertThrows(IOException.class, () -> gcsFileSystem.resolveStrategy(TEST_BUCKET));
 
       assertThat(exception).hasMessageThat().isEqualTo("test exception");
+    }
+  }
+
+  @Test
+  void getDirs_returnsCorrectSubdirectories() {
+    assertThat(GcsFileSystemImpl.getDirs("a/b/c/")).containsExactly("a", "a/b", "a/b/c").inOrder();
+    assertThat(GcsFileSystemImpl.getDirs("a/b/c")).containsExactly("a", "a/b").inOrder();
+    assertThat(GcsFileSystemImpl.getDirs("dir/")).containsExactly("dir");
+    assertThat(GcsFileSystemImpl.getDirs("dir")).isEmpty();
+    assertThat(GcsFileSystemImpl.getDirs("")).isEmpty();
+    assertThat(GcsFileSystemImpl.getDirs(null)).isEmpty();
+  }
+
+  @Test
+  void checkNoFilesConflictingWithDirs_noConflictingFiles_succeeds() throws IOException {
+    GcsItemId dirId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_SUBDIR).build();
+    when(mockClient.getGcsItemInfo(any())).thenThrow(new FileNotFoundException("Not found"));
+
+    assertDoesNotThrow(
+        () -> ((GcsFileSystemImpl) gcsFileSystem).checkNoFilesConflictingWithDirs(dirId));
+  }
+
+  @Test
+  void checkNoFilesConflictingWithDirs_withConflictingFile_throwsFileAlreadyExistsException()
+      throws IOException {
+    GcsItemId dirId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_SUBDIR).build();
+    GcsItemId conflictingFileId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir").build();
+    GcsItemInfo mockFileInfo =
+        GcsItemInfo.builder()
+            .setItemId(conflictingFileId)
+            .setSize(100L)
+            .setContentGeneration(1L)
+            .build();
+    when(mockClient.getGcsItemInfo(conflictingFileId)).thenReturn(mockFileInfo);
+
+    assertThrows(
+        FileAlreadyExistsException.class,
+        () -> ((GcsFileSystemImpl) gcsFileSystem).checkNoFilesConflictingWithDirs(dirId));
+  }
+
+  @Test
+  void checkNoFilesConflictingWithDirs_ioExceptionOtherThanFileNotFound_rethrowsIOException()
+      throws IOException {
+    GcsItemId dirId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_SUBDIR).build();
+    when(mockClient.getGcsItemInfo(any())).thenThrow(new IOException("Server Error"));
+
+    assertThrows(
+        IOException.class,
+        () -> ((GcsFileSystemImpl) gcsFileSystem).checkNoFilesConflictingWithDirs(dirId));
+  }
+
+  @Test
+  void mkdirs_rootUri_returnsImmediatelyWithoutAction() throws IOException {
+    gcsFileSystem.mkdirs(URI.create("gs:/"));
+
+    verifyNoInteractions(mockClient);
+  }
+
+  @Test
+  void mkdirs_tripleSlashRootUri_throwsIllegalArgumentException() {
+    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.mkdirs(URI.create("gs:///")));
+  }
+
+  @Test
+  void mkdirs_rootItemId_returnsImmediatelyWithoutAction() throws IOException {
+    GcsItemId rootItemId = GcsItemId.ROOT;
+
+    gcsFileSystem.mkdirs(rootItemId);
+
+    verifyNoInteractions(mockClient);
+  }
+
+  @Test
+  void mkdirs_bucketUri_callsCreateBucket() throws IOException {
+    URI bucketUri = URI.create("gs://test-bucket");
+
+    gcsFileSystem.mkdirs(bucketUri);
+
+    verify(mockClient).createBucket("test-bucket");
+  }
+
+  @Test
+  void mkdirs_bucketUri_bucketAlreadyExists_ignoresError() throws IOException {
+    URI bucketUri = URI.create("gs://test-bucket");
+    doThrow(new FileAlreadyExistsException("test-bucket"))
+        .when(mockClient)
+        .createBucket("test-bucket");
+
+    assertDoesNotThrow(() -> gcsFileSystem.mkdirs(bucketUri));
+  }
+
+  @Test
+  void mkdirs_flatBucket_withoutTrailingSlash_createsEmptyObject() throws IOException {
+    URI dirUri = URI.create("gs://" + TEST_BUCKET + "/dir/subdir");
+    when(mockClient.getBucketProperties(TEST_BUCKET))
+        .thenReturn(BucketProperties.create(false, false));
+
+    gcsFileSystem.mkdirs(dirUri);
+
+    GcsItemId expectedItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_SUBDIR).build();
+    verify(mockClient).createEmptyObject(expectedItemId);
+  }
+
+  @Test
+  void mkdirs_flatBucket_withTrailingSlash_createsEmptyObject() throws IOException {
+    URI dirUri = URI.create("gs://" + TEST_BUCKET + "/dir/subdir/");
+    when(mockClient.getBucketProperties(TEST_BUCKET))
+        .thenReturn(BucketProperties.create(false, false));
+
+    gcsFileSystem.mkdirs(dirUri);
+
+    GcsItemId expectedItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_SUBDIR).build();
+    verify(mockClient).createEmptyObject(expectedItemId);
+  }
+
+  @Test
+  void mkdirs_hnsBucket_withTrailingSlash_createsFolder() throws IOException {
+    URI dirUri = URI.create("gs://" + TEST_BUCKET + "/dir/subdir/");
+    when(mockClient.getBucketProperties(TEST_BUCKET))
+        .thenReturn(BucketProperties.create(true, false));
+
+    gcsFileSystem.mkdirs(dirUri);
+
+    GcsItemId expectedItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/subdir").build();
+    verify(mockClient).createFolder(expectedItemId, true);
+  }
+
+  @Test
+  void mkdirs_hnsBucket_withoutTrailingSlash_createsFolder() throws IOException {
+    URI dirUri = URI.create("gs://" + TEST_BUCKET + "/dir/subdir");
+    when(mockClient.getBucketProperties(TEST_BUCKET))
+        .thenReturn(BucketProperties.create(true, false));
+
+    gcsFileSystem.mkdirs(dirUri);
+
+    GcsItemId expectedItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/subdir").build();
+    verify(mockClient).createFolder(expectedItemId, true);
+  }
+
+  @Test
+  void mkdirs_itemId_createsDirectoryViaClient() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/subdir").build();
+    when(mockClient.getBucketProperties(TEST_BUCKET))
+        .thenReturn(BucketProperties.create(false, false));
+
+    gcsFileSystem.mkdirs(itemId);
+
+    GcsItemId expectedItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_SUBDIR).build();
+    verify(mockClient).createEmptyObject(expectedItemId);
+  }
+
+  @Test
+  void mkdirs_withConflictingFile_throwsFileAlreadyExistsException() throws IOException {
+    URI dirUri = URI.create("gs://test-bucket/dir/subdir");
+    GcsItemId conflictingFileId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("dir").build();
+    GcsItemInfo mockFileInfo =
+        GcsItemInfo.builder()
+            .setItemId(conflictingFileId)
+            .setSize(100L)
+            .setContentGeneration(1L)
+            .build();
+    when(mockClient.getGcsItemInfo(conflictingFileId)).thenReturn(mockFileInfo);
+
+    assertThrows(FileAlreadyExistsException.class, () -> gcsFileSystem.mkdirs(dirUri));
+  }
+
+  @Test
+  void mkdirs_withEnsureNoConflictingItemsDisabled_skipsConflictCheck() throws IOException {
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setEnsureNoConflictingItems(false)
+            .setHnsApiEnabled(false)
+            .build();
+    URI dirUri = URI.create("gs://test-bucket/dir/subdir");
+
+    try (GcsFileSystemImpl customFs = spy(new GcsFileSystemImpl(mockClient, options))) {
+      customFs.mkdirs(dirUri);
+
+      verify(customFs, never()).checkNoFilesConflictingWithDirs(any());
+      verify(mockClient, never()).getGcsItemInfo(any());
+      GcsItemId expectedItemId =
+          GcsItemId.builder().setBucketName("test-bucket").setObjectName("dir/subdir/").build();
+      verify(mockClient).createEmptyObject(expectedItemId);
     }
   }
 
@@ -782,6 +988,22 @@ class GcsFileSystemImplTest {
       assertThat(gcsClientImpl.storage.getOptions().getCredentials())
           .isInstanceOf(UserCredentials.class);
     }
+  }
+
+  @Test
+  void mkdirs_invalidScheme_throwsIllegalArgumentException() {
+    URI invalidUri = URI.create("http://test-bucket/dir");
+    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.mkdirs(invalidUri));
+  }
+
+  @Test
+  void mkdirs_nullUri_throwsNullPointerException() {
+    assertThrows(NullPointerException.class, () -> gcsFileSystem.mkdirs((URI) null));
+  }
+
+  @Test
+  void mkdirs_nullItemId_throwsNullPointerException() {
+    assertThrows(NullPointerException.class, () -> gcsFileSystem.mkdirs((GcsItemId) null));
   }
 
   @Test

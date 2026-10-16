@@ -16,6 +16,8 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import java.io.IOException;
+
 /**
  * Strategy interface for handling directory operations across different namespace models (Flat vs.
  * HNS).
@@ -31,4 +33,13 @@ package com.google.cloud.gcs.analyticscore.client;
  *   <li>{@code java.util.List<GcsItemInfo> listRecursive(GcsItemId id) throws IOException;}
  * </ul>
  */
-interface NamespaceStrategy {}
+interface NamespaceStrategy {
+
+  /**
+   * Creates a directory at the given {@link GcsItemId}.
+   *
+   * @param id the directory identifier
+   * @throws IOException if an error occurs during directory creation
+   */
+  void createDirectory(GcsItemId id) throws IOException;
+}

@@ -81,4 +81,12 @@ public abstract class GcsItemId {
     return !this.getBucketName().isEmpty()
         && (this.getObjectName().isEmpty() || this.getObjectName().get().isEmpty());
   }
+
+  /**
+   * Returns true if this identifier represents a directory (root, a bucket, or an object path
+   * ending with a trailing slash).
+   */
+  public boolean isDirectory() {
+    return isRoot() || isBucket() || this.getObjectName().orElse("").endsWith("/");
+  }
 }
