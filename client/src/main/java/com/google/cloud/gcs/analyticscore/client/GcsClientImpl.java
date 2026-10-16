@@ -314,6 +314,8 @@ class GcsClientImpl implements GcsClient {
   protected StorageControlClient createStorageControlClient(Optional<Credentials> credentials)
       throws IOException {
     StorageControlSettings.Builder builder = StorageControlSettings.newBuilder();
+    builder.setHeaderProvider(
+        FixedHeaderProvider.create(ImmutableMap.of("User-Agent", getUserAgent())));
     credentials.ifPresent(c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
     universeDomain.ifPresent(builder::setUniverseDomain);
     return StorageControlClient.create(builder.build());
