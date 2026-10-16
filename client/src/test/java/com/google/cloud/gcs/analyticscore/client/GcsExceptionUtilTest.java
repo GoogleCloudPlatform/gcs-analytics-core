@@ -479,6 +479,79 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void createBucketNotFoundException_returnsBucketNotFoundMessage() {
+    StorageException cause = new StorageException(404, "The specified bucket does not exist.");
+
+    FileNotFoundException exception = GcsExceptionUtil.createBucketNotFoundException(BUCKET, cause);
+
+    assertThat(exception).hasMessageThat().isEqualTo("Bucket not found: " + BUCKET);
+  }
+
+  @Test
+  void createBucketNotFoundException_keepsGivenStorageExceptionAsCause() {
+    StorageException cause = new StorageException(404, "The specified bucket does not exist.");
+
+    FileNotFoundException exception = GcsExceptionUtil.createBucketNotFoundException(BUCKET, cause);
+
+    assertThat(exception).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  @Test
+  void createBucketNotFoundException_isClassifiedAsNotFound() {
+    StorageException cause = new StorageException(404, "The specified bucket does not exist.");
+
+    FileNotFoundException exception = GcsExceptionUtil.createBucketNotFoundException(BUCKET, cause);
+    ErrorType errorType =
+        GcsExceptionUtil.getErrorType(GcsExceptionUtil.getStorageException(exception).get());
+
+    assertThat(errorType).isEqualTo(ErrorType.NOT_FOUND);
+  }
+
+  @Test
+  void createAccessDeniedException_keepsGivenErrorAsCause() {
+    StorageException cause = new StorageException(403, "Forbidden");
+
+    AccessDeniedException exception =
+        GcsExceptionUtil.createAccessDeniedException("gs://" + BUCKET, "bucket lookup", cause);
+
+    assertThat(exception).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  @Test
+  void createAccessDeniedException_setsFileToLocation() {
+    StorageException cause = new StorageException(403, "Forbidden");
+
+    AccessDeniedException exception =
+        GcsExceptionUtil.createAccessDeniedException("gs://" + BUCKET, "bucket lookup", cause);
+
+    assertThat(exception.getFile()).isEqualTo("gs://" + BUCKET);
+  }
+
+  @Test
+  void createAccessDeniedException_messageNamesTheDeniedOperation() {
+    StorageException cause = new StorageException(403, "Forbidden");
+
+    AccessDeniedException exception =
+        GcsExceptionUtil.createAccessDeniedException("gs://" + BUCKET, "bucket lookup", cause);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .contains("Access denied during bucket lookup: Forbidden");
+  }
+
+  @Test
+  void createAccessDeniedException_withStorageExceptionCause_isClassifiedAsAccessDenied() {
+    StorageException cause = new StorageException(403, "Forbidden");
+
+    AccessDeniedException exception =
+        GcsExceptionUtil.createAccessDeniedException("gs://" + BUCKET, "bucket lookup", cause);
+    ErrorType errorType =
+        GcsExceptionUtil.getErrorType(GcsExceptionUtil.getStorageException(exception).get());
+
+    assertThat(errorType).isEqualTo(ErrorType.ACCESS_DENIED);
+  }
+
+  @Test
   void constructor_isPrivate() throws Exception {
     Constructor<GcsExceptionUtil> constructor = GcsExceptionUtil.class.getDeclaredConstructor();
 

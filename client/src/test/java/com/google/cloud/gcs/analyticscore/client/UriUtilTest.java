@@ -130,6 +130,13 @@ class UriUtilTest {
   }
 
   @Test
+  void toDirectoryPath_emptyPath_returnsEmpty() {
+    String result = UriUtil.toDirectoryPath("");
+
+    assertThat(result).isEmpty();
+  }
+
+  @Test
   void getStringPath_gcsObject_returnsObjectPath() {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
