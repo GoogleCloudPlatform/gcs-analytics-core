@@ -17,6 +17,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auth.Credentials;
+import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCache;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
@@ -35,15 +36,17 @@ public class FakeGcsClientImpl extends GcsClientImpl {
       Credentials credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry) {
-    super(credentials, clientOptions, executorServiceSupplier, telemetry);
+      Telemetry telemetry,
+      AnalyticsCache<String, BucketProperties> bucketPropertiesCache) {
+    super(credentials, clientOptions, executorServiceSupplier, telemetry, bucketPropertiesCache);
   }
 
   FakeGcsClientImpl(
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry) {
-    super(clientOptions, executorServiceSupplier, telemetry);
+      Telemetry telemetry,
+      AnalyticsCache<String, BucketProperties> bucketPropertiesCache) {
+    super(clientOptions, executorServiceSupplier, telemetry, bucketPropertiesCache);
   }
 
   @Override
@@ -52,9 +55,14 @@ public class FakeGcsClientImpl extends GcsClientImpl {
   }
 
   @Override
-  BucketProperties getBucketProperties(String bucketName) {
+  protected Storage createGrpcStorage(Optional<Credentials> credentials) {
+    return storage;
+  }
+
+  @Override
+  public BucketProperties getBucketProperties(String bucketName) {
     // LocalStorageHelper does not support bucket operations
-    return BucketProperties.create(false);
+    return BucketProperties.create(false, false);
   }
 
   @Override
