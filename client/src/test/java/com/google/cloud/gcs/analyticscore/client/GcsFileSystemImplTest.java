@@ -39,6 +39,7 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
+import com.google.cloud.http.HttpTransportOptions;
 import com.google.cloud.storage.StorageException;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -50,6 +51,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.FileAlreadyExistsException;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -1002,6 +1004,48 @@ class GcsFileSystemImplTest {
   @Test
   void mkdirs_nullItemId_throwsNullPointerException() {
     assertThrows(NullPointerException.class, () -> gcsFileSystem.mkdirs((GcsItemId) null));
+  }
+
+  @Test
+  void constructor_withFileSystemOptions_appliesHttpTimeoutsToStorageClient() {
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setGcsAuthOptions(timeoutAuthOptions().setAuthType(AuthType.UNAUTHENTICATED).build())
+            .build();
+
+    try (GcsFileSystemImpl gcsFileSystem = new GcsFileSystemImpl(options)) {
+      assertThat(storageTimeouts(gcsFileSystem)).containsExactly(12_000, 34_000).inOrder();
+    }
+  }
+
+  @Test
+  void constructor_withCredentials_appliesHttpTimeoutsToStorageClient() {
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setGcsAuthOptions(timeoutAuthOptions().build())
+            .build();
+
+    try (GcsFileSystemImpl gcsFileSystem =
+        new GcsFileSystemImpl(NoCredentials.getInstance(), options)) {
+      assertThat(storageTimeouts(gcsFileSystem)).containsExactly(12_000, 34_000).inOrder();
+    }
+  }
+
+  private static GcsAuthOptions.Builder timeoutAuthOptions() {
+    return GcsAuthOptions.builder()
+        .setHttpConnectTimeout(Duration.ofSeconds(12))
+        .setHttpReadTimeout(Duration.ofSeconds(34));
+  }
+
+  /** Returns the connect and read timeouts of the file system's storage client. */
+  private static List<Integer> storageTimeouts(GcsFileSystemImpl gcsFileSystem) {
+    GcsClientImpl gcsClientImpl = (GcsClientImpl) gcsFileSystem.getGcsClient();
+    HttpTransportOptions transportOptions =
+        (HttpTransportOptions) gcsClientImpl.storage.getOptions().getTransportOptions();
+    return ImmutableList.of(
+        transportOptions.getConnectTimeout(), transportOptions.getReadTimeout());
   }
 
   @Test

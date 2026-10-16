@@ -37,8 +37,11 @@ import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.ReadChannel;
+import com.google.cloud.gcs.analyticscore.client.auth.GcsAuthOptions;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCache;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.http.HttpTransportOptions;
+import com.google.cloud.http.HttpTransportOptions.DefaultHttpTransportFactory;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobAppendableUpload;
 import com.google.cloud.storage.BlobAppendableUpload.AppendableUploadWriteableByteChannel;
@@ -79,10 +82,13 @@ import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
 import com.google.storage.control.v2.StorageControlSettings;
+import com.sun.net.httpserver.HttpServer;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.channels.WritableByteChannel;
@@ -94,10 +100,12 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -426,6 +434,133 @@ class GcsClientImplTest {
             newBucketPropertiesCache());
 
     assertThat(client.storage.getOptions().getCredentials()).isEqualTo(credentials);
+  }
+
+  @Test
+  void createStorage_withProxy_sendsRequestsThroughProxy() throws IOException {
+    List<String> proxiedRequests = new CopyOnWriteArrayList<>();
+    HttpServer proxy = startNotFoundServer(proxiedRequests);
+    try {
+      String serviceHost = "http://storage.example.invalid";
+      GcsClientOptions clientOptions =
+          GcsClientOptions.builder()
+              .setProjectId("test-project")
+              .setServiceHost(serviceHost)
+              .build();
+      GcsAuthOptions authOptions =
+          GcsAuthOptions.builder()
+              .setProxyAddress("localhost:" + proxy.getAddress().getPort())
+              .build();
+      GcsClientImpl client =
+          new GcsClientImpl(
+              NoCredentials.getInstance(),
+              clientOptions,
+              executorServiceSupplier,
+              telemetry,
+              newBucketPropertiesCache(),
+              authOptions);
+
+      client.storage.get(BlobId.of("test-bucket", "test-object"));
+
+      assertThat(proxiedRequests)
+          .containsExactly(
+              "GET " + serviceHost + "/storage/v1/b/test-bucket/o/test-object?projection=full");
+    } finally {
+      proxy.stop(0);
+    }
+  }
+
+  @Test
+  void createStorage_httpProtocol_appliesConfiguredTimeouts() {
+    GcsAuthOptions authOptions =
+        GcsAuthOptions.builder()
+            .setHttpConnectTimeout(Duration.ofSeconds(12))
+            .setHttpReadTimeout(Duration.ofSeconds(34))
+            .build();
+
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(),
+            TEST_GCS_CLIENT_OPTIONS,
+            executorServiceSupplier,
+            telemetry,
+            newBucketPropertiesCache(),
+            authOptions);
+
+    HttpTransportOptions transportOptions =
+        (HttpTransportOptions) client.storage.getOptions().getTransportOptions();
+    assertThat(new int[] {transportOptions.getConnectTimeout(), transportOptions.getReadTimeout()})
+        .asList()
+        .containsExactly(12_000, 34_000)
+        .inOrder();
+  }
+
+  @Test
+  void createStorage_withoutProxy_keepsDefaultTransportFactory() {
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(),
+            TEST_GCS_CLIENT_OPTIONS,
+            executorServiceSupplier,
+            telemetry,
+            newBucketPropertiesCache(),
+            GcsAuthOptions.builder().build());
+
+    HttpTransportOptions transportOptions =
+        (HttpTransportOptions) client.storage.getOptions().getTransportOptions();
+    assertThat(transportOptions.getHttpTransportFactory())
+        .isInstanceOf(DefaultHttpTransportFactory.class);
+  }
+
+  @Test
+  void createStorage_grpcProtocolWithProxy_createsGrpcClient() {
+    GcsClientOptions grpcClientOptions =
+        GcsClientOptions.builder()
+            .setProjectId("test-project")
+            .setProtocol(GcsClientOptions.Protocol.GRPC)
+            .build();
+    GcsAuthOptions authOptions =
+        GcsAuthOptions.builder().setProxyAddress("http://proxy.example.com:8080").build();
+
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(),
+            grpcClientOptions,
+            executorServiceSupplier,
+            telemetry,
+            newBucketPropertiesCache(),
+            authOptions);
+
+    assertThat(client.storage.getOptions()).isInstanceOf(GrpcStorageOptions.class);
+  }
+
+  @ParameterizedTest
+  @CsvSource(
+      value = {
+        "configured.goog, environment.goog, configured.goog",
+        "null, environment.goog, environment.goog",
+        "null, ' environment.goog ', environment.goog",
+        "null, '  ', null",
+        "null, null, null",
+      },
+      nullValues = "null")
+  void resolveUniverseDomain_prefersConfiguredValueThenEnvironment(
+      String configured, String environment, String expected) {
+    assertThat(GcsClientImpl.resolveUniverseDomain(Optional.ofNullable(configured), environment))
+        .isEqualTo(Optional.ofNullable(expected));
+  }
+
+  @Test
+  void createStorageControlClient_withUniverseDomain_setsUniverseDomain() throws IOException {
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder().setUniverseDomain("custom-universe.goog").build();
+    GcsClientImpl client = createClientWithClientOptions(clientOptions);
+
+    try (StorageControlClient storageControlClient =
+        client.createStorageControlClient(Optional.of(NoCredentials.getInstance()))) {
+      assertThat(storageControlClient.getSettings().getUniverseDomain())
+          .isEqualTo("custom-universe.goog");
+    }
   }
 
   @Test
@@ -984,6 +1119,16 @@ class GcsClientImplTest {
   }
 
   @Test
+  void createStorage_withUniverseDomain_setsUniverseDomainOnStorageOptions() {
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder().setUniverseDomain("custom-universe.goog").build();
+
+    GcsClientImpl client = createClientWithClientOptions(clientOptions);
+
+    assertThat(client.storage.getOptions().getUniverseDomain()).isEqualTo("custom-universe.goog");
+  }
+
+  @Test
   void createStorage_withChunkUpload_setsDefaultSessionConfig() throws Exception {
     int customChunkSize = 2 * MB;
     GcsClientOptions clientOptions =
@@ -1074,6 +1219,24 @@ class GcsClientImplTest {
   private GcsClientImpl createClientWithClientOptions(GcsClientOptions clientOptions) {
     return new GcsClientImpl(
         clientOptions, executorServiceSupplier, telemetry, newBucketPropertiesCache());
+  }
+
+  /** Starts a local HTTP server that records each request line and answers 404 Not Found. */
+  private static HttpServer startNotFoundServer(List<String> requests) throws IOException {
+    HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+    server.createContext(
+        "/",
+        exchange -> {
+          requests.add(exchange.getRequestMethod() + " " + exchange.getRequestURI());
+          byte[] body = "{\"error\":{\"code\":404,\"message\":\"Not Found\"}}".getBytes(UTF_8);
+          exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.sendResponseHeaders(404, body.length);
+          try (OutputStream responseBody = exchange.getResponseBody()) {
+            responseBody.write(body);
+          }
+        });
+    server.start();
+    return server;
   }
 
   private BlobWriteSession mockBlobWriteSession(Storage mockStorage) {
