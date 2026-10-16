@@ -20,6 +20,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.cloud.gcs.analyticscore.common.RedactedString;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.net.URI;
 import java.time.Duration;
@@ -278,7 +279,7 @@ class GcsAuthOptionsTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"not-a-number", "10s", "2500ms", "0", "-5"})
+  @ValueSource(strings = {"not-a-number", "10s", "2500ms", "-5"})
   void createFromOptions_invalidConnectTimeout_throwsIllegalArgumentException(String timeout) {
     Map<String, String> map =
         ImmutableMap.of("analytics-core.auth.http.connect-timeout-ms", timeout);
@@ -287,11 +288,24 @@ class GcsAuthOptionsTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"not-a-number", "10s", "2500ms", "0", "-5"})
+  @ValueSource(strings = {"not-a-number", "10s", "2500ms", "-5"})
   void createFromOptions_invalidReadTimeout_throwsIllegalArgumentException(String timeout) {
     Map<String, String> map = ImmutableMap.of("analytics-core.auth.http.read-timeout-ms", timeout);
 
     assertThrows(IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, ""));
+  }
+
+  @Test
+  void createFromOptions_zeroTimeouts_returnsZeroTimeouts() {
+    Map<String, String> map =
+        ImmutableMap.of(
+            "analytics-core.auth.http.connect-timeout-ms", "0",
+            "analytics-core.auth.http.read-timeout-ms", "0");
+
+    GcsAuthOptions options = GcsAuthOptions.createFromOptions(map, "");
+
+    assertThat(ImmutableList.of(options.getHttpConnectTimeout(), options.getHttpReadTimeout()))
+        .containsExactly(Duration.ZERO, Duration.ZERO);
   }
 
   @ParameterizedTest
@@ -592,20 +606,18 @@ class GcsAuthOptionsTest {
     assertThrows(IllegalArgumentException.class, builder::build);
   }
 
-  @ParameterizedTest
-  @ValueSource(longs = {0L, -5L})
-  void build_nonPositiveConnectTimeout_throwsIllegalArgumentException(long seconds) {
+  @Test
+  void build_negativeConnectTimeout_throwsIllegalArgumentException() {
     GcsAuthOptions.Builder builder =
-        GcsAuthOptions.builder().setHttpConnectTimeout(Duration.ofSeconds(seconds));
+        GcsAuthOptions.builder().setHttpConnectTimeout(Duration.ofSeconds(-5));
 
     assertThrows(IllegalArgumentException.class, builder::build);
   }
 
-  @ParameterizedTest
-  @ValueSource(longs = {0L, -5L})
-  void build_nonPositiveReadTimeout_throwsIllegalArgumentException(long seconds) {
+  @Test
+  void build_negativeReadTimeout_throwsIllegalArgumentException() {
     GcsAuthOptions.Builder builder =
-        GcsAuthOptions.builder().setHttpReadTimeout(Duration.ofSeconds(seconds));
+        GcsAuthOptions.builder().setHttpReadTimeout(Duration.ofSeconds(-5));
 
     assertThrows(IllegalArgumentException.class, builder::build);
   }

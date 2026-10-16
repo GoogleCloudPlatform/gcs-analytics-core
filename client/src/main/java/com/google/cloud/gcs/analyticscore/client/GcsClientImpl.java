@@ -25,6 +25,8 @@ import com.google.api.gax.rpc.NotFoundException;
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.client.GcsClientOptions.Protocol;
 import com.google.cloud.gcs.analyticscore.client.GcsReadChannel.ItemInfoProvider;
+import com.google.cloud.gcs.analyticscore.client.auth.GcsAuthOptions;
+import com.google.cloud.gcs.analyticscore.client.auth.GcsTransportOptionsFactory;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCache;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
@@ -75,6 +77,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
+import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -110,6 +113,7 @@ class GcsClientImpl implements GcsClient {
       GcsWriteOptions.builder().build();
   private static final ImmutableSet<Integer> IGNORABLE_EMPTY_OBJECT_CREATE_ERROR_CODES =
       ImmutableSet.of(408, 429, 500, 502, 503, 504);
+  private static final String UNIVERSE_DOMAIN_ENV_VAR = "GOOGLE_CLOUD_UNIVERSE_DOMAIN";
 
   @VisibleForTesting Storage storage;
   @VisibleForTesting volatile Storage grpcStorage;
@@ -120,6 +124,25 @@ class GcsClientImpl implements GcsClient {
   private final AnalyticsCache<String, BucketProperties> bucketPropertiesCache;
   @VisibleForTesting volatile StorageControlClient storageControlClient;
   private volatile boolean isClosed = false;
+
+  private final GcsAuthOptions authOptions;
+  private final Optional<String> universeDomain;
+
+  GcsClientImpl(
+      Credentials credentials,
+      GcsClientOptions clientOptions,
+      Supplier<ExecutorService> executorServiceSupplier,
+      Telemetry telemetry,
+      AnalyticsCache<String, BucketProperties> bucketPropertiesCache,
+      GcsAuthOptions authOptions) {
+    this(
+        Optional.of(credentials),
+        clientOptions,
+        executorServiceSupplier,
+        telemetry,
+        bucketPropertiesCache,
+        authOptions);
+  }
 
   GcsClientImpl(
       Credentials credentials,
@@ -132,7 +155,8 @@ class GcsClientImpl implements GcsClient {
         clientOptions,
         executorServiceSupplier,
         telemetry,
-        bucketPropertiesCache);
+        bucketPropertiesCache,
+        GcsAuthOptions.builder().build());
   }
 
   GcsClientImpl(
@@ -141,7 +165,12 @@ class GcsClientImpl implements GcsClient {
       Telemetry telemetry,
       AnalyticsCache<String, BucketProperties> bucketPropertiesCache) {
     this(
-        Optional.empty(), clientOptions, executorServiceSupplier, telemetry, bucketPropertiesCache);
+        Optional.empty(),
+        clientOptions,
+        executorServiceSupplier,
+        telemetry,
+        bucketPropertiesCache,
+        GcsAuthOptions.builder().build());
   }
 
   private GcsClientImpl(
@@ -149,14 +178,33 @@ class GcsClientImpl implements GcsClient {
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry,
-      AnalyticsCache<String, BucketProperties> bucketPropertiesCache) {
+      AnalyticsCache<String, BucketProperties> bucketPropertiesCache,
+      GcsAuthOptions authOptions) {
     this.clientOptions = clientOptions;
     this.credentials = credentials;
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
     this.bucketPropertiesCache =
         checkNotNull(bucketPropertiesCache, "bucketPropertiesCache cannot be null");
+    this.authOptions = authOptions;
+    this.universeDomain =
+        resolveUniverseDomain(
+            clientOptions.getUniverseDomain(), System.getenv(UNIVERSE_DOMAIN_ENV_VAR));
     this.storage = createStorage(credentials);
+  }
+
+  /**
+   * Returns the configured universe domain, or else the {@code GOOGLE_CLOUD_UNIVERSE_DOMAIN}
+   * environment variable when it is set and not blank.
+   */
+  @VisibleForTesting
+  static Optional<String> resolveUniverseDomain(
+      Optional<String> configuredUniverseDomain, @Nullable String environmentUniverseDomain) {
+    return configuredUniverseDomain.or(
+        () ->
+            Optional.ofNullable(environmentUniverseDomain)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty()));
   }
 
   @Override
@@ -308,6 +356,7 @@ class GcsClientImpl implements GcsClient {
       throws IOException {
     StorageControlSettings.Builder builder = StorageControlSettings.newBuilder();
     credentials.ifPresent(c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
+    universeDomain.ifPresent(builder::setUniverseDomain);
     return StorageControlClient.create(builder.build());
   }
 
@@ -708,9 +757,25 @@ class GcsClientImpl implements GcsClient {
 
   @VisibleForTesting
   protected Storage createStorage(Optional<Credentials> credentials) {
-    return buildStorage(
-        clientOptions.isGrpcEnabled() ? StorageOptions.grpc() : StorageOptions.newBuilder(),
-        credentials);
+    StorageOptions.Builder builder;
+    if (clientOptions.isGrpcEnabled()) {
+      if (authOptions.getProxyAddress().isPresent()) {
+        LOG.warn(
+            "analytics-core.auth.proxy.* applies only to authentication requests when"
+                + " client.protocol is {}; data requests use the JVM proxy settings.",
+            clientOptions.getProtocol());
+      }
+      builder = StorageOptions.grpc();
+    } else {
+      builder =
+          StorageOptions.newBuilder()
+              .setTransportOptions(
+                  GcsTransportOptionsFactory.createHttpTransportOptions(
+                      authOptions,
+                      clientOptions.getServiceHost().orElse(null),
+                      universeDomain.orElse(null)));
+    }
+    return buildStorage(builder, credentials);
   }
 
   private Storage buildStorage(StorageOptions.Builder builder, Optional<Credentials> credentials) {
@@ -719,6 +784,7 @@ class GcsClientImpl implements GcsClient {
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
+    universeDomain.ifPresent(builder::setUniverseDomain);
     credentials.ifPresent(builder::setCredentials);
     builder.setBlobWriteSessionConfig(clientOptions.generateSessionConfig());
 
