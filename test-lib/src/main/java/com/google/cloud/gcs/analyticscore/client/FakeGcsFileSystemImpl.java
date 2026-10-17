@@ -25,7 +25,7 @@ import java.util.concurrent.Executors;
 
 public class FakeGcsFileSystemImpl extends GcsFileSystemImpl {
   public FakeGcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
-    this(fileSystemOptions, new Telemetry(ImmutableList.of()));
+    this(fileSystemOptions, Telemetry.create(ImmutableList.of()));
   }
 
   private FakeGcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions, Telemetry telemetry) {

@@ -15,6 +15,8 @@
  */
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -27,12 +29,6 @@ public class Telemetry implements AutoCloseable {
   private static final Logger LOG = LoggerFactory.getLogger(Telemetry.class);
 
   /**
-   * Discards every metric recorded against it. Handed to the supplier when no listener is
-   * registered, so that callers always have a usable recorder without anything being retained.
-   */
-  private static final MetricsRecorder NO_OP_RECORDER = (metric, value, attributes) -> {};
-
-  /**
    * Stand-in operation for metrics recorded outside any operation scope. It is immutable and
    * identical on every call, so it is built once rather than per metric: {@link #recordMetric} sits
    * on the cache-hit path. A generated id would be misleading here anyway, since there is no
@@ -43,23 +39,39 @@ public class Telemetry implements AutoCloseable {
 
   private final List<OperationListener> listeners = new CopyOnWriteArrayList<>();
 
+  /**
+   * Returns a {@link Telemetry} appropriate for {@code listeners}, which is a no-op implementation
+   * when the list is empty.
+   *
+   * <p>Prefer this to the constructor. {@code measure} wraps every {@code read}, {@code seek} and
+   * {@code write}, and this class does the work of collecting metrics whether or not anything is
+   * listening; asking "is anyone listening?" once, here, keeps that question off the data plane.
+   */
+  public static Telemetry create(List<OperationListener> listeners) {
+    checkNotNull(listeners, "listeners cannot be null");
+    return listeners.isEmpty() ? new NoOpTelemetry() : new Telemetry(listeners);
+  }
+
+  /**
+   * Prefer {@link #create(List)}, which selects a no-op implementation when there are no listeners.
+   * Constructing directly with an empty list yields an instance that collects metrics nobody will
+   * read.
+   */
   public Telemetry(List<OperationListener> listeners) {
+    checkNotNull(listeners, "listeners cannot be null");
     this.listeners.addAll(listeners);
   }
 
   /**
    * Executes an operation with telemetry tracking.
    *
-   * <p>When no listener is registered the supplier is invoked directly against {@link
-   * #NO_OP_RECORDER}: no metric map, no timing calls and no notifications. {@code measure} wraps
-   * every {@code read}, {@code seek} and {@code write}, so without this the cost of collecting
-   * metrics that nothing consumes would be paid on the data plane.
+   * <p>Callers that have no listener configured should obtain their instance from {@link
+   * #create(List)}, which returns an implementation that skips all of this rather than collecting
+   * metrics that nothing consumes. {@code measure} wraps every {@code read}, {@code seek} and
+   * {@code write}, so that cost would otherwise land on the data plane.
    */
   public <T, E extends Throwable> T measure(
       Operation operation, OperationSupplier<T, E> operationSupplier) throws E {
-    if (listeners.isEmpty()) {
-      return operationSupplier.get(NO_OP_RECORDER);
-    }
     // Deliberately concurrent: MetricsRecorder is public API, so a supplier is free to fan work
     // out across threads and record from each of them.
     Map<MetricKey, Long> currentMetrics = new ConcurrentHashMap<>();
@@ -90,10 +102,6 @@ public class Telemetry implements AutoCloseable {
       Map<String, String> operationAttributes,
       OperationSupplier<T, E> operationSupplier)
       throws E {
-    // Checked before building the Operation: construction is itself allocation we can skip.
-    if (listeners.isEmpty()) {
-      return operationSupplier.get(NO_OP_RECORDER);
-    }
     Operation operation =
         Operation.builder()
             .setOperationId(operationId)
@@ -110,10 +118,6 @@ public class Telemetry implements AutoCloseable {
       Map<String, String> operationAttributes,
       OperationSupplier<T, E> operationSupplier)
       throws E {
-    // Checked before building the Operation, which would otherwise generate an operation id.
-    if (listeners.isEmpty()) {
-      return operationSupplier.get(NO_OP_RECORDER);
-    }
     Operation operation =
         Operation.builder()
             .setName(operationName)
@@ -128,9 +132,6 @@ public class Telemetry implements AutoCloseable {
    * interceptors or background processes where no operation scope is available.
    */
   public void recordMetric(Metric metric, long value, Map<String, String> attributes) {
-    if (listeners.isEmpty()) {
-      return;
-    }
     notifyEnd(
         UNKNOWN_OPERATION,
         Collections.singletonMap(
