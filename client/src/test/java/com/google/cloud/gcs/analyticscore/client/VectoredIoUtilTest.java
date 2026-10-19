@@ -16,16 +16,21 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import java.io.EOFException;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import org.apache.commons.lang3.RandomUtils;
 import org.junit.jupiter.api.Test;
 
 class VectoredIoUtilTest {
+  private static final GcsItemId TEST_ITEM_ID =
+      GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
 
   @Test
   void sortGcsObjectRanges_withSingleRange_returnsSingleRange() {
@@ -149,6 +154,75 @@ class VectoredIoUtilTest {
     System.arraycopy(data, 40, expectedArray, 0, 30);
 
     assertThat(resultArray).isEqualTo(expectedArray);
+  }
+
+  @Test
+  void fetchUnderlyingRangeData_withZeroLengthChild_returnsEmptySlice() {
+    GcsObjectRange emptyChild = createRange(15, 0);
+    GcsObjectCombinedRange combinedRange =
+        GcsObjectCombinedRange.builder()
+            .setOffset(10)
+            .setLength(20)
+            .setUnderlyingRanges(ImmutableList.of(emptyChild))
+            .build();
+
+    ByteBuffer result =
+        VectoredIoUtil.fetchUnderlyingRangeData(ByteBuffer.allocate(20), combinedRange, emptyChild);
+
+    assertThat(result.remaining()).isEqualTo(0);
+  }
+
+  @Test
+  void completeDegenerateRanges_zeroLength_completesWithEmptyBuffer() throws Exception {
+    GcsObjectRange emptyRange = createRange(100, 0);
+
+    ImmutableList<GcsObjectRange> pending =
+        VectoredIoUtil.completeDegenerateRanges(ImmutableList.of(emptyRange), TEST_ITEM_ID);
+
+    assertThat(pending).isEmpty();
+    assertThat(emptyRange.getByteBufferFuture().get().remaining()).isEqualTo(0);
+  }
+
+  @Test
+  void completeDegenerateRanges_negativeOffset_completesWithEofException() {
+    GcsObjectRange negativeOffset = createRange(-1, 10);
+
+    ImmutableList<GcsObjectRange> pending =
+        VectoredIoUtil.completeDegenerateRanges(ImmutableList.of(negativeOffset), TEST_ITEM_ID);
+
+    assertThat(pending).isEmpty();
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> negativeOffset.getByteBufferFuture().get());
+    assertThat(e).hasCauseThat().isInstanceOf(EOFException.class);
+    assertThat(e).hasCauseThat().hasMessageThat().contains(TEST_ITEM_ID.toString());
+  }
+
+  @Test
+  void completeDegenerateRanges_negativeLength_completesWithIllegalArgumentException() {
+    GcsObjectRange negativeLength = createRange(0, -10);
+
+    ImmutableList<GcsObjectRange> pending =
+        VectoredIoUtil.completeDegenerateRanges(ImmutableList.of(negativeLength), TEST_ITEM_ID);
+
+    assertThat(pending).isEmpty();
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> negativeLength.getByteBufferFuture().get());
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void completeDegenerateRanges_mixedRanges_returnsReadableRangesInOriginalOrder() {
+    GcsObjectRange second = createRange(50, 10);
+    GcsObjectRange empty = createRange(30, 0);
+    GcsObjectRange first = createRange(0, 10);
+    ImmutableList<GcsObjectRange> ranges = ImmutableList.of(second, empty, first);
+
+    ImmutableList<GcsObjectRange> pending =
+        VectoredIoUtil.completeDegenerateRanges(ranges, TEST_ITEM_ID);
+
+    assertThat(pending).containsExactly(second, first).inOrder();
+    assertThat(second.getByteBufferFuture().isDone()).isFalse();
+    assertThat(first.getByteBufferFuture().isDone()).isFalse();
   }
 
   private GcsObjectRange createRange(long offset, int length) {
