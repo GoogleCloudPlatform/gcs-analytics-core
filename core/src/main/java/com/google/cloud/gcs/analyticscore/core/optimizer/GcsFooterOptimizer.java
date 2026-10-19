@@ -22,16 +22,21 @@ import com.google.cloud.gcs.analyticscore.client.AnalyticsCacheManager;
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
+import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.IntFunction;
 import javax.annotation.Nullable;
 
 /** A {@link FormatOptimizer} that caches and serves GCS object footers (e.g., for Parquet). */
@@ -135,6 +140,105 @@ public class GcsFooterOptimizer implements FormatOptimizer {
   private void adoptFooterBuffer(ByteBuffer footer) {
     localFooterBuffer = footer;
     localBufferStartPosition = fileSize - footer.limit();
+  }
+
+  /**
+   * Serves ranges that fall entirely inside the already-cached footer window from memory. Never
+   * triggers a footer load: if neither this stream nor the shared cache holds the footer yet, all
+   * ranges are returned untouched so the delegate fetches them.
+   */
+  @Override
+  public List<GcsObjectRange> readVectored(
+      List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate) throws IOException {
+    if (fileSize <= 0 || prefetchSize <= 0 || !anyInFooterWindow(ranges)) {
+      return ranges;
+    }
+    boolean servedFromLocalBuffer = localFooterBuffer != null;
+    if (!servedFromLocalBuffer && !adoptCachedFooterIfPresent()) {
+      return ranges;
+    }
+
+    ImmutableList.Builder<GcsObjectRange> remainingRanges =
+        ImmutableList.builderWithExpectedSize(ranges.size());
+    int attempted = 0;
+    long hits = 0;
+    for (GcsObjectRange range : ranges) {
+      if (!bufferCovers(range)) {
+        remainingRanges.add(range);
+        continue;
+      }
+      attempted++;
+      if (completeFromBuffer(range, allocate)) {
+        hits++;
+      }
+    }
+    if (hits > 0) {
+      telemetry.recordMetric(
+          servedFromLocalBuffer ? Metric.FOOTER_PREFETCH_HIT : Metric.FOOTER_CACHE_HIT,
+          hits,
+          Collections.emptyMap());
+    }
+    // Rebuild only if a future was settled here, so a settled range never reaches the delegate.
+    return attempted == 0 ? ranges : remainingRanges.build();
+  }
+
+  /** Adopts the shared-cache footer if present; returns false (without loading) otherwise. */
+  private boolean adoptCachedFooterIfPresent() {
+    Optional<ByteBuffer> footer = cacheManager.getFooterIfPresent(gcsItemId);
+    if (footer.isEmpty()) {
+      return false;
+    }
+    adoptFooterBuffer(footer.get());
+    return true;
+  }
+
+  // Plain loop: this runs on every vectored read, most of which are data pages.
+  private boolean anyInFooterWindow(List<GcsObjectRange> ranges) {
+    for (GcsObjectRange range : ranges) {
+      if (isInFooterWindow(range)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Zero-length ranges are left to the delegate so EOF/validation semantics stay in one place.
+  private boolean isInFooterWindow(GcsObjectRange range) {
+    return range.getLength() > 0
+        && range.getOffset() >= fileSize - prefetchSize
+        && range.getOffset() + range.getLength() <= fileSize;
+  }
+
+  private boolean bufferCovers(GcsObjectRange range) {
+    return range.getLength() > 0
+        && bufferCovers(range.getOffset())
+        && range.getOffset() + range.getLength()
+            <= localBufferStartPosition + localFooterBuffer.limit();
+  }
+
+  // Returns true only when the future was completed normally; failures settle it exceptionally.
+  private boolean completeFromBuffer(GcsObjectRange range, IntFunction<ByteBuffer> allocate) {
+    try {
+      ByteBuffer dest = allocate.apply(range.getLength());
+      if (dest == null) {
+        throw new IllegalArgumentException(
+            String.format("Buffer allocation returned null for range: %s", range));
+      }
+      if (dest.remaining() < range.getLength()) {
+        throw new IllegalArgumentException(
+            String.format("Allocated buffer is too small for range: %s", range));
+      }
+      // Copy exactly range.getLength() bytes starting at the buffer's current position.
+      int start = dest.position();
+      dest.limit(start + range.getLength());
+      serveFromBuffer(range.getOffset(), dest);
+      dest.position(start);
+      range.getByteBufferFuture().complete(dest);
+      return true;
+    } catch (Throwable t) {
+      range.getByteBufferFuture().completeExceptionally(t);
+      return false;
+    }
   }
 
   private int readWithUnknownFileSize(
