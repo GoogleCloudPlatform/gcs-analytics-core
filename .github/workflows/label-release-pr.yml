@@ -1,0 +1,140 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Label Release Please PR for Kokoro
+
+# Kokoro runs the correctness-test presubmit only when a PR has the kokoro:run label. This adds the
+# label to release PRs once Kokoro has started its other presubmits, so the label starts only
+# correctness-test.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+
+# Least privilege at the workflow level; the job declares what it needs below.
+permissions:
+  contents: read
+
+# Only the newest commit on a PR matters, so a run still waiting on an older one is cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  label-release-pr:
+    name: label-release-pr
+    # Release PRs from this repo only (fork PRs get a read-only token), never -SNAPSHOT bump PRs,
+    # and not when the label is already on the PR: Kokoro reads the PR's labels on these events, so
+    # a label left over from an earlier commit already starts correctness-test for this one.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'release-please--') &&
+      !endsWith(github.event.pull_request.title, '-SNAPSHOT') &&
+      !contains(github.event.pull_request.labels.*.name, 'kokoro:run')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pull-requests: write # add the label
+      statuses: read # see which Kokoro presubmits have started
+    env:
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      LABEL: kokoro:run
+      CORRECTNESS_CONTEXT: presubmits / correctness-test
+      # Presubmits Kokoro starts on its own for release PRs. kokoro:run skips a job only once the
+      # job has a status on the commit, so adding the label earlier starts these a second time.
+      AUTO_STARTED_CONTEXTS: |-
+        presubmits / compilation
+        presubmits / integration-tests
+      WAIT_TIMEOUT_SECONDS: 300
+      POLL_INTERVAL_SECONDS: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Wait for Kokoro to start its own presubmits
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -t expected <<< "$AUTO_STARTED_CONTEXTS"
+          deadline=$((SECONDS + WAIT_TIMEOUT_SECONDS))
+          while true; do
+            started=$(gh api "repos/$REPO/commits/$HEAD_SHA/status" --jq '.statuses[].context') \
+              || started=""
+            missing=()
+            for context in "${expected[@]}"; do
+              grep -qxF "$context" <<< "$started" || missing+=("$context")
+            done
+            if (( ${#missing[@]} == 0 )); then
+              echo "Kokoro has started all of its own presubmits."
+              exit 0
+            fi
+            waiting_for=$(printf '"%s", ' "${missing[@]}")
+            waiting_for=${waiting_for%, }
+            if (( SECONDS >= deadline )); then
+              echo "::error::Timed out waiting for ${waiting_for}. Not adding $LABEL, which would start them a second time; add it by hand once they have started."
+              exit 1
+            fi
+            echo "Waiting for Kokoro to start ${waiting_for}"
+            sleep "$POLL_INTERVAL_SECONDS"
+          done
+
+      - name: Check the label would still start correctness-test
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Retries, so a brief API error after the wait above does not fail the run.
+          fetch() {
+            local body
+            for _ in 1 2 3; do
+              if body=$(gh api "$1"); then
+                printf '%s\n' "$body"
+                return 0
+              fi
+              sleep 5
+            done
+            return 1
+          }
+          pull=$(fetch "repos/$REPO/pulls/$PR_NUMBER")
+          contexts=$(fetch "repos/$REPO/commits/$HEAD_SHA/status" | jq -r '.statuses[].context')
+          current_sha=$(jq -r '.head.sha' <<< "$pull")
+          labels=$(jq -r '.labels[].name' <<< "$pull")
+          reason=""
+          if [[ "$current_sha" != "$HEAD_SHA" ]]; then
+            reason="the PR has a newer commit, and the run for that push handles it"
+          elif grep -qxF "$LABEL" <<< "$labels"; then
+            reason="$LABEL was added by hand while this run waited"
+          elif grep -qxF "$CORRECTNESS_CONTEXT" <<< "$contexts"; then
+            reason="correctness-test already ran on this commit"
+          fi
+          if [[ -n "$reason" ]]; then
+            echo "::notice::Not adding $LABEL: $reason."
+            echo "add-label=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "add-label=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Add kokoro:run label
+        if: steps.check.outputs.add-label == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$LABEL"
