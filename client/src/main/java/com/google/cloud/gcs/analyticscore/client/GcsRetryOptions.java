@@ -72,11 +72,19 @@ public abstract class GcsRetryOptions {
   /**
    * Applies the configured overrides on top of {@code base}, leaving unset fields untouched.
    *
+   * <p>When only one of the initial and maximum retry delays is overridden, the other is inherited
+   * from {@code base}. The effective pair is validated here so that a single-sided override that
+   * conflicts with the inherited value fails with a message naming the configuration keys, rather
+   * than with an opaque error from the retry library.
+   *
    * @param base The retry settings to start from, typically the library defaults.
    * @return A new {@link RetrySettings} with the overrides applied.
+   * @throws IllegalArgumentException If the effective initial delay exceeds the effective maximum
+   *     delay.
    */
   public RetrySettings applyTo(RetrySettings base) {
     checkNotNull(base, "base cannot be null");
+    checkEffectiveDelayOrdering(base);
     RetrySettings.Builder builder = base.toBuilder();
     getMaxAttempts().ifPresent(builder::setMaxAttempts);
     getInitialRetryDelay().ifPresent(builder::setInitialRetryDelayDuration);
@@ -84,6 +92,19 @@ public abstract class GcsRetryOptions {
     getMaxRetryDelay().ifPresent(builder::setMaxRetryDelayDuration);
     getTotalTimeout().ifPresent(builder::setTotalTimeoutDuration);
     return builder.build();
+  }
+
+  private void checkEffectiveDelayOrdering(RetrySettings base) {
+    Duration initial = getInitialRetryDelay().orElse(base.getInitialRetryDelayDuration());
+    Duration max = getMaxRetryDelay().orElse(base.getMaxRetryDelayDuration());
+    checkArgument(
+        initial.compareTo(max) <= 0,
+        "Effective %s=%s must not exceed effective %s=%s; set both keys when overriding one"
+            + " would conflict with the inherited default",
+        INITIAL_DELAY_KEY,
+        initial.toMillis(),
+        MAX_DELAY_KEY,
+        max.toMillis());
   }
 
   public abstract Builder toBuilder();

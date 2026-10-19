@@ -439,6 +439,27 @@ class GcsClientImplTest {
   }
 
   @Test
+  void createStorage_withMaxDelayBelowDefaultInitialDelay_throwsIllegalArgumentException() {
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setGcsRetryOptions(
+                GcsRetryOptions.builder().setMaxRetryDelay(Duration.ofMillis(500)).build())
+            .build();
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new GcsClientImpl(
+                    NoCredentials.getInstance(),
+                    clientOptions,
+                    executorServiceSupplier,
+                    telemetry));
+
+    assertThat(e).hasMessageThat().contains("analytics-core.retry.max-delay-ms=500");
+  }
+
+  @Test
   void createStorage_withProxy_sendsRequestsThroughProxy() throws IOException {
     List<String> proxiedRequests = new CopyOnWriteArrayList<>();
     HttpServer proxy = startNotFoundServer(proxiedRequests);

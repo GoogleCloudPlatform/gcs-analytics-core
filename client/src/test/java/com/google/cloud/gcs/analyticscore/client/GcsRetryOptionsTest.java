@@ -19,6 +19,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.api.gax.retrying.RetrySettings;
+import com.google.cloud.storage.StorageOptions;
 import com.google.common.collect.ImmutableMap;
 import java.time.Duration;
 import java.util.Map;
@@ -316,5 +317,71 @@ class GcsRetryOptionsTest {
     RetrySettings result = options.applyTo(BASE);
 
     assertThat(result).isEqualTo(BASE.toBuilder().setMaxAttempts(2).build());
+  }
+
+  @Test
+  void applyTo_onlyMaxDelayBelowLibraryDefaultInitialDelay_throwsIllegalArgumentException() {
+    GcsRetryOptions options =
+        GcsRetryOptions.builder().setMaxRetryDelay(Duration.ofMillis(500)).build();
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> options.applyTo(StorageOptions.getDefaultRetrySettings()));
+
+    assertThat(e).hasMessageThat().contains(GcsRetryOptions.MAX_DELAY_KEY + "=500");
+  }
+
+  @Test
+  void applyTo_onlyInitialDelayAboveLibraryDefaultMaxDelay_throwsIllegalArgumentException() {
+    GcsRetryOptions options =
+        GcsRetryOptions.builder().setInitialRetryDelay(Duration.ofMillis(60000)).build();
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> options.applyTo(StorageOptions.getDefaultRetrySettings()));
+
+    assertThat(e).hasMessageThat().contains(GcsRetryOptions.INITIAL_DELAY_KEY + "=60000");
+  }
+
+  @Test
+  void applyTo_onlyMaxDelayAboveBaseInitialDelay_inheritsBaseInitialDelay() {
+    GcsRetryOptions options =
+        GcsRetryOptions.builder().setMaxRetryDelay(Duration.ofSeconds(5)).build();
+
+    RetrySettings result = options.applyTo(BASE);
+
+    assertThat(result)
+        .isEqualTo(BASE.toBuilder().setMaxRetryDelayDuration(Duration.ofSeconds(5)).build());
+  }
+
+  @Test
+  void applyTo_onlyInitialDelayBelowBaseMaxDelay_inheritsBaseMaxDelay() {
+    GcsRetryOptions options =
+        GcsRetryOptions.builder().setInitialRetryDelay(Duration.ofMillis(100)).build();
+
+    RetrySettings result = options.applyTo(BASE);
+
+    assertThat(result)
+        .isEqualTo(BASE.toBuilder().setInitialRetryDelayDuration(Duration.ofMillis(100)).build());
+  }
+
+  @Test
+  void applyTo_bothDelaysOverriddenOutsideBaseRange_succeeds() {
+    GcsRetryOptions options =
+        GcsRetryOptions.builder()
+            .setInitialRetryDelay(Duration.ofSeconds(60))
+            .setMaxRetryDelay(Duration.ofSeconds(120))
+            .build();
+
+    RetrySettings result = options.applyTo(BASE);
+
+    assertThat(result)
+        .isEqualTo(
+            BASE.toBuilder()
+                .setInitialRetryDelayDuration(Duration.ofSeconds(60))
+                .setMaxRetryDelayDuration(Duration.ofSeconds(120))
+                .build());
   }
 }
