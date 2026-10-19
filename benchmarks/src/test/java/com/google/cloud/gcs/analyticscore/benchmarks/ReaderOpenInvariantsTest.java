@@ -20,6 +20,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import org.junit.jupiter.api.Test;
 
 class ReaderOpenInvariantsTest {
@@ -93,5 +94,31 @@ class ReaderOpenInvariantsTest {
     bench.gapBytes = MB;
     bench.setUp();
     assertThat(bench.mergeRanges()).hasSize(16);
+  }
+
+  @Test
+  void channelOpen_withFileInfoVsItemId_opensOneReaderAndServesOneByteEach() throws IOException {
+    try (var bench = new GcsReadChannelOpenBenchmark()) {
+      bench.setUp();
+      assertThat(bench.openAndReadOneByte_withFileInfo(new IoCounters())).isEqualTo(0);
+      assertThat(bench.storage.readerOpens()).isEqualTo(1);
+      assertThat(bench.storage.bytesServed()).isEqualTo(1);
+      bench.storage.resetCounters();
+      assertThat(bench.openAndReadOneByte_withItemId(new IoCounters())).isEqualTo(0);
+      assertThat(bench.storage.readerOpens()).isEqualTo(1);
+      assertThat(bench.storage.bytesServed()).isEqualTo(1);
+      bench.storage.resetCounters();
+      try (var channel =
+          bench.fileSystem.open(
+              bench.itemId,
+              bench.fileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions())) {
+        assertThat(channel.getItemInfo()).isNull();
+        assertThat(channel.read(ByteBuffer.allocate(1))).isEqualTo(1);
+        assertThat(channel.getItemInfo()).isNotNull();
+        assertThat(channel.getItemInfo().getSize()).isEqualTo(64 * KB);
+        assertThat(channel.getItemInfo().getContentGeneration()).hasValue(1L);
+        assertThat(bench.storage.readerOpens()).isEqualTo(1);
+      }
+    }
   }
 }
