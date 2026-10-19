@@ -77,6 +77,7 @@ import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
@@ -391,6 +392,42 @@ class GcsClientImplTest {
         new GcsClientImpl(credentials, TEST_GCS_CLIENT_OPTIONS, executorServiceSupplier, telemetry);
 
     assertThat(client.storage.getOptions().getCredentials()).isEqualTo(credentials);
+  }
+
+  @ParameterizedTest
+  @EnumSource(GcsClientOptions.Protocol.class)
+  void createStorage_withoutRetryOverrides_usesLibraryDefaultRetrySettings(
+      GcsClientOptions.Protocol protocol) throws IOException {
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(),
+            GcsClientOptions.builder().setProtocol(protocol).build(),
+            executorServiceSupplier,
+            telemetry);
+
+    assertThat(client.storage.getOptions().getRetrySettings())
+        .isEqualTo(StorageOptions.getDefaultRetrySettings());
+  }
+
+  @ParameterizedTest
+  @EnumSource(GcsClientOptions.Protocol.class)
+  void createStorage_withRetryOverrides_appliesRetrySettings(GcsClientOptions.Protocol protocol)
+      throws IOException {
+    GcsRetryOptions retryOptions =
+        GcsRetryOptions.builder()
+            .setMaxAttempts(11)
+            .setInitialRetryDelay(Duration.ofMillis(200))
+            .setTotalTimeout(Duration.ofMinutes(1))
+            .build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder().setProtocol(protocol).setGcsRetryOptions(retryOptions).build();
+
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(), clientOptions, executorServiceSupplier, telemetry);
+
+    assertThat(client.storage.getOptions().getRetrySettings())
+        .isEqualTo(retryOptions.applyTo(StorageOptions.getDefaultRetrySettings()));
   }
 
   @Test

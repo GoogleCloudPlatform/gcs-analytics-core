@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -248,6 +249,30 @@ class GcsClientOptionsTest {
             .setGcsWriteOptions(GcsWriteOptions.builder().setBidiWriteEnabled(true).build());
 
     assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  @Test
+  void builder_withDefaultValues_hasNoRetryOverrides() {
+    GcsClientOptions options = GcsClientOptions.builder().build();
+
+    assertThat(options.getGcsRetryOptions().hasOverrides()).isFalse();
+  }
+
+  @Test
+  void createFromOptions_withRetryProperties_populatesRetryOptions() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.analytics-core.retry.max-attempts", "11",
+            "gcs.analytics-core.retry.total-timeout-ms", "60000");
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getGcsRetryOptions())
+        .isEqualTo(
+            GcsRetryOptions.builder()
+                .setMaxAttempts(11)
+                .setTotalTimeout(Duration.ofMillis(60000))
+                .build());
   }
 
   private static GcsClientOptions.Protocol protocolFor(String value) {

@@ -426,6 +426,10 @@ class GcsClientImpl implements GcsClient {
     clientOptions.getServiceHost().ifPresent(builder::setHost);
     credentials.ifPresent(builder::setCredentials);
     builder.setBlobWriteSessionConfig(clientOptions.generateSessionConfig());
+    GcsRetryOptions retryOptions = clientOptions.getGcsRetryOptions();
+    if (retryOptions.hasOverrides()) {
+      builder.setRetrySettings(retryOptions.applyTo(StorageOptions.getDefaultRetrySettings()));
+    }
 
     return builder.build().getService();
   }
