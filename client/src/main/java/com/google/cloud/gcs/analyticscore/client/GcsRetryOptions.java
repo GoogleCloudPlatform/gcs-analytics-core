@@ -15,7 +15,6 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
-import static com.google.cloud.gcs.analyticscore.common.ConfigurationUtil.getTrimmedValue;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -105,19 +104,19 @@ public abstract class GcsRetryOptions {
   public static GcsRetryOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
     Builder builder = builder();
-    getTrimmedValue(analyticsCoreOptions, prefix + MAX_ATTEMPTS_KEY)
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + MAX_ATTEMPTS_KEY)
         .map(value -> parseInt(prefix + MAX_ATTEMPTS_KEY, value))
         .ifPresent(builder::setMaxAttempts);
-    getTrimmedValue(analyticsCoreOptions, prefix + INITIAL_DELAY_KEY)
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + INITIAL_DELAY_KEY)
         .map(value -> parseMillis(prefix + INITIAL_DELAY_KEY, value))
         .ifPresent(builder::setInitialRetryDelay);
-    getTrimmedValue(analyticsCoreOptions, prefix + DELAY_MULTIPLIER_KEY)
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + DELAY_MULTIPLIER_KEY)
         .map(value -> parseDouble(prefix + DELAY_MULTIPLIER_KEY, value))
         .ifPresent(builder::setRetryDelayMultiplier);
-    getTrimmedValue(analyticsCoreOptions, prefix + MAX_DELAY_KEY)
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + MAX_DELAY_KEY)
         .map(value -> parseMillis(prefix + MAX_DELAY_KEY, value))
         .ifPresent(builder::setMaxRetryDelay);
-    getTrimmedValue(analyticsCoreOptions, prefix + TOTAL_TIMEOUT_KEY)
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + TOTAL_TIMEOUT_KEY)
         .map(value -> parseMillis(prefix + TOTAL_TIMEOUT_KEY, value))
         .ifPresent(builder::setTotalTimeout);
     return builder.build(prefix);

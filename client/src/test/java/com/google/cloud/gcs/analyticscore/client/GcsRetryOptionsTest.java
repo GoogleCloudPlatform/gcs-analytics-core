@@ -229,6 +229,56 @@ class GcsRetryOptionsTest {
   }
 
   @Test
+  void build_negativeInitialDelay_throwsIllegalArgumentException() {
+    GcsRetryOptions.Builder builder =
+        GcsRetryOptions.builder().setInitialRetryDelay(Duration.ofMillis(-1));
+
+    assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  @Test
+  void build_zeroMaxDelay_throwsIllegalArgumentException() {
+    GcsRetryOptions.Builder builder = GcsRetryOptions.builder().setMaxRetryDelay(Duration.ZERO);
+
+    assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  @Test
+  void build_negativeTotalTimeout_throwsIllegalArgumentException() {
+    GcsRetryOptions.Builder builder =
+        GcsRetryOptions.builder().setTotalTimeout(Duration.ofMillis(-1));
+
+    assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  @Test
+  void build_initialDelayEqualToMaxDelay_isAllowed() {
+    GcsRetryOptions options =
+        GcsRetryOptions.builder()
+            .setInitialRetryDelay(Duration.ofSeconds(1))
+            .setMaxRetryDelay(Duration.ofSeconds(1))
+            .build();
+
+    assertThat(options.getMaxRetryDelay()).hasValue(Duration.ofSeconds(1));
+  }
+
+  @Test
+  void build_onlyInitialDelaySet_skipsOrderingCheck() {
+    GcsRetryOptions options =
+        GcsRetryOptions.builder().setInitialRetryDelay(Duration.ofHours(1)).build();
+
+    assertThat(options.getInitialRetryDelay()).hasValue(Duration.ofHours(1));
+  }
+
+  @Test
+  void build_onlyMaxDelaySet_skipsOrderingCheck() {
+    GcsRetryOptions options =
+        GcsRetryOptions.builder().setMaxRetryDelay(Duration.ofMillis(1)).build();
+
+    assertThat(options.getMaxRetryDelay()).hasValue(Duration.ofMillis(1));
+  }
+
+  @Test
   void applyTo_noOverrides_returnsEquivalentSettings() {
     GcsRetryOptions options = GcsRetryOptions.builder().build();
 
