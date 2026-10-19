@@ -31,6 +31,7 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.ZeroCopySupport.DisposableByteString;
 import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableList;
 import com.google.protobuf.ByteString;
 import java.io.EOFException;
 import java.io.FileNotFoundException;
@@ -199,17 +200,29 @@ class GcsBidiReadChannel extends GcsReadChannel {
               return "Reader is closed.";
             }
           };
-      ranges.forEach(range -> range.getByteBufferFuture().completeExceptionally(e));
+      for (GcsObjectRange range : ranges) {
+        range.getByteBufferFuture().completeExceptionally(e);
+      }
       throw e;
     }
     BlobReadSession session;
     try {
       session = getBlobReadSession();
     } catch (IOException | RuntimeException e) {
-      ranges.forEach(range -> range.getByteBufferFuture().completeExceptionally(e));
+      for (GcsObjectRange range : ranges) {
+        range.getByteBufferFuture().completeExceptionally(e);
+      }
       throw e;
     }
-    ranges.forEach(range -> readAndAttachCallback(range, session, allocate));
+    GcsVectoredReadOptions vectoredReadOptions = readOptions.getGcsVectoredReadOptions();
+    ImmutableList<GcsObjectCombinedRange> combinedRanges =
+        VectoredIoUtil.mergeGcsObjectRanges(
+            ImmutableList.copyOf(ranges),
+            vectoredReadOptions.getMaxMergeGap(),
+            vectoredReadOptions.getMaxMergeSize());
+    for (GcsObjectCombinedRange combinedRange : combinedRanges) {
+      readAndAttachCallback(combinedRange, session, allocate);
+    }
   }
 
   @Override
@@ -350,45 +363,49 @@ class GcsBidiReadChannel extends GcsReadChannel {
   }
 
   private void readAndAttachCallback(
-      GcsObjectRange range, BlobReadSession session, IntFunction<ByteBuffer> allocate) {
+      GcsObjectCombinedRange combinedRange,
+      BlobReadSession session,
+      IntFunction<ByteBuffer> allocate) {
     ApiFuture<DisposableByteString> futureBytes =
         session.readAs(
             ReadProjectionConfigs.asFutureByteString()
-                .withRangeSpec(RangeSpec.of(range.getOffset(), range.getLength())));
+                .withRangeSpec(RangeSpec.of(combinedRange.getOffset(), combinedRange.getLength())));
 
     ApiFutures.addCallback(
         futureBytes,
         new ApiFutureCallback<DisposableByteString>() {
           @Override
           public void onFailure(Throwable t) {
-            range.getByteBufferFuture().completeExceptionally(t);
+            completeWithException(combinedRange, t);
             logger.debug(
-                "Vectored Read failed for range starting from {} with length {}",
-                range.getOffset(),
-                range.getLength());
+                "Vectored Read failed for combined range starting from {} with length {} "
+                    + "({} underlying ranges)",
+                combinedRange.getOffset(),
+                combinedRange.getLength(),
+                combinedRange.getUnderlyingRanges().size());
           }
 
           @Override
           public void onSuccess(DisposableByteString disposableByteString) {
             try {
-              processBytesAndCompleteRange(disposableByteString, range, allocate);
+              processBytesAndCompleteRanges(disposableByteString, combinedRange, allocate);
             } catch (Throwable t) {
-              range.getByteBufferFuture().completeExceptionally(t);
+              completeWithException(combinedRange, t);
             }
           }
         },
         executorServiceSupplier.get());
   }
 
-  private void processBytesAndCompleteRange(
+  private void processBytesAndCompleteRanges(
       DisposableByteString disposableByteString,
-      GcsObjectRange range,
+      GcsObjectCombinedRange combinedRange,
       IntFunction<ByteBuffer> allocate)
       throws IOException {
     try (DisposableByteString dbs = disposableByteString) {
       ByteString byteString = dbs.byteString();
-      int size = byteString.size();
-      ByteBuffer buf = allocate.apply(size);
+      int bytesRead = byteString.size();
+      ByteBuffer buf = allocate.apply(combinedRange.getLength());
       if (buf == null) {
         throw new NullPointerException("Allocator returned a null ByteBuffer!");
       }
@@ -396,7 +413,50 @@ class GcsBidiReadChannel extends GcsReadChannel {
         buf.put(b);
       }
       buf.flip();
-      range.getByteBufferFuture().complete(buf);
+      ImmutableList<GcsObjectRange> underlyingRanges = combinedRange.getUnderlyingRanges();
+      if (underlyingRanges.size() == 1 && bytesRead >= combinedRange.getLength()) {
+        // Single range that was fully read: hand the buffer over without slicing.
+        underlyingRanges.get(0).getByteBufferFuture().complete(buf);
+        return;
+      }
+      for (GcsObjectRange underlyingRange : underlyingRanges) {
+        completeUnderlyingRange(combinedRange, underlyingRange, bytesRead, buf);
+      }
+    }
+  }
+
+  /**
+   * Completes {@code underlyingRange} with a view over {@code dataBuffer} if the bytes actually
+   * returned for {@code combinedRange} cover it entirely; otherwise fails it with an {@link
+   * EOFException} rather than handing out a truncated buffer.
+   */
+  private void completeUnderlyingRange(
+      GcsObjectCombinedRange combinedRange,
+      GcsObjectRange underlyingRange,
+      int bytesRead,
+      ByteBuffer dataBuffer) {
+    long maxPosition = combinedRange.getOffset() + bytesRead;
+    long underlyingRangeEnd = underlyingRange.getOffset() + underlyingRange.getLength();
+    if (underlyingRangeEnd <= maxPosition) {
+      underlyingRange
+          .getByteBufferFuture()
+          .complete(
+              VectoredIoUtil.fetchUnderlyingRangeData(dataBuffer, combinedRange, underlyingRange));
+      return;
+    }
+    underlyingRange
+        .getByteBufferFuture()
+        .completeExceptionally(
+            new EOFException(
+                String.format(
+                    "EOF reached before child range could be populated, childRange: %s, "
+                        + "combinedRange: %s, expected length: %d, readBytes: %d, path: %s",
+                    underlyingRange, combinedRange, combinedRange.getLength(), bytesRead, itemId)));
+  }
+
+  private static void completeWithException(GcsObjectCombinedRange combinedRange, Throwable t) {
+    for (GcsObjectRange underlyingRange : combinedRange.getUnderlyingRanges()) {
+      underlyingRange.getByteBufferFuture().completeExceptionally(t);
     }
   }
 }
