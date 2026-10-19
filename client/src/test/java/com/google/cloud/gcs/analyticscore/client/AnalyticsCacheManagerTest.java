@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -93,6 +94,30 @@ class AnalyticsCacheManagerTest {
     manager.getFooter(ITEM_ID, loader);
 
     assertThat(callCount.get()).isEqualTo(2);
+  }
+
+  @Test
+  void getFooterIfPresent_present_returnsReadOnlyValueWithoutLoading() throws IOException {
+    manager.getFooter(ITEM_ID, itemId -> FOOTER.duplicate());
+
+    Optional<ByteBuffer> footer = manager.getFooterIfPresent(ITEM_ID);
+
+    assertThat(footer).hasValue(FOOTER);
+    assertThat(footer.get().isReadOnly()).isTrue();
+  }
+
+  @Test
+  void getFooterIfPresent_absent_returnsEmpty() {
+    assertThat(manager.getFooterIfPresent(ITEM_ID)).isEmpty();
+  }
+
+  @Test
+  void getFooterIfPresent_cacheDisabled_returnsEmptyEvenAfterGetFooter() throws IOException {
+    manager =
+        new AnalyticsCacheManager(GcsCacheOptions.builder().setFooterCacheEnabled(false).build());
+    manager.getFooter(ITEM_ID, itemId -> FOOTER.duplicate());
+
+    assertThat(manager.getFooterIfPresent(ITEM_ID)).isEmpty();
   }
 
   @Test
