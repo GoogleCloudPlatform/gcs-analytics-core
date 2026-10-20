@@ -1577,6 +1577,8 @@ class GcsClientImplTest {
     try (StorageControlClient controlClient =
         localClient.createStorageControlClient(Optional.of(NoCredentials.getInstance()))) {
       assertThat(controlClient).isNotNull();
+      assertThat(controlClient.getSettings().getHeaderProvider().getHeaders())
+          .containsEntry("User-Agent", localClient.getUserAgent());
     }
   }
 
@@ -1586,12 +1588,41 @@ class GcsClientImplTest {
     StorageControlClient mockControlClient = mock(StorageControlClient.class);
 
     try (MockedStatic<StorageControlClient> mocked = mockStatic(StorageControlClient.class)) {
+      ArgumentCaptor<StorageControlSettings> settingsCaptor =
+          ArgumentCaptor.forClass(StorageControlSettings.class);
       mocked
-          .when(() -> StorageControlClient.create(any(StorageControlSettings.class)))
+          .when(() -> StorageControlClient.create(settingsCaptor.capture()))
           .thenReturn(mockControlClient);
 
       assertThat(localClient.createStorageControlClient(Optional.empty()))
           .isSameInstanceAs(mockControlClient);
+      assertThat(settingsCaptor.getValue().getHeaderProvider().getHeaders())
+          .containsEntry("User-Agent", localClient.getUserAgent());
+    }
+  }
+
+  @Test
+  void createStorageControlClient_withCustomUserAgent_setsUserAgentHeader() throws Exception {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserAgent("custom-app/1.0")
+            .build();
+    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class), options);
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+
+    try (MockedStatic<StorageControlClient> mocked = mockStatic(StorageControlClient.class)) {
+      ArgumentCaptor<StorageControlSettings> settingsCaptor =
+          ArgumentCaptor.forClass(StorageControlSettings.class);
+      mocked
+          .when(() -> StorageControlClient.create(settingsCaptor.capture()))
+          .thenReturn(mockControlClient);
+
+      assertThat(localClient.createStorageControlClient(Optional.empty()))
+          .isSameInstanceAs(mockControlClient);
+      assertThat(settingsCaptor.getValue().getHeaderProvider().getHeaders())
+          .containsEntry(
+              "User-Agent", "gcs-analytics-core/" + VersionHelper.VERSION + " custom-app/1.0");
     }
   }
 
