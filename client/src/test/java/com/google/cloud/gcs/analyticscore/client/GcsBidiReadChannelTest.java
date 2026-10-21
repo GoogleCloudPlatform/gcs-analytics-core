@@ -31,6 +31,8 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobReadSession;
+import com.google.cloud.storage.RangeSpec;
+import com.google.cloud.storage.ReadProjectionConfigs;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.ZeroCopySupport.DisposableByteString;
@@ -127,6 +129,99 @@ class GcsBidiReadChannelTest {
 
     CompletableFuture<ByteBuffer> future = range.getByteBufferFuture();
     assertThat(future.isCompletedExceptionally()).isTrue();
+  }
+
+  @Test
+  void readVectored_rangesWithinMergeGap_issuesSingleCombinedReadAndSplitsBuffers()
+      throws Exception {
+    GcsBidiReadChannel mergingReader = newReaderWithMergeOptions(/* maxMergeGap= */ 100);
+    GcsObjectRange first = newRange(/* offset= */ 10, /* length= */ 4);
+    GcsObjectRange second = newRange(/* offset= */ 16, /* length= */ 4);
+    // Combined range is [10, 20): bytes are filled with their absolute offset.
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(sequentialBytes(10, 10));
+
+    // Out-of-order input must still be merged and routed to the right child.
+    mergingReader.readVectored(Arrays.asList(second, first), ByteBuffer::allocate);
+
+    verify(blobReadSession, times(1))
+        .readAs(ReadProjectionConfigs.asFutureByteString().withRangeSpec(RangeSpec.of(10, 10)));
+    assertThat(toByteArray(first.getByteBufferFuture().get()))
+        .isEqualTo(new byte[] {10, 11, 12, 13});
+    assertThat(toByteArray(second.getByteBufferFuture().get()))
+        .isEqualTo(new byte[] {16, 17, 18, 19});
+  }
+
+  @Test
+  void readVectored_rangesBeyondMergeGap_issuesSeparateReads() throws Exception {
+    GcsBidiReadChannel mergingReader = newReaderWithMergeOptions(/* maxMergeGap= */ 2);
+    GcsObjectRange first = newRange(/* offset= */ 0, /* length= */ 4);
+    GcsObjectRange second = newRange(/* offset= */ 6, /* length= */ 4);
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(sequentialBytes(0, 4));
+
+    mergingReader.readVectored(Arrays.asList(first, second), ByteBuffer::allocate);
+
+    verify(blobReadSession, times(1))
+        .readAs(ReadProjectionConfigs.asFutureByteString().withRangeSpec(RangeSpec.of(0, 4)));
+    verify(blobReadSession, times(1))
+        .readAs(ReadProjectionConfigs.asFutureByteString().withRangeSpec(RangeSpec.of(6, 4)));
+    assertThat(first.getByteBufferFuture().get().remaining()).isEqualTo(4);
+    assertThat(second.getByteBufferFuture().get().remaining()).isEqualTo(4);
+  }
+
+  @Test
+  void readVectored_combinedReadFails_completesAllChildrenExceptionally() throws Exception {
+    GcsBidiReadChannel mergingReader = newReaderWithMergeOptions(/* maxMergeGap= */ 100);
+    GcsObjectRange first = newRange(/* offset= */ 0, /* length= */ 4);
+    GcsObjectRange second = newRange(/* offset= */ 6, /* length= */ 4);
+    RuntimeException failure = new RuntimeException("Read failed");
+    when(blobReadSession.readAs(any())).thenReturn(ApiFutures.immediateFailedFuture(failure));
+
+    mergingReader.readVectored(Arrays.asList(first, second), ByteBuffer::allocate);
+
+    verify(blobReadSession, times(1)).readAs(any());
+    ExecutionException firstFailure =
+        assertThrows(ExecutionException.class, () -> first.getByteBufferFuture().get());
+    ExecutionException secondFailure =
+        assertThrows(ExecutionException.class, () -> second.getByteBufferFuture().get());
+    assertThat(firstFailure).hasCauseThat().isSameInstanceAs(failure);
+    assertThat(secondFailure).hasCauseThat().isSameInstanceAs(failure);
+  }
+
+  @Test
+  void readVectored_shortCombinedRead_completesCoveredChildAndFailsRestWithEof() throws Exception {
+    GcsBidiReadChannel mergingReader = newReaderWithMergeOptions(/* maxMergeGap= */ 100);
+    GcsObjectRange first = newRange(/* offset= */ 0, /* length= */ 5);
+    GcsObjectRange second = newRange(/* offset= */ 15, /* length= */ 5);
+    // Combined range is [0, 20) but only 10 bytes come back.
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(sequentialBytes(0, 10));
+
+    mergingReader.readVectored(Arrays.asList(first, second), ByteBuffer::allocate);
+
+    assertThat(toByteArray(first.getByteBufferFuture().get()))
+        .isEqualTo(new byte[] {0, 1, 2, 3, 4});
+    ExecutionException secondFailure =
+        assertThrows(ExecutionException.class, () -> second.getByteBufferFuture().get());
+    assertThat(secondFailure).hasCauseThat().isInstanceOf(EOFException.class);
+  }
+
+  @Test
+  void readVectored_shortSingleRangeRead_failsWithEofInsteadOfTruncatedBuffer() throws Exception {
+    GcsObjectRange range = newRange(/* offset= */ 0, /* length= */ 10);
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(sequentialBytes(0, 6));
+
+    reader.readVectored(Arrays.asList(range), ByteBuffer::allocate);
+
+    ExecutionException failure =
+        assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(failure).hasCauseThat().isInstanceOf(EOFException.class);
   }
 
   @Test
@@ -823,5 +918,43 @@ class GcsBidiReadChannelTest {
     long unused = seekableReader.size();
 
     assertThat(seekableReader.getItemInfo()).isSameInstanceAs(itemInfo);
+  }
+
+  private GcsBidiReadChannel newReaderWithMergeOptions(int maxMergeGap) throws IOException {
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder()
+            .setBidiTimeout(10)
+            .setGcsVectoredReadOptions(
+                GcsVectoredReadOptions.builder()
+                    .setMaxMergeGap(maxMergeGap)
+                    .setMaxMergeSize(1024)
+                    .build())
+            .build();
+    return new GcsBidiReadChannel(storage, itemId, readOptions, executorServiceSupplier, telemetry);
+  }
+
+  private static GcsObjectRange newRange(long offset, int length) {
+    return GcsObjectRange.builder()
+        .setOffset(offset)
+        .setLength(length)
+        .setByteBufferFuture(new CompletableFuture<>())
+        .build();
+  }
+
+  /**
+   * Returns {@code length} bytes whose values are their absolute offsets starting at {@code start}.
+   */
+  private static ByteString sequentialBytes(int start, int length) {
+    byte[] data = new byte[length];
+    for (int i = 0; i < length; i++) {
+      data[i] = (byte) (start + i);
+    }
+    return ByteString.copyFrom(data);
+  }
+
+  private static byte[] toByteArray(ByteBuffer buffer) {
+    byte[] bytes = new byte[buffer.remaining()];
+    buffer.duplicate().get(bytes);
+    return bytes;
   }
 }
