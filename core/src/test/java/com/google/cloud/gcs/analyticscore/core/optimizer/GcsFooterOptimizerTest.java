@@ -37,6 +37,7 @@ import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
+import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
@@ -48,6 +49,10 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
@@ -732,6 +737,219 @@ class GcsFooterOptimizerTest {
 
     assertThat(bytesRead).isEqualTo(0);
     assertThat(dataReadCount.get()).isEqualTo(0);
+  }
+
+  @Test
+  void readVectored_mixedRanges_servesWindowRangesFromCacheAndReturnsRestInOrder()
+      throws Exception {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    cacheFooter(cachedFooter());
+    GcsObjectRange dataRange = range(0, 10);
+    GcsObjectRange tailRange = range(990, 10);
+    GcsObjectRange straddlingRange = range(850, 100);
+    GcsObjectRange footerStartRange = range(900, 50);
+
+    List<GcsObjectRange> remaining =
+        optimizer.readVectored(
+            ImmutableList.of(dataRange, tailRange, straddlingRange, footerStartRange),
+            ByteBuffer::allocate);
+
+    assertThat(remaining).containsExactly(dataRange, straddlingRange).inOrder();
+    assertThat(toBytes(tailRange.getByteBufferFuture().get())).isEqualTo(bytesAt(990, 10));
+    assertThat(toBytes(footerStartRange.getByteBufferFuture().get())).isEqualTo(bytesAt(900, 50));
+    assertThat(dataRange.getByteBufferFuture().isDone()).isFalse();
+    assertThat(straddlingRange.getByteBufferFuture().isDone()).isFalse();
+    verify(telemetry, times(1)).recordMetric(eq(Metric.FOOTER_CACHE_HIT), eq(2L), any());
+  }
+
+  @Test
+  void readVectored_rangesOutsideFooterWindow_returnedUntouchedWithoutCacheLookup()
+      throws IOException {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    List<GcsObjectRange> ranges =
+        ImmutableList.of(range(0, 10), range(850, 100), range(995, 10), range(1000, 10));
+
+    List<GcsObjectRange> remaining = optimizer.readVectored(ranges, ByteBuffer::allocate);
+
+    assertThat(remaining).isSameInstanceAs(ranges);
+    assertThat(ranges.stream().noneMatch(r -> r.getByteBufferFuture().isDone())).isTrue();
+    verify(mockCacheManager, never()).getFooterIfPresent(any());
+  }
+
+  @Test
+  void readVectored_fileSizeUnknown_returnsRangesUntouched() throws IOException {
+    optimizer.onOpen(ITEM_ID, mockCacheManager);
+    List<GcsObjectRange> ranges = ImmutableList.of(range(990, 10));
+
+    List<GcsObjectRange> remaining = optimizer.readVectored(ranges, ByteBuffer::allocate);
+
+    assertThat(remaining).isSameInstanceAs(ranges);
+    verify(mockCacheManager, never()).getFooterIfPresent(any());
+  }
+
+  @Test
+  void readVectored_footerNotCached_returnsRangesUntouchedWithoutLoading() throws IOException {
+    optimizer.onOpen(FILE_INFO, mockCacheManager); // unstubbed probe returns Optional.empty()
+    List<GcsObjectRange> ranges = ImmutableList.of(range(990, 10), range(0, 10));
+
+    List<GcsObjectRange> remaining = optimizer.readVectored(ranges, ByteBuffer::allocate);
+
+    assertThat(remaining).isSameInstanceAs(ranges);
+    assertThat(ranges.stream().noneMatch(r -> r.getByteBufferFuture().isDone())).isTrue();
+    verify(mockCacheManager, never()).getFooter(any(), any());
+  }
+
+  @Test
+  void readVectored_allocatorReturnsNullOrUndersizedBuffer_failsRangesWithoutCountingHits()
+      throws IOException {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    cacheFooter(cachedFooter());
+    GcsObjectRange nullBufferRange = range(990, 10);
+    GcsObjectRange undersizedBufferRange = range(950, 20);
+    List<GcsObjectRange> ranges = ImmutableList.of(nullBufferRange, undersizedBufferRange);
+
+    List<GcsObjectRange> remaining =
+        optimizer.readVectored(ranges, size -> size == 10 ? null : ByteBuffer.allocate(4));
+
+    assertThat(remaining).isEmpty();
+    ExecutionException nullFailure =
+        assertThrows(ExecutionException.class, () -> nullBufferRange.getByteBufferFuture().get());
+    assertThat(nullFailure).hasCauseThat().hasMessageThat().contains("returned null");
+    ExecutionException undersizedFailure =
+        assertThrows(
+            ExecutionException.class, () -> undersizedBufferRange.getByteBufferFuture().get());
+    assertThat(undersizedFailure).hasCauseThat().hasMessageThat().contains("too small");
+    verify(telemetry, never()).recordMetric(eq(Metric.FOOTER_CACHE_HIT), anyLong(), any());
+  }
+
+  @Test
+  void readVectored_allocatorReturnsOversizedBuffer_completesWithExactlyRangeLength()
+      throws Exception {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    cacheFooter(cachedFooter());
+    GcsObjectRange r = range(920, 10);
+
+    List<GcsObjectRange> remaining =
+        optimizer.readVectored(ImmutableList.of(r), n -> ByteBuffer.allocate(n + 16).position(4));
+
+    assertThat(remaining).isEmpty();
+    ByteBuffer completed = r.getByteBufferFuture().get();
+    assertThat(completed.position()).isEqualTo(4);
+    assertThat(toBytes(completed)).isEqualTo(bytesAt(920, 10));
+  }
+
+  @Test
+  void readVectored_allocatorThrowsForOneRange_failsThatRangeAndStillServesOthers()
+      throws Exception {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    cacheFooter(cachedFooter());
+    RuntimeException allocationFailure = new RuntimeException("allocator exploded");
+    AtomicBoolean firstAllocation = new AtomicBoolean(true);
+    GcsObjectRange failingRange = range(990, 10);
+    GcsObjectRange servedRange = range(950, 20);
+    GcsObjectRange dataRange = range(0, 10);
+
+    List<GcsObjectRange> remaining =
+        optimizer.readVectored(
+            ImmutableList.of(failingRange, servedRange, dataRange),
+            size -> {
+              if (firstAllocation.getAndSet(false)) {
+                throw allocationFailure;
+              }
+              return ByteBuffer.allocate(size);
+            });
+
+    assertThat(remaining).containsExactly(dataRange);
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> failingRange.getByteBufferFuture().get());
+    assertThat(e).hasCauseThat().isSameInstanceAs(allocationFailure);
+    assertThat(toBytes(servedRange.getByteBufferFuture().get())).isEqualTo(bytesAt(950, 20));
+    verify(telemetry, times(1)).recordMetric(eq(Metric.FOOTER_CACHE_HIT), eq(1L), any());
+  }
+
+  @Test
+  void readVectored_footerAlreadyLocal_servesWithoutCacheLookupAndRecordsPrefetchHit()
+      throws Exception {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    when(mockCacheManager.getFooter(eq(ITEM_ID), any()))
+        .thenAnswer(
+            invocation ->
+                invocation.getArgument(1, AnalyticsCacheManager.FooterLoader.class).load(ITEM_ID));
+    int unusedBytesRead = optimizer.read(990, ByteBuffer.allocate(10), realSource);
+    GcsObjectRange pageIndexRange = range(920, 30);
+
+    List<GcsObjectRange> remaining =
+        optimizer.readVectored(ImmutableList.of(pageIndexRange), ByteBuffer::allocate);
+
+    assertThat(remaining).isEmpty();
+    assertThat(toBytes(pageIndexRange.getByteBufferFuture().get())).isEqualTo(bytesAt(920, 30));
+    verify(mockCacheManager, never()).getFooterIfPresent(any());
+    verify(telemetry, times(1)).recordMetric(eq(Metric.FOOTER_PREFETCH_HIT), eq(1L), any());
+  }
+
+  @Test
+  void readVectored_zeroLengthRangeInFooterWindow_isLeftToDelegate() throws IOException {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    cacheFooter(cachedFooter());
+    GcsObjectRange emptyRange = range(990, 0);
+
+    List<GcsObjectRange> remaining =
+        optimizer.readVectored(ImmutableList.of(emptyRange, range(995, 5)), ByteBuffer::allocate);
+
+    assertThat(remaining).containsExactly(emptyRange);
+    assertThat(emptyRange.getByteBufferFuture().isDone()).isFalse();
+  }
+
+  @Test
+  void readVectored_cachedFooterShorterThanPrefetchSize_servesOnlyCoveredRanges()
+      throws IOException {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    cacheFooter(ByteBuffer.wrap(Arrays.copyOfRange(testData, 960, 1000)));
+    GcsObjectRange coveredRange = range(990, 10);
+    GcsObjectRange uncoveredRange = range(950, 20);
+
+    List<GcsObjectRange> remaining =
+        optimizer.readVectored(
+            ImmutableList.of(coveredRange, uncoveredRange), ByteBuffer::allocate);
+
+    assertThat(remaining).containsExactly(uncoveredRange);
+    assertThat(coveredRange.getByteBufferFuture().isDone()).isTrue();
+  }
+
+  @Test
+  void readVectored_cachedFooterCoversNoWindowRange_returnsSameListWithoutMetric()
+      throws IOException {
+    optimizer.onOpen(FILE_INFO, mockCacheManager);
+    cacheFooter(ByteBuffer.wrap(Arrays.copyOfRange(testData, 960, 1000)));
+    List<GcsObjectRange> ranges = ImmutableList.of(range(950, 20), range(0, 10));
+
+    List<GcsObjectRange> remaining = optimizer.readVectored(ranges, ByteBuffer::allocate);
+
+    assertThat(remaining).isSameInstanceAs(ranges);
+    assertThat(ranges.stream().noneMatch(r -> r.getByteBufferFuture().isDone())).isTrue();
+    verify(telemetry, never()).recordMetric(eq(Metric.FOOTER_CACHE_HIT), anyLong(), any());
+  }
+
+  private static GcsObjectRange range(long offset, int length) {
+    return GcsObjectRange.builder()
+        .setOffset(offset)
+        .setLength(length)
+        .setByteBufferFuture(new CompletableFuture<>())
+        .build();
+  }
+
+  private void cacheFooter(ByteBuffer footer) {
+    when(mockCacheManager.getFooterIfPresent(ITEM_ID)).thenReturn(Optional.of(footer));
+  }
+
+  private ByteBuffer cachedFooter() {
+    return ByteBuffer.wrap(Arrays.copyOfRange(testData, 900, 1000));
+  }
+
+  private static byte[] toBytes(ByteBuffer buffer) {
+    byte[] bytes = new byte[buffer.remaining()];
+    buffer.duplicate().get(bytes);
+    return bytes;
   }
 
   private VectoredSeekableByteChannel lazyMetadataChannel(AtomicInteger dataReadCount)

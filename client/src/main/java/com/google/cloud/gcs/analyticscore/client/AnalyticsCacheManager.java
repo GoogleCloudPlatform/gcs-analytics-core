@@ -24,6 +24,7 @@ import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCacheCaffeineImp
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCacheNoOpImpl;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -80,6 +81,16 @@ public class AnalyticsCacheManager {
     return footerCache
         .get(itemId, cachedItemId -> footerLoader.load(cachedItemId))
         .asReadOnlyBuffer();
+  }
+
+  /**
+   * Returns the cached footer for the given {@code itemId} if it is already present, without
+   * loading it. This probe is non-blocking: it never invokes a loader and never acquires the
+   * cache's compute lock, so it is safe to call on hot paths.
+   */
+  public Optional<ByteBuffer> getFooterIfPresent(GcsItemId itemId) {
+    checkNotNull(itemId, "itemId cannot be null");
+    return footerCache.get(itemId).map(ByteBuffer::asReadOnlyBuffer);
   }
 
   /**
