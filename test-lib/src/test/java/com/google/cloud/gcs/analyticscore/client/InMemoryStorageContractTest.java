@@ -152,9 +152,13 @@ class InMemoryStorageContractTest {
       assertThat(storage.readerOpens()).isEqualTo(0);
     }
     try (ReadChannel ch = storage.storage().reader(BLOB)) {
+      assertThat(GcsReadChannelMetadataExtractor.extract(ch)).isNull();
       ch.limit(20);
       ch.seek(0);
       read(ch, 5);
+      assertThat(GcsReadChannelMetadataExtractor.extract(ch).getSize()).isEqualTo(CONTENT.length);
+      assertThat(GcsReadChannelMetadataExtractor.extract(ch).getGeneration())
+          .isEqualTo(InMemoryStorage.GENERATION);
       read(ch, 5);
       ch.seek(10);
       read(ch, 5);
