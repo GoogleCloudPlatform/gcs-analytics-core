@@ -44,8 +44,23 @@ class HermeticBenchmarkSmokeTest {
 
   @Test
   void everyBenchmarkMethod_runsOnceWithoutError() throws Exception {
+    runSuite(benchmark);
+    for (HermeticBenchmarkBase s :
+        List.of(
+            new ReadStrategyBenchmark(),
+            new FooterPrefetchBenchmark(),
+            new SmallObjectCacheBenchmark(),
+            new VectoredRangeCoalescingBenchmark())) {
+      try (s) {
+        s.setUp();
+        runSuite(s);
+      }
+    }
+  }
+
+  private static void runSuite(Object benchmark) throws Exception {
     List<Method> benchmarks =
-        Arrays.stream(HermeticInputStreamBenchmark.class.getMethods())
+        Arrays.stream(benchmark.getClass().getMethods())
             .filter(m -> m.isAnnotationPresent(Benchmark.class))
             .collect(toList());
     assertThat(benchmarks).isNotEmpty();
