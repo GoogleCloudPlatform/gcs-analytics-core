@@ -88,8 +88,8 @@ class GcsRetryOptionsTest {
                 .setMaxAttempts(11)
                 .setInitialRetryDelay(Duration.ofMillis(200))
                 .setRetryDelayMultiplier(1.5)
-                .setMaxRetryDelay(Duration.ofMillis(10000))
-                .setTotalTimeout(Duration.ofMillis(60000))
+                .setMaxRetryDelay(Duration.ofSeconds(10))
+                .setTotalTimeout(Duration.ofMinutes(1))
                 .build());
   }
 
@@ -335,7 +335,7 @@ class GcsRetryOptionsTest {
   @Test
   void applyTo_onlyInitialDelayAboveLibraryDefaultMaxDelay_throwsIllegalArgumentException() {
     GcsRetryOptions options =
-        GcsRetryOptions.builder().setInitialRetryDelay(Duration.ofMillis(60000)).build();
+        GcsRetryOptions.builder().setInitialRetryDelay(Duration.ofMinutes(1)).build();
 
     IllegalArgumentException e =
         assertThrows(
@@ -371,8 +371,8 @@ class GcsRetryOptionsTest {
   void applyTo_bothDelaysOverriddenOutsideBaseRange_succeeds() {
     GcsRetryOptions options =
         GcsRetryOptions.builder()
-            .setInitialRetryDelay(Duration.ofSeconds(60))
-            .setMaxRetryDelay(Duration.ofSeconds(120))
+            .setInitialRetryDelay(Duration.ofMinutes(1))
+            .setMaxRetryDelay(Duration.ofMinutes(2))
             .build();
 
     RetrySettings result = options.applyTo(BASE);
@@ -380,8 +380,8 @@ class GcsRetryOptionsTest {
     assertThat(result)
         .isEqualTo(
             BASE.toBuilder()
-                .setInitialRetryDelayDuration(Duration.ofSeconds(60))
-                .setMaxRetryDelayDuration(Duration.ofSeconds(120))
+                .setInitialRetryDelayDuration(Duration.ofMinutes(1))
+                .setMaxRetryDelayDuration(Duration.ofMinutes(2))
                 .build());
   }
 }

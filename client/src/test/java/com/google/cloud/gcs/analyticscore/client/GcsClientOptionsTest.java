@@ -276,7 +276,7 @@ class GcsClientOptionsTest {
         .isEqualTo(
             GcsRetryOptions.builder()
                 .setMaxAttempts(11)
-                .setTotalTimeout(Duration.ofMillis(60000))
+                .setTotalTimeout(Duration.ofMinutes(1))
                 .build());
   }
 
