@@ -105,6 +105,12 @@ public final class HermeticGcsFileSystem {
     }
 
     @Override
+    public Optional<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) {
+      checkNotNull(prefixId, "prefixId must not be null");
+      return Optional.empty();
+    }
+
+    @Override
     public void close() {
       executor.shutdownNow();
       super.close();
