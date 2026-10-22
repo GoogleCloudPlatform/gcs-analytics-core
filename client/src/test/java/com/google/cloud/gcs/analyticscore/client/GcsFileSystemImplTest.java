@@ -512,13 +512,13 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void getFileInfo_lazyExecution_objectExists_skipsDirectoryLookupEvenIfStubbedToFail()
+  void getFileInfo_lazyExecution_objectExists_skipsDirectoryLookupAndPrefersObjectOverDirectory()
       throws IOException {
     GcsFileSystemOptions lazyOptions =
         GcsFileSystemOptions.builder().setMetadataLookupParallelEnabled(false).build();
     try (GcsFileSystemImpl lazyFs = new GcsFileSystemImpl(mockClient, lazyOptions)) {
       GcsItemId itemId =
-          GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data").build();
+          GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("foo").build();
       GcsItemId dirId = itemId.toDirectoryId();
       GcsItemInfo objectInfo =
           GcsItemInfo.builder()
@@ -527,14 +527,42 @@ class GcsFileSystemImplTest {
               .setContentGeneration(1L)
               .setModificationTime(1000L)
               .build();
+      GcsItemInfo childInfo =
+          GcsItemInfo.builder()
+              .setItemId(
+                  GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("foo/bar").build())
+              .setSize(64L)
+              .setContentGeneration(2L)
+              .build();
       when(mockClient.getGcsItemInfo(eq(itemId))).thenReturn(objectInfo);
       lenient()
           .when(mockClient.listFirstObjectWithPrefix(eq(dirId)))
-          .thenThrow(new AccessDeniedException("gs://" + TEST_BUCKET + "/data/"));
+          .thenReturn(Optional.of(childInfo));
 
       GcsFileInfo fileInfo = lazyFs.getFileInfo(itemId);
 
       assertThat(fileInfo.getItemInfo()).isEqualTo(objectInfo);
+      verify(mockClient, never()).isHnsBucket(any());
+      verify(mockClient, never()).getGcsItemInfo(eq(dirId));
+      verify(mockClient, never()).listFirstObjectWithPrefix(any());
+      verify(mockClient, never()).getFolderInfo(any());
+    }
+  }
+
+  @Test
+  void getFileInfo_lazyExecution_objectLookupThrowsAccessDenied_skipsDirectoryLookup()
+      throws IOException {
+    GcsFileSystemOptions lazyOptions =
+        GcsFileSystemOptions.builder().setMetadataLookupParallelEnabled(false).build();
+    try (GcsFileSystemImpl lazyFs = new GcsFileSystemImpl(mockClient, lazyOptions)) {
+      GcsItemId itemId =
+          GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("foo").build();
+      GcsItemId dirId = itemId.toDirectoryId();
+      when(mockClient.getGcsItemInfo(eq(itemId)))
+          .thenThrow(new AccessDeniedException("gs://" + TEST_BUCKET + "/foo"));
+
+      assertThrows(AccessDeniedException.class, () -> lazyFs.getFileInfo(itemId));
+
       verify(mockClient, never()).isHnsBucket(any());
       verify(mockClient, never()).getGcsItemInfo(eq(dirId));
       verify(mockClient, never()).listFirstObjectWithPrefix(any());
