@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 Google LLC
+ * Copyright 2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,20 +14,15 @@
  * limitations under the License.
  */
 
-package com.google.cloud.gcs.analyticscore.core;
+package com.google.cloud.gcs.analyticscore.client;
 
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
 
 @State(Scope.Benchmark)
-public class ParquetRecordReadState {
-    @Param({"true", "false"})
-    public boolean enableVectoredRead;
+public class GcsReadChannelBenchmarkState {
 
-    @Param({ "0", "102400" })
-    public String footerPrefetchSize;
-
-    @Param({"HTTP", "GRPC", "BIDI"})
-    public String protocol;
+  @Param({"SEQUENTIAL", "RANDOM"})
+  public FileAccessPattern accessPattern;
 }

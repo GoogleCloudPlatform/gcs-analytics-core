@@ -16,14 +16,18 @@
 
 package com.google.cloud.gcs.analyticscore.core;
 
-
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
 
 @State(Scope.Benchmark)
-public class ParquetFooterParsingState {
-    // 0KB ie: Disabled, 100KB
-    @Param({ "0", "102400"})
-    public String footerPrefetchSize;
+public class ParquetRecordReadState {
+  @Param({"true", "false"})
+  public boolean enableVectoredRead;
+
+  @Param({"0", "102400"})
+  public String footerPrefetchSize;
+
+  @Param({"HTTP", "GRPC", "BIDI"})
+  public String protocol;
 }
