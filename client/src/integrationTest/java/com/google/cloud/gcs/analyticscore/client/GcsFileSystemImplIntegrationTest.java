@@ -222,6 +222,67 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     @Test
+    @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
+    void createEmptyObject_directoryMarker_isIdempotentOnSecondCall() throws IOException {
+        String bucketName = System.getProperty("gcs.integration.test.bucket");
+        String dirObjectName = "test-folder/test-dir-" + UUID.randomUUID() + "/";
+        blobsToDelete.add(BlobId.of(bucketName, dirObjectName));
+        GcsItemId dirItemId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(dirObjectName).build();
+        try (GcsFileSystemImpl gcsFileSystem =
+                createFileSystem(GcsClientOptions.builder().build())) {
+            GcsClient gcsClient = gcsFileSystem.getGcsClient();
+
+            gcsClient.createEmptyObject(dirItemId);
+            GcsItemInfo firstItemInfo = gcsClient.getGcsItemInfo(dirItemId);
+            assertThat(firstItemInfo.getSize()).isEqualTo(0L);
+            assertThat(firstItemInfo.getContentGeneration()).isPresent();
+
+            // Second call hits HTTP 412 (ifGenerationMatch=0) and verifies the existing 0-byte marker.
+            gcsClient.createEmptyObject(dirItemId);
+            GcsItemInfo secondItemInfo = gcsClient.getGcsItemInfo(dirItemId);
+            assertThat(secondItemInfo.getSize()).isEqualTo(0L);
+            assertThat(secondItemInfo.getContentGeneration())
+                    .isEqualTo(firstItemInfo.getContentGeneration());
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "gcs.integration.test.bucket", matches = ".+")
+    void createEmptyObject_existingNonEmptyObjectWithOverwriteFalse_throwsFileAlreadyExistsException()
+            throws IOException {
+        TestWriteContext ctx =
+                new TestWriteContext(
+                        System.getProperty("gcs.integration.test.bucket"), blobsToDelete);
+        byte[] content = "existing-data".getBytes(StandardCharsets.UTF_8);
+        try (GcsFileSystemImpl gcsFileSystem =
+                createFileSystem(GcsClientOptions.builder().build())) {
+            try (WritableByteChannel channel =
+                    gcsFileSystem.create(ctx.itemId, GcsWriteOptions.builder().build())) {
+                ByteBuffer buffer = ByteBuffer.wrap(content);
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer);
+                }
+            }
+            GcsClient gcsClient = gcsFileSystem.getGcsClient();
+
+            FileAlreadyExistsException exception =
+                    assertThrows(
+                            FileAlreadyExistsException.class,
+                            () ->
+                                    gcsClient.createEmptyObject(
+                                            ctx.itemId,
+                                            GcsWriteOptions.builder()
+                                                    .setOverwriteExisting(false)
+                                                    .build()));
+
+            assertThat(exception.getFile()).isEqualTo(ctx.uri.toString());
+            assertThat(gcsClient.getGcsItemInfo(ctx.itemId).getSize())
+                    .isEqualTo((long) content.length);
+        }
+    }
+
+    @Test
     void create_nonExistentBucket_throwsFileNotFoundException() throws IOException {
         TestWriteContext ctx = new TestWriteContext("non-existent-bucket-" + UUID.randomUUID(), blobsToDelete);
         GcsFileSystemImpl gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());

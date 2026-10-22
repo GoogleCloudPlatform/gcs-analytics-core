@@ -506,6 +506,8 @@ class GcsExceptionUtilTest {
         GcsExceptionUtil.translateStorageException(
             new StorageException(409, "Conflict"), itemId, "fallback");
     assertThat(conflict).isInstanceOf(FileAlreadyExistsException.class);
+    assertThat(((FileAlreadyExistsException) conflict).getFile())
+        .isEqualTo("gs://" + BUCKET + "/" + NAME);
 
     IOException preconditionFailed =
         GcsExceptionUtil.translateStorageException(
@@ -531,6 +533,8 @@ class GcsExceptionUtilTest {
         GcsExceptionUtil.translateControlException(
             Mockito.mock(AlreadyExistsException.class), itemId, "fallback");
     assertThat(alreadyExists).isInstanceOf(FileAlreadyExistsException.class);
+    assertThat(((FileAlreadyExistsException) alreadyExists).getFile())
+        .isEqualTo("gs://" + BUCKET + "/" + NAME);
 
     IOException notFound =
         GcsExceptionUtil.translateControlException(
@@ -551,6 +555,24 @@ class GcsExceptionUtilTest {
         GcsExceptionUtil.translateControlException(
             new RuntimeException("boom"), itemId, "fallback");
     assertThat(generic).hasMessageThat().isEqualTo("fallback");
+  }
+
+  @Test
+  void createFileAlreadyExistsException_setsFormattedLocationAndCause() {
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName(BUCKET)
+            .setObjectName(NAME)
+            .setContentGeneration(1234L)
+            .build();
+    StorageException cause = new StorageException(412, "Precondition Failed");
+
+    FileAlreadyExistsException exception =
+        GcsExceptionUtil.createFileAlreadyExistsException(itemId, cause);
+
+    assertThat(exception.getFile()).isEqualTo("gs://" + BUCKET + "/" + NAME + "#1234");
+    assertThat(exception.getReason()).isEqualTo("Precondition Failed");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(cause);
   }
 
   @Test

@@ -69,7 +69,6 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
-import java.nio.file.FileAlreadyExistsException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -476,10 +475,16 @@ class GcsClientImpl implements GcsClient {
               && RAPID_STORAGE_CLASS.equalsIgnoreCase(bucketInfo.getStorageClass().toString());
       return BucketProperties.create(hnsEnabled, isRapid);
     } catch (StorageException storageException) {
-      if (storageException.getCode() == 403) {
+      if (storageException.getCode() == 404) {
+        LOG.warn("Bucket {} not found (404), HNS and RAPID features will be disabled", bucketName);
+        return BucketProperties.create(false, false);
+      }
+      if (GcsExceptionUtil.getErrorType(storageException)
+          == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
         LOG.warn(
-            "Access to bucket {} is forbidden (403), HNS and RAPID features will be disabled",
-            bucketName);
+            "Access to bucket {} is denied ({}), HNS and RAPID features will be disabled",
+            bucketName,
+            storageException.getCode());
         return BucketProperties.create(false, false);
       }
       throw GcsExceptionUtil.translateStorageException(
@@ -612,8 +617,7 @@ class GcsClientImpl implements GcsClient {
       if (e.getCode() == 412
           && shouldNotOverwrite(itemId, options)
           && (!itemId.isDirectory() || existing.isPresent())) {
-        throw (FileAlreadyExistsException)
-            new FileAlreadyExistsException("Object already exists: " + itemId).initCause(e);
+        throw GcsExceptionUtil.createFileAlreadyExistsException(itemId, e);
       }
       throw GcsExceptionUtil.translateStorageException(
           e, itemId, "Failed to create empty object: " + itemId);
@@ -624,7 +628,9 @@ class GcsClientImpl implements GcsClient {
       throws IOException {
     GcsWriteOptions effectiveOptions =
         options.toBuilder().setOverwriteExisting(!shouldNotOverwrite(itemId, options)).build();
-    BlobInfo blobInfo = createBlobInfo(itemId, effectiveOptions);
+    BlobInfo blobInfo =
+        createBlobInfo(
+            BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()), effectiveOptions);
     if (isRapidBucket(itemId.getBucketName())) {
       createAppendableEmptyObject(itemId, blobInfo, effectiveOptions);
       return;
@@ -833,7 +839,10 @@ class GcsClientImpl implements GcsClient {
             .getContentGeneration()
             .map(generation -> BlobId.of(itemId.getBucketName(), objectName, generation))
             .orElseGet(() -> BlobId.of(itemId.getBucketName(), objectName));
+    return createBlobInfo(blobId, writeOptions);
+  }
 
+  private static BlobInfo createBlobInfo(BlobId blobId, GcsWriteOptions writeOptions) {
     BlobInfo.Builder blobInfoBuilder = BlobInfo.newBuilder(blobId);
 
     Optional.ofNullable(writeOptions)

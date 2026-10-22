@@ -141,7 +141,13 @@ public interface GcsClient {
    */
   void createFolder(GcsItemId itemId, boolean recursive) throws IOException;
 
-  /** Fetches bucket capability properties (such as HNS and Rapid storage class). */
+  /**
+   * Fetches bucket capability properties (such as HNS and Rapid storage class).
+   *
+   * <p>If bucket metadata cannot be retrieved because the bucket does not exist (404) or the caller
+   * lacks bucket-level permissions (401/403), this method degrades gracefully to {@code
+   * BucketProperties.create(false, false)} (flat namespace and non-RAPID storage class).
+   */
   BucketProperties getBucketProperties(String bucketName) throws IOException;
 
   /** Close the client. */

@@ -2194,8 +2194,10 @@ class GcsClientImplTest {
     when(mockStorage.create(any(BlobInfo.class), any(Storage.BlobTargetOption[].class)))
         .thenThrow(new StorageException(409, "Object already exists"));
 
-    assertThrows(
-        FileAlreadyExistsException.class, () -> clientWithMock.createEmptyObject(dirItemId));
+    FileAlreadyExistsException e =
+        assertThrows(
+            FileAlreadyExistsException.class, () -> clientWithMock.createEmptyObject(dirItemId));
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME + "/dir/");
     verify(mockStorage, never()).get(any(BlobId.class), any(Storage.BlobGetOption[].class));
   }
 
@@ -2210,9 +2212,11 @@ class GcsClientImplTest {
     when(mockStorage.create(any(BlobInfo.class), any(Storage.BlobTargetOption[].class)))
         .thenThrow(new StorageException(412, "Precondition Failed"));
 
-    assertThrows(
-        FileAlreadyExistsException.class,
-        () -> clientWithMock.createEmptyObject(fileItemId, noOverwriteOptions));
+    FileAlreadyExistsException e =
+        assertThrows(
+            FileAlreadyExistsException.class,
+            () -> clientWithMock.createEmptyObject(fileItemId, noOverwriteOptions));
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME + "/" + TEST_OBJECT_ID);
     verify(mockStorage, never()).get(any(BlobId.class), any(Storage.BlobGetOption[].class));
   }
 
@@ -2270,7 +2274,10 @@ class GcsClientImplTest {
 
     verify(mockStorage)
         .create(
-            any(BlobInfo.class),
+            eq(
+                BlobInfo.newBuilder(BlobId.of(TEST_BUCKET_NAME, TEST_DIR))
+                    .setContentType("application/octet-stream")
+                    .build()),
             eq(Storage.BlobTargetOption.disableGzipContent()),
             eq(Storage.BlobTargetOption.doesNotExist()));
   }
@@ -2334,7 +2341,7 @@ class GcsClientImplTest {
     verify(mockStorage)
         .create(
             eq(
-                BlobInfo.newBuilder(BlobId.of(TEST_BUCKET_NAME, TEST_DIR, TEST_CONTENT_GENERATION))
+                BlobInfo.newBuilder(BlobId.of(TEST_BUCKET_NAME, TEST_DIR))
                     .setContentType(TEST_DIRECTORY_CONTENT_TYPE)
                     .setContentEncoding(TEST_CONTENT_ENCODING)
                     .setMetadata(ImmutableMap.of("key", "dmFs"))
@@ -2454,7 +2461,7 @@ class GcsClientImplTest {
         Arguments.of(
             fileWithGen,
             defaultOptions,
-            BlobId.of(TEST_BUCKET_NAME, TEST_OBJECT_ID, TEST_CONTENT_GENERATION),
+            BlobId.of(TEST_BUCKET_NAME, TEST_OBJECT_ID),
             new Storage.BlobWriteOption[] {
               Storage.BlobWriteOption.generationMatch(TEST_CONTENT_GENERATION),
               Storage.BlobWriteOption.disableGzipContent()
@@ -2463,7 +2470,7 @@ class GcsClientImplTest {
         Arguments.of(
             fileWithGen,
             noOverwriteOptions,
-            BlobId.of(TEST_BUCKET_NAME, TEST_OBJECT_ID, TEST_CONTENT_GENERATION),
+            BlobId.of(TEST_BUCKET_NAME, TEST_OBJECT_ID),
             new Storage.BlobWriteOption[] {
               Storage.BlobWriteOption.doesNotExist(), Storage.BlobWriteOption.disableGzipContent()
             }));
@@ -2573,8 +2580,11 @@ class GcsClientImplTest {
             eq(BlobId.of(TEST_BUCKET_NAME, TEST_DIR)), any(Storage.BlobGetOption[].class)))
         .thenReturn(mockBlob);
 
-    assertThrows(
-        FileAlreadyExistsException.class, () -> clientWithMock.createEmptyObject(TEST_DIR_ITEM_ID));
+    FileAlreadyExistsException e =
+        assertThrows(
+            FileAlreadyExistsException.class,
+            () -> clientWithMock.createEmptyObject(TEST_DIR_ITEM_ID));
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
   }
 
   @Test
@@ -2699,6 +2709,7 @@ class GcsClientImplTest {
             FileAlreadyExistsException.class,
             () -> clientWithMock.createEmptyObject(fileItemId, noOverwriteOptions));
 
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME + "/" + TEST_OBJECT_ID);
     assertThat(e).hasCauseThat().isSameInstanceAs(storageEx);
     verify(mockStorage, never()).get(any(BlobId.class), any(Storage.BlobGetOption[].class));
   }
@@ -2769,8 +2780,11 @@ class GcsClientImplTest {
     when(mockControlClient.createFolder(any(CreateFolderRequest.class)))
         .thenThrow(alreadyExistsException);
 
-    assertThrows(
-        FileAlreadyExistsException.class, () -> clientWithMockControl.createFolder(itemId, true));
+    FileAlreadyExistsException e =
+        assertThrows(
+            FileAlreadyExistsException.class,
+            () -> clientWithMockControl.createFolder(itemId, true));
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME + "/dir/");
   }
 
   @Test
@@ -2987,15 +3001,16 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getBucketProperties_unauthorized401_throwsAccessDeniedException() {
+  void getBucketProperties_unauthorized401_returnsDefaultProperties() throws IOException {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
     doThrow(new StorageException(401, "Unauthorized"))
         .when(mockStorage)
         .get(eq(TEST_ERROR_BUCKET), any(BucketGetOption.class));
 
-    assertThrows(
-        AccessDeniedException.class, () -> localGcsClient.getBucketProperties(TEST_ERROR_BUCKET));
+    BucketProperties properties = localGcsClient.getBucketProperties(TEST_ERROR_BUCKET);
+
+    assertThat(properties).isEqualTo(BucketProperties.create(false, false));
   }
 
   @Test

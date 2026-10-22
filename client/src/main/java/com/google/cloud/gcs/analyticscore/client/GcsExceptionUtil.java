@@ -187,8 +187,7 @@ class GcsExceptionUtil {
         return (AccessDeniedException)
             new AccessDeniedException(location, null, e.getMessage()).initCause(e);
       case ALREADY_EXISTS:
-        return (FileAlreadyExistsException)
-            new FileAlreadyExistsException(location, null, e.getMessage()).initCause(e);
+        return createFileAlreadyExistsException(itemId, e);
       default:
         return new IOException(fallbackMessage, e);
     }
@@ -208,8 +207,7 @@ class GcsExceptionUtil {
     }
     String location = formatLocation(itemId);
     if (e instanceof AlreadyExistsException) {
-      return (FileAlreadyExistsException)
-          new FileAlreadyExistsException(location, null, e.getMessage()).initCause(e);
+      return createFileAlreadyExistsException(itemId, e);
     }
     if (e instanceof NotFoundException) {
       return createFileNotFoundException(
@@ -222,6 +220,25 @@ class GcsExceptionUtil {
           new AccessDeniedException(location, null, e.getMessage()).initCause(e);
     }
     return new IOException(fallbackMessage, e);
+  }
+
+  /**
+   * Creates a {@link FileAlreadyExistsException} for the given {@link GcsItemId}, setting {@link
+   * FileAlreadyExistsException#getFile()} to the formatted {@code gs://} URI and attaching {@code
+   * cause}.
+   *
+   * @param itemId the GCS item identifier that already exists
+   * @param cause the underlying exception that triggered the conflict
+   * @return a FileAlreadyExistsException with {@code getFile()} set to the formatted location
+   */
+  static FileAlreadyExistsException createFileAlreadyExistsException(
+      GcsItemId itemId, Exception cause) {
+    checkNotNull(itemId, "itemId should not be null");
+    checkNotNull(cause, "cause should not be null");
+    FileAlreadyExistsException exception =
+        new FileAlreadyExistsException(formatLocation(itemId), null, cause.getMessage());
+    exception.initCause(cause);
+    return exception;
   }
 
   /**
