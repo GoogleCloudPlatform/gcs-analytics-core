@@ -579,9 +579,16 @@ class GcsClientImplTest {
     GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
     doReturn(null).when(mockStorage).get(eq(TEST_NON_EXISTENT_BUCKET), any(BucketGetOption.class));
 
-    assertThrows(
-        FileNotFoundException.class,
-        () -> localGcsClient.getBucketProperties(TEST_NON_EXISTENT_BUCKET));
+    FileNotFoundException exception =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> localGcsClient.getBucketProperties(TEST_NON_EXISTENT_BUCKET));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Bucket not found: " + TEST_NON_EXISTENT_BUCKET);
+    assertThat(exception.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) exception.getCause()).getCode()).isEqualTo(404);
   }
 
   @Test
@@ -598,16 +605,36 @@ class GcsClientImplTest {
   }
 
   @Test
+  void getBucketProperties_unauthorizedAccess_returnsDisabledHns() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
+    doThrow(new StorageException(401, "Unauthorized"))
+        .when(mockStorage)
+        .get(eq(TEST_FORBIDDEN_BUCKET), any(BucketGetOption.class));
+
+    BucketProperties properties = localGcsClient.getBucketProperties(TEST_FORBIDDEN_BUCKET);
+
+    assertThat(properties.isHnsEnabled()).isFalse();
+  }
+
+  @Test
   void getBucketProperties_storageThrows404_throwsFileNotFoundException() {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
-    doThrow(new StorageException(404, "Not Found"))
+    StorageException notFound = new StorageException(404, "Not Found");
+    doThrow(notFound)
         .when(mockStorage)
         .get(eq(TEST_NON_EXISTENT_BUCKET), any(BucketGetOption.class));
 
-    assertThrows(
-        FileNotFoundException.class,
-        () -> localGcsClient.getBucketProperties(TEST_NON_EXISTENT_BUCKET));
+    FileNotFoundException exception =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> localGcsClient.getBucketProperties(TEST_NON_EXISTENT_BUCKET));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Bucket not found: " + TEST_NON_EXISTENT_BUCKET);
+    assertThat(exception).hasCauseThat().isSameInstanceAs(notFound);
   }
 
   @Test

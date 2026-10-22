@@ -79,29 +79,28 @@ class GcsFileSystemImplIntegrationTest {
     void setUp() {
         storage = StorageOptions.getDefaultInstance().getService();
         blobsToDelete = new ArrayList<>();
-                foldersToDelete = new ArrayList<>();
-                gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
+        foldersToDelete = new ArrayList<>();
+        gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
     }
 
     @AfterEach
     void tearDown() {
-            try {
-                if (gcsFileSystem != null) {
-                    try {
-                        gcsFileSystem.close();
-                    } catch (Exception e) {
-                        LOG.warn("Failed to close gcsFileSystem during cleanup", e);
-                    }
-                }
-            // Ignore all cleanup errors
-        if (storage != null) {
-            for (BlobId blobId : blobsToDelete) {
+        try {
+            if (gcsFileSystem != null) {
                 try {
-                    storage.delete(blobId);
+                    gcsFileSystem.close();
                 } catch (Exception e) {
-                        LOG.warn("Failed to delete blob {} during cleanup", blobId, e);
+                    LOG.warn("Failed to close gcsFileSystem during cleanup", e);
                 }
             }
+            if (storage != null) {
+                for (BlobId blobId : blobsToDelete) {
+                    try {
+                        storage.delete(blobId);
+                    } catch (Exception e) {
+                        LOG.warn("Failed to delete blob {} during cleanup", blobId, e);
+                    }
+                }
             }
             if (!foldersToDelete.isEmpty()) {
                 try (StorageControlClient client = StorageControlClient.create()) {
@@ -183,7 +182,7 @@ class GcsFileSystemImplIntegrationTest {
                 new GcsFileSystemImpl(NoCredentials.getInstance(), options)) {
             GcsFileInfo fileInfo = anonFileSystem.getFileInfo(URI.create(gcsObject));
 
-        assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
+            assertThat(fileInfo.getItemInfo().getItemId().isGcsObject()).isTrue();
             assertThat(fileInfo.getItemInfo().getItemId().getObjectName())
                     .hasValue(PUBLIC_PARQUET_OBJECT);
             assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(PUBLIC_BUCKET_NAME);
@@ -429,21 +428,21 @@ class GcsFileSystemImplIntegrationTest {
                         System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY), blobsToDelete);
         GcsClientOptions clientOptions =
                 GcsClientOptions.builder()
-                .setUploadType(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
-                .build();
+                        .setUploadType(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD)
+                        .build();
         try (GcsFileSystemImpl pcuFileSystem = createFileSystem(clientOptions)) {
-        GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
-        byte[] content = "test content".getBytes(StandardCharsets.UTF_8);
+            GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+            byte[] content = "test content".getBytes(StandardCharsets.UTF_8);
 
             try (WritableByteChannel channel = pcuFileSystem.create(ctx.itemId, writeOptions)) {
-            ByteBuffer buffer = ByteBuffer.wrap(content);
-            while (buffer.hasRemaining()) {
-                channel.write(buffer);
+                ByteBuffer buffer = ByteBuffer.wrap(content);
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer);
+                }
             }
-        }
 
             GcsFileInfo fileInfo = pcuFileSystem.getFileInfoObject(ctx.uri);
-        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) content.length);
+            assertThat(fileInfo.getItemInfo().getSize()).isEqualTo((long) content.length);
         }
     }
 

@@ -37,6 +37,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.channels.WritableByteChannel;
@@ -268,12 +269,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
   private GcsItemInfo lookupDirectoryInfo(GcsItemId itemId, boolean inferImplicitDirectories)
       throws IOException {
-    if (!inferImplicitDirectories) {
-      // Do not list for implicit directories; only check for an explicit placeholder object.
-      return gcsClient.getGcsItemInfo(itemId.toDirectoryId());
-    }
     NamespaceStrategy strategy = resolveStrategy(itemId.getBucketName());
-    return strategy.getDirectoryInfo(itemId);
+    return strategy.getDirectoryInfo(itemId, inferImplicitDirectories);
   }
 
   static <T> T getFromFuture(Future<T> future) throws IOException {
@@ -282,7 +279,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
     } catch (InterruptedException e) {
       future.cancel(true);
       Thread.currentThread().interrupt();
-      throw new IOException("Thread interrupted while waiting on future", e);
+      throw (InterruptedIOException)
+          new InterruptedIOException("Thread interrupted while waiting on future").initCause(e);
     } catch (ExecutionException e) {
       Throwable cause = e.getCause() != null ? e.getCause() : e;
       Throwables.throwIfInstanceOf(cause, IOException.class);

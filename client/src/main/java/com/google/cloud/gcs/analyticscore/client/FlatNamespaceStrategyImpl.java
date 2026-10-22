@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Optional;
 
@@ -41,9 +42,21 @@ final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
    * </ul>
    */
   @Override
-  public GcsItemInfo getDirectoryInfo(GcsItemId id) throws IOException {
+  public GcsItemInfo getDirectoryInfo(GcsItemId id, boolean inferImplicitDirectories)
+      throws IOException {
     checkNotNull(id, "Item ID must not be null.");
     GcsItemId dirId = id.toDirectoryId();
+    if (!inferImplicitDirectories) {
+      // Do not list for implicit directories; only check for an explicit placeholder object.
+      try {
+        return gcsClient.getGcsItemInfo(dirId);
+      } catch (FileNotFoundException e) {
+        if (id.equals(dirId)) {
+          throw e;
+        }
+        throw GcsExceptionUtil.createFileNotFoundException(id);
+      }
+    }
     // Returns the placeholder object "dir/" (if present) or the first child object under "dir/".
     Optional<GcsItemInfo> firstObject = gcsClient.listFirstObjectWithPrefix(dirId);
     if (firstObject.isEmpty()) {

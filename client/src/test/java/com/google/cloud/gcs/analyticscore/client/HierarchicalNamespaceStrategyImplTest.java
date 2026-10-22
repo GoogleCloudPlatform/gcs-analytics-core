@@ -96,4 +96,23 @@ class HierarchicalNamespaceStrategyImplTest {
 
     assertThat(e).hasMessageThat().contains("GCS folder lookup failure");
   }
+
+  @Test
+  void getDirectoryInfo_inferImplicitDirectoriesFalse_stillQueriesNativeFolder()
+      throws IOException {
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_FOLDER).build();
+    GcsItemInfo folderInfo =
+        GcsItemInfo.builder()
+            .setItemId(folderId.toDirectoryId())
+            .setSize(0L)
+            .setItemType(GcsItemInfo.ItemType.NATIVE_FOLDER)
+            .build();
+    when(mockClient.getFolderInfo(eq(folderId))).thenReturn(folderInfo);
+
+    GcsItemInfo result = strategy.getDirectoryInfo(folderId, /* inferImplicitDirectories= */ false);
+
+    assertThat(result).isSameInstanceAs(folderInfo);
+    verify(mockClient).getFolderInfo(folderId);
+  }
 }

@@ -137,6 +137,31 @@ class FlatNamespaceStrategyImplTest {
     verify(mockClient).listFirstObjectWithPrefix(prefixId);
   }
 
+  @Test
+  void getDirectoryInfo_inferImplicitDirectoriesFalse_placeholderNotFound_preservesInputIdInError()
+      throws IOException {
+    GcsItemId dirIdWithoutSlash = createGcsItemId(TEST_DIR);
+    GcsItemId prefixId = dirIdWithoutSlash.toDirectoryId();
+    when(mockClient.getGcsItemInfo(eq(prefixId)))
+        .thenThrow(GcsExceptionUtil.createFileNotFoundException(prefixId));
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () ->
+                strategy.getDirectoryInfo(
+                    dirIdWithoutSlash, /* inferImplicitDirectories= */ false));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Location does not exist or generation not found: gs://"
+                + TEST_BUCKET
+                + "/"
+                + TEST_DIR);
+    verify(mockClient).getGcsItemInfo(prefixId);
+  }
+
   private static GcsItemId createGcsItemId(String objectName) {
     return GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(objectName).build();
   }

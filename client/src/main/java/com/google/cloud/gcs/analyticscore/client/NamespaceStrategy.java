@@ -36,12 +36,28 @@ import java.io.IOException;
 interface NamespaceStrategy {
 
   /**
-   * Retrieves directory metadata for the given {@link GcsItemId}.
+   * Retrieves directory metadata for the given {@link GcsItemId}, inferring implicit directories on
+   * flat-namespace buckets.
    *
    * @param id the item identifier for the directory
    * @return the {@link GcsItemInfo} representing the directory
    * @throws FileNotFoundException if the directory does not exist
    * @throws IOException if an I/O error occurs
    */
-  GcsItemInfo getDirectoryInfo(GcsItemId id) throws IOException;
+  default GcsItemInfo getDirectoryInfo(GcsItemId id) throws IOException {
+    return getDirectoryInfo(id, /* inferImplicitDirectories= */ true);
+  }
+
+  /**
+   * Retrieves directory metadata for the given {@link GcsItemId}.
+   *
+   * @param id the item identifier for the directory
+   * @param inferImplicitDirectories if {@code false}, flat-namespace buckets only check for an
+   *     explicit directory placeholder object ({@code dir/}) without prefix-listing child objects;
+   *     HNS buckets always query the native folder resource
+   * @return the {@link GcsItemInfo} representing the directory
+   * @throws FileNotFoundException if the directory does not exist
+   * @throws IOException if an I/O error occurs
+   */
+  GcsItemInfo getDirectoryInfo(GcsItemId id, boolean inferImplicitDirectories) throws IOException;
 }

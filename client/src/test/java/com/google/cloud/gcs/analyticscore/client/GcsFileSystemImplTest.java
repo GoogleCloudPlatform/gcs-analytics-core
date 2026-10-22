@@ -44,16 +44,19 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -509,6 +512,123 @@ class GcsFileSystemImplTest {
   }
 
   @Test
+  void getFileInfo_lazyExecution_objectExists_skipsDirectoryLookupEvenIfStubbedToFail()
+      throws IOException {
+    GcsFileSystemOptions lazyOptions =
+        GcsFileSystemOptions.builder().setMetadataLookupParallelEnabled(false).build();
+    try (GcsFileSystemImpl lazyFs = new GcsFileSystemImpl(mockClient, lazyOptions)) {
+      GcsItemId itemId =
+          GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data").build();
+      GcsItemId dirId = itemId.toDirectoryId();
+      GcsItemInfo objectInfo =
+          GcsItemInfo.builder()
+              .setItemId(itemId)
+              .setSize(128L)
+              .setContentGeneration(1L)
+              .setModificationTime(1000L)
+              .build();
+      when(mockClient.getGcsItemInfo(eq(itemId))).thenReturn(objectInfo);
+      lenient()
+          .when(mockClient.listFirstObjectWithPrefix(eq(dirId)))
+          .thenThrow(new AccessDeniedException("gs://" + TEST_BUCKET + "/data/"));
+
+      GcsFileInfo fileInfo = lazyFs.getFileInfo(itemId);
+
+      assertThat(fileInfo.getItemInfo()).isEqualTo(objectInfo);
+      verify(mockClient, never()).isHnsBucket(any());
+      verify(mockClient, never()).getGcsItemInfo(eq(dirId));
+      verify(mockClient, never()).listFirstObjectWithPrefix(any());
+      verify(mockClient, never()).getFolderInfo(any());
+    }
+  }
+
+  @Test
+  void getFileInfo_lazyExecution_objectNotFoundAndDirectoryExists_returnsDirectoryInfo()
+      throws IOException {
+    GcsFileSystemOptions lazyOptions =
+        GcsFileSystemOptions.builder().setMetadataLookupParallelEnabled(false).build();
+    try (GcsFileSystemImpl lazyFs = new GcsFileSystemImpl(mockClient, lazyOptions)) {
+      GcsItemId itemId =
+          GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir").build();
+      GcsItemId dirId = itemId.toDirectoryId();
+      when(mockClient.getGcsItemInfo(eq(itemId)))
+          .thenThrow(GcsExceptionUtil.createFileNotFoundException(itemId));
+      when(mockClient.listFirstObjectWithPrefix(eq(dirId)))
+          .thenReturn(
+              Optional.of(
+                  GcsItemInfo.builder()
+                      .setItemId(
+                          GcsItemId.builder()
+                              .setBucketName(TEST_BUCKET)
+                              .setObjectName("dir/file.txt")
+                              .build())
+                      .setSize(10L)
+                      .setContentGeneration(1L)
+                      .build()));
+
+      GcsFileInfo fileInfo = lazyFs.getFileInfo(itemId);
+
+      assertThat(fileInfo.getItemInfo().getItemId()).isEqualTo(dirId);
+      assertThat(fileInfo.getItemInfo().getItemType())
+          .isEqualTo(GcsItemInfo.ItemType.INFERRED_DIRECTORY);
+    }
+  }
+
+  @Test
+  void getFileInfo_lazyExecution_bothObjectAndDirectoryNotFound_throwsFileNotFoundException()
+      throws IOException {
+    GcsFileSystemOptions lazyOptions =
+        GcsFileSystemOptions.builder().setMetadataLookupParallelEnabled(false).build();
+    try (GcsFileSystemImpl lazyFs = new GcsFileSystemImpl(mockClient, lazyOptions)) {
+      GcsItemId itemId =
+          GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("missing").build();
+      GcsItemId dirId = itemId.toDirectoryId();
+      when(mockClient.getGcsItemInfo(eq(itemId)))
+          .thenThrow(GcsExceptionUtil.createFileNotFoundException(itemId));
+      when(mockClient.listFirstObjectWithPrefix(eq(dirId))).thenReturn(Optional.empty());
+
+      FileNotFoundException exception =
+          assertThrows(FileNotFoundException.class, () -> lazyFs.getFileInfo(itemId));
+
+      assertThat(exception).hasMessageThat().contains("gs://" + TEST_BUCKET + "/missing");
+      assertThat(exception).hasMessageThat().doesNotContain("gs://" + TEST_BUCKET + "/missing/");
+    }
+  }
+
+  @Test
+  void getFileInfo_parallelExecution_objectExistsAndDirectoryLookupThrowsError_returnsObjectInfo()
+      throws IOException {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("data").build();
+    GcsItemId dirId = itemId.toDirectoryId();
+    GcsItemInfo objectInfo =
+        GcsItemInfo.builder()
+            .setItemId(itemId)
+            .setSize(256L)
+            .setContentGeneration(1L)
+            .setModificationTime(1000L)
+            .build();
+    CountDownLatch directoryLookupFailed = new CountDownLatch(1);
+    lenient()
+        .when(mockClient.listFirstObjectWithPrefix(eq(dirId)))
+        .thenAnswer(
+            invocation -> {
+              directoryLookupFailed.countDown();
+              throw new AccessDeniedException("gs://" + TEST_BUCKET + "/data/");
+            });
+    when(mockClient.getGcsItemInfo(eq(itemId)))
+        .thenAnswer(
+            invocation -> {
+              assertThat(directoryLookupFailed.await(5, TimeUnit.SECONDS)).isTrue();
+              return objectInfo;
+            });
+
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(itemId);
+
+    assertThat(fileInfo.getItemInfo()).isSameInstanceAs(objectInfo);
+    assertThat(directoryLookupFailed.getCount()).isEqualTo(0);
+  }
+
+  @Test
   void getFileInfo_whenDirectLookupNotFound_fallsThroughAndFindsImplicitDirectory()
       throws IOException {
     GcsItemId itemId =
@@ -692,15 +812,42 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
-  void getFromFuture_whenInterrupted_throwsIOExceptionAndRestoresInterrupt() throws Exception {
-    Future<String> mockFuture = mock(Future.class);
-    when(mockFuture.get()).thenThrow(new InterruptedException("interrupted"));
+  void getFileInfoInternal_whenInferImplicitDirectoriesFalseOnHnsBucket_returnsNativeFolderInfo()
+      throws IOException {
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("my-folder/").build();
+    GcsItemInfo folderInfo =
+        GcsItemInfo.builder()
+            .setItemId(folderId)
+            .setSize(0L)
+            .setItemType(GcsItemInfo.ItemType.NATIVE_FOLDER)
+            .build();
+    when(mockClient.isHnsBucket(TEST_BUCKET)).thenReturn(true);
+    when(mockClient.getFolderInfo(eq(folderId))).thenReturn(folderInfo);
 
-    IOException e =
-        assertThrows(IOException.class, () -> GcsFileSystemImpl.getFromFuture(mockFuture));
+    GcsFileInfo fileInfo =
+        ((GcsFileSystemImpl) gcsFileSystem)
+            .getFileInfoInternal(folderId, /* inferImplicitDirectories= */ false);
+
+    assertThat(fileInfo.getItemInfo()).isSameInstanceAs(folderInfo);
+    verify(mockClient).getFolderInfo(eq(folderId));
+    verify(mockClient, never()).getGcsItemInfo(any(GcsItemId.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void getFromFuture_whenInterrupted_throwsInterruptedIOExceptionAndRestoresInterrupt()
+      throws Exception {
+    Future<String> mockFuture = mock(Future.class);
+    InterruptedException interrupted = new InterruptedException("interrupted");
+    when(mockFuture.get()).thenThrow(interrupted);
+
+    InterruptedIOException e =
+        assertThrows(
+            InterruptedIOException.class, () -> GcsFileSystemImpl.getFromFuture(mockFuture));
 
     assertThat(e).hasMessageThat().contains("Thread interrupted while waiting on future");
+    assertThat(e).hasCauseThat().isSameInstanceAs(interrupted);
     assertThat(Thread.interrupted()).isTrue();
     verify(mockFuture).cancel(true);
   }
