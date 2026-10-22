@@ -33,6 +33,7 @@ coverage:
 # distorts both the percentage and the patch check.
 ignore:
   - "test-lib/**"
+  - "benchmarks/**"
   - "**/src/jmh/**"
   - "**/src/integrationTest/**"
   - "**/target/generated-sources/**"
