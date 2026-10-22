@@ -22,12 +22,12 @@ import org.openjdk.jmh.annotations.State;
 
 @State(Scope.Benchmark)
 public class ParquetRecordReadState {
-    @Param({"true", "false"})
-    public boolean enableVectoredRead;
+  @Param({"true", "false"})
+  public boolean enableVectoredRead;
 
-    @Param({ "0", "102400" })
-    public String footerPrefetchSize;
+  @Param({"0", "102400"})
+  public String footerPrefetchSize;
 
-    @Param({"HTTP", "GRPC", "BIDI"})
-    public String protocol;
+  @Param({"HTTP", "GRPC", "BIDI"})
+  public String protocol;
 }

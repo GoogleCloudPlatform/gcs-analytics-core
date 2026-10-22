@@ -17,33 +17,50 @@
 package com.google.cloud.gcs.analyticscore.core;
 
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
-import org.openjdk.jmh.annotations.*;
-
 import java.io.IOException;
 import java.net.URI;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import org.openjdk.jmh.annotations.Benchmark;
+import org.openjdk.jmh.annotations.BenchmarkMode;
+import org.openjdk.jmh.annotations.Fork;
+import org.openjdk.jmh.annotations.Level;
+import org.openjdk.jmh.annotations.Measurement;
+import org.openjdk.jmh.annotations.Mode;
+import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.Warmup;
 
 @State(Scope.Benchmark)
 public class ParquetFooterParsingBenchmark {
 
-    @Setup(Level.Trial)
-    public void uploadSampleFiles() throws IOException {
-        IntegrationTestHelper.uploadSampleParquetFilesIfNotExists();
-    }
+  @Setup(Level.Trial)
+  public void uploadSampleFiles() throws IOException {
+    IntegrationTestHelper.uploadSampleParquetFilesIfNotExists();
+  }
 
-    @Benchmark
-    @BenchmarkMode(Mode.AverageTime)
-    @OutputTimeUnit(TimeUnit.MILLISECONDS)
-    @Warmup(iterations = 1, time = 1)
-    @Measurement(iterations = 2, time = 1)
-    @Fork(value = 2, warmups = 1)
-    public void mediumFile(ParquetFooterParsingState state) throws IOException {
-      GcsFileSystemOptions gcsFileSystemOptions = GcsFileSystemOptions.createFromOptions(
-              Map.of("gcs.analytics-core.small-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
-                      "gcs.analytics-core.large-file.footer.prefetch.size-bytes", state.footerPrefetchSize,
-                      "gcs.analytics-core.small-file.cache.max-size-bytes", "1048576"), "gcs.");
-        URI uri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE);
-        ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
-    }
+  @Benchmark
+  @BenchmarkMode(Mode.AverageTime)
+  @OutputTimeUnit(TimeUnit.MILLISECONDS)
+  @Warmup(iterations = 1, time = 1)
+  @Measurement(iterations = 2, time = 1)
+  @Fork(value = 2, warmups = 1)
+  public void mediumFile(ParquetFooterParsingState state) throws IOException {
+    GcsFileSystemOptions gcsFileSystemOptions =
+        GcsFileSystemOptions.createFromOptions(
+            Map.of(
+                "gcs.analytics-core.small-file.footer.prefetch.size-bytes",
+                state.footerPrefetchSize,
+                "gcs.analytics-core.large-file.footer.prefetch.size-bytes",
+                state.footerPrefetchSize,
+                "gcs.analytics-core.small-file.cache.max-size-bytes",
+                "1048576"),
+            "gcs.");
+    URI uri =
+        IntegrationTestHelper.getGcsObjectUriForFile(
+            IntegrationTestHelper.TPCDS_CUSTOMER_MEDIUM_FILE);
+    ParquetHelper.readParquetMetadata(uri, gcsFileSystemOptions);
+  }
 }
