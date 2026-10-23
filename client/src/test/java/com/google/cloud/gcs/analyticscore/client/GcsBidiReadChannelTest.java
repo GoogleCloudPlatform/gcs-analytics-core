@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -311,6 +312,74 @@ class GcsBidiReadChannelTest {
     assertThat(executionException.getCause()).isInstanceOf(NullPointerException.class);
     assertThat(executionException.getCause().getMessage())
         .contains("Allocator returned a null ByteBuffer!");
+  }
+
+  @Test
+  void readVectored_zeroLengthRangeAtTail_completesEmptyWithoutIssuingRead() throws Exception {
+    GcsObjectRange tailRange = createRange(/* offset= */ 1024, /* length= */ 0);
+
+    reader.readVectored(Arrays.asList(tailRange), ByteBuffer::allocate);
+
+    ByteBuffer result = tailRange.getByteBufferFuture().get();
+    assertThat(result.remaining()).isEqualTo(0);
+    verify(blobReadSession, never()).readAs(any());
+  }
+
+  @Test
+  void readVectored_zeroLengthRangeInsideObject_completesEmptyWithoutIssuingRead()
+      throws Exception {
+    GcsObjectRange emptyRange = createRange(/* offset= */ 5, /* length= */ 0);
+
+    reader.readVectored(Arrays.asList(emptyRange), ByteBuffer::allocate);
+
+    ByteBuffer result = emptyRange.getByteBufferFuture().get();
+    assertThat(result.remaining()).isEqualTo(0);
+    verify(blobReadSession, never()).readAs(any());
+  }
+
+  @Test
+  void readVectored_negativeOffsetRange_failsOnlyThatRangeWithEofException() throws Exception {
+    GcsObjectRange first = createRange(/* offset= */ 0, /* length= */ 10);
+    GcsObjectRange negative = createRange(/* offset= */ -1, /* length= */ 10);
+    GcsObjectRange last = createRange(/* offset= */ 20, /* length= */ 10);
+    byte[] data = new byte[10];
+    Arrays.fill(data, (byte) 7);
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(ByteString.copyFrom(data));
+
+    reader.readVectored(Arrays.asList(first, negative, last), ByteBuffer::allocate);
+
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> negative.getByteBufferFuture().get());
+    assertThat(e).hasCauseThat().isInstanceOf(EOFException.class);
+    assertThat(e)
+        .hasCauseThat()
+        .hasMessageThat()
+        .contains("Invalid seek offset: position value (-1) must be >= 0");
+    assertThat(first.getByteBufferFuture().get().remaining()).isEqualTo(10);
+    assertThat(last.getByteBufferFuture().get().remaining()).isEqualTo(10);
+    verify(blobReadSession, times(2)).readAs(any());
+  }
+
+  @Test
+  void readVectored_negativeLengthRange_failsWithIllegalArgumentException() throws Exception {
+    GcsObjectRange negativeLength = createRange(/* offset= */ 0, /* length= */ -1);
+
+    reader.readVectored(Arrays.asList(negativeLength), ByteBuffer::allocate);
+
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> negativeLength.getByteBufferFuture().get());
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    verify(blobReadSession, never()).readAs(any());
+  }
+
+  private static GcsObjectRange createRange(long offset, int length) {
+    return GcsObjectRange.builder()
+        .setOffset(offset)
+        .setLength(length)
+        .setByteBufferFuture(new CompletableFuture<>())
+        .build();
   }
 
   @Test
