@@ -438,6 +438,63 @@ class GcsClientImplTest {
     assertThat(client.storage.getOptions().getCredentials()).isEqualTo(credentials);
   }
 
+  @ParameterizedTest
+  @EnumSource(GcsClientOptions.Protocol.class)
+  void createStorage_withoutRetryOverrides_usesLibraryDefaultRetrySettings(
+      GcsClientOptions.Protocol protocol) throws IOException {
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(),
+            GcsClientOptions.builder().setProtocol(protocol).build(),
+            executorServiceSupplier,
+            telemetry);
+
+    assertThat(client.storage.getOptions().getRetrySettings())
+        .isEqualTo(StorageOptions.getDefaultRetrySettings());
+  }
+
+  @ParameterizedTest
+  @EnumSource(GcsClientOptions.Protocol.class)
+  void createStorage_withRetryOverrides_appliesRetrySettings(GcsClientOptions.Protocol protocol)
+      throws IOException {
+    GcsRetryOptions retryOptions =
+        GcsRetryOptions.builder()
+            .setMaxAttempts(11)
+            .setInitialRetryDelay(Duration.ofMillis(200))
+            .setTotalTimeout(Duration.ofMinutes(1))
+            .build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder().setProtocol(protocol).setGcsRetryOptions(retryOptions).build();
+
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(), clientOptions, executorServiceSupplier, telemetry);
+
+    assertThat(client.storage.getOptions().getRetrySettings())
+        .isEqualTo(retryOptions.applyTo(StorageOptions.getDefaultRetrySettings()));
+  }
+
+  @Test
+  void createStorage_withMaxDelayBelowDefaultInitialDelay_throwsIllegalArgumentException() {
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setGcsRetryOptions(
+                GcsRetryOptions.builder().setMaxRetryDelay(Duration.ofMillis(500)).build())
+            .build();
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new GcsClientImpl(
+                    NoCredentials.getInstance(),
+                    clientOptions,
+                    executorServiceSupplier,
+                    telemetry));
+
+    assertThat(e).hasMessageThat().contains("analytics-core.retry.max-delay-ms=500");
+  }
+
   @Test
   void createStorage_withProxy_sendsRequestsThroughProxy() throws IOException {
     List<String> proxiedRequests = new CopyOnWriteArrayList<>();
