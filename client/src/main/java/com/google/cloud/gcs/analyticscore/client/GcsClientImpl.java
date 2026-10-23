@@ -22,6 +22,8 @@ import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.api.gax.rpc.NotFoundException;
+import com.google.api.gax.rpc.PermissionDeniedException;
+import com.google.api.gax.rpc.UnauthenticatedException;
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.client.GcsClientOptions.Protocol;
 import com.google.cloud.gcs.analyticscore.client.GcsReadChannel.ItemInfoProvider;
@@ -65,11 +67,9 @@ import com.google.storage.control.v2.FolderName;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
 import com.google.storage.control.v2.StorageControlSettings;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
-import java.nio.file.FileAlreadyExistsException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -291,12 +291,15 @@ class GcsClientImpl implements GcsClient {
     } catch (StorageException e) {
       if (e.getCode() == 404) {
         bucketInfo = null;
+      } else if (GcsExceptionUtil.getErrorType(e) == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
+        throw GcsExceptionUtil.createAccessDeniedException(
+            UriUtil.getStringPath(itemId), "bucket lookup", e);
       } else {
         throw new IOException("Unable to access bucket: " + itemId.getBucketName(), e);
       }
     }
     if (bucketInfo == null) {
-      return GcsItemInfo.createNotFound(itemId);
+      throw GcsExceptionUtil.createFileNotFoundException(itemId);
     }
     return fromBucketInfo(bucketInfo);
   }
@@ -321,9 +324,14 @@ class GcsClientImpl implements GcsClient {
             .build();
     try {
       Folder folder = lazyGetStorageControlClient().getFolder(request);
-      return fromFolder(folder, itemId);
+      // itemId may come with or without a trailing slash; always return the directory form.
+      // A not-found error below names itemId as the caller gave it.
+      return fromFolder(folder, itemId.toDirectoryId());
     } catch (NotFoundException e) {
-      return GcsItemInfo.createNotFound(itemId);
+      throw GcsExceptionUtil.createFileNotFoundException(itemId);
+    } catch (PermissionDeniedException | UnauthenticatedException e) {
+      throw GcsExceptionUtil.createAccessDeniedException(
+          UriUtil.getStringPath(itemId), "folder lookup", e);
     } catch (IOException e) {
       throw e;
     } catch (Exception e) {
@@ -355,6 +363,8 @@ class GcsClientImpl implements GcsClient {
   protected StorageControlClient createStorageControlClient(Optional<Credentials> credentials)
       throws IOException {
     StorageControlSettings.Builder builder = StorageControlSettings.newBuilder();
+    builder.setHeaderProvider(
+        FixedHeaderProvider.create(ImmutableMap.of("User-Agent", getUserAgent())));
     credentials.ifPresent(c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
     universeDomain.ifPresent(builder::setUniverseDomain);
     return StorageControlClient.create(builder.build());
@@ -376,8 +386,14 @@ class GcsClientImpl implements GcsClient {
       Blob blob = Iterables.getFirst(page.getValues(), null);
       return Optional.ofNullable(blob).map(b -> fromBlob(b));
     } catch (StorageException e) {
+      // list() returns an empty page when the prefix does not exist, so GCS returns 404 here only
+      // when the bucket itself does not exist.
       if (e.getCode() == 404) {
-        throw new FileNotFoundException("Bucket not found: " + prefixId.getBucketName());
+        throw GcsExceptionUtil.createBucketNotFoundException(prefixId.getBucketName(), e);
+      }
+      if (GcsExceptionUtil.getErrorType(e) == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
+        throw GcsExceptionUtil.createAccessDeniedException(
+            UriUtil.getStringPath(prefixId), "list", e);
       }
       throw new IOException("Failed to list the first object for prefix: " + prefixId, e);
     }
@@ -408,7 +424,9 @@ class GcsClientImpl implements GcsClient {
     Optional.ofNullable(blob.getContentEncoding()).ifPresent(infoBuilder::setContentEncoding);
     Optional.ofNullable(blob.getMetageneration()).ifPresent(infoBuilder::setMetaGeneration);
 
-    if (blob.isDirectory()) {
+    // A real 0-byte "dir/" object is not reported by Blob.isDirectory() (only delimiter prefixes
+    // are), so also treat any object name ending with '/' as a placeholder directory.
+    if (blob.isDirectory() || blob.getName().endsWith("/")) {
       infoBuilder.setItemType(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY);
     }
 
@@ -464,8 +482,7 @@ class GcsClientImpl implements GcsClient {
               Storage.BucketGetOption.fields(
                   Storage.BucketField.HIERARCHICAL_NAMESPACE, Storage.BucketField.STORAGE_CLASS));
       if (bucketInfo == null) {
-        LOG.warn("Bucket {} not found, HNS and RAPID features will be disabled", bucketName);
-        return BucketProperties.create(false, false);
+        throw GcsExceptionUtil.createBucketNotFoundException(bucketName);
       }
       boolean hnsEnabled =
           Optional.ofNullable(bucketInfo.getHierarchicalNamespace())
@@ -476,10 +493,15 @@ class GcsClientImpl implements GcsClient {
               && RAPID_STORAGE_CLASS.equalsIgnoreCase(bucketInfo.getStorageClass().toString());
       return BucketProperties.create(hnsEnabled, isRapid);
     } catch (StorageException storageException) {
-      if (storageException.getCode() == 403) {
+      if (storageException.getCode() == 404) {
+        throw GcsExceptionUtil.createBucketNotFoundException(bucketName, storageException);
+      }
+      if (GcsExceptionUtil.getErrorType(storageException)
+          == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
         LOG.warn(
-            "Access to bucket {} is forbidden (403), HNS and RAPID features will be disabled",
-            bucketName);
+            "Access to bucket {} is denied ({}), HNS and RAPID features will be disabled",
+            bucketName,
+            storageException.getCode());
         return BucketProperties.create(false, false);
       }
       throw GcsExceptionUtil.translateStorageException(
@@ -612,8 +634,7 @@ class GcsClientImpl implements GcsClient {
       if (e.getCode() == 412
           && shouldNotOverwrite(itemId, options)
           && (!itemId.isDirectory() || existing.isPresent())) {
-        throw (FileAlreadyExistsException)
-            new FileAlreadyExistsException("Object already exists: " + itemId).initCause(e);
+        throw GcsExceptionUtil.createFileAlreadyExistsException(itemId, e);
       }
       throw GcsExceptionUtil.translateStorageException(
           e, itemId, "Failed to create empty object: " + itemId);
@@ -624,7 +645,9 @@ class GcsClientImpl implements GcsClient {
       throws IOException {
     GcsWriteOptions effectiveOptions =
         options.toBuilder().setOverwriteExisting(!shouldNotOverwrite(itemId, options)).build();
-    BlobInfo blobInfo = createBlobInfo(itemId, effectiveOptions);
+    BlobInfo blobInfo =
+        createBlobInfo(
+            BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()), effectiveOptions);
     if (isRapidBucket(itemId.getBucketName())) {
       createAppendableEmptyObject(itemId, blobInfo, effectiveOptions);
       return;
@@ -833,7 +856,10 @@ class GcsClientImpl implements GcsClient {
             .getContentGeneration()
             .map(generation -> BlobId.of(itemId.getBucketName(), objectName, generation))
             .orElseGet(() -> BlobId.of(itemId.getBucketName(), objectName));
+    return createBlobInfo(blobId, writeOptions);
+  }
 
+  private static BlobInfo createBlobInfo(BlobId blobId, GcsWriteOptions writeOptions) {
     BlobInfo.Builder blobInfoBuilder = BlobInfo.newBuilder(blobId);
 
     Optional.ofNullable(writeOptions)

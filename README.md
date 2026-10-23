@@ -190,7 +190,8 @@ To run the micro benchmarks:
 java -Dgcs.integration.test.bucket=$BUCKET_NAME \
      -Dgcs.integration.test.project-id=$PROJECT_ID \
      -Dgcs.integration.test.bucket.folder=$FOLDER_NAME \
-     -jar core/target/benchmarks.jar
+     -jar benchmarks/target/benchmarks.jar \
+     -e "com.google.cloud.gcs.analyticscore.benchmarks.*"
 ```
 
 ### Micro benchmark results

@@ -34,10 +34,12 @@ import com.google.cloud.storage.BlobId;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.channels.WritableByteChannel;
@@ -200,13 +202,113 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
   @Override
   public GcsFileInfo getFileInfo(GcsItemId itemId) throws IOException {
-    GcsItemInfo gcsItemInfo = gcsClient.getGcsItemInfo(itemId);
+    return getFileInfoInternal(itemId, /* inferImplicitDirectories= */ true);
+  }
+
+  @Override
+  public GcsFileInfo getFileInfoObject(URI path) throws IOException {
+    checkNotNull(path, "path should not be null");
+    return getFileInfoObject(UriUtil.getItemIdFromString(path.toString()));
+  }
+
+  @Override
+  public GcsFileInfo getFileInfoObject(GcsItemId itemId) throws IOException {
+    checkNotNull(itemId, "itemId should not be null");
+    checkArgument(
+        itemId.isGcsObject() && itemId.resolvePathType() != PathType.DIRECTORY,
+        "Expected GCS object to be provided. But got: %s",
+        itemId);
+    return toGcsFileInfo(gcsClient.getGcsItemInfo(itemId));
+  }
+
+  /**
+   * Retrieves file or directory metadata for the given {@link GcsItemId}.
+   *
+   * @param itemId the item identifier
+   * @param inferImplicitDirectories if {@code false}, does not list prefix objects to infer
+   *     implicit directories and instead only checks for an explicit placeholder directory object
+   *     (needed for operations such as rename and delete)
+   */
+  @VisibleForTesting
+  GcsFileInfo getFileInfoInternal(GcsItemId itemId, boolean inferImplicitDirectories)
+      throws IOException {
+    checkNotNull(itemId, "itemId should not be null");
+    PathType pathType = itemId.resolvePathType();
+
+    if (pathType == PathType.ROOT) {
+      return GcsFileInfo.ROOT_INFO;
+    }
+
+    if (pathType == PathType.BUCKET) {
+      GcsItemInfo bucketInfo = gcsClient.getBucketInfo(itemId);
+      return createBucketFileInfo(bucketInfo);
+    }
+
+    if (pathType == PathType.DIRECTORY) {
+      return toGcsFileInfo(lookupDirectoryInfo(itemId, inferImplicitDirectories));
+    }
+
+    // Submit directory info in background
+    ExecutorService statusExecutorService = statusExecutorServiceSupplier.get();
+    Future<GcsItemInfo> directoryInfoFuture =
+        statusExecutorService.submit(() -> lookupDirectoryInfo(itemId, inferImplicitDirectories));
+
+    // Perform direct object metadata lookup
+    try {
+      GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(itemId);
+      directoryInfoFuture.cancel(true);
+      return toGcsFileInfo(itemInfo);
+    } catch (FileNotFoundException ignored) {
+      // Direct object not found; fall through to directory info
+      LOG.debug("Item '{}' not found directly, checking for directory existence.", itemId);
+    } catch (Exception e) {
+      directoryInfoFuture.cancel(true);
+      throw e;
+    }
+
+    // Await directory info and return (unwraps ExecutionException to FileNotFoundException /
+    // IOException)
+    return toGcsFileInfo(getFromFuture(directoryInfoFuture));
+  }
+
+  private GcsItemInfo lookupDirectoryInfo(GcsItemId itemId, boolean inferImplicitDirectories)
+      throws IOException {
+    NamespaceStrategy strategy = resolveStrategy(itemId.getBucketName());
+    return strategy.getDirectoryInfo(itemId, inferImplicitDirectories);
+  }
+
+  static <T> T getFromFuture(Future<T> future) throws IOException {
+    try {
+      return future.get();
+    } catch (InterruptedException e) {
+      future.cancel(true);
+      Thread.currentThread().interrupt();
+      throw (InterruptedIOException)
+          new InterruptedIOException("Thread interrupted while waiting on future").initCause(e);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause() != null ? e.getCause() : e;
+      Throwables.throwIfInstanceOf(cause, IOException.class);
+      Throwables.throwIfUnchecked(cause);
+      throw new IOException(cause);
+    }
+  }
+
+  private GcsFileInfo createBucketFileInfo(GcsItemInfo bucketInfo) {
+    return GcsFileInfo.builder()
+        .setItemInfo(bucketInfo)
+        .setUri(URI.create("gs://" + bucketInfo.getItemId().getBucketName()))
+        .setAttributes(Collections.emptyMap())
+        .build();
+  }
+
+  private GcsFileInfo toGcsFileInfo(GcsItemInfo gcsItemInfo) {
+    GcsItemId itemId = gcsItemInfo.getItemId();
     return GcsFileInfo.builder()
         .setItemInfo(gcsItemInfo)
         .setUri(
             URI.create(
-                BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()).toGsUtilUri()))
-        .setAttributes(Collections.emptyMap())
+                BlobId.of(itemId.getBucketName(), itemId.getObjectName().orElse("")).toGsUtilUri()))
+        .setAttributes(gcsItemInfo.getExtendedAttributes())
         .build();
   }
 
@@ -367,22 +469,6 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       return itemInfo != null && itemInfo.exists();
     } catch (FileNotFoundException e) {
       return false;
-    }
-  }
-
-  static <T> T getFromFuture(Future<T> future) throws IOException {
-    try {
-      return future.get();
-    } catch (InterruptedException e) {
-      future.cancel(true);
-      Thread.currentThread().interrupt();
-      throw new IOException("Thread interrupted while waiting on future", e);
-    } catch (ExecutionException e) {
-      Throwable cause = e.getCause() != null ? e.getCause() : e;
-      if (cause instanceof IOException) {
-        throw (IOException) cause;
-      }
-      throw new IOException(cause);
     }
   }
 

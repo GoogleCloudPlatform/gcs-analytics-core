@@ -47,4 +47,13 @@ final class HierarchicalNamespaceStrategyImpl implements NamespaceStrategy {
       LOG.debug("Folder already exists for item: {}", folderItemId, e);
     }
   }
+
+  @Override
+  public GcsItemInfo getDirectoryInfo(GcsItemId id, boolean inferImplicitDirectories)
+      throws IOException {
+    checkNotNull(id, "Item ID must not be null.");
+    // In HNS buckets, directories are always native folder resources; pass the ID as given so a
+    // not-found error names the path the caller asked for, as in FlatNamespaceStrategyImpl.
+    return gcsClient.getFolderInfo(id);
+  }
 }

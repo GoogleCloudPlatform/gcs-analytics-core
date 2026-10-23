@@ -19,8 +19,10 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,5 +47,45 @@ final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
     } catch (FileAlreadyExistsException e) {
       LOG.debug("Directory marker already exists for item: {}", dirItemId, e);
     }
+  }
+
+  /**
+   * Resolves directory metadata in a flat namespace bucket by listing the first object under the
+   * directory prefix (e.g. {@code dir/}).
+   *
+   * <ul>
+   *   <li>If the first listed object is the placeholder object itself ({@code dir/}), its real
+   *       metadata (including generation) is returned.
+   *   <li>If the first listed object is a child (e.g. {@code dir/obj.txt}), an inferred directory
+   *       for {@code dir/} is returned (no generation, zero timestamps).
+   * </ul>
+   */
+  @Override
+  public GcsItemInfo getDirectoryInfo(GcsItemId id, boolean inferImplicitDirectories)
+      throws IOException {
+    checkNotNull(id, "Item ID must not be null.");
+    GcsItemId dirId = id.toDirectoryId();
+    if (!inferImplicitDirectories) {
+      // Do not list for implicit directories; only check for an explicit placeholder object.
+      try {
+        return gcsClient.getGcsItemInfo(dirId);
+      } catch (FileNotFoundException e) {
+        if (id.equals(dirId)) {
+          throw e;
+        }
+        throw GcsExceptionUtil.createFileNotFoundException(id);
+      }
+    }
+    // Returns the placeholder object "dir/" (if present) or the first child object under "dir/".
+    Optional<GcsItemInfo> firstObject = gcsClient.listFirstObjectWithPrefix(dirId);
+    if (firstObject.isEmpty()) {
+      throw GcsExceptionUtil.createFileNotFoundException(id);
+    }
+    GcsItemInfo firstItemInfo = firstObject.get();
+    // The placeholder object "dir/" sorts first under its own prefix, so if it exists it is listed.
+    if (firstItemInfo.getItemId().getObjectName().equals(dirId.getObjectName())) {
+      return firstItemInfo;
+    }
+    return GcsItemInfo.createInferredDirectory(dirId);
   }
 }

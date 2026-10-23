@@ -17,6 +17,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Strings.isNullOrEmpty;
 
 import java.net.URI;
 import java.util.regex.Matcher;
@@ -102,9 +103,6 @@ final class UriUtil {
   }
 
   static String toDirectoryPath(String path) {
-    if (path != null && !path.endsWith(PATH_DELIMITER)) {
-      return path + PATH_DELIMITER;
-    }
-    return path;
+    return isNullOrEmpty(path) || path.endsWith(PATH_DELIMITER) ? path : path + PATH_DELIMITER;
   }
 }

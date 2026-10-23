@@ -89,4 +89,32 @@ public abstract class GcsItemId {
   public boolean isDirectory() {
     return isRoot() || isBucket() || this.getObjectName().orElse("").endsWith("/");
   }
+
+  /**
+   * Resolves the {@link PathType} of this identifier based on its string format (e.g., trailing
+   * slash).
+   */
+  PathType resolvePathType() {
+    if (isRoot()) {
+      return PathType.ROOT;
+    }
+    if (isBucket()) {
+      return PathType.BUCKET;
+    }
+    if (getObjectName().orElse("").endsWith("/")) {
+      return PathType.DIRECTORY;
+    }
+    return PathType.UNKNOWN;
+  }
+
+  /** Returns a new {@link GcsItemId} with the object name formatted as a directory path. */
+  GcsItemId toDirectoryId() {
+    if (isRoot() || isBucket()) {
+      return this;
+    }
+    return builder()
+        .setBucketName(getBucketName())
+        .setObjectName(UriUtil.toDirectoryPath(getObjectName().orElse("")))
+        .build();
+  }
 }
