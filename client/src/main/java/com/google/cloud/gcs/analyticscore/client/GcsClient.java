@@ -50,8 +50,7 @@ public interface GcsClient {
    * FileNotFoundException}, which aligns with standard Java I/O expectations.
    *
    * <p>Buckets and folders are queried via {@link #getBucketInfo(GcsItemId)} and {@link
-   * #getFolderInfo(GcsItemId)} respectively. Those methods report a missing item differently, by
-   * returning a not-found {@link GcsItemInfo} instead of throwing.
+   * #getFolderInfo(GcsItemId)} respectively.
    *
    * @param itemId the identity of the object to fetch metadata for
    * @return metadata for the given object
@@ -61,10 +60,23 @@ public interface GcsClient {
    */
   GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException;
 
-  /** Fetches bucket metadata. */
+  /**
+   * Fetches bucket metadata.
+   *
+   * @throws FileNotFoundException if {@code itemId} denotes a bucket that does not exist
+   * @throws IOException if the metadata cannot be fetched
+   */
   GcsItemInfo getBucketInfo(GcsItemId itemId) throws IOException;
 
-  /** Fetches folder metadata for HNS buckets. */
+  /**
+   * Fetches folder metadata for HNS buckets.
+   *
+   * <p>{@code itemId} may name the folder with or without a trailing slash. The returned metadata
+   * always uses the directory form of the ID (ending in {@code /}).
+   *
+   * @throws FileNotFoundException if {@code itemId} denotes a folder that does not exist
+   * @throws IOException if the metadata cannot be fetched
+   */
   GcsItemInfo getFolderInfo(GcsItemId itemId) throws IOException;
 
   /**
@@ -144,9 +156,12 @@ public interface GcsClient {
   /**
    * Fetches bucket capability properties (such as HNS and Rapid storage class).
    *
-   * <p>If bucket metadata cannot be retrieved because the bucket does not exist (404) or the caller
-   * lacks bucket-level permissions (401/403), this method degrades gracefully to {@code
-   * BucketProperties.create(false, false)} (flat namespace and non-RAPID storage class).
+   * <p>If bucket metadata cannot be retrieved because the caller lacks bucket-level permissions
+   * (401/403), this method degrades gracefully to {@code BucketProperties.create(false, false)}
+   * (flat namespace and non-RAPID storage class).
+   *
+   * @throws FileNotFoundException if {@code bucketName} denotes a bucket that does not exist (404)
+   * @throws IOException if the bucket properties cannot be fetched
    */
   BucketProperties getBucketProperties(String bucketName) throws IOException;
 

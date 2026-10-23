@@ -105,7 +105,24 @@ public final class HermeticGcsFileSystem {
           inMemoryStorage
               .find(itemId)
               .orElseThrow(() -> GcsExceptionUtil.createFileNotFoundException(itemId));
-      return GcsItemInfo.builder().setItemId(itemId).setSize(data.length).build();
+      long generation = itemId.getContentGeneration().orElse(InMemoryStorage.GENERATION);
+      GcsItemId resolvedId =
+          GcsItemId.builder()
+              .setBucketName(itemId.getBucketName())
+              .setObjectName(itemId.getObjectName().get())
+              .setContentGeneration(generation)
+              .build();
+      return GcsItemInfo.builder()
+          .setItemId(resolvedId)
+          .setSize(data.length)
+          .setContentGeneration(generation)
+          .build();
+    }
+
+    @Override
+    public Optional<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) {
+      checkNotNull(prefixId, "prefixId must not be null");
+      return Optional.empty();
     }
 
     @Override

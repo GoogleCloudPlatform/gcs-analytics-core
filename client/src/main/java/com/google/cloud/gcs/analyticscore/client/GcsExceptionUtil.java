@@ -38,6 +38,9 @@ class GcsExceptionUtil {
   private static final String NOT_FOUND_MESSAGE_FORMAT =
       "Location does not exist or generation not found: %s";
 
+  /** Message format for a bucket that does not exist. */
+  private static final String BUCKET_NOT_FOUND_MESSAGE_FORMAT = "Bucket not found: %s";
+
   /** Separator introducing a versioned object's content generation. */
   private static final String GENERATION_SEPARATOR = "#";
 
@@ -270,6 +273,60 @@ class GcsExceptionUtil {
       String location, StorageException cause) {
     return (FileNotFoundException)
         new FileNotFoundException(String.format(NOT_FOUND_MESSAGE_FORMAT, location))
+            .initCause(cause);
+  }
+
+  /**
+   * Creates a {@link FileNotFoundException} for a bucket that does not exist, attaching a synthetic
+   * 404 {@link StorageException} as its cause.
+   *
+   * @param bucketName the name of the bucket that was not found
+   * @return a FileNotFoundException wrapping a 404 StorageException
+   */
+  static FileNotFoundException createBucketNotFoundException(String bucketName) {
+    checkNotNull(bucketName, "bucketName should not be null");
+    return createBucketNotFoundException(
+        bucketName,
+        new StorageException(
+            HttpURLConnection.HTTP_NOT_FOUND,
+            String.format(BUCKET_NOT_FOUND_MESSAGE_FORMAT, bucketName)));
+  }
+
+  /**
+   * Creates a {@link FileNotFoundException} for a bucket that does not exist, keeping the 404
+   * {@link StorageException} returned by GCS as its cause.
+   *
+   * @param bucketName the name of the bucket that was not found
+   * @param cause the 404 StorageException returned by GCS
+   * @return a FileNotFoundException with the given StorageException as its cause
+   */
+  static FileNotFoundException createBucketNotFoundException(
+      String bucketName, StorageException cause) {
+    checkNotNull(bucketName, "bucketName should not be null");
+    checkNotNull(cause, "cause should not be null");
+    return (FileNotFoundException)
+        new FileNotFoundException(String.format(BUCKET_NOT_FOUND_MESSAGE_FORMAT, bucketName))
+            .initCause(cause);
+  }
+
+  /**
+   * Creates an {@link AccessDeniedException} for a 401 or 403 returned by GCS, keeping the original
+   * error as its cause.
+   *
+   * @param location the {@code gs://} path that was being accessed
+   * @param context the operation that was denied, for example {@code "bucket lookup"}
+   * @param cause the 401 or 403 error returned by GCS
+   * @return an AccessDeniedException with the given error as its cause
+   */
+  static AccessDeniedException createAccessDeniedException(
+      String location, String context, Throwable cause) {
+    checkNotNull(location, "location should not be null");
+    checkNotNull(cause, "cause should not be null");
+    return (AccessDeniedException)
+        new AccessDeniedException(
+                location,
+                null,
+                String.format("Access denied during %s: %s", context, cause.getMessage()))
             .initCause(cause);
   }
 

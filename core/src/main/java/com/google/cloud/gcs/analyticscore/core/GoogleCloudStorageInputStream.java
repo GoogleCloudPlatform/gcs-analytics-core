@@ -63,7 +63,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   public static GoogleCloudStorageInputStream create(GcsFileSystem gcsFileSystem, URI path)
       throws IOException {
     checkState(gcsFileSystem != null, "GcsFileSystem shouldn't be null");
-    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(path);
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfoObject(path);
     return create(gcsFileSystem, fileInfo);
   }
 

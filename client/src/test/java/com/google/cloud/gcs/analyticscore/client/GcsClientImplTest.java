@@ -24,6 +24,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -34,6 +35,7 @@ import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.AlreadyExistsException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
+import com.google.api.gax.rpc.UnauthenticatedException;
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.ReadChannel;
@@ -624,15 +626,21 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getBucketProperties_bucketNotFound_returnsDisabledHnsAndRapid() throws Exception {
+  void getBucketProperties_bucketNotFound_throwsFileNotFoundException() {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
     doReturn(null).when(mockStorage).get(eq(TEST_NON_EXISTENT_BUCKET), any(BucketGetOption.class));
 
-    BucketProperties properties = localGcsClient.getBucketProperties(TEST_NON_EXISTENT_BUCKET);
+    FileNotFoundException exception =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> localGcsClient.getBucketProperties(TEST_NON_EXISTENT_BUCKET));
 
-    assertThat(properties.isHnsEnabled()).isFalse();
-    assertThat(properties.isRapid()).isFalse();
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Bucket not found: " + TEST_NON_EXISTENT_BUCKET);
+    assertThat(exception.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) exception.getCause()).getCode()).isEqualTo(404);
   }
 
   @Test
@@ -647,6 +655,40 @@ class GcsClientImplTest {
 
     assertThat(properties.isHnsEnabled()).isFalse();
     assertThat(properties.isRapid()).isFalse();
+  }
+
+  @Test
+  void getBucketProperties_unauthorizedAccess_returnsDisabledHnsAndRapid() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
+    doThrow(new StorageException(401, "Unauthorized"))
+        .when(mockStorage)
+        .get(eq(TEST_FORBIDDEN_BUCKET), any(BucketGetOption.class));
+
+    BucketProperties properties = localGcsClient.getBucketProperties(TEST_FORBIDDEN_BUCKET);
+
+    assertThat(properties.isHnsEnabled()).isFalse();
+    assertThat(properties.isRapid()).isFalse();
+  }
+
+  @Test
+  void getBucketProperties_storageThrows404_throwsFileNotFoundException() {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
+    StorageException notFound = new StorageException(404, "Not Found");
+    doThrow(notFound)
+        .when(mockStorage)
+        .get(eq(TEST_NON_EXISTENT_BUCKET), any(BucketGetOption.class));
+
+    FileNotFoundException exception =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> localGcsClient.getBucketProperties(TEST_NON_EXISTENT_BUCKET));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Bucket not found: " + TEST_NON_EXISTENT_BUCKET);
+    assertThat(exception).hasCauseThat().isSameInstanceAs(notFound);
   }
 
   @Test
@@ -681,6 +723,12 @@ class GcsClientImplTest {
 
   private GcsClientImpl createClientWithMockStorage(
       Storage mockStorage, GcsClientOptions clientOptions) {
+    if (mockingDetails(mockStorage).isMock()
+        && mockingDetails(mockStorage).getStubbings().isEmpty()) {
+      doReturn(mockBucketWithHns(false))
+          .when(mockStorage)
+          .get(eq(TEST_BUCKET_NAME), any(BucketGetOption.class));
+    }
     return new GcsClientImpl(
         clientOptions, executorServiceSupplier, telemetry, newBucketPropertiesCache()) {
       @Override
@@ -1373,16 +1421,17 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getBucketInfo_storageReturnsNull_returnsNotFoundItemInfo() throws IOException {
+  void getBucketInfo_storageReturnsNull_throwsFileNotFoundException() {
     GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_NON_EXISTENT_BUCKET).build();
     Storage mockStorage = mock(Storage.class);
     when(mockStorage.get(eq(TEST_NON_EXISTENT_BUCKET), any(Storage.BucketGetOption[].class)))
         .thenReturn(null);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
-    GcsItemInfo itemInfo = clientWithMock.getBucketInfo(bucketId);
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> clientWithMock.getBucketInfo(bucketId));
 
-    assertNotFound(itemInfo, bucketId);
+    assertFileNotFoundException(e, bucketId);
   }
 
   @Test
@@ -1409,16 +1458,17 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getBucketInfo_storageThrows404_returnsNotFoundItemInfo() throws IOException {
+  void getBucketInfo_storageThrows404_throwsFileNotFoundException() {
     GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
     Storage mockStorage = mock(Storage.class);
     when(mockStorage.get(eq(TEST_BUCKET), any(Storage.BucketGetOption[].class)))
         .thenThrow(new StorageException(404, "Not Found"));
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
-    GcsItemInfo itemInfo = clientWithMock.getBucketInfo(bucketId);
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> clientWithMock.getBucketInfo(bucketId));
 
-    assertNotFound(itemInfo, bucketId);
+    assertFileNotFoundException(e, bucketId);
   }
 
   @Test
@@ -1432,6 +1482,28 @@ class GcsClientImplTest {
     IOException e = assertThrows(IOException.class, () -> clientWithMock.getBucketInfo(bucketId));
 
     assertThat(e).hasMessageThat().contains("Unable to access bucket: " + TEST_BUCKET);
+  }
+
+  @Test
+  void getBucketInfo_storageThrows403_throwsAccessDeniedException() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.get(eq(TEST_BUCKET), any(Storage.BucketGetOption[].class)))
+        .thenThrow(new StorageException(403, "Forbidden"));
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    assertThrows(AccessDeniedException.class, () -> clientWithMock.getBucketInfo(bucketId));
+  }
+
+  @Test
+  void getBucketInfo_storageThrows401_throwsAccessDeniedException() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.get(eq(TEST_BUCKET), any(Storage.BucketGetOption[].class)))
+        .thenThrow(new StorageException(401, "Unauthorized"));
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    assertThrows(AccessDeniedException.class, () -> clientWithMock.getBucketInfo(bucketId));
   }
 
   @Test
@@ -1497,6 +1569,25 @@ class GcsClientImplTest {
         .isEqualTo(Instant.ofEpochSecond(1000, 500).toEpochMilli());
     assertThat(itemInfo.getModificationTime())
         .isEqualTo(Instant.ofEpochSecond(2000, 500).toEpochMilli());
+  }
+
+  @Test
+  void getFolderInfo_idWithoutTrailingSlash_returnsDirectoryItemId() throws IOException {
+    GcsItemId folderItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_FOLDER_NAME).build();
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.getFolder(any(GetFolderRequest.class)))
+        .thenReturn(createMockFolder(TEST_BUCKET, TEST_FOLDER_NAME));
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    GcsItemInfo itemInfo = clientWithMockControl.getFolderInfo(folderItemId);
+
+    assertThat(itemInfo.getItemId())
+        .isEqualTo(
+            GcsItemId.builder()
+                .setBucketName(TEST_BUCKET)
+                .setObjectName(TEST_FOLDER_NAME + "/")
+                .build());
   }
 
   @Test
@@ -1710,7 +1801,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void getFolderInfo_notFound_returnsNotFoundItemInfo() throws IOException {
+  void getFolderInfo_notFound_throwsFileNotFoundException() {
     GcsItemId folderItemId =
         GcsItemId.builder()
             .setBucketName(TEST_BUCKET)
@@ -1721,9 +1812,33 @@ class GcsClientImplTest {
     when(mockControlClient.getFolder(any(GetFolderRequest.class))).thenThrow(notFoundException);
     GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
 
-    GcsItemInfo itemInfo = clientWithMockControl.getFolderInfo(folderItemId);
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class, () -> clientWithMockControl.getFolderInfo(folderItemId));
 
-    assertNotFound(itemInfo, folderItemId);
+    assertFileNotFoundException(e, folderItemId);
+  }
+
+  @Test
+  void getFolderInfo_permissionDenied_throwsAccessDeniedException() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.getFolder(any(GetFolderRequest.class)))
+        .thenThrow(mock(PermissionDeniedException.class));
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    assertThrows(
+        AccessDeniedException.class, () -> clientWithMockControl.getFolderInfo(TEST_ITEM_ID));
+  }
+
+  @Test
+  void getFolderInfo_unauthenticated_throwsAccessDeniedException() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.getFolder(any(GetFolderRequest.class)))
+        .thenThrow(mock(UnauthenticatedException.class));
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    assertThrows(
+        AccessDeniedException.class, () -> clientWithMockControl.getFolderInfo(TEST_ITEM_ID));
   }
 
   @Test
@@ -1805,6 +1920,22 @@ class GcsClientImplTest {
   }
 
   @Test
+  void listFirstObjectWithPrefix_storageThrows404_keepsStorageExceptionAsCause() {
+    Storage mockStorage = mock(Storage.class);
+    StorageException notFound = new StorageException(404, "The specified bucket does not exist.");
+    when(mockStorage.list(eq(TEST_BUCKET), any(Storage.BlobListOption[].class)))
+        .thenThrow(notFound);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> clientWithMock.listFirstObjectWithPrefix(TEST_ITEM_ID));
+
+    assertThat(e).hasCauseThat().isSameInstanceAs(notFound);
+  }
+
+  @Test
   void listFirstObjectWithPrefix_storageThrows500_throwsIOException() {
     Storage mockStorage = mock(Storage.class);
     when(mockStorage.list(eq(TEST_BUCKET), any(Storage.BlobListOption[].class)))
@@ -1818,6 +1949,17 @@ class GcsClientImplTest {
     assertThat(e)
         .hasMessageThat()
         .contains("Failed to list the first object for prefix: " + TEST_ITEM_ID);
+  }
+
+  @Test
+  void listFirstObjectWithPrefix_storageThrows403_throwsAccessDeniedException() {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.list(eq(TEST_BUCKET), any(Storage.BlobListOption[].class)))
+        .thenThrow(new StorageException(403, "Forbidden"));
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    assertThrows(
+        AccessDeniedException.class, () -> clientWithMock.listFirstObjectWithPrefix(TEST_ITEM_ID));
   }
 
   private static Blob createMockBlob(String bucket, String name) {
@@ -1858,10 +2000,15 @@ class GcsClientImplTest {
     return mockStorage;
   }
 
-  private static void assertNotFound(GcsItemInfo itemInfo, GcsItemId expectedItemId) {
-    assertThat(itemInfo.getItemId()).isEqualTo(expectedItemId);
-    assertThat(itemInfo.exists()).isFalse();
-    assertThat(itemInfo.getSize()).isEqualTo(-1L);
+  private static void assertFileNotFoundException(
+      FileNotFoundException exception, GcsItemId expectedItemId) {
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "Location does not exist or generation not found: "
+                + UriUtil.getStringPath(expectedItemId));
+    assertThat(exception.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) exception.getCause()).getCode()).isEqualTo(404);
   }
 
   @Test
@@ -2991,10 +3138,12 @@ class GcsClientImplTest {
   @Test
   void createBucket_invalidatesCachedBucketPropertiesOnSuccess() throws IOException {
     Storage mockStorage = mock(Storage.class);
+    Bucket flatBucket = mockBucketWithHns(false);
+    when(flatBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
     Bucket hnsBucket = mockBucketWithHns(true);
     when(hnsBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
     when(mockStorage.get(eq(TEST_BUCKET_NAME), any(BucketGetOption.class)))
-        .thenReturn(null)
+        .thenReturn(flatBucket)
         .thenReturn(hnsBucket);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
@@ -3010,10 +3159,12 @@ class GcsClientImplTest {
   @Test
   void createBucket_conflict409_invalidatesCachedBucketProperties() throws IOException {
     Storage mockStorage = mock(Storage.class);
+    Bucket flatBucket = mockBucketWithHns(false);
+    when(flatBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
     Bucket hnsBucket = mockBucketWithHns(true);
     when(hnsBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
     when(mockStorage.get(eq(TEST_BUCKET_NAME), any(BucketGetOption.class)))
-        .thenReturn(null)
+        .thenReturn(flatBucket)
         .thenReturn(hnsBucket);
     when(mockStorage.create(any(BucketInfo.class)))
         .thenThrow(new StorageException(409, "Conflict"));
@@ -3029,19 +3180,6 @@ class GcsClientImplTest {
     assertThat(clientWithMock.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isTrue();
 
     verify(mockStorage, times(2)).get(eq(TEST_BUCKET_NAME), any(BucketGetOption.class));
-  }
-
-  @Test
-  void getBucketProperties_unauthorized401_returnsDefaultProperties() throws IOException {
-    Storage mockStorage = mock(Storage.class);
-    GcsClientImpl localGcsClient = createClientWithMockStorage(mockStorage);
-    doThrow(new StorageException(401, "Unauthorized"))
-        .when(mockStorage)
-        .get(eq(TEST_ERROR_BUCKET), any(BucketGetOption.class));
-
-    BucketProperties properties = localGcsClient.getBucketProperties(TEST_ERROR_BUCKET);
-
-    assertThat(properties).isEqualTo(BucketProperties.create(false, false));
   }
 
   @Test

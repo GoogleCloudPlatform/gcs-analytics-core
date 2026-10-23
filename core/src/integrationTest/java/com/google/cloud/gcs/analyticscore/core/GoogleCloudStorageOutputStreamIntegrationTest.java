@@ -198,7 +198,7 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     }
 
     assertThat(IntegrationTestHelper.objectPresentInBucket(ctx.fileName)).isTrue();
-    assertThat(gcsFileSystem.getFileInfo(ctx.uri).getItemInfo().getSize()).isEqualTo((long) content.length);
+    assertThat(gcsFileSystem.getFileInfoObject(ctx.uri).getItemInfo().getSize()).isEqualTo((long) content.length);
   }
 
   @Test
@@ -213,7 +213,7 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     }
 
     assertThat(IntegrationTestHelper.objectPresentInBucket(ctx.fileName)).isTrue();
-    assertThat(gcsFileSystem.getFileInfo(ctx.uri).getItemInfo().getSize()).isEqualTo((long) TEST_CONTENT.length);
+    assertThat(gcsFileSystem.getFileInfoObject(ctx.uri).getItemInfo().getSize()).isEqualTo((long) TEST_CONTENT.length);
   }
 
   @Test
@@ -234,7 +234,7 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     }
 
     assertThat(IntegrationTestHelper.objectPresentInBucket(ctx.fileName)).isTrue();
-    assertThat(gcsFileSystem.getFileInfo(ctx.uri).getItemInfo().getSize()).isEqualTo((long) totalSize);
+    assertThat(gcsFileSystem.getFileInfoObject(ctx.uri).getItemInfo().getSize()).isEqualTo((long) totalSize);
   }
 
   @Test
@@ -251,7 +251,7 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     }
 
     assertThat(IntegrationTestHelper.objectPresentInBucket(ctx.fileName)).isTrue();
-    assertThat(customFs.getFileInfo(ctx.uri).getItemInfo().getSize()).isEqualTo((long) TEST_CONTENT.length);
+    assertThat(customFs.getFileInfoObject(ctx.uri).getItemInfo().getSize()).isEqualTo((long) TEST_CONTENT.length);
   }
 
   @Test
@@ -365,7 +365,7 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     assertThat(positionAfterChunk1).isEqualTo((long) chunk1.length);
     assertThat(positionAfterChunk2).isEqualTo((long) (chunk1.length + chunk2.length));
     assertThat(IntegrationTestHelper.objectPresentInBucket(ctx.fileName)).isTrue();
-    assertThat(gcsFileSystem.getFileInfo(ctx.uri).getItemInfo().getSize())
+    assertThat(gcsFileSystem.getFileInfoObject(ctx.uri).getItemInfo().getSize())
         .isEqualTo((long) (chunk1.length + chunk2.length));
   }
 
@@ -379,7 +379,7 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
       outputStream.write(ORIGINAL_CONTENT);
     }
 
-    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(ctx.uri);
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfoObject(ctx.uri);
     long currentGeneration = fileInfo.getItemInfo().getContentGeneration().orElse(0L);
     try (GoogleCloudStorageOutputStream outputStream =
         GoogleCloudStorageOutputStream.create(createFileSystemWithWriteOptions(defaultOptions), ctx.itemId)) {
