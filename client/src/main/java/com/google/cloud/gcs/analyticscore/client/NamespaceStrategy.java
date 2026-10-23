@@ -26,7 +26,6 @@ import java.io.IOException;
  * <p>Methods for directory operations will be added in follow-up PRs. These methods will include:
  *
  * <ul>
- *   <li>{@code void createDirectory(GcsItemId id) throws IOException;}
  *   <li>{@code boolean isDirectoryEmpty(GcsItemId id) throws IOException;}
  *   <li>{@code void renameDirectory(GcsItemId src, GcsItemId dst) throws IOException;}
  *   <li>{@code java.util.List<GcsItemInfo> listObjectInfo(GcsItemId id) throws IOException;}
@@ -34,6 +33,14 @@ import java.io.IOException;
  * </ul>
  */
 interface NamespaceStrategy {
+
+  /**
+   * Creates a directory at the given {@link GcsItemId}.
+   *
+   * @param id the directory identifier
+   * @throws IOException if an error occurs during directory creation
+   */
+  void createDirectory(GcsItemId id) throws IOException;
 
   /**
    * Retrieves directory metadata for the given {@link GcsItemId}, inferring implicit directories on

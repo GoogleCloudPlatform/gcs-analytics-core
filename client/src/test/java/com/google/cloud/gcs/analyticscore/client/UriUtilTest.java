@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.net.URI;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -85,6 +86,21 @@ class UriUtilTest {
     assertThat(e)
         .hasMessageThat()
         .isEqualTo("GCS path must not have consecutive '/' characters: " + consecutiveSlashPath);
+  }
+
+  @Test
+  void getItemIdFromUri_validUri_succeeds() {
+    URI uri = URI.create("gs://" + TEST_BUCKET + "/" + TEST_OBJECT);
+
+    GcsItemId itemId = UriUtil.getItemIdFromUri(uri);
+
+    assertThat(itemId.getBucketName()).isEqualTo(TEST_BUCKET);
+    assertThat(itemId.getObjectName()).hasValue(TEST_OBJECT);
+  }
+
+  @Test
+  void getItemIdFromUri_nullUri_throwsNullPointerException() {
+    assertThrows(NullPointerException.class, () -> UriUtil.getItemIdFromUri(null));
   }
 
   @Test

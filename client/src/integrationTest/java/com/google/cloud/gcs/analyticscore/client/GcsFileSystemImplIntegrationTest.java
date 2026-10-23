@@ -45,6 +45,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 // TODO: Setup buckets and test data as part of setup on place of relying on existing bucket.
@@ -72,6 +73,7 @@ class GcsFileSystemImplIntegrationTest {
 
     private Storage storage;
     private List<BlobId> blobsToDelete;
+    private List<String> bucketsToDelete;
     private List<String> foldersToDelete;
     private GcsFileSystemImpl gcsFileSystem;
 
@@ -79,6 +81,7 @@ class GcsFileSystemImplIntegrationTest {
     void setUp() {
         storage = StorageOptions.getDefaultInstance().getService();
         blobsToDelete = new ArrayList<>();
+        bucketsToDelete = new ArrayList<>();
         foldersToDelete = new ArrayList<>();
         gcsFileSystem = createFileSystem(GcsClientOptions.builder().build());
     }
@@ -101,6 +104,13 @@ class GcsFileSystemImplIntegrationTest {
                         LOG.warn("Failed to delete blob {} during cleanup", blobId, e);
                     }
                 }
+                for (String bucketName : bucketsToDelete) {
+                    try {
+                        storage.delete(bucketName);
+                    } catch (Exception e) {
+                        LOG.warn("Failed to delete bucket {} during cleanup", bucketName, e);
+                    }
+                }
             }
             if (!foldersToDelete.isEmpty()) {
                 try (StorageControlClient client = StorageControlClient.create()) {
@@ -118,6 +128,7 @@ class GcsFileSystemImplIntegrationTest {
             }
         } finally {
             blobsToDelete.clear();
+            bucketsToDelete.clear();
             foldersToDelete.clear();
         }
     }
@@ -512,6 +523,77 @@ class GcsFileSystemImplIntegrationTest {
         });
     }
 
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
+    void mkdirs_createsDirectoryMarkerAndIsIdempotent_success() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY);
+        String dirObjectName = "test-mkdirs-" + UUID.randomUUID() + "/subdir/";
+        URI dirUri = URI.create("gs://" + bucketName + "/" + dirObjectName);
+        blobsToDelete.add(BlobId.of(bucketName, dirObjectName));
+
+        // Verify initial directory marker creation
+        gcsFileSystem.mkdirs(dirUri);
+        GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(dirUri);
+        assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(dirObjectName);
+        assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
+
+        // Verify calling mkdirs on an existing directory is idempotent
+        assertDoesNotThrow(() -> gcsFileSystem.mkdirs(dirUri));
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
+    void mkdirs_withConflictingFile_throwsFileAlreadyExistsException() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY);
+        TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete);
+        try (WritableByteChannel channel =
+                gcsFileSystem.create(ctx.itemId, GcsWriteOptions.builder().build())) {
+            channel.write(ByteBuffer.wrap("file content".getBytes(StandardCharsets.UTF_8)));
+        }
+        URI subdirUri = URI.create(ctx.uri.toString() + "/subdir");
+
+        assertThrows(FileAlreadyExistsException.class, () -> gcsFileSystem.mkdirs(subdirUri));
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void mkdirs_createsHnsFolderAndIsIdempotent_success() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete, foldersToDelete);
+        URI dirUri = URI.create("gs://" + bucketName + "/" + ctx.folderName + "/");
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+                .setHnsApiEnabled(true)
+                .build();
+        try (GcsFileSystemImpl hnsFileSystem = new GcsFileSystemImpl(options)) {
+            // Verify initial folder creation
+            hnsFileSystem.mkdirs(dirUri);
+            GcsItemInfo folderInfo =
+                    hnsFileSystem.getGcsClient().getFolderInfo(UriUtil.getItemIdFromUri(dirUri));
+            assertThat(folderInfo.getItemId().getObjectName()).hasValue(ctx.folderName + "/");
+            assertThat(folderInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
+
+            // Verify calling mkdirs on an existing folder is idempotent
+            assertDoesNotThrow(() -> hnsFileSystem.mkdirs(dirUri));
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "gcs.integration.test.project-id", matches = ".+")
+    void mkdirs_newBucket_createsBucket_success() throws IOException {
+        String bucketName = "test-mkdirs-bucket-" + UUID.randomUUID();
+        URI bucketUri = URI.create("gs://" + bucketName);
+        bucketsToDelete.add(bucketName);
+
+        gcsFileSystem.mkdirs(bucketUri);
+
+        GcsItemInfo bucketInfo =
+                gcsFileSystem
+                        .getGcsClient()
+                        .getBucketInfo(GcsItemId.builder().setBucketName(bucketName).build());
+        assertThat(bucketInfo.getItemId().getBucketName()).isEqualTo(bucketName);
+        assertThat(bucketInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
+    }
+
     private static class TestWriteContext {
         final String folderName;
         final String objectName;
@@ -530,7 +612,9 @@ class GcsFileSystemImplIntegrationTest {
                     .setBucketName(bucketName)
                     .setObjectName(objectName)
                     .build();
-            blobsToDelete.add(BlobId.of(bucketName, objectName));
+            if (blobsToDelete != null) {
+                blobsToDelete.add(BlobId.of(bucketName, objectName));
+            }
             if (foldersToDelete != null) {
                 foldersToDelete.add("projects/_/buckets/" + bucketName + "/folders/" + folderName);
             }
@@ -560,8 +644,13 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     private GcsFileSystemImpl createFileSystem(GcsClientOptions clientOptions) {
+        GcsClientOptions.Builder builder = clientOptions.toBuilder();
+        String projectId = System.getProperty("gcs.integration.test.project-id");
+        if (projectId != null && !projectId.isEmpty()) {
+            builder.setProjectId(projectId);
+        }
         GcsFileSystemOptions options = GcsFileSystemOptions.builder()
-                .setGcsClientOptions(clientOptions)
+                .setGcsClientOptions(builder.build())
                 .build();
         return new GcsFileSystemImpl(options);
     }
