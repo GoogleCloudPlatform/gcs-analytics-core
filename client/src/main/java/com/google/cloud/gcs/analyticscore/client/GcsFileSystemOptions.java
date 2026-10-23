@@ -65,7 +65,7 @@ public abstract class GcsFileSystemOptions {
 
   public abstract boolean isMetadataLookupParallelEnabled();
 
-  public abstract boolean isEnsureNoConflictingItems();
+  public abstract boolean isCreateItemsConflictCheckEnabled();
 
   public abstract Builder toBuilder();
 
@@ -76,7 +76,7 @@ public abstract class GcsFileSystemOptions {
         .setClientType(ClientType.HTTP_CLIENT)
         .setHnsApiEnabled(true)
         .setMetadataLookupParallelEnabled(true)
-        .setEnsureNoConflictingItems(true)
+        .setCreateItemsConflictCheckEnabled(true)
         .setGcsAuthOptions(GcsAuthOptions.builder().build())
         .setGcsClientOptions(GcsClientOptions.builder().build())
         .setGcsCacheOptions(GcsCacheOptions.builder().build())
@@ -105,7 +105,7 @@ public abstract class GcsFileSystemOptions {
               analyticsCoreOptions.get(prefix + METADATA_LOOKUP_PARALLEL_ENABLED_KEY)));
     }
     if (analyticsCoreOptions.containsKey(prefix + CREATE_ITEMS_CONFLICT_CHECK_ENABLE_KEY)) {
-      optionsBuilder.setEnsureNoConflictingItems(
+      optionsBuilder.setCreateItemsConflictCheckEnabled(
           Boolean.parseBoolean(
               analyticsCoreOptions.get(prefix + CREATE_ITEMS_CONFLICT_CHECK_ENABLE_KEY)));
     }
@@ -138,7 +138,8 @@ public abstract class GcsFileSystemOptions {
 
     public abstract Builder setHnsApiEnabled(boolean isHnsApiEnabled);
 
-    public abstract Builder setEnsureNoConflictingItems(boolean ensureNoConflictingItems);
+    public abstract Builder setCreateItemsConflictCheckEnabled(
+        boolean isCreateItemsConflictCheckEnabled);
 
     public abstract Builder setMetadataLookupParallelEnabled(
         boolean isMetadataLookupParallelEnabled);

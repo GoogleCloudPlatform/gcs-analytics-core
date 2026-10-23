@@ -43,7 +43,7 @@ class GcsFileSystemOptionsTest {
         .isEqualTo(GcsClientOptions.Protocol.GRPC);
     assertThat(options.getReadThreadCount()).isEqualTo(32);
     assertThat(options.isHnsApiEnabled()).isTrue();
-    assertThat(options.isEnsureNoConflictingItems()).isFalse();
+    assertThat(options.isCreateItemsConflictCheckEnabled()).isFalse();
   }
 
   @Test
@@ -79,7 +79,7 @@ class GcsFileSystemOptionsTest {
         .isEqualTo(GcsClientOptions.Protocol.HTTP);
     assertThat(options.getReadThreadCount()).isEqualTo(16);
     assertThat(options.isHnsApiEnabled()).isTrue();
-    assertThat(options.isEnsureNoConflictingItems()).isTrue();
+    assertThat(options.isCreateItemsConflictCheckEnabled()).isTrue();
 
     GcsCacheOptions cacheOptions = options.getGcsCacheOptions();
     assertThat(cacheOptions.isFooterCacheEnabled()).isFalse();

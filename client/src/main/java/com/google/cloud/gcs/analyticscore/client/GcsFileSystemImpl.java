@@ -44,9 +44,9 @@ import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.FileAlreadyExistsException;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -408,7 +408,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
             .setObjectName(UriUtil.toDirectoryPath(itemId.getObjectName().orElse("")))
             .build();
 
-    if (fileSystemOptions.isEnsureNoConflictingItems()) {
+    if (fileSystemOptions.isCreateItemsConflictCheckEnabled()) {
       checkNoFilesConflictingWithDirs(dirItemId);
     }
 
@@ -417,58 +417,35 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   @VisibleForTesting
-  void checkNoFilesConflictingWithDirs(GcsItemId itemId) throws IOException {
-    String objectName = itemId.getObjectName().orElse("");
-    List<String> dirs = getDirs(objectName);
-    if (dirs.isEmpty()) {
-      return;
-    }
-    if (dirs.size() == 1) {
-      GcsItemId fileId =
-          GcsItemId.builder()
-              .setBucketName(itemId.getBucketName())
-              .setObjectName(dirs.get(0))
-              .build();
-      if (doesObjectExist(fileId)) {
-        throw new FileAlreadyExistsException(
-            String.format(
-                "Cannot create directory '%s' because of existing file '%s'", itemId, fileId));
-      }
-      return;
-    }
-
+  void checkNoFilesConflictingWithDirs(GcsItemId dirItemId) throws IOException {
     ExecutorService statusExecutor = statusExecutorServiceSupplier.get();
-    List<GcsItemId> fileIds = new ArrayList<>(dirs.size());
-    List<Future<Boolean>> futures = new ArrayList<>(dirs.size());
+    Map<GcsItemId, Future<GcsItemInfo>> futures = new LinkedHashMap<>();
     try {
-      for (String dir : dirs) {
+      for (String dir : getDirs(dirItemId.getObjectName().orElse(""))) {
         GcsItemId fileId =
-            GcsItemId.builder().setBucketName(itemId.getBucketName()).setObjectName(dir).build();
-        fileIds.add(fileId);
-        futures.add(statusExecutor.submit(() -> doesObjectExist(fileId)));
+            GcsItemId.builder().setBucketName(dirItemId.getBucketName()).setObjectName(dir).build();
+        futures.put(fileId, statusExecutor.submit(() -> gcsClient.getGcsItemInfo(fileId)));
       }
 
-      for (int i = 0; i < futures.size(); i++) {
-        if (getFromFuture(futures.get(i))) {
+      // Check results in submission order so that the shallowest conflicting file is reported.
+      for (Map.Entry<GcsItemId, Future<GcsItemInfo>> entry : futures.entrySet()) {
+        try {
+          GcsItemInfo fileInfo = getFromFuture(entry.getValue());
           throw new FileAlreadyExistsException(
               String.format(
                   "Cannot create directory '%s' because of existing file '%s'",
-                  itemId, fileIds.get(i)));
+                  dirItemId, fileInfo.getItemId()));
+        } catch (FileNotFoundException ignored) {
+          LOG.debug(
+              "File '{}' not found, so it does not conflict with directory '{}'.",
+              entry.getKey(),
+              dirItemId);
         }
       }
     } finally {
-      for (Future<Boolean> future : futures) {
+      for (Future<GcsItemInfo> future : futures.values()) {
         future.cancel(true);
       }
-    }
-  }
-
-  private boolean doesObjectExist(GcsItemId fileId) throws IOException {
-    try {
-      GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(fileId);
-      return itemInfo != null && itemInfo.exists();
-    } catch (FileNotFoundException e) {
-      return false;
     }
   }
 

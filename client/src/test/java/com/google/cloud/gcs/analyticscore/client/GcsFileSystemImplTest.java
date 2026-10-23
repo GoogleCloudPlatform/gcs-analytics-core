@@ -1360,6 +1360,31 @@ class GcsFileSystemImplTest {
   }
 
   @Test
+  void checkNoFilesConflictingWithDirs_withConflictingNestedFile_throwsFileAlreadyExistsException()
+      throws IOException {
+    GcsItemId dirId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_SUBDIR).build();
+    GcsItemId parentFileId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir").build();
+    GcsItemId conflictingFileId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/subdir").build();
+    GcsItemInfo mockFileInfo =
+        GcsItemInfo.builder()
+            .setItemId(conflictingFileId)
+            .setSize(100L)
+            .setContentGeneration(1L)
+            .build();
+    when(mockClient.getGcsItemInfo(parentFileId)).thenThrow(new FileNotFoundException("Not found"));
+    when(mockClient.getGcsItemInfo(conflictingFileId)).thenReturn(mockFileInfo);
+
+    FileAlreadyExistsException e =
+        assertThrows(
+            FileAlreadyExistsException.class,
+            () -> ((GcsFileSystemImpl) gcsFileSystem).checkNoFilesConflictingWithDirs(dirId));
+    assertThat(e).hasMessageThat().contains(conflictingFileId.toString());
+  }
+
+  @Test
   void checkNoFilesConflictingWithDirs_ioExceptionOtherThanFileNotFound_rethrowsIOException()
       throws IOException {
     GcsItemId dirId =
@@ -1414,6 +1439,7 @@ class GcsFileSystemImplTest {
   @Test
   void mkdirs_flatBucket_withoutTrailingSlash_createsEmptyObject() throws IOException {
     URI dirUri = URI.create("gs://" + TEST_BUCKET + "/dir/subdir");
+    when(mockClient.getGcsItemInfo(any())).thenThrow(new FileNotFoundException("Not found"));
     when(mockClient.getBucketProperties(TEST_BUCKET))
         .thenReturn(BucketProperties.create(false, false));
 
@@ -1427,6 +1453,7 @@ class GcsFileSystemImplTest {
   @Test
   void mkdirs_flatBucket_withTrailingSlash_createsEmptyObject() throws IOException {
     URI dirUri = URI.create("gs://" + TEST_BUCKET + "/dir/subdir/");
+    when(mockClient.getGcsItemInfo(any())).thenThrow(new FileNotFoundException("Not found"));
     when(mockClient.getBucketProperties(TEST_BUCKET))
         .thenReturn(BucketProperties.create(false, false));
 
@@ -1440,6 +1467,7 @@ class GcsFileSystemImplTest {
   @Test
   void mkdirs_hnsBucket_withTrailingSlash_createsFolder() throws IOException {
     URI dirUri = URI.create("gs://" + TEST_BUCKET + "/dir/subdir/");
+    when(mockClient.getGcsItemInfo(any())).thenThrow(new FileNotFoundException("Not found"));
     when(mockClient.getBucketProperties(TEST_BUCKET))
         .thenReturn(BucketProperties.create(true, false));
 
@@ -1453,6 +1481,7 @@ class GcsFileSystemImplTest {
   @Test
   void mkdirs_hnsBucket_withoutTrailingSlash_createsFolder() throws IOException {
     URI dirUri = URI.create("gs://" + TEST_BUCKET + "/dir/subdir");
+    when(mockClient.getGcsItemInfo(any())).thenThrow(new FileNotFoundException("Not found"));
     when(mockClient.getBucketProperties(TEST_BUCKET))
         .thenReturn(BucketProperties.create(true, false));
 
@@ -1467,6 +1496,7 @@ class GcsFileSystemImplTest {
   void mkdirs_itemId_createsDirectoryViaClient() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/subdir").build();
+    when(mockClient.getGcsItemInfo(any())).thenThrow(new FileNotFoundException("Not found"));
     when(mockClient.getBucketProperties(TEST_BUCKET))
         .thenReturn(BucketProperties.create(false, false));
 
@@ -1494,11 +1524,11 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void mkdirs_withEnsureNoConflictingItemsDisabled_skipsConflictCheck() throws IOException {
+  void mkdirs_withCreateItemsConflictCheckDisabled_skipsConflictCheck() throws IOException {
     GcsFileSystemOptions options =
         GcsFileSystemOptions.builder()
             .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
-            .setEnsureNoConflictingItems(false)
+            .setCreateItemsConflictCheckEnabled(false)
             .setHnsApiEnabled(false)
             .build();
     URI dirUri = URI.create("gs://test-bucket/dir/subdir");
