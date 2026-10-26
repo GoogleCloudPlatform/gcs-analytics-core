@@ -85,14 +85,22 @@ class HermeticBenchmarkSmokeTest {
 
   @Test
   void readTailWithFooterPrefetch_isServedByOneBoundedPrefetchRead() throws Exception {
+    IoCounters counters = new IoCounters();
+    // First call primes IoCounters; subsequent calls record exact per-operation deltas.
+    benchmark.readTailWithFooterPrefetch(counters);
     long opensBefore = benchmark.storage.readerOpens();
     long bytesBefore = benchmark.storage.bytesServed();
 
-    benchmark.readTailWithFooterPrefetch();
+    // Invoke twice after priming: IoCounters overwrites with the single-op delta (not a running
+    // sum).
+    benchmark.readTailWithFooterPrefetch(counters);
+    benchmark.readTailWithFooterPrefetch(counters);
 
-    // Unread sequential readers do not open streams; footer prefetch issues one 128 KiB GET.
-    assertThat(benchmark.storage.readerOpens() - opensBefore).isEqualTo(1);
-    assertThat(benchmark.storage.bytesServed() - bytesBefore).isEqualTo(128 * 1024);
+    // Unread sequential readers do not open streams; footer prefetch issues one 128 KiB GET per op.
+    assertThat(benchmark.storage.readerOpens() - opensBefore).isEqualTo(2);
+    assertThat(benchmark.storage.bytesServed() - bytesBefore).isEqualTo(2 * 128 * 1024);
+    assertThat(counters.readerOpens).isEqualTo(1);
+    assertThat(counters.bytesServed).isEqualTo(128 * 1024);
   }
 
   private static Object argumentFor(Class<?> type) {

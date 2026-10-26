@@ -34,13 +34,23 @@ public class IoCounters {
   private long lastBytes;
   private boolean primed;
 
-  /** Adds growth since the last call; never resets the storage. The first call only primes. */
+  /**
+   * Records per-invocation growth since the last call; never resets the storage. The first call
+   * only primes.
+   *
+   * <p>JMH 1.37 reports {@link AuxCounters.Type#EVENTS} verbatim via {@code new ScalarResult(name,
+   * value, "#", AggregationPolicy.SUM)} ({@code StateObjectHandler#getAuxResults}) and never
+   * divides by {@code measuredOps} in {@code Mode.AverageTime}. Assigning ({@code =}) rather than
+   * accumulating ({@code +=}) each call's delta therefore makes every {@code rawData[fork][iter]}
+   * sample the exact per-operation count ({@code sd = 0}) instead of scaling with iteration
+   * throughput (while the summary {@code score} sums across measurement iterations).
+   */
   public void record(InMemoryStorage storage) {
     long opens = storage.readerOpens();
     long bytes = storage.bytesServed();
     if (primed) {
-      readerOpens += opens - lastOpens;
-      bytesServed += bytes - lastBytes;
+      readerOpens = opens - lastOpens;
+      bytesServed = bytes - lastBytes;
     }
     primed = true;
     lastOpens = opens;
