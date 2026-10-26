@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.gax.paging.Page;
+import com.google.api.gax.retrying.RetrySettings;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
@@ -810,6 +811,20 @@ class GcsClientImpl implements GcsClient {
     universeDomain.ifPresent(builder::setUniverseDomain);
     credentials.ifPresent(builder::setCredentials);
     builder.setBlobWriteSessionConfig(clientOptions.generateSessionConfig());
+    GcsRetryOptions retryOptions = clientOptions.getGcsRetryOptions();
+    if (retryOptions.hasOverrides()) {
+      RetrySettings retrySettings = retryOptions.applyTo(StorageOptions.getDefaultRetrySettings());
+      LOG.info(
+          "Using custom retry settings for {} protocol: maxAttempts={}, initialRetryDelay={},"
+              + " retryDelayMultiplier={}, maxRetryDelay={}, totalTimeout={}",
+          clientOptions.getProtocol(),
+          retrySettings.getMaxAttempts(),
+          retrySettings.getInitialRetryDelayDuration(),
+          retrySettings.getRetryDelayMultiplier(),
+          retrySettings.getMaxRetryDelayDuration(),
+          retrySettings.getTotalTimeoutDuration());
+      builder.setRetrySettings(retrySettings);
+    }
 
     return builder.build().getService();
   }
