@@ -447,7 +447,8 @@ class GcsClientImplTest {
             NoCredentials.getInstance(),
             GcsClientOptions.builder().setProtocol(protocol).build(),
             executorServiceSupplier,
-            telemetry);
+            telemetry,
+            newBucketPropertiesCache());
 
     assertThat(client.storage.getOptions().getRetrySettings())
         .isEqualTo(StorageOptions.getDefaultRetrySettings());
@@ -468,7 +469,11 @@ class GcsClientImplTest {
 
     GcsClientImpl client =
         new GcsClientImpl(
-            NoCredentials.getInstance(), clientOptions, executorServiceSupplier, telemetry);
+            NoCredentials.getInstance(),
+            clientOptions,
+            executorServiceSupplier,
+            telemetry,
+            newBucketPropertiesCache());
 
     assertThat(client.storage.getOptions().getRetrySettings())
         .isEqualTo(retryOptions.applyTo(StorageOptions.getDefaultRetrySettings()));
@@ -490,7 +495,8 @@ class GcsClientImplTest {
                     NoCredentials.getInstance(),
                     clientOptions,
                     executorServiceSupplier,
-                    telemetry));
+                    telemetry,
+                    newBucketPropertiesCache()));
 
     assertThat(e).hasMessageThat().contains("analytics-core.retry.max-delay-ms=500");
   }
