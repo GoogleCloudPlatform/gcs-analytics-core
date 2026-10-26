@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 Google LLC
+ * Copyright 2025 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,16 +14,17 @@
  * limitations under the License.
  */
 
-package com.google.cloud.gcs.analyticscore.client;
+package com.google.cloud.gcs.analyticscore.core;
 
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
-import com.google.cloud.gcs.analyticscore.client.FileAccessPattern;
 
 @State(Scope.Benchmark)
-public class GcsReadChannelBenchmarkState {
+public class SmallObjectCachingState {
+  @Param({"2097152"}) // 2MB
+  public String footerPrefetchSize;
 
-    @Param({"SEQUENTIAL", "RANDOM"})
-    public FileAccessPattern accessPattern;
+  @Param({"0", "3145728"}) // 0MB, 3MB
+  public String smallObjectCacheThreshold;
 }

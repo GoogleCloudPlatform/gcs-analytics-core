@@ -155,7 +155,7 @@ class AnalyticsCacheManagerTest {
     GcsItemId itemId2 = GcsItemId.builder().setBucketName(BUCKET_NAME).setObjectName("o2").build();
     manager.getFooter(ITEM_ID, itemId -> FOOTER.duplicate());
     manager.getFooter(itemId2, itemId -> ByteBuffer.wrap(new byte[] {2}));
-    manager.getBucketProperties(BUCKET_NAME, bucketName -> BucketProperties.create(true));
+    manager.getBucketProperties(BUCKET_NAME, bucketName -> BucketProperties.create(true, false));
     AtomicInteger callCount = new AtomicInteger(0);
 
     manager.invalidateAll();
@@ -176,7 +176,7 @@ class AnalyticsCacheManagerTest {
         BUCKET_NAME,
         bucketName -> {
           callCount.incrementAndGet();
-          return BucketProperties.create(true);
+          return BucketProperties.create(true, false);
         });
     assertThat(callCount.get()).isEqualTo(3);
   }
@@ -184,7 +184,7 @@ class AnalyticsCacheManagerTest {
   @Test
   void getBucketProperties_notPresent_computesAndCachesValue() throws IOException {
     AtomicInteger callCount = new AtomicInteger(0);
-    BucketProperties bucketProperties = BucketProperties.create(true);
+    BucketProperties bucketProperties = BucketProperties.create(true, false);
 
     BucketProperties result1 =
         manager.getBucketProperties(
@@ -198,7 +198,7 @@ class AnalyticsCacheManagerTest {
             BUCKET_NAME,
             bucketName -> {
               callCount.incrementAndGet();
-              return BucketProperties.create(false);
+              return BucketProperties.create(false, false);
             });
 
     assertThat(result1).isEqualTo(bucketProperties);
@@ -221,14 +221,14 @@ class AnalyticsCacheManagerTest {
   @Test
   void invalidateBucketProperties_present_removesEntry() throws IOException {
     AtomicInteger callCount = new AtomicInteger(0);
-    manager.getBucketProperties(BUCKET_NAME, bucketName -> BucketProperties.create(true));
+    manager.getBucketProperties(BUCKET_NAME, bucketName -> BucketProperties.create(true, false));
 
     manager.invalidateBucketProperties(BUCKET_NAME);
     manager.getBucketProperties(
         BUCKET_NAME,
         bucketName -> {
           callCount.incrementAndGet();
-          return BucketProperties.create(true);
+          return BucketProperties.create(true, false);
         });
 
     assertThat(callCount.get()).isEqualTo(1);

@@ -23,41 +23,59 @@ import com.google.api.gax.paging.Page;
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.api.gax.rpc.NotFoundException;
+import com.google.api.gax.rpc.PermissionDeniedException;
+import com.google.api.gax.rpc.UnauthenticatedException;
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.client.GcsClientOptions.Protocol;
 import com.google.cloud.gcs.analyticscore.client.GcsReadChannel.ItemInfoProvider;
 import com.google.cloud.gcs.analyticscore.client.auth.GcsAuthOptions;
 import com.google.cloud.gcs.analyticscore.client.auth.GcsTransportOptionsFactory;
+import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCache;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobAppendableUpload;
+import com.google.cloud.storage.BlobAppendableUpload.AppendableUploadWriteableByteChannel;
+import com.google.cloud.storage.BlobAppendableUploadConfig;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.BucketInfo;
+import com.google.cloud.storage.BucketInfo.CustomPlacementConfig;
 import com.google.cloud.storage.BucketInfo.HierarchicalNamespace;
+import com.google.cloud.storage.BucketInfo.IamConfiguration;
+import com.google.cloud.storage.BucketInfo.LifecycleRule;
+import com.google.cloud.storage.BucketInfo.LifecycleRule.LifecycleAction;
+import com.google.cloud.storage.BucketInfo.LifecycleRule.LifecycleCondition;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobField;
 import com.google.cloud.storage.Storage.BlobListOption;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.cloud.storage.Storage.BucketField;
+import com.google.cloud.storage.StorageClass;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.StorageOptions;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.io.BaseEncoding;
 import com.google.protobuf.Timestamp;
+import com.google.storage.control.v2.CreateFolderRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.FolderName;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
 import com.google.storage.control.v2.StorageControlSettings;
-import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import javax.annotation.Nullable;
@@ -91,15 +109,22 @@ class GcsClientImpl implements GcsClient {
         BucketField.STORAGE_CLASS
       };
   private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
+  private static final String RAPID_STORAGE_CLASS = "RAPID";
+  private static final GcsWriteOptions EMPTY_OBJECT_WRITE_OPTIONS =
+      GcsWriteOptions.builder().build();
+  private static final ImmutableSet<Integer> IGNORABLE_EMPTY_OBJECT_CREATE_ERROR_CODES =
+      ImmutableSet.of(408, 429, 500, 502, 503, 504);
   private static final String UNIVERSE_DOMAIN_ENV_VAR = "GOOGLE_CLOUD_UNIVERSE_DOMAIN";
 
   @VisibleForTesting Storage storage;
+  @VisibleForTesting volatile Storage grpcStorage;
   private final GcsClientOptions clientOptions;
   private final Optional<Credentials> credentials;
   private Supplier<ExecutorService> executorServiceSupplier;
   private final Telemetry telemetry;
+  private final AnalyticsCache<String, BucketProperties> bucketPropertiesCache;
   @VisibleForTesting volatile StorageControlClient storageControlClient;
-  private volatile boolean isStorageControlClientClosed = false;
+  private volatile boolean isClosed = false;
 
   private final GcsAuthOptions authOptions;
   private final Optional<String> universeDomain;
@@ -109,32 +134,43 @@ class GcsClientImpl implements GcsClient {
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry,
+      AnalyticsCache<String, BucketProperties> bucketPropertiesCache,
       GcsAuthOptions authOptions) {
-    this(Optional.of(credentials), clientOptions, executorServiceSupplier, telemetry, authOptions);
+    this(
+        Optional.of(credentials),
+        clientOptions,
+        executorServiceSupplier,
+        telemetry,
+        bucketPropertiesCache,
+        authOptions);
   }
 
   GcsClientImpl(
       Credentials credentials,
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry) {
+      Telemetry telemetry,
+      AnalyticsCache<String, BucketProperties> bucketPropertiesCache) {
     this(
         Optional.of(credentials),
         clientOptions,
         executorServiceSupplier,
         telemetry,
+        bucketPropertiesCache,
         GcsAuthOptions.builder().build());
   }
 
   GcsClientImpl(
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
-      Telemetry telemetry) {
+      Telemetry telemetry,
+      AnalyticsCache<String, BucketProperties> bucketPropertiesCache) {
     this(
         Optional.empty(),
         clientOptions,
         executorServiceSupplier,
         telemetry,
+        bucketPropertiesCache,
         GcsAuthOptions.builder().build());
   }
 
@@ -143,11 +179,14 @@ class GcsClientImpl implements GcsClient {
       GcsClientOptions clientOptions,
       Supplier<ExecutorService> executorServiceSupplier,
       Telemetry telemetry,
+      AnalyticsCache<String, BucketProperties> bucketPropertiesCache,
       GcsAuthOptions authOptions) {
     this.clientOptions = clientOptions;
     this.credentials = credentials;
     this.executorServiceSupplier = executorServiceSupplier;
     this.telemetry = telemetry;
+    this.bucketPropertiesCache =
+        checkNotNull(bucketPropertiesCache, "bucketPropertiesCache cannot be null");
     this.authOptions = authOptions;
     this.universeDomain =
         resolveUniverseDomain(
@@ -253,12 +292,15 @@ class GcsClientImpl implements GcsClient {
     } catch (StorageException e) {
       if (e.getCode() == 404) {
         bucketInfo = null;
+      } else if (GcsExceptionUtil.getErrorType(e) == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
+        throw GcsExceptionUtil.createAccessDeniedException(
+            UriUtil.getStringPath(itemId), "bucket lookup", e);
       } else {
         throw new IOException("Unable to access bucket: " + itemId.getBucketName(), e);
       }
     }
     if (bucketInfo == null) {
-      return GcsItemInfo.createNotFound(itemId);
+      throw GcsExceptionUtil.createFileNotFoundException(itemId);
     }
     return fromBucketInfo(bucketInfo);
   }
@@ -283,9 +325,16 @@ class GcsClientImpl implements GcsClient {
             .build();
     try {
       Folder folder = lazyGetStorageControlClient().getFolder(request);
-      return fromFolder(folder, itemId);
+      // itemId may come with or without a trailing slash; always return the directory form.
+      // A not-found error below names itemId as the caller gave it.
+      return fromFolder(folder, itemId.toDirectoryId());
     } catch (NotFoundException e) {
-      return GcsItemInfo.createNotFound(itemId);
+      throw GcsExceptionUtil.createFileNotFoundException(itemId);
+    } catch (PermissionDeniedException | UnauthenticatedException e) {
+      throw GcsExceptionUtil.createAccessDeniedException(
+          UriUtil.getStringPath(itemId), "folder lookup", e);
+    } catch (IOException e) {
+      throw e;
     } catch (Exception e) {
       throw new IOException("Failed to get folder info for: " + itemId, e);
     }
@@ -293,13 +342,13 @@ class GcsClientImpl implements GcsClient {
 
   @VisibleForTesting
   StorageControlClient lazyGetStorageControlClient() throws IOException {
-    if (isStorageControlClientClosed) {
+    if (isClosed) {
       throw new IOException("StorageControlClient is closed");
     }
     StorageControlClient result = this.storageControlClient;
     if (result == null) {
       synchronized (this) {
-        if (isStorageControlClientClosed) {
+        if (isClosed) {
           throw new IOException("StorageControlClient is closed");
         }
         result = this.storageControlClient;
@@ -338,8 +387,14 @@ class GcsClientImpl implements GcsClient {
       Blob blob = Iterables.getFirst(page.getValues(), null);
       return Optional.ofNullable(blob).map(b -> fromBlob(b));
     } catch (StorageException e) {
+      // list() returns an empty page when the prefix does not exist, so GCS returns 404 here only
+      // when the bucket itself does not exist.
       if (e.getCode() == 404) {
-        throw new FileNotFoundException("Bucket not found: " + prefixId.getBucketName());
+        throw GcsExceptionUtil.createBucketNotFoundException(prefixId.getBucketName(), e);
+      }
+      if (GcsExceptionUtil.getErrorType(e) == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
+        throw GcsExceptionUtil.createAccessDeniedException(
+            UriUtil.getStringPath(prefixId), "list", e);
       }
       throw new IOException("Failed to list the first object for prefix: " + prefixId, e);
     }
@@ -370,7 +425,9 @@ class GcsClientImpl implements GcsClient {
     Optional.ofNullable(blob.getContentEncoding()).ifPresent(infoBuilder::setContentEncoding);
     Optional.ofNullable(blob.getMetageneration()).ifPresent(infoBuilder::setMetaGeneration);
 
-    if (blob.isDirectory()) {
+    // A real 0-byte "dir/" object is not reported by Blob.isDirectory() (only delimiter prefixes
+    // are), so also treat any object name ending with '/' as a placeholder directory.
+    if (blob.isDirectory() || blob.getName().endsWith("/")) {
       infoBuilder.setItemType(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY);
     }
 
@@ -412,34 +469,47 @@ class GcsClientImpl implements GcsClient {
         : 0L;
   }
 
-  BucketProperties getBucketProperties(String bucketName) throws IOException {
+  @Override
+  public BucketProperties getBucketProperties(String bucketName) throws IOException {
     checkNotNull(bucketName, "bucketName cannot be null");
+    return bucketPropertiesCache.get(bucketName, this::fetchBucketProperties);
+  }
+
+  private BucketProperties fetchBucketProperties(String bucketName) throws IOException {
     try {
       BucketInfo bucketInfo =
           storage.get(
               bucketName,
-              Storage.BucketGetOption.fields(Storage.BucketField.HIERARCHICAL_NAMESPACE));
+              Storage.BucketGetOption.fields(
+                  Storage.BucketField.HIERARCHICAL_NAMESPACE, Storage.BucketField.STORAGE_CLASS));
       if (bucketInfo == null) {
-        LOG.warn("Bucket {} not found, HNS API will be disabled", bucketName);
-        return BucketProperties.create(false);
+        throw GcsExceptionUtil.createBucketNotFoundException(bucketName);
       }
       boolean hnsEnabled =
           Optional.ofNullable(bucketInfo.getHierarchicalNamespace())
               .map(HierarchicalNamespace::getEnabled)
               .orElse(false);
-      return BucketProperties.create(hnsEnabled);
+      boolean isRapid =
+          bucketInfo.getStorageClass() != null
+              && RAPID_STORAGE_CLASS.equalsIgnoreCase(bucketInfo.getStorageClass().toString());
+      return BucketProperties.create(hnsEnabled, isRapid);
     } catch (StorageException storageException) {
-      if (storageException.getCode() == 403) {
-        LOG.warn("Access to bucket {} is forbidden (403), HNS API will be disabled", bucketName);
-        return BucketProperties.create(false);
+      if (storageException.getCode() == 404) {
+        throw GcsExceptionUtil.createBucketNotFoundException(bucketName, storageException);
       }
-      throw new IOException("Unable to access bucket: " + bucketName, storageException);
+      if (GcsExceptionUtil.getErrorType(storageException)
+          == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
+        LOG.warn(
+            "Access to bucket {} is denied ({}), HNS and RAPID features will be disabled",
+            bucketName,
+            storageException.getCode());
+        return BucketProperties.create(false, false);
+      }
+      throw GcsExceptionUtil.translateStorageException(
+          storageException,
+          GcsItemId.builder().setBucketName(bucketName).build(),
+          "Unable to access bucket: " + bucketName);
     }
-  }
-
-  @Override
-  public boolean isHnsBucket(String bucketName) throws IOException {
-    return getBucketProperties(bucketName).isHnsEnabled();
   }
 
   @Override
@@ -450,18 +520,263 @@ class GcsClientImpl implements GcsClient {
       LOG.debug("Exception while closing storage instance", e);
     }
     synchronized (this) {
-      if (isStorageControlClientClosed) {
+      if (isClosed) {
         return;
       }
-      isStorageControlClientClosed = true;
+      isClosed = true;
+      if (grpcStorage != null) {
+        try {
+          grpcStorage.close();
+        } catch (Exception e) {
+          LOG.debug("Exception while closing grpcStorage instance", e);
+        }
+        grpcStorage = null;
+      }
       if (storageControlClient != null) {
         try {
           storageControlClient.close();
         } catch (Exception e) {
           LOG.debug("Exception while closing storageControlClient", e);
         }
+        storageControlClient = null;
       }
     }
+  }
+
+  @Override
+  public void createBucket(String bucketName) throws IOException {
+    createBucket(bucketName, GcsCreateBucketOptions.DEFAULT);
+  }
+
+  @Override
+  public void createBucket(String bucketName, GcsCreateBucketOptions options) throws IOException {
+    checkNotNull(bucketName, "bucketName must not be null");
+    checkArgument(!bucketName.isEmpty(), "bucketName must not be empty");
+    checkNotNull(options, "options must not be null");
+    BucketInfo.Builder bucketInfoBuilder = BucketInfo.newBuilder(bucketName);
+    options.getLocation().ifPresent(bucketInfoBuilder::setLocation);
+    if (options.getZonalPlacement().isPresent()) {
+      if (!options.isHierarchicalNamespaceEnabled()) {
+        throw new UnsupportedOperationException("Zonal buckets must have HNS Enabled.");
+      }
+      if (options.getStorageClass().isPresent()
+          && !RAPID_STORAGE_CLASS.equalsIgnoreCase(options.getStorageClass().get())) {
+        throw new UnsupportedOperationException("Zonal bucket storage class must be RAPID");
+      }
+      if (options.getTtl().isPresent()) {
+        throw new UnsupportedOperationException("Zonal buckets do not support TTL");
+      }
+      bucketInfoBuilder
+          .setCustomPlacementConfig(
+              CustomPlacementConfig.newBuilder()
+                  .setDataLocations(ImmutableList.of(options.getZonalPlacement().get()))
+                  .build())
+          .setStorageClass(StorageClass.valueOf(RAPID_STORAGE_CLASS));
+      enableHns(bucketInfoBuilder);
+    } else {
+      options
+          .getStorageClass()
+          .ifPresent(
+              sc ->
+                  bucketInfoBuilder.setStorageClass(
+                      StorageClass.valueOfStrict(sc.toUpperCase(Locale.ROOT))));
+      if (options.isHierarchicalNamespaceEnabled()) {
+        enableHns(bucketInfoBuilder);
+      }
+      options
+          .getTtl()
+          .ifPresent(
+              ttl ->
+                  bucketInfoBuilder.setLifecycleRules(
+                      ImmutableList.of(
+                          new LifecycleRule(
+                              LifecycleAction.newDeleteAction(),
+                              LifecycleCondition.newBuilder()
+                                  .setAge(Math.toIntExact(ttl.toDays()))
+                                  .build()))));
+    }
+    try {
+      storage.create(bucketInfoBuilder.build());
+    } catch (StorageException e) {
+      throw GcsExceptionUtil.translateStorageException(
+          e,
+          GcsItemId.builder().setBucketName(bucketName).build(),
+          "Failed to create bucket: " + bucketName);
+    } finally {
+      bucketPropertiesCache.invalidate(bucketName);
+    }
+  }
+
+  private static void enableHns(BucketInfo.Builder bucketInfoBuilder) {
+    bucketInfoBuilder
+        .setIamConfiguration(
+            IamConfiguration.newBuilder().setIsUniformBucketLevelAccessEnabled(true).build())
+        .setHierarchicalNamespace(HierarchicalNamespace.newBuilder().setEnabled(true).build());
+  }
+
+  @Override
+  public void createEmptyObject(GcsItemId itemId) throws IOException {
+    createEmptyObject(itemId, EMPTY_OBJECT_WRITE_OPTIONS);
+  }
+
+  @Override
+  public void createEmptyObject(GcsItemId itemId, GcsWriteOptions options) throws IOException {
+    checkNotNull(itemId, "itemId must not be null");
+    checkArgument(itemId.isGcsObject(), "Expected a GCS object itemId but got: " + itemId);
+    checkNotNull(options, "options must not be null");
+    try {
+      createEmptyObjectInternal(itemId, options);
+    } catch (StorageException e) {
+      Optional<Blob> existing = lookUpAfterFailedCreate(e, itemId, options);
+      if (existing.isPresent() && isZeroByte(existing.get())) {
+        LOG.debug("Ignored exception while creating empty object {}", itemId, e);
+        return;
+      }
+      if (e.getCode() == 412
+          && shouldNotOverwrite(itemId, options)
+          && (!itemId.isDirectory() || existing.isPresent())) {
+        throw GcsExceptionUtil.createFileAlreadyExistsException(itemId, e);
+      }
+      throw GcsExceptionUtil.translateStorageException(
+          e, itemId, "Failed to create empty object: " + itemId);
+    }
+  }
+
+  private void createEmptyObjectInternal(GcsItemId itemId, GcsWriteOptions options)
+      throws IOException {
+    GcsWriteOptions effectiveOptions =
+        options.toBuilder().setOverwriteExisting(!shouldNotOverwrite(itemId, options)).build();
+    BlobInfo blobInfo =
+        createBlobInfo(
+            BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()), effectiveOptions);
+    if (isRapidBucket(itemId.getBucketName())) {
+      createAppendableEmptyObject(itemId, blobInfo, effectiveOptions);
+      return;
+    }
+
+    storage.create(blobInfo, effectiveOptions.generateTargetOptions(itemId));
+  }
+
+  private boolean isRapidBucket(String bucketName) throws IOException {
+    return getBucketProperties(bucketName).isRapid();
+  }
+
+  private void createAppendableEmptyObject(
+      GcsItemId itemId, BlobInfo blobInfo, GcsWriteOptions effectiveOptions) throws IOException {
+    BlobWriteOption[] writeOptions = effectiveOptions.generateWriteOptions(itemId);
+    try {
+      BlobAppendableUpload upload =
+          lazyGetGrpcStorage()
+              .blobAppendableUpload(blobInfo, BlobAppendableUploadConfig.of(), writeOptions);
+      try (AppendableUploadWriteableByteChannel channel = upload.open()) {
+        channel.write(ByteBuffer.wrap(new byte[0]));
+        channel.finalizeAndClose();
+      }
+    } catch (IOException e) {
+      // In google-cloud-storage, open() throws StorageException directly and write() /
+      // finalizeAndClose() coalesce any gRPC ApiException into a StorageException as e.getCause().
+      if (e.getCause() instanceof StorageException) {
+        throw (StorageException) e.getCause();
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Looks up the target object on GCS after a failed 0-byte object creation when the failure code
+   * indicates the object may already exist.
+   *
+   * <p>When creating empty objects, concurrent requests (triggering 412 - Precondition Failed when
+   * precondition {@code doesNotExist()} is set on a directory marker) or transient GCS errors (408,
+   * 429, 500, 502, 503, 504) can cause object creation to fail even when the 0-byte object exists.
+   * The SDK retries creation only when a generation precondition is present, which is always the
+   * case for directories. Metadata lookups are always retried. A single lookup is intentional
+   * (unlike hadoop-connectors' {@code canIgnoreExceptionForEmptyObject}): object metadata is
+   * strongly consistent, and transient errors surface only after the SDK exhausts its retries of
+   * the precondition-guarded create.
+   */
+  private Optional<Blob> lookUpAfterFailedCreate(
+      StorageException exceptionOnCreate, GcsItemId itemId, GcsWriteOptions options)
+      throws IOException {
+    int code = exceptionOnCreate.getCode();
+    if (itemId.isDirectory()
+        && (IGNORABLE_EMPTY_OBJECT_CREATE_ERROR_CODES.contains(code)
+            || (code == 412 && shouldNotOverwrite(itemId, options)))) {
+      BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().orElse(""));
+      List<Storage.BlobGetOption> getOptions = new ArrayList<>();
+      getOptions.add(Storage.BlobGetOption.fields(BlobField.SIZE));
+      options.getUserProject().map(Storage.BlobGetOption::userProject).ifPresent(getOptions::add);
+      try {
+        Storage client =
+            isRapidBucket(itemId.getBucketName()) ? lazyGetGrpcStorage() : this.storage;
+        return Optional.ofNullable(
+            client.get(blobId, getOptions.toArray(new Storage.BlobGetOption[0])));
+      } catch (StorageException e) {
+        exceptionOnCreate.addSuppressed(e);
+        throw new IOException(
+            "Failed to verify existence of 0-byte object " + itemId + " after creation failed",
+            exceptionOnCreate);
+      }
+    }
+    return Optional.empty();
+  }
+
+  private static boolean shouldNotOverwrite(GcsItemId itemId, GcsWriteOptions options) {
+    return !options.isOverwriteExisting()
+        || (itemId.isDirectory() && itemId.getContentGeneration().isEmpty());
+  }
+
+  private static boolean isZeroByte(Blob blob) {
+    return blob.getSize() == null || blob.getSize() == 0L;
+  }
+
+  @Override
+  public void createFolder(GcsItemId itemId, boolean recursive) throws IOException {
+    checkNotNull(itemId, "itemId must not be null");
+    checkArgument(itemId.isGcsObject(), "Expected a folder itemId but got: " + itemId);
+    String objectName = itemId.getObjectName().orElse("");
+    String folderName = UriUtil.removeTrailingSlash(objectName);
+    checkArgument(!folderName.isEmpty(), "Folder name cannot be empty");
+    CreateFolderRequest request =
+        CreateFolderRequest.newBuilder()
+            .setParent(String.format("projects/_/buckets/%s", itemId.getBucketName()))
+            .setFolderId(folderName)
+            .setRecursive(recursive)
+            .build();
+    try {
+      lazyGetStorageControlClient().createFolder(request);
+    } catch (Exception e) {
+      throw GcsExceptionUtil.translateControlException(
+          e, itemId, "Failed to create folder: " + itemId);
+    }
+  }
+
+  @VisibleForTesting
+  Storage lazyGetGrpcStorage() throws IOException {
+    if (isClosed) {
+      throw new IOException("GrpcStorage is closed");
+    }
+    if (clientOptions.isGrpcEnabled()) {
+      return this.storage;
+    }
+    Storage result = this.grpcStorage;
+    if (result == null) {
+      synchronized (this) {
+        if (isClosed) {
+          throw new IOException("GrpcStorage is closed");
+        }
+        result = this.grpcStorage;
+        if (result == null) {
+          this.grpcStorage = result = createGrpcStorage(this.credentials);
+        }
+      }
+    }
+    return result;
+  }
+
+  @VisibleForTesting
+  protected Storage createGrpcStorage(Optional<Credentials> credentials) {
+    return buildStorage(StorageOptions.grpc(), credentials);
   }
 
   @VisibleForTesting
@@ -484,7 +799,10 @@ class GcsClientImpl implements GcsClient {
                       clientOptions.getServiceHost().orElse(null),
                       universeDomain.orElse(null)));
     }
+    return buildStorage(builder, credentials);
+  }
 
+  private Storage buildStorage(StorageOptions.Builder builder, Optional<Credentials> credentials) {
     String userAgent = getUserAgent();
     builder.setHeaderProvider(FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
@@ -553,7 +871,10 @@ class GcsClientImpl implements GcsClient {
             .getContentGeneration()
             .map(generation -> BlobId.of(itemId.getBucketName(), objectName, generation))
             .orElseGet(() -> BlobId.of(itemId.getBucketName(), objectName));
+    return createBlobInfo(blobId, writeOptions);
+  }
 
+  private static BlobInfo createBlobInfo(BlobId blobId, GcsWriteOptions writeOptions) {
     BlobInfo.Builder blobInfoBuilder = BlobInfo.newBuilder(blobId);
 
     Optional.ofNullable(writeOptions)

@@ -19,6 +19,10 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.ErrorType;
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.NotFoundException;
+import com.google.api.gax.rpc.PermissionDeniedException;
+import com.google.api.gax.rpc.UnauthenticatedException;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.StorageException;
 import java.io.FileNotFoundException;
@@ -29,6 +33,7 @@ import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 class GcsExceptionUtilTest {
 
@@ -476,6 +481,171 @@ class GcsExceptionUtilTest {
     assertThat(translated).hasMessageThat().isEqualTo(created.getMessage());
     assertThat(GcsExceptionUtil.getStorageException(created).get().getCode())
         .isEqualTo(GcsExceptionUtil.getStorageException(translated).get().getCode());
+  }
+
+  @Test
+  void translateStorageException_mapsStatusCodesCorrectly() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(BUCKET).setObjectName(NAME).build();
+
+    IOException notFound =
+        GcsExceptionUtil.translateStorageException(
+            new StorageException(404, "Not Found"), itemId, "fallback");
+    assertThat(notFound).isInstanceOf(FileNotFoundException.class);
+
+    IOException forbidden =
+        GcsExceptionUtil.translateStorageException(
+            new StorageException(403, "Forbidden"), itemId, "fallback");
+    assertThat(forbidden).isInstanceOf(AccessDeniedException.class);
+
+    IOException unauthorized =
+        GcsExceptionUtil.translateStorageException(
+            new StorageException(401, "Unauthorized"), itemId, "fallback");
+    assertThat(unauthorized).isInstanceOf(AccessDeniedException.class);
+
+    IOException conflict =
+        GcsExceptionUtil.translateStorageException(
+            new StorageException(409, "Conflict"), itemId, "fallback");
+    assertThat(conflict).isInstanceOf(FileAlreadyExistsException.class);
+    assertThat(((FileAlreadyExistsException) conflict).getFile())
+        .isEqualTo("gs://" + BUCKET + "/" + NAME);
+
+    IOException preconditionFailed =
+        GcsExceptionUtil.translateStorageException(
+            new StorageException(412, "Precondition Failed"), itemId, "fallback");
+    assertThat(preconditionFailed).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(preconditionFailed).hasMessageThat().isEqualTo("fallback");
+
+    IOException internalError =
+        GcsExceptionUtil.translateStorageException(
+            new StorageException(500, "Internal Error"), itemId, "fallback");
+    assertThat(internalError).hasMessageThat().isEqualTo("fallback");
+  }
+
+  @Test
+  void translateControlException_mapsExceptionsCorrectly() {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(BUCKET).setObjectName(NAME).build();
+
+    IOException directIoe = new IOException("direct");
+    assertThat(GcsExceptionUtil.translateControlException(directIoe, itemId, "fallback"))
+        .isSameInstanceAs(directIoe);
+
+    IOException alreadyExists =
+        GcsExceptionUtil.translateControlException(
+            Mockito.mock(AlreadyExistsException.class), itemId, "fallback");
+    assertThat(alreadyExists).isInstanceOf(FileAlreadyExistsException.class);
+    assertThat(((FileAlreadyExistsException) alreadyExists).getFile())
+        .isEqualTo("gs://" + BUCKET + "/" + NAME);
+
+    IOException notFound =
+        GcsExceptionUtil.translateControlException(
+            Mockito.mock(NotFoundException.class), itemId, "fallback");
+    assertThat(notFound).isInstanceOf(FileNotFoundException.class);
+
+    IOException permissionDenied =
+        GcsExceptionUtil.translateControlException(
+            Mockito.mock(PermissionDeniedException.class), itemId, "fallback");
+    assertThat(permissionDenied).isInstanceOf(AccessDeniedException.class);
+
+    IOException unauthenticated =
+        GcsExceptionUtil.translateControlException(
+            Mockito.mock(UnauthenticatedException.class), itemId, "fallback");
+    assertThat(unauthenticated).isInstanceOf(AccessDeniedException.class);
+
+    IOException generic =
+        GcsExceptionUtil.translateControlException(
+            new RuntimeException("boom"), itemId, "fallback");
+    assertThat(generic).hasMessageThat().isEqualTo("fallback");
+  }
+
+  @Test
+  void createFileAlreadyExistsException_setsFormattedLocationAndCause() {
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName(BUCKET)
+            .setObjectName(NAME)
+            .setContentGeneration(1234L)
+            .build();
+    StorageException cause = new StorageException(412, "Precondition Failed");
+
+    FileAlreadyExistsException exception =
+        GcsExceptionUtil.createFileAlreadyExistsException(itemId, cause);
+
+    assertThat(exception.getFile()).isEqualTo("gs://" + BUCKET + "/" + NAME + "#1234");
+    assertThat(exception.getReason()).isEqualTo("Precondition Failed");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  @Test
+  void createBucketNotFoundException_returnsBucketNotFoundMessage() {
+    StorageException cause = new StorageException(404, "The specified bucket does not exist.");
+
+    FileNotFoundException exception = GcsExceptionUtil.createBucketNotFoundException(BUCKET, cause);
+
+    assertThat(exception).hasMessageThat().isEqualTo("Bucket not found: " + BUCKET);
+  }
+
+  @Test
+  void createBucketNotFoundException_keepsGivenStorageExceptionAsCause() {
+    StorageException cause = new StorageException(404, "The specified bucket does not exist.");
+
+    FileNotFoundException exception = GcsExceptionUtil.createBucketNotFoundException(BUCKET, cause);
+
+    assertThat(exception).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  @Test
+  void createBucketNotFoundException_isClassifiedAsNotFound() {
+    StorageException cause = new StorageException(404, "The specified bucket does not exist.");
+
+    FileNotFoundException exception = GcsExceptionUtil.createBucketNotFoundException(BUCKET, cause);
+    ErrorType errorType =
+        GcsExceptionUtil.getErrorType(GcsExceptionUtil.getStorageException(exception).get());
+
+    assertThat(errorType).isEqualTo(ErrorType.NOT_FOUND);
+  }
+
+  @Test
+  void createAccessDeniedException_keepsGivenErrorAsCause() {
+    StorageException cause = new StorageException(403, "Forbidden");
+
+    AccessDeniedException exception =
+        GcsExceptionUtil.createAccessDeniedException("gs://" + BUCKET, "bucket lookup", cause);
+
+    assertThat(exception).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  @Test
+  void createAccessDeniedException_setsFileToLocation() {
+    StorageException cause = new StorageException(403, "Forbidden");
+
+    AccessDeniedException exception =
+        GcsExceptionUtil.createAccessDeniedException("gs://" + BUCKET, "bucket lookup", cause);
+
+    assertThat(exception.getFile()).isEqualTo("gs://" + BUCKET);
+  }
+
+  @Test
+  void createAccessDeniedException_messageNamesTheDeniedOperation() {
+    StorageException cause = new StorageException(403, "Forbidden");
+
+    AccessDeniedException exception =
+        GcsExceptionUtil.createAccessDeniedException("gs://" + BUCKET, "bucket lookup", cause);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .contains("Access denied during bucket lookup: Forbidden");
+  }
+
+  @Test
+  void createAccessDeniedException_withStorageExceptionCause_isClassifiedAsAccessDenied() {
+    StorageException cause = new StorageException(403, "Forbidden");
+
+    AccessDeniedException exception =
+        GcsExceptionUtil.createAccessDeniedException("gs://" + BUCKET, "bucket lookup", cause);
+    ErrorType errorType =
+        GcsExceptionUtil.getErrorType(GcsExceptionUtil.getStorageException(exception).get());
+
+    assertThat(errorType).isEqualTo(ErrorType.ACCESS_DENIED);
   }
 
   @Test

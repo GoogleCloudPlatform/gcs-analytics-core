@@ -42,6 +42,8 @@ import java.util.function.UnaryOperator;
  * StorageException} on {@code read}.
  */
 public final class InMemoryStorage {
+  static final long GENERATION = 1L;
+
   private final ImmutableMap<GcsItemId, byte[]> objects;
   private final UnaryOperator<ReadChannel> readChannelDecorator;
   private final Storage storage;
@@ -114,7 +116,8 @@ public final class InMemoryStorage {
         && args[0] instanceof BlobId) {
       BlobId blobId = (BlobId) args[0];
       byte[] data = objects.get(key(blobId.getBucket(), blobId.getName()));
-      return readChannelDecorator.apply(new ByteArrayReadChannel(data, readerOpens, bytesServed));
+      return readChannelDecorator.apply(
+          new ByteArrayReadChannel(blobId, data, readerOpens, bytesServed));
     }
     if (method.getName().equals("close")) {
       return null;
@@ -129,6 +132,7 @@ public final class InMemoryStorage {
 
   /** Zero-copy {@link ReadChannel} over a byte array; {@code limit} is an absolute end offset. */
   static final class ByteArrayReadChannel implements ReadChannel {
+    private final BlobId blobId;
     private final byte[] data;
     private final LongAdder readerOpens;
     private final LongAdder bytesServed;
@@ -136,8 +140,10 @@ public final class InMemoryStorage {
     private long limit = Long.MAX_VALUE;
     private boolean open = true;
     private boolean streamOpen;
+    private boolean metadataAvailable;
 
-    ByteArrayReadChannel(byte[] data, LongAdder readerOpens, LongAdder bytesServed) {
+    ByteArrayReadChannel(BlobId blobId, byte[] data, LongAdder readerOpens, LongAdder bytesServed) {
+      this.blobId = blobId;
       this.data = data;
       this.readerOpens = readerOpens;
       this.bytesServed = bytesServed;
@@ -158,12 +164,25 @@ public final class InMemoryStorage {
       int count = (int) Math.min(dst.remaining(), end - position);
       if (count > 0 && !streamOpen) {
         streamOpen = true;
+        metadataAvailable = true;
         readerOpens.increment();
       }
       dst.put(data, (int) position, count);
       position += count;
       bytesServed.add(count);
       return count;
+    }
+
+    Object getResolvedObject() {
+      return metadataAvailable ? this : null;
+    }
+
+    public long getSize() {
+      return data.length;
+    }
+
+    public long getGeneration() {
+      return blobId.getGeneration() != null ? blobId.getGeneration() : GENERATION;
     }
 
     @Override

@@ -39,7 +39,8 @@ class FakeGcsClientImplTest {
         new FakeGcsClientImpl(
             options.getGcsClientOptions(),
             Suppliers.ofInstance(Executors.newSingleThreadExecutor()),
-            new Telemetry(ImmutableList.of()));
+            new Telemetry(ImmutableList.of()),
+            new AnalyticsCacheManager(options.getGcsCacheOptions()).getBucketPropertiesCache());
     FakeGcsClientImpl.resetCounts();
   }
 
@@ -95,5 +96,10 @@ class FakeGcsClientImplTest {
   void close_incrementsCloseCount() {
     fakeGcsClient.close();
     assertEquals(1, FakeGcsClientImpl.getCloseCount());
+  }
+
+  @Test
+  void lazyGetGrpcStorage_returnsLocalStorageInstance() throws IOException {
+    assertThat(fakeGcsClient.lazyGetGrpcStorage()).isSameInstanceAs(FakeGcsClientImpl.storage);
   }
 }

@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -32,6 +33,7 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobInfo;
 import com.google.common.collect.ImmutableList;
 import java.io.EOFException;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
@@ -165,9 +167,9 @@ class GoogleCloudStorageInputStreamTest {
   }
 
   @Test
-  void create_whenGetFileInfoReturnsNull_throwsIllegalStateException() throws IOException {
+  void create_whenGetFileInfoObjectReturnsNull_throwsIllegalStateException() throws IOException {
     GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
-    when(mockFileSystem.getFileInfo(testUri)).thenReturn(null);
+    when(mockFileSystem.getFileInfoObject(testUri)).thenReturn(null);
 
     var exception =
         assertThrows(
@@ -175,6 +177,36 @@ class GoogleCloudStorageInputStreamTest {
             () -> GoogleCloudStorageInputStream.create(mockFileSystem, testUri));
 
     assertThat(exception).hasMessageThat().isEqualTo("GcsFileInfo shouldn't be null");
+  }
+
+  @Test
+  void create_withUri_usesObjectOnlyLookup() throws IOException {
+    GcsFileSystem spyFileSystem = spy(fakeFileSystem);
+
+    googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(spyFileSystem, testUri);
+
+    verify(spyFileSystem).getFileInfoObject(testUri);
+    verify(spyFileSystem, never()).getFileInfo(any(URI.class));
+  }
+
+  @Test
+  void create_withDirectoryUri_throwsIllegalArgumentException() {
+    URI directoryUri = URI.create("gs://test-bucket/test-dir/");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> GoogleCloudStorageInputStream.create(fakeFileSystem, directoryUri));
+  }
+
+  @Test
+  void create_withUriOfDirectoryWithoutTrailingSlash_throwsFileNotFoundException() {
+    FakeGcsClientImpl.storage.create(
+        BlobInfo.newBuilder("test-bucket", "dir-with-children/child").build(), new byte[] {1});
+    URI directoryUri = URI.create("gs://test-bucket/dir-with-children");
+
+    assertThrows(
+        FileNotFoundException.class,
+        () -> GoogleCloudStorageInputStream.create(fakeFileSystem, directoryUri));
   }
 
   @Test
@@ -578,6 +610,18 @@ class GoogleCloudStorageInputStreamTest {
       assertThat(buffer[offset + i]).isEqualTo(testData[(int) (fileSize - length) + i]);
     }
     assertThat(googleCloudStorageInputStream.getPos()).isEqualTo(initialStreamPosition);
+  }
+
+  @Test
+  void readTail_streamFromGcsItemId_doesNotLookUpFileInfo() throws IOException {
+    GcsFileSystem spyFileSystem = spy(fakeFileSystem);
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(spyFileSystem, testGcsItemId);
+
+    googleCloudStorageInputStream.readTail(new byte[10], 0, 10);
+
+    verify(spyFileSystem, never()).getFileInfoObject(any(GcsItemId.class));
+    verify(spyFileSystem, never()).getFileInfo(any(GcsItemId.class));
   }
 
   @Test

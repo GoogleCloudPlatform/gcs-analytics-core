@@ -21,10 +21,8 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
 
 @State(Scope.Benchmark)
-public class SmallObjectCachingState {
-    @Param({"2097152"}) // 2MB
-    public String footerPrefetchSize;
-
-    @Param({"0", "3145728"})  // 0MB, 3MB
-    public String smallObjectCacheThreshold;
+public class ParquetFooterParsingState {
+  // 0KB ie: Disabled, 100KB
+  @Param({"0", "102400"})
+  public String footerPrefetchSize;
 }

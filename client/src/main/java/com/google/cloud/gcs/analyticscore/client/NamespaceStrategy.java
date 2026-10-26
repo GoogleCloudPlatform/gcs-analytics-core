@@ -16,6 +16,9 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import java.io.FileNotFoundException;
+import java.io.IOException;
+
 /**
  * Strategy interface for handling directory operations across different namespace models (Flat vs.
  * HNS).
@@ -23,7 +26,6 @@ package com.google.cloud.gcs.analyticscore.client;
  * <p>Methods for directory operations will be added in follow-up PRs. These methods will include:
  *
  * <ul>
- *   <li>{@code GcsItemInfo getFileInfo(GcsItemId id, PathType pathType) throws IOException;}
  *   <li>{@code void createDirectory(GcsItemId id) throws IOException;}
  *   <li>{@code boolean isDirectoryEmpty(GcsItemId id) throws IOException;}
  *   <li>{@code void renameDirectory(GcsItemId src, GcsItemId dst) throws IOException;}
@@ -31,4 +33,31 @@ package com.google.cloud.gcs.analyticscore.client;
  *   <li>{@code java.util.List<GcsItemInfo> listRecursive(GcsItemId id) throws IOException;}
  * </ul>
  */
-interface NamespaceStrategy {}
+interface NamespaceStrategy {
+
+  /**
+   * Retrieves directory metadata for the given {@link GcsItemId}, inferring implicit directories on
+   * flat-namespace buckets.
+   *
+   * @param id the item identifier for the directory
+   * @return the {@link GcsItemInfo} representing the directory
+   * @throws FileNotFoundException if the directory does not exist
+   * @throws IOException if an I/O error occurs
+   */
+  default GcsItemInfo getDirectoryInfo(GcsItemId id) throws IOException {
+    return getDirectoryInfo(id, /* inferImplicitDirectories= */ true);
+  }
+
+  /**
+   * Retrieves directory metadata for the given {@link GcsItemId}.
+   *
+   * @param id the item identifier for the directory
+   * @param inferImplicitDirectories if {@code false}, flat-namespace buckets only check for an
+   *     explicit directory placeholder object ({@code dir/}) without prefix-listing child objects;
+   *     HNS buckets always query the native folder resource
+   * @return the {@link GcsItemInfo} representing the directory
+   * @throws FileNotFoundException if the directory does not exist
+   * @throws IOException if an I/O error occurs
+   */
+  GcsItemInfo getDirectoryInfo(GcsItemId id, boolean inferImplicitDirectories) throws IOException;
+}

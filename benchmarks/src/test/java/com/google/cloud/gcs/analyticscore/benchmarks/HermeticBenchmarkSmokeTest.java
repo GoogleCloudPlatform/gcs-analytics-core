@@ -44,15 +44,42 @@ class HermeticBenchmarkSmokeTest {
 
   @Test
   void everyBenchmarkMethod_runsOnceWithoutError() throws Exception {
+    runSuite(benchmark);
+    for (HermeticBenchmarkBase s :
+        List.of(
+            new ReadStrategyBenchmark(),
+            new FooterPrefetchBenchmark(),
+            new SmallObjectCacheBenchmark(),
+            new VectoredRangeCoalescingBenchmark(),
+            new GcsReadChannelOpenBenchmark(),
+            new TelemetryOverheadBenchmark())) {
+      try (s) {
+        s.setUp();
+        runSuite(s);
+      }
+    }
+  }
+
+  private static void runSuite(Object benchmark) throws Exception {
     List<Method> benchmarks =
-        Arrays.stream(HermeticInputStreamBenchmark.class.getMethods())
+        Arrays.stream(benchmark.getClass().getMethods())
             .filter(m -> m.isAnnotationPresent(Benchmark.class))
             .collect(toList());
     assertThat(benchmarks).isNotEmpty();
     for (Method method : benchmarks) {
-      Class<?>[] types = method.getParameterTypes();
-      method.invoke(
-          benchmark, Arrays.stream(types).map(HermeticBenchmarkSmokeTest::argumentFor).toArray());
+      Object[] args =
+          Arrays.stream(method.getParameterTypes())
+              .map(HermeticBenchmarkSmokeTest::argumentFor)
+              .toArray();
+      try {
+        method.invoke(benchmark, args);
+      } finally {
+        for (Object arg : args) {
+          if (arg instanceof AutoCloseable) {
+            ((AutoCloseable) arg).close();
+          }
+        }
+      }
     }
   }
 
@@ -76,6 +103,11 @@ class HermeticBenchmarkSmokeTest {
     }
     if (type == IoCounters.class) {
       return new IoCounters();
+    }
+    if (type == TelemetryOverheadBenchmark.TelemetryState.class) {
+      var state = new TelemetryOverheadBenchmark.TelemetryState();
+      state.setUp();
+      return state;
     }
     throw new IllegalArgumentException("Unsupported benchmark parameter type: " + type);
   }
