@@ -170,8 +170,11 @@ class GcsExceptionUtilTest {
             GcsWriteOptions.builder().setOverwriteExisting(false).build());
 
     assertThat(exception).isInstanceOf(FileAlreadyExistsException.class);
-    assertThat(exception.getMessage())
-        .isEqualTo(String.format("Object gs://%s/%s already exists.", BUCKET, NAME));
+    FileAlreadyExistsException alreadyExists = (FileAlreadyExistsException) exception;
+    assertThat(alreadyExists.getFile()).isEqualTo(String.format("gs://%s/%s", BUCKET, NAME));
+    assertThat(alreadyExists.getOtherFile()).isNull();
+    assertThat(alreadyExists.getReason()).isEqualTo("Precondition Failed");
+    assertThat(alreadyExists).hasCauseThat().isSameInstanceAs(se);
   }
 
   @Test
@@ -188,8 +191,11 @@ class GcsExceptionUtilTest {
             GcsWriteOptions.builder().setOverwriteExisting(false).build());
 
     assertThat(exception).isInstanceOf(FileAlreadyExistsException.class);
-    assertThat(exception.getMessage())
-        .isEqualTo(String.format("Object gs://%s/%s already exists.", BUCKET, NAME));
+    FileAlreadyExistsException alreadyExists = (FileAlreadyExistsException) exception;
+    assertThat(alreadyExists.getFile()).isEqualTo(String.format("gs://%s/%s", BUCKET, NAME));
+    assertThat(alreadyExists.getOtherFile()).isNull();
+    assertThat(alreadyExists.getReason()).isEqualTo("Precondition Failed");
+    assertThat(alreadyExists).hasCauseThat().isSameInstanceAs(se);
   }
 
   @Test
@@ -573,6 +579,26 @@ class GcsExceptionUtilTest {
     assertThat(exception.getFile()).isEqualTo("gs://" + BUCKET + "/" + NAME + "#1234");
     assertThat(exception.getReason()).isEqualTo("Precondition Failed");
     assertThat(exception).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  @Test
+  void createFileAlreadyExistsException_withConflictingItem_setsFileAndOtherFile() {
+    GcsItemId dirItemId =
+        GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/subdir/").build();
+    GcsItemId conflictingItemId =
+        GcsItemId.builder()
+            .setBucketName(BUCKET)
+            .setObjectName("dir")
+            .setContentGeneration(99L)
+            .build();
+
+    FileAlreadyExistsException exception =
+        GcsExceptionUtil.createFileAlreadyExistsException(
+            dirItemId, conflictingItemId, "Cannot create directory because of existing file");
+
+    assertThat(exception.getFile()).isEqualTo("gs://" + BUCKET + "/dir/subdir/");
+    assertThat(exception.getOtherFile()).isEqualTo("gs://" + BUCKET + "/dir");
+    assertThat(exception.getReason()).isEqualTo("Cannot create directory because of existing file");
   }
 
   @Test

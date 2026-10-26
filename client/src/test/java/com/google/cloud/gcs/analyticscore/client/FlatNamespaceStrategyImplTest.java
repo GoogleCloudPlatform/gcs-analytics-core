@@ -17,7 +17,6 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -74,15 +73,20 @@ class FlatNamespaceStrategyImplTest {
   }
 
   @Test
-  void createDirectory_alreadyExists_suppressesException() throws IOException {
+  void createDirectory_nonEmptyObjectAlreadyExists_propagatesFileAlreadyExistsException()
+      throws IOException {
     GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir").build();
     GcsItemId expectedItemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/").build();
-    doThrow(new FileAlreadyExistsException("dir/"))
+    doThrow(
+            GcsExceptionUtil.createFileAlreadyExistsException(
+                expectedItemId, new StorageException(412, "Precondition Failed")))
         .when(mockClient)
         .createEmptyObject(expectedItemId);
 
-    assertDoesNotThrow(() -> strategy.createDirectory(itemId));
+    FileAlreadyExistsException e =
+        assertThrows(FileAlreadyExistsException.class, () -> strategy.createDirectory(itemId));
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/dir/");
   }
 
   @Test

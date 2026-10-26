@@ -71,6 +71,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockedConstruction;
@@ -1323,6 +1325,7 @@ class GcsFileSystemImplTest {
   void getDirs_returnsCorrectSubdirectories() {
     assertThat(GcsFileSystemImpl.getDirs("a/b/c/")).containsExactly("a", "a/b", "a/b/c").inOrder();
     assertThat(GcsFileSystemImpl.getDirs("a/b/c")).containsExactly("a", "a/b").inOrder();
+    assertThat(GcsFileSystemImpl.getDirs("/a/b/")).containsExactly("/a", "/a/b").inOrder();
     assertThat(GcsFileSystemImpl.getDirs("dir/")).containsExactly("dir");
     assertThat(GcsFileSystemImpl.getDirs("dir")).isEmpty();
     assertThat(GcsFileSystemImpl.getDirs("")).isEmpty();
@@ -1354,9 +1357,13 @@ class GcsFileSystemImplTest {
             .build();
     when(mockClient.getGcsItemInfo(conflictingFileId)).thenReturn(mockFileInfo);
 
-    assertThrows(
-        FileAlreadyExistsException.class,
-        () -> ((GcsFileSystemImpl) gcsFileSystem).checkNoFilesConflictingWithDirs(dirId));
+    FileAlreadyExistsException e =
+        assertThrows(
+            FileAlreadyExistsException.class,
+            () -> ((GcsFileSystemImpl) gcsFileSystem).checkNoFilesConflictingWithDirs(dirId));
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/" + TEST_SUBDIR);
+    assertThat(e.getOtherFile()).isEqualTo("gs://" + TEST_BUCKET + "/dir");
+    assertThat(e.getReason()).isEqualTo("Cannot create directory because of existing file");
   }
 
   @Test
@@ -1381,7 +1388,9 @@ class GcsFileSystemImplTest {
         assertThrows(
             FileAlreadyExistsException.class,
             () -> ((GcsFileSystemImpl) gcsFileSystem).checkNoFilesConflictingWithDirs(dirId));
-    assertThat(e).hasMessageThat().contains(conflictingFileId.toString());
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/" + TEST_SUBDIR);
+    assertThat(e.getOtherFile()).isEqualTo("gs://" + TEST_BUCKET + "/dir/subdir");
+    assertThat(e.getReason()).isEqualTo("Cannot create directory because of existing file");
   }
 
   @Test
@@ -1424,6 +1433,17 @@ class GcsFileSystemImplTest {
     gcsFileSystem.mkdirs(bucketUri);
 
     verify(mockClient).createBucket("test-bucket");
+  }
+
+  @Test
+  void mkdirs_bucketUriWithTrailingSlash_callsCreateBucket() throws IOException {
+    URI bucketUri = URI.create("gs://test-bucket/");
+
+    gcsFileSystem.mkdirs(bucketUri);
+
+    verify(mockClient).createBucket("test-bucket");
+    verify(mockClient, never()).createEmptyObject(any());
+    verify(mockClient, never()).createFolder(any(), anyBoolean());
   }
 
   @Test
@@ -1508,6 +1528,27 @@ class GcsFileSystemImplTest {
   }
 
   @Test
+  void mkdirs_flatBucket_nonEmptyObjectAtDirectoryMarker_throwsFileAlreadyExistsException()
+      throws IOException {
+    URI dirUri = URI.create("gs://" + TEST_BUCKET + "/dir/subdir/");
+    GcsItemId expectedItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_SUBDIR).build();
+    when(mockClient.getGcsItemInfo(any())).thenThrow(new FileNotFoundException("Not found"));
+    when(mockClient.getBucketProperties(TEST_BUCKET))
+        .thenReturn(BucketProperties.create(false, false));
+    doThrow(
+            GcsExceptionUtil.createFileAlreadyExistsException(
+                expectedItemId, new StorageException(412, "Precondition Failed")))
+        .when(mockClient)
+        .createEmptyObject(expectedItemId);
+
+    FileAlreadyExistsException e =
+        assertThrows(FileAlreadyExistsException.class, () -> gcsFileSystem.mkdirs(dirUri));
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/" + TEST_SUBDIR);
+    assertThat(e.getOtherFile()).isNull();
+  }
+
+  @Test
   void mkdirs_withConflictingFile_throwsFileAlreadyExistsException() throws IOException {
     URI dirUri = URI.create("gs://test-bucket/dir/subdir");
     GcsItemId conflictingFileId =
@@ -1520,7 +1561,132 @@ class GcsFileSystemImplTest {
             .build();
     when(mockClient.getGcsItemInfo(conflictingFileId)).thenReturn(mockFileInfo);
 
-    assertThrows(FileAlreadyExistsException.class, () -> gcsFileSystem.mkdirs(dirUri));
+    FileAlreadyExistsException e =
+        assertThrows(FileAlreadyExistsException.class, () -> gcsFileSystem.mkdirs(dirUri));
+    assertThat(e.getFile()).isEqualTo("gs://test-bucket/dir/subdir/");
+    assertThat(e.getOtherFile()).isEqualTo("gs://test-bucket/dir");
+    assertThat(e.getReason()).isEqualTo("Cannot create directory because of existing file");
+  }
+
+  @ParameterizedTest
+  @CsvSource({"true, true", "true, false", "false, true", "false, false"})
+  void mkdirs_nonExistentBucket_throwsFileNotFoundException(
+      boolean hnsApiEnabled, boolean conflictCheckEnabled) throws IOException {
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setHnsApiEnabled(hnsApiEnabled)
+            .setCreateItemsConflictCheckEnabled(conflictCheckEnabled)
+            .build();
+    URI dirUri = URI.create("gs://missing-bucket/dir/subdir");
+    lenient()
+        .when(mockClient.getGcsItemInfo(any()))
+        .thenThrow(new FileNotFoundException("Not found"));
+    lenient()
+        .when(mockClient.getBucketProperties("missing-bucket"))
+        .thenThrow(GcsExceptionUtil.createBucketNotFoundException("missing-bucket"));
+    lenient()
+        .doThrow(GcsExceptionUtil.createBucketNotFoundException("missing-bucket"))
+        .when(mockClient)
+        .createEmptyObject(any());
+
+    try (GcsFileSystemImpl customFs = new GcsFileSystemImpl(mockClient, options)) {
+      assertThrows(FileNotFoundException.class, () -> customFs.mkdirs(dirUri));
+    }
+  }
+
+  @Test
+  void mkdirs_lazyExecution_cancelsDeeperProbesAndReportsShallowestConflict() throws IOException {
+    GcsFileSystemOptions lazyOptions =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(TEST_GCS_CLIENT_OPTIONS)
+            .setMetadataLookupParallelEnabled(false)
+            .build();
+    GcsItemId aId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("a").build();
+    GcsItemId abId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("a/b").build();
+    GcsItemId abcId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("a/b/c").build();
+    GcsItemInfo aInfo =
+        GcsItemInfo.builder().setItemId(aId).setSize(10L).setContentGeneration(1L).build();
+    when(mockClient.getGcsItemInfo(aId)).thenReturn(aInfo);
+
+    try (GcsFileSystemImpl lazyFs = new GcsFileSystemImpl(mockClient, lazyOptions)) {
+      FileAlreadyExistsException e =
+          assertThrows(
+              FileAlreadyExistsException.class,
+              () -> lazyFs.mkdirs(URI.create("gs://" + TEST_BUCKET + "/a/b/c")));
+
+      assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/a/b/c/");
+      assertThat(e.getOtherFile()).isEqualTo("gs://" + TEST_BUCKET + "/a");
+      verify(mockClient).getGcsItemInfo(aId);
+      verify(mockClient, never()).getGcsItemInfo(abId);
+      verify(mockClient, never()).getGcsItemInfo(abcId);
+    }
+  }
+
+  @Test
+  void mkdirs_parallelExecution_whenDeeperConflictFinishesFirst_reportsShallowestConflict()
+      throws IOException {
+    GcsItemId aId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("a").build();
+    GcsItemId abId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("a/b").build();
+    GcsItemInfo aInfo =
+        GcsItemInfo.builder().setItemId(aId).setSize(10L).setContentGeneration(1L).build();
+    GcsItemInfo abInfo =
+        GcsItemInfo.builder().setItemId(abId).setSize(20L).setContentGeneration(2L).build();
+    CountDownLatch deeperCompleted = new CountDownLatch(1);
+    lenient()
+        .when(mockClient.getGcsItemInfo(abId))
+        .thenAnswer(
+            invocation -> {
+              deeperCompleted.countDown();
+              return abInfo;
+            });
+    when(mockClient.getGcsItemInfo(aId))
+        .thenAnswer(
+            invocation -> {
+              assertThat(deeperCompleted.await(5, TimeUnit.SECONDS)).isTrue();
+              return aInfo;
+            });
+
+    FileAlreadyExistsException e =
+        assertThrows(
+            FileAlreadyExistsException.class,
+            () -> gcsFileSystem.mkdirs(URI.create("gs://" + TEST_BUCKET + "/a/b")));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/a/b/");
+    assertThat(e.getOtherFile()).isEqualTo("gs://" + TEST_BUCKET + "/a");
+  }
+
+  @Test
+  void mkdirs_itemIdWithEmptyBucketAndNonEmptyObject_throwsIllegalArgumentException() {
+    GcsItemId emptyBucketFileId =
+        GcsItemId.builder().setBucketName("").setObjectName("dir/subdir").build();
+    GcsItemId emptyBucketDirId =
+        GcsItemId.builder().setBucketName("").setObjectName("dir/subdir/").build();
+
+    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.mkdirs(emptyBucketFileId));
+    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.mkdirs(emptyBucketDirId));
+    verifyNoInteractions(mockClient);
+  }
+
+  @Test
+  void mkdirs_rawStringUriConvention_preservesPercentEscapesQueryAndFragmentLiterally()
+      throws IOException {
+    when(mockClient.getGcsItemInfo(any())).thenThrow(new FileNotFoundException("Not found"));
+    when(mockClient.getBucketProperties(TEST_BUCKET))
+        .thenReturn(BucketProperties.create(false, false));
+
+    gcsFileSystem.mkdirs(URI.create("gs://" + TEST_BUCKET + "/tbl/ts=10%3A00/"));
+    gcsFileSystem.mkdirs(URI.create("gs://" + TEST_BUCKET + "/dir?x=1#y"));
+
+    verify(mockClient)
+        .createEmptyObject(
+            GcsItemId.builder()
+                .setBucketName(TEST_BUCKET)
+                .setObjectName("tbl/ts=10%3A00/")
+                .build());
+    verify(mockClient)
+        .createEmptyObject(
+            GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir?x=1#y/").build());
   }
 
   @Test

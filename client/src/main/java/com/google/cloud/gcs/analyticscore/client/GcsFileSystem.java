@@ -20,6 +20,8 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileAlreadyExistsException;
 
 public interface GcsFileSystem extends AutoCloseable {
 
@@ -125,17 +127,56 @@ public interface GcsFileSystem extends AutoCloseable {
   WritableByteChannel create(GcsItemId itemId, GcsWriteOptions options) throws IOException;
 
   /**
-   * Creates a directory at the specified URI path.
+   * Creates the target directory or bucket (and any missing parent folders on hierarchical
+   * namespace buckets) at the specified {@code gs://} URI.
    *
-   * @param path the GCS URI of the directory to create
+   * <p>Semantics follow {@link #mkdirs(GcsItemId)}. Consistent with {@link #getFileInfo(URI)} and
+   * {@link #open(GcsFileInfo, GcsReadOptions)}, {@code path.toString()} is parsed literally without
+   * percent-decoding; callers with object names containing spaces or pre-decoded characters should
+   * construct a {@link GcsItemId} and call {@link #mkdirs(GcsItemId)} instead.
+   *
+   * @param path the {@code gs://} URI of the directory or bucket to create
+   * @throws IllegalArgumentException if {@code path} is not a valid {@code gs://} URI (for example,
+   *     {@code gs:///} or consecutive slashes)
+   * @throws FileNotFoundException if creating a directory inside a bucket that does not exist
+   * @throws FileAlreadyExistsException if an object already exists at a path prefix (when {@link
+   *     GcsFileSystemOptions#isCreateItemsConflictCheckEnabled()} is {@code true}) or a non-empty
+   *     object already exists at the flat directory marker path
+   * @throws AccessDeniedException if the caller lacks required GCS permissions
    * @throws IOException if an I/O error occurs
    */
   void mkdirs(URI path) throws IOException;
 
   /**
-   * Creates a directory for the given {@link GcsItemId}.
+   * Creates the target directory or bucket for the given {@link GcsItemId}, succeeding idempotently
+   * if it already exists:
    *
-   * @param itemId the GCS item identifier of the directory to create
+   * <ul>
+   *   <li><b>Root ({@link GcsItemId#ROOT})</b>: returns immediately as a no-op.
+   *   <li><b>Bucket</b>: invokes {@link GcsClient#createBucket(String)} with {@link
+   *       GcsCreateBucketOptions#DEFAULT} (requiring a configured {@code projectId} and {@code
+   *       storage.buckets.create}; HTTP {@code 409 Conflict} on an existing bucket, including one
+   *       owned by another project, is treated as success, whereas object-only IAM roles fail with
+   *       {@link AccessDeniedException}).
+   *   <li><b>Directory</b>: on hierarchical namespace (HNS) buckets (when {@link
+   *       GcsFileSystemOptions#isHnsApiEnabled()} is {@code true} and bucket metadata lookup via
+   *       {@code storage.buckets.get} succeeds; {@code 401}/{@code 403} falls back to flat),
+   *       recursively creates native folders via the Storage Control API. On flat buckets, creates
+   *       only the leaf 0-byte directory marker object ({@code "dir/"}).
+   * </ul>
+   *
+   * <p>When {@link GcsFileSystemOptions#isCreateItemsConflictCheckEnabled()} is {@code true},
+   * performs a best-effort prefix check ({@code O(depth)} {@code storage.objects.get} lookups) for
+   * conflicting files before creating the directory; this check is not atomic with respect to
+   * concurrent writes.
+   *
+   * @param itemId the GCS item identifier of the directory, bucket, or root to create
+   * @throws IllegalArgumentException if {@code itemId} has an empty bucket name with a non-empty
+   *     object name
+   * @throws FileNotFoundException if creating a directory inside a bucket that does not exist
+   * @throws FileAlreadyExistsException if an object already exists at a path prefix (when conflict
+   *     checking is enabled) or a non-empty object already exists at the flat directory marker path
+   * @throws AccessDeniedException if the caller lacks required GCS permissions
    * @throws IOException if an I/O error occurs
    */
   void mkdirs(GcsItemId itemId) throws IOException;

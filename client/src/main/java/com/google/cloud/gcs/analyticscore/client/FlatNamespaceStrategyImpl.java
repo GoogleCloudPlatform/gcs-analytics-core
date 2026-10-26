@@ -21,13 +21,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
-  private static final Logger LOG = LoggerFactory.getLogger(FlatNamespaceStrategyImpl.class);
 
   private final GcsClient gcsClient;
 
@@ -42,11 +38,7 @@ final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
     String objectName = UriUtil.toDirectoryPath(id.getObjectName().orElse(""));
     GcsItemId dirItemId =
         GcsItemId.builder().setBucketName(id.getBucketName()).setObjectName(objectName).build();
-    try {
-      gcsClient.createEmptyObject(dirItemId);
-    } catch (FileAlreadyExistsException e) {
-      LOG.debug("Directory marker already exists for item: {}", dirItemId, e);
-    }
+    gcsClient.createEmptyObject(dirItemId);
   }
 
   /**

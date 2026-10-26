@@ -65,6 +65,14 @@ public abstract class GcsFileSystemOptions {
 
   public abstract boolean isMetadataLookupParallelEnabled();
 
+  /**
+   * Returns whether prefix conflict checks are performed before creating directories via {@link
+   * GcsFileSystem#mkdirs}.
+   *
+   * <p>Defaults to {@code true}, issuing {@code O(depth)} object metadata lookups (requiring {@code
+   * storage.objects.get}) to fail if a file exists at any path component. Currently applies only to
+   * {@code mkdirs} (not {@link GcsFileSystem#create}).
+   */
   public abstract boolean isCreateItemsConflictCheckEnabled();
 
   public abstract Builder toBuilder();

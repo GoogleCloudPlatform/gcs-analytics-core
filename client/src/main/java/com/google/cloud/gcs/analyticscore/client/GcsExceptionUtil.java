@@ -109,12 +109,7 @@ class GcsExceptionUtil {
                 // a doesNotExist() (generation = 0L) constraint and the object already exists on
                 // GCS.
                 if (blobId.getGeneration() == null || blobId.getGeneration() <= 0L) {
-                  return (FileAlreadyExistsException)
-                      new FileAlreadyExistsException(
-                              String.format(
-                                  "Object gs://%s/%s already exists.",
-                                  blobId.getBucket(), blobId.getName()))
-                          .initCause(se);
+                  return createFileAlreadyExistsException(formatLocation(blobId), se);
                 }
               }
               return translateCommon(se, context, blobId, position, errorType);
@@ -238,8 +233,32 @@ class GcsExceptionUtil {
       GcsItemId itemId, Exception cause) {
     checkNotNull(itemId, "itemId should not be null");
     checkNotNull(cause, "cause should not be null");
+    return createFileAlreadyExistsException(formatLocation(itemId), cause);
+  }
+
+  /**
+   * Creates a {@link FileAlreadyExistsException} when creating {@code itemId} fails because {@code
+   * conflictingItemId} already exists, setting {@link FileAlreadyExistsException#getFile()} and
+   * {@link FileAlreadyExistsException#getOtherFile()} to their {@code gs://} URI strings.
+   *
+   * @param itemId the target GCS item identifier being created
+   * @param conflictingItemId the existing GCS item identifier that conflicts with {@code itemId}
+   * @param reason human-readable reason describing the conflict
+   * @return a FileAlreadyExistsException with {@code getFile()} and {@code getOtherFile()}
+   *     populated
+   */
+  static FileAlreadyExistsException createFileAlreadyExistsException(
+      GcsItemId itemId, GcsItemId conflictingItemId, String reason) {
+    checkNotNull(itemId, "itemId should not be null");
+    checkNotNull(conflictingItemId, "conflictingItemId should not be null");
+    return new FileAlreadyExistsException(
+        UriUtil.getStringPath(itemId), UriUtil.getStringPath(conflictingItemId), reason);
+  }
+
+  private static FileAlreadyExistsException createFileAlreadyExistsException(
+      String location, Exception cause) {
     FileAlreadyExistsException exception =
-        new FileAlreadyExistsException(formatLocation(itemId), null, cause.getMessage());
+        new FileAlreadyExistsException(location, null, cause.getMessage());
     exception.initCause(cause);
     return exception;
   }

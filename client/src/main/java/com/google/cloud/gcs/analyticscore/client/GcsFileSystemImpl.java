@@ -208,7 +208,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   @Override
   public GcsFileInfo getFileInfoObject(URI path) throws IOException {
     checkNotNull(path, "path should not be null");
-    return getFileInfoObject(UriUtil.getItemIdFromString(path.toString()));
+    return getFileInfoObject(UriUtil.getItemIdFromUri(path));
   }
 
   @Override
@@ -402,6 +402,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       return;
     }
 
+    checkArgument(itemId.isGcsObject(), "Expected GCS object to be provided. But got: %s", itemId);
+
     GcsItemId dirItemId =
         GcsItemId.builder()
             .setBucketName(itemId.getBucketName())
@@ -431,10 +433,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       for (Map.Entry<GcsItemId, Future<GcsItemInfo>> entry : futures.entrySet()) {
         try {
           GcsItemInfo fileInfo = getFromFuture(entry.getValue());
-          throw new FileAlreadyExistsException(
-              String.format(
-                  "Cannot create directory '%s' because of existing file '%s'",
-                  dirItemId, fileInfo.getItemId()));
+          throw GcsExceptionUtil.createFileAlreadyExistsException(
+              dirItemId, fileInfo.getItemId(), "Cannot create directory because of existing file");
         } catch (FileNotFoundException ignored) {
           LOG.debug(
               "File '{}' not found, so it does not conflict with directory '{}'.",
