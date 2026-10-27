@@ -22,6 +22,9 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 
 class SequentialReadStrategyTest {
@@ -218,5 +221,72 @@ class SequentialReadStrategyTest {
     assertThat(oldChannel.isOpen()).isFalse();
     assertThat(strategy.channel).isNotNull();
     assertThat(strategy.channel).isNotEqualTo(oldChannel);
+  }
+
+  @Test
+  void skipInPlace_reusesThreadLocalBufferAcrossInstancesAndReallocatesWhenCleared()
+      throws IOException {
+    StorageTestUtils.createBlobInStorage(storage, itemId, "0123456789".repeat(100));
+    AbstractReadStrategy.SKIP_BUFFER.remove();
+
+    FakeSequentialReadStrategy strategy1 =
+        new FakeSequentialReadStrategy(storage, itemId, options, itemInfo);
+    ByteBuffer dst1 = ByteBuffer.allocate(5);
+    assertThat(strategy1.getReadChannel(13, 5).read(dst1)).isEqualTo(5);
+    assertThat(new String(dst1.array(), StandardCharsets.UTF_8)).isEqualTo("34567");
+    ByteBuffer firstBuffer = AbstractReadStrategy.SKIP_BUFFER.get().get();
+    assertThat(firstBuffer).isNotNull();
+    assertThat(firstBuffer.capacity()).isEqualTo(128 * 1024);
+
+    FakeSequentialReadStrategy strategy2 =
+        new FakeSequentialReadStrategy(storage, itemId, options, itemInfo);
+    ByteBuffer dst2 = ByteBuffer.allocate(5);
+    assertThat(strategy2.getReadChannel(27, 5).read(dst2)).isEqualTo(5);
+    assertThat(new String(dst2.array(), StandardCharsets.UTF_8)).isEqualTo("78901");
+    ByteBuffer secondBuffer = AbstractReadStrategy.SKIP_BUFFER.get().get();
+    assertThat(secondBuffer).isSameInstanceAs(firstBuffer);
+
+    AbstractReadStrategy.SKIP_BUFFER.get().clear();
+    FakeSequentialReadStrategy strategy3 =
+        new FakeSequentialReadStrategy(storage, itemId, options, itemInfo);
+    ByteBuffer dst3 = ByteBuffer.allocate(5);
+    assertThat(strategy3.getReadChannel(34, 5).read(dst3)).isEqualTo(5);
+    assertThat(new String(dst3.array(), StandardCharsets.UTF_8)).isEqualTo("45678");
+    ByteBuffer thirdBuffer = AbstractReadStrategy.SKIP_BUFFER.get().get();
+    assertThat(thirdBuffer).isNotNull();
+    assertThat(thirdBuffer).isNotSameInstanceAs(firstBuffer);
+  }
+
+  @Test
+  void skipInPlace_allocatesDistinctBufferPerThread() throws Exception {
+    StorageTestUtils.createBlobInStorage(storage, itemId, "0123456789".repeat(100));
+    FakeSequentialReadStrategy mainStrategy =
+        new FakeSequentialReadStrategy(storage, itemId, options, itemInfo);
+    ByteBuffer mainDst = ByteBuffer.allocate(5);
+    assertThat(mainStrategy.getReadChannel(13, 5).read(mainDst)).isEqualTo(5);
+    assertThat(new String(mainDst.array(), StandardCharsets.UTF_8)).isEqualTo("34567");
+    ByteBuffer mainThreadBuffer = AbstractReadStrategy.SKIP_BUFFER.get().get();
+    assertThat(mainThreadBuffer).isNotNull();
+
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      ByteBuffer workerThreadBuffer =
+          executor
+              .submit(
+                  () -> {
+                    FakeSequentialReadStrategy workerStrategy =
+                        new FakeSequentialReadStrategy(storage, itemId, options, itemInfo);
+                    ByteBuffer workerDst = ByteBuffer.allocate(5);
+                    assertThat(workerStrategy.getReadChannel(27, 5).read(workerDst)).isEqualTo(5);
+                    assertThat(new String(workerDst.array(), StandardCharsets.UTF_8))
+                        .isEqualTo("78901");
+                    return AbstractReadStrategy.SKIP_BUFFER.get().get();
+                  })
+              .get();
+      assertThat(workerThreadBuffer).isNotNull();
+      assertThat(workerThreadBuffer).isNotSameInstanceAs(mainThreadBuffer);
+    } finally {
+      executor.shutdownNow();
+    }
   }
 }
