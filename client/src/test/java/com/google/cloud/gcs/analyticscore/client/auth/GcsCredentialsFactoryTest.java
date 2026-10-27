@@ -38,6 +38,9 @@ import com.google.cloud.gcs.analyticscore.common.RedactedString;
 import com.google.common.base.VerifyException;
 import com.google.common.io.Resources;
 import java.io.IOException;
+import java.net.Authenticator;
+import java.net.Authenticator.RequestorType;
+import java.net.PasswordAuthentication;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -46,7 +49,11 @@ import java.security.GeneralSecurityException;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
 import java.util.Base64;
+import java.util.Locale;
+import javax.annotation.Nullable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockedStatic;
@@ -55,6 +62,10 @@ class GcsCredentialsFactoryTest {
 
   private static final String CLOUD_PLATFORM_SCOPE =
       "https://www.googleapis.com/auth/cloud-platform";
+  private static final String TUNNELING_DISABLED_SCHEMES_PROPERTY =
+      "jdk.http.auth.tunneling.disabledSchemes";
+  private static final String PROXY_HOST = "proxy.example.com";
+  private static final int PROXY_PORT = 8080;
 
   @TempDir static Path sharedTempDir;
 
@@ -62,6 +73,24 @@ class GcsCredentialsFactoryTest {
 
   private final HttpTransportFactory tokenTransportFactory = NetHttpTransport::new;
   private final HttpTransportFactory impersonationTransportFactory = NetHttpTransport::new;
+  private Authenticator originalAuthenticator;
+  private String originalTunnelingDisabledSchemes;
+
+  @BeforeEach
+  void captureGlobalState() {
+    originalAuthenticator = Authenticator.getDefault();
+    originalTunnelingDisabledSchemes = System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY);
+  }
+
+  @AfterEach
+  void restoreGlobalState() {
+    Authenticator.setDefault(originalAuthenticator);
+    if (originalTunnelingDisabledSchemes == null) {
+      System.clearProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY);
+    } else {
+      System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, originalTunnelingDisabledSchemes);
+    }
+  }
 
   @BeforeAll
   static void writeServiceAccountKeyFile() throws GeneralSecurityException, IOException {
@@ -313,6 +342,153 @@ class GcsCredentialsFactoryTest {
   }
 
   @Test
+  void createCredentials_unauthenticatedWithProxyCredentials_enablesBasicTunneling()
+      throws IOException {
+    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "Basic");
+
+    GcsCredentialsFactory.createCredentials(proxyCredentialsOptions(AuthType.UNAUTHENTICATED));
+
+    assertThat(System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY)).isEmpty();
+  }
+
+  @Test
+  void createCredentials_unauthenticatedWithProxyCredentials_installsAuthenticator()
+      throws IOException {
+    Authenticator.setDefault(null);
+
+    GcsCredentialsFactory.createCredentials(proxyCredentialsOptions(AuthType.UNAUTHENTICATED));
+
+    assertThat(Authenticator.getDefault()).isNotNull();
+  }
+
+  @Test
+  void createCredentials_withoutProxyCredentials_leavesDefaultAuthenticatorUnchanged()
+      throws IOException {
+    Authenticator sentinelAuthenticator = new Authenticator() {};
+    Authenticator.setDefault(sentinelAuthenticator);
+
+    GcsCredentialsFactory.createCredentials(
+        GcsAuthOptions.builder().setAuthType(AuthType.UNAUTHENTICATED).build());
+
+    assertThat(Authenticator.getDefault()).isSameInstanceAs(sentinelAuthenticator);
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_withProxyCredentials_enablesBasicTunneling() {
+    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "Basic");
+
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    assertThat(System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY)).isEmpty();
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_withProxyCredentials_installsAuthenticator() {
+    Authenticator.setDefault(null);
+
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    assertThat(Authenticator.getDefault()).isNotNull();
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_withProxyCredentials_servesUsernameToProxy() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials(PROXY_HOST, PROXY_PORT, RequestorType.PROXY);
+
+    assertThat(credentials.getUserName()).isEqualTo("user");
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_withProxyCredentials_servesPasswordToProxy() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials(PROXY_HOST, PROXY_PORT, RequestorType.PROXY);
+
+    assertThat(credentials.getPassword()).isEqualTo("pass".toCharArray());
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_caseInsensitiveHost_servesCredentialsToProxy() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials(
+            PROXY_HOST.toUpperCase(Locale.ROOT), PROXY_PORT, RequestorType.PROXY);
+
+    assertThat(credentials.getUserName()).isEqualTo("user");
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_differentHost_returnsNull() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials("other.example.com", PROXY_PORT, RequestorType.PROXY);
+
+    assertThat(credentials).isNull();
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_differentPort_returnsNull() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials(PROXY_HOST, PROXY_PORT + 1, RequestorType.PROXY);
+
+    assertThat(credentials).isNull();
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_serverRequestor_returnsNull() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials(PROXY_HOST, PROXY_PORT, RequestorType.SERVER);
+
+    assertThat(credentials).isNull();
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_nullRequestingHost_returnsNull() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials(/* host= */ null, PROXY_PORT, RequestorType.PROXY);
+
+    assertThat(credentials).isNull();
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_withoutProxyCredentials_leavesBasicTunnelingDisabled() {
+    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "Basic");
+
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyWithoutCredentialsOptions());
+
+    assertThat(System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY)).isEqualTo("Basic");
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_withoutProxyCredentials_leavesAuthenticatorUnchanged() {
+    Authenticator sentinelAuthenticator = new Authenticator() {};
+    Authenticator.setDefault(sentinelAuthenticator);
+
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyWithoutCredentialsOptions());
+
+    assertThat(Authenticator.getDefault()).isSameInstanceAs(sentinelAuthenticator);
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_nullOptions_throwsNullPointerException() {
+    assertThrows(
+        NullPointerException.class,
+        () -> GcsCredentialsFactory.installProxyCredentialsIfConfigured(null));
+  }
+
+  @Test
   void createCredentials_applicationDefault_returnsScopedApplicationDefaultCredentials()
       throws IOException {
     GcsAuthOptions options =
@@ -551,5 +727,36 @@ class GcsCredentialsFactoryTest {
       throw new AssertionError("Failed to copy test resource " + resourceName, e);
     }
     return file.toString();
+  }
+
+  @Nullable
+  private static PasswordAuthentication requestProxyCredentials(
+      @Nullable String host, int port, RequestorType requestorType) {
+    return Authenticator.requestPasswordAuthentication(
+        host,
+        /* addr= */ null,
+        port,
+        /* protocol= */ "http",
+        /* prompt= */ "",
+        /* scheme= */ "basic",
+        /* url= */ null,
+        requestorType);
+  }
+
+  private static GcsAuthOptions proxyCredentialsOptions() {
+    return proxyCredentialsOptions(AuthType.APPLICATION_DEFAULT);
+  }
+
+  private static GcsAuthOptions proxyCredentialsOptions(AuthType authType) {
+    return GcsAuthOptions.builder()
+        .setAuthType(authType)
+        .setProxyAddress(PROXY_HOST + ":" + PROXY_PORT)
+        .setProxyUsername(RedactedString.create("user"))
+        .setProxyPassword(RedactedString.create("pass"))
+        .build();
+  }
+
+  private static GcsAuthOptions proxyWithoutCredentialsOptions() {
+    return GcsAuthOptions.builder().setProxyAddress(PROXY_HOST + ":" + PROXY_PORT).build();
   }
 }

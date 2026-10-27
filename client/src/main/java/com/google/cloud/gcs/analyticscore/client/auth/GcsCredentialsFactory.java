@@ -35,14 +35,19 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.Authenticator;
+import java.net.PasswordAuthentication;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Factory for creating Google Cloud {@link Credentials} from {@link GcsAuthOptions}.
+ *
+ * <p>This class is for internal use by the library and can change without notice.
  *
  * <p>Applies the {@code cloud-platform} scope, optional custom token server URI, and optional
  * service account impersonation.
@@ -50,6 +55,9 @@ import org.slf4j.LoggerFactory;
 public final class GcsCredentialsFactory {
 
   private static final Logger LOG = LoggerFactory.getLogger(GcsCredentialsFactory.class);
+
+  private static final String TUNNELING_DISABLED_SCHEMES_PROPERTY =
+      "jdk.http.auth.tunneling.disabledSchemes";
 
   private static final ImmutableList<String> CLOUD_PLATFORM_SCOPES =
       ImmutableList.of("https://www.googleapis.com/auth/cloud-platform");
@@ -64,7 +72,57 @@ public final class GcsCredentialsFactory {
   private GcsCredentialsFactory() {}
 
   /**
+   * Sets the proxy username and password from {@code options} for the whole JVM, if they are set.
+   *
+   * <p>The JDK has no way to give proxy credentials to a single HTTPS connection, so this method
+   * changes two JVM-wide settings that stay for the life of the JVM:
+   *
+   * <ul>
+   *   <li>The default {@link Authenticator}. The last proxy set wins.
+   *   <li>The {@code jdk.http.auth.tunneling.disabledSchemes} system property, which is cleared so
+   *       that the JDK allows Basic authentication to HTTPS proxies.
+   * </ul>
+   *
+   * <p>Call this before anything opens an HTTP connection, because the JDK reads the system
+   * property only once, when the JVM opens its first HTTP connection.
+   *
+   * @param options The authentication options that may hold a proxy username and password.
+   */
+  public static void installProxyCredentialsIfConfigured(GcsAuthOptions options) {
+    checkNotNull(options, "options cannot be null");
+    if (options.getProxyUsername().isEmpty()) {
+      return;
+    }
+    URI proxyUri = GcsAuthOptions.parseProxyAddress(options.getProxyAddress().orElseThrow());
+    PasswordAuthentication proxyAuth =
+        new PasswordAuthentication(
+            options.getProxyUsername().orElseThrow().value(),
+            options.getProxyPassword().orElseThrow().value().toCharArray());
+    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "");
+    Authenticator.setDefault(createProxyAuthenticator(proxyUri, proxyAuth));
+  }
+
+  private static Authenticator createProxyAuthenticator(
+      URI proxyUri, PasswordAuthentication proxyAuth) {
+    return new Authenticator() {
+      @Nullable
+      @Override
+      protected PasswordAuthentication getPasswordAuthentication() {
+        if (getRequestorType() == RequestorType.PROXY
+            && proxyUri.getHost().equalsIgnoreCase(getRequestingHost())
+            && getRequestingPort() == proxyUri.getPort()) {
+          return proxyAuth;
+        }
+        return null;
+      }
+    };
+  }
+
+  /**
    * Creates a {@link Credentials} instance according to the specified {@link GcsAuthOptions}.
+   *
+   * <p>First sets any proxy username and password for the whole JVM; see {@link
+   * #installProxyCredentialsIfConfigured(GcsAuthOptions)}.
    *
    * @param options The authentication options.
    * @return A configured {@link Credentials} instance, or {@link NoCredentials} if unauthenticated.
@@ -72,6 +130,7 @@ public final class GcsCredentialsFactory {
    */
   public static Credentials createCredentials(GcsAuthOptions options) throws IOException {
     checkNotNull(options, "options cannot be null");
+    installProxyCredentialsIfConfigured(options);
     if (options.effectiveAuthType() == AuthType.UNAUTHENTICATED) {
       return NoCredentials.getInstance();
     }

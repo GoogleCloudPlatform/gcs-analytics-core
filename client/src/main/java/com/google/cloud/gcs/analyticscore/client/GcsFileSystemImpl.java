@@ -82,32 +82,40 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   /**
    * Creates a file system whose credentials are resolved from {@code fileSystemOptions}.
    *
+   * <p>First sets any proxy username and password for the whole JVM; see {@link
+   * GcsCredentialsFactory#installProxyCredentialsIfConfigured}.
+   *
    * @param fileSystemOptions The file system options, including the authentication options.
    * @throws UncheckedIOException If credentials cannot be resolved from the authentication options.
    */
   public GcsFileSystemImpl(GcsFileSystemOptions fileSystemOptions) {
-    this(createCredentials(fileSystemOptions), fileSystemOptions);
-  }
-
-  private static Credentials createCredentials(GcsFileSystemOptions fileSystemOptions) {
-    checkNotNull(fileSystemOptions, "fileSystemOptions should not be null");
-    try {
-      return GcsCredentialsFactory.createCredentials(fileSystemOptions.getGcsAuthOptions());
-    } catch (IOException e) {
-      throw new UncheckedIOException("Failed to create credentials from auth options", e);
-    }
+    this(() -> createCredentials(fileSystemOptions), fileSystemOptions);
   }
 
   /**
    * Creates a file system that uses {@code credentials} instead of resolving credentials from the
    * authentication options in {@code fileSystemOptions}.
    *
+   * <p>First sets any proxy username and password for the whole JVM; see {@link
+   * GcsCredentialsFactory#installProxyCredentialsIfConfigured}.
+   *
    * @param credentials The credentials for GCS requests.
    * @param fileSystemOptions The file system options.
    */
   public GcsFileSystemImpl(Credentials credentials, GcsFileSystemOptions fileSystemOptions) {
-    checkNotNull(credentials, "credentials should not be null");
+    this(
+        Suppliers.ofInstance(checkNotNull(credentials, "credentials should not be null")),
+        fileSystemOptions);
+  }
+
+  private GcsFileSystemImpl(
+      Supplier<Credentials> credentialsSupplier, GcsFileSystemOptions fileSystemOptions) {
     checkNotNull(fileSystemOptions, "fileSystemOptions should not be null");
+    // Must run first. Telemetry, the project ID lookup, and token requests can open the JVM's
+    // first HTTP connection.
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(
+        fileSystemOptions.getGcsAuthOptions());
+    Credentials credentials = credentialsSupplier.get();
     this.fileSystemOptions = fileSystemOptions;
     this.readExecutorServiceSupplier = initializeReadExecutionServiceSupplier();
     this.statusExecutorServiceSupplier = initializeStatusExecutionServiceSupplier();
@@ -128,6 +136,14 @@ public class GcsFileSystemImpl implements GcsFileSystem {
                     fileSystemOptions.getGcsAuthOptions()));
     this.flatStrategy = new FlatNamespaceStrategyImpl(this.gcsClient);
     this.hnsStrategy = new HierarchicalNamespaceStrategyImpl(this.gcsClient);
+  }
+
+  private static Credentials createCredentials(GcsFileSystemOptions fileSystemOptions) {
+    try {
+      return GcsCredentialsFactory.createCredentials(fileSystemOptions.getGcsAuthOptions());
+    } catch (IOException e) {
+      throw new UncheckedIOException("Failed to create credentials from auth options", e);
+    }
   }
 
   @VisibleForTesting

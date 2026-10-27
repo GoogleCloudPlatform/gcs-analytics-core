@@ -22,14 +22,11 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.api.client.googleapis.GoogleUtils;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
-import com.google.cloud.gcs.analyticscore.common.RedactedString;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.Authenticator;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.PasswordAuthentication;
 import java.net.Proxy;
 import java.net.Socket;
 import java.net.URI;
@@ -50,9 +47,6 @@ import org.slf4j.LoggerFactory;
  */
 final class GcsHttpTransportFactory {
 
-  private static final String TUNNELING_DISABLED_SCHEMES_PROPERTY =
-      "jdk.http.auth.tunneling.disabledSchemes";
-
   private static final Logger LOG = LoggerFactory.getLogger(GcsHttpTransportFactory.class);
 
   private GcsHttpTransportFactory() {}
@@ -60,9 +54,11 @@ final class GcsHttpTransportFactory {
   /**
    * Creates an {@link HttpTransport} configured according to the provided {@link GcsAuthOptions}.
    *
-   * <p><b>Side effects:</b> supplying proxy credentials mutates process-wide JDK state that
-   * outlives the returned transport; see {@link #installProxyAuthentication} for the blast radius
-   * in a shared JVM.
+   * <p>The proxy is always reached over plain HTTP. An {@code https://} scheme in the proxy address
+   * is checked but otherwise ignored.
+   *
+   * <p>Does not set the proxy username and password; see {@link
+   * GcsCredentialsFactory#installProxyCredentialsIfConfigured(GcsAuthOptions)}.
    *
    * @param options The authentication options containing proxy and timeout configurations.
    * @param trustStoreSource The certificate trust store to validate TLS certificates against.
@@ -71,145 +67,18 @@ final class GcsHttpTransportFactory {
    */
   static HttpTransport createHttpTransport(
       GcsAuthOptions options, TrustStoreSource trustStoreSource) throws IOException {
-    return createHttpTransport(
+    checkNotNull(options, "options cannot be null");
+    checkNotNull(trustStoreSource, "trustStoreSource cannot be null");
+    LOG.debug(
+        "createHttpTransport(proxyAddress={}, readTimeout={}, trustStoreSource={})",
         options.getProxyAddress().orElse(null),
-        options.getProxyUsername().orElse(null),
-        options.getProxyPassword().orElse(null),
         options.getHttpReadTimeout(),
         trustStoreSource);
-  }
-
-  /**
-   * Creates an {@link HttpTransport} based on optional HTTP proxy and socket read timeout.
-   *
-   * <p>The proxy is always contacted as an HTTP proxy: a scheme in {@code proxyAddress} is
-   * validated but otherwise ignored, so {@code https://} does not imply TLS to the proxy itself.
-   *
-   * <p><b>Side effects:</b> supplying proxy credentials mutates process-wide JDK state that
-   * outlives the returned transport; see {@link #installProxyAuthentication} for the blast radius
-   * in a shared JVM.
-   *
-   * @param proxyAddress The HTTP proxy address of the form {@code [https?://]hostname:port}.
-   * @param proxyUsername The HTTP proxy username.
-   * @param proxyPassword The HTTP proxy password.
-   * @param readTimeout The socket read timeout to apply to HTTP requests, where zero means no
-   *     timeout.
-   * @param trustStoreSource The certificate trust store to validate TLS certificates against.
-   * @return The resulting {@link HttpTransport}.
-   * @throws IllegalArgumentException If proxy or timeout configuration parameters are invalid.
-   * @throws IOException If an error occurs initializing the certificate trust store or transport.
-   */
-  static HttpTransport createHttpTransport(
-      @Nullable String proxyAddress,
-      @Nullable RedactedString proxyUsername,
-      @Nullable RedactedString proxyPassword,
-      Duration readTimeout,
-      TrustStoreSource trustStoreSource)
-      throws IOException {
-    LOG.debug(
-        "createHttpTransport(proxyAddress={}, proxyAuthenticated={}, readTimeout={},"
-            + " trustStoreSource={})",
-        proxyAddress,
-        proxyUsername != null,
-        readTimeout,
-        trustStoreSource);
-    URI proxyUri = GcsAuthOptions.parseProxyAddress(proxyAddress);
-    checkArgument(
-        proxyUri != null || (proxyUsername == null && proxyPassword == null),
-        "if proxyAddress is null or empty then proxyUsername and proxyPassword should be null too");
-    checkArgument(
-        (proxyUsername == null) == (proxyPassword == null),
-        "both proxyUsername and proxyPassword should be null or not null together");
-
     try {
-      PasswordAuthentication proxyAuth =
-          proxyUsername == null
-              ? null
-              : new PasswordAuthentication(
-                  proxyUsername.value(), proxyPassword.value().toCharArray());
-      return createNetHttpTransport(proxyUri, proxyAuth, readTimeout, trustStoreSource);
+      return createNetHttpTransportBuilder(options, trustStoreSource).build();
     } catch (GeneralSecurityException e) {
       throw new IOException("Failed to create NetHttpTransport with SSL trust store", e);
     }
-  }
-
-  /**
-   * Creates a {@link NetHttpTransport} routed through the given proxy.
-   *
-   * <p><b>Side effects:</b> when {@code proxyAuth} is non-null, this method calls {@link
-   * #installProxyAuthentication}, which overwrites the JVM default {@link Authenticator} (last
-   * writer wins across the JVM) and permanently clears {@code
-   * jdk.http.auth.tunneling.disabledSchemes} for the life of the process.
-   *
-   * @param proxyUri The parsed proxy address, or {@code null} to connect directly.
-   * @param proxyAuth The proxy credentials, or {@code null} if the proxy needs no authentication.
-   * @param readTimeout The socket read timeout, where zero means no timeout.
-   * @param trustStoreSource The certificate trust store to validate TLS certificates against.
-   * @return The resulting {@link NetHttpTransport}.
-   * @throws IllegalArgumentException If proxyAuth is set without a proxyUri, or if readTimeout is
-   *     negative.
-   * @throws IOException If an error occurs initializing the certificate trust store.
-   * @throws GeneralSecurityException If the certificate trust store cannot be loaded.
-   */
-  @VisibleForTesting
-  static NetHttpTransport createNetHttpTransport(
-      @Nullable URI proxyUri,
-      @Nullable PasswordAuthentication proxyAuth,
-      Duration readTimeout,
-      TrustStoreSource trustStoreSource)
-      throws IOException, GeneralSecurityException {
-    checkArgument(
-        proxyUri != null || proxyAuth == null,
-        "if proxyUri is null then proxyAuth should be null too");
-
-    NetHttpTransport transport =
-        createNetHttpTransportBuilder(proxyUri, readTimeout, trustStoreSource).build();
-    if (proxyAuth != null) {
-      installProxyAuthentication(proxyUri, proxyAuth);
-    }
-    return transport;
-  }
-
-  /**
-   * Installs the JVM-wide state that lets the JDK answer a proxy authentication challenge.
-   *
-   * <p>The JDK exposes no per-connection hook for proxy credentials when tunneling HTTPS through a
-   * {@code CONNECT} proxy, so the credentials must be published through process-wide state with two
-   * consequences that outlive the transport:
-   *
-   * <ol>
-   *   <li><b>Last writer wins:</b> {@link Authenticator#setDefault} replaces any existing default
-   *       authenticator without delegation. If two {@code GcsFileSystem} instances (for example,
-   *       two Spark catalogs in the same executor JVM) configure different authenticated proxies,
-   *       the second installation silently overwrites the first, causing the first proxy to fail
-   *       with HTTP 407.
-   *   <li><b>Process-wide tunneling policy change:</b> {@code
-   *       jdk.http.auth.tunneling.disabledSchemes} is cleared process-wide and never restored,
-   *       re-enabling HTTP {@code Basic} authentication over {@code CONNECT} for every HTTPS tunnel
-   *       in the JVM for the life of the process.
-   * </ol>
-   *
-   * @param proxyUri The parsed proxy address the credentials belong to.
-   * @param proxyAuth The proxy credentials to serve for that address.
-   */
-  private static void installProxyAuthentication(URI proxyUri, PasswordAuthentication proxyAuth) {
-    // Re-enable "Basic" authentication for HTTPS proxy tunnels (disabled by default in JDK 8u111+).
-    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "");
-    Authenticator.setDefault(
-        new Authenticator() {
-          @Nullable
-          @Override
-          protected PasswordAuthentication getPasswordAuthentication() {
-            // getRequestingHost() is null when the JDK only knows the proxy by address, so the
-            // known proxy host is the receiver of the comparison.
-            if (getRequestorType() == RequestorType.PROXY
-                && proxyUri.getHost().equalsIgnoreCase(getRequestingHost())
-                && getRequestingPort() == proxyUri.getPort()) {
-              return proxyAuth;
-            }
-            return null;
-          }
-        });
   }
 
   /**
