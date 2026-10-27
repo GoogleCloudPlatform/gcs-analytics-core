@@ -22,7 +22,11 @@ import com.google.cloud.RestorableState;
 import com.google.cloud.storage.BlobInfo;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.ByteBuffer;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -68,6 +72,7 @@ class GcsReadChannelMetadataExtractorTest {
     assertThat(metadata).isNotNull();
     assertThat(metadata.getSize()).isEqualTo(100L);
     assertThat(metadata.getGeneration()).isEqualTo(200L);
+    Mockito.verify(blobInfo, Mockito.times(1)).getSize();
   }
 
   @Test
@@ -342,6 +347,16 @@ class GcsReadChannelMetadataExtractorTest {
   }
 
   @Test
+  void extract_otelDecoratedChannelWithNullReader_returnsNull() {
+    ReadChannel channel = new OtelDecoratedReadChannel(null);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNull();
+  }
+
+  @Test
   void extract_otelDecoratedChannelWithoutReaderField_inspectsDecoratorItself() {
     BlobInfo blobInfo = Mockito.mock(BlobInfo.class);
     Mockito.when(blobInfo.getSize()).thenReturn(500L);
@@ -357,9 +372,51 @@ class GcsReadChannelMetadataExtractorTest {
   }
 
   @Test
+  void extract_inheritedAccessorAcrossMultipleInstances_returnsEachInstanceMetadata() {
+    BlobInfo firstBlob = Mockito.mock(BlobInfo.class);
+    Mockito.when(firstBlob.getSize()).thenReturn(111L);
+    Mockito.when(firstBlob.getGeneration()).thenReturn(222L);
+    BlobInfo secondBlob = Mockito.mock(BlobInfo.class);
+    Mockito.when(secondBlob.getSize()).thenReturn(333L);
+    Mockito.when(secondBlob.getGeneration()).thenReturn(444L);
+    ReadChannel uninitializedChannel = new SubclassReadChannel(null);
+    ReadChannel firstChannel = new SubclassReadChannel(firstBlob);
+    ReadChannel secondChannel = new SubclassReadChannel(secondBlob);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata uninitializedMetadata =
+        GcsReadChannelMetadataExtractor.extract(uninitializedChannel);
+    GcsReadChannelMetadataExtractor.ExtractedMetadata firstMetadata =
+        GcsReadChannelMetadataExtractor.extract(firstChannel);
+    GcsReadChannelMetadataExtractor.ExtractedMetadata secondMetadata =
+        GcsReadChannelMetadataExtractor.extract(secondChannel);
+
+    assertThat(uninitializedMetadata).isNull();
+    assertThat(firstMetadata).isNotNull();
+    assertThat(firstMetadata.getSize()).isEqualTo(111L);
+    assertThat(firstMetadata.getGeneration()).isEqualTo(222L);
+    assertThat(secondMetadata).isNotNull();
+    assertThat(secondMetadata.getSize()).isEqualTo(333L);
+    assertThat(secondMetadata.getGeneration()).isEqualTo(444L);
+  }
+
+  @Test
   void extract_metadataAccessorThrows_returnsNull() {
     ReflectiveBlobInfoChannel channel = Mockito.mock(ReflectiveBlobInfoChannel.class);
     Mockito.when(channel.getBlobInfo()).thenThrow(new IllegalStateException("not ready"));
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNull();
+  }
+
+  @Test
+  void extract_inaccessibleModuleGetter_returnsNull() throws IOException {
+    Object jrtAttributes =
+        Files.readAttributes(
+            FileSystems.getFileSystem(URI.create("jrt:/")).getPath("/"), BasicFileAttributes.class);
+    ReflectiveGenericChannel channel = Mockito.mock(ReflectiveGenericChannel.class);
+    Mockito.when(channel.getResolvedObject()).thenReturn(jrtAttributes);
 
     GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
         GcsReadChannelMetadataExtractor.extract(channel);
@@ -374,6 +431,10 @@ class GcsReadChannelMetadataExtractorTest {
   }
 
   static class FallbackNegativeModel {
+    public Long getSize() {
+      return null;
+    }
+
     public long size() {
       return -5L;
     }
@@ -479,6 +540,20 @@ class GcsReadChannelMetadataExtractorTest {
       BlobInfo getBlobInfo() {
         return blobInfo;
       }
+    }
+  }
+
+  static class BaseMetadataReadChannel extends NoOpReadChannel {
+    private final BlobInfo blobInfo;
+
+    BaseMetadataReadChannel(BlobInfo blobInfo) {
+      this.blobInfo = blobInfo;
+    }
+  }
+
+  static class SubclassReadChannel extends BaseMetadataReadChannel {
+    SubclassReadChannel(BlobInfo blobInfo) {
+      super(blobInfo);
     }
   }
 
