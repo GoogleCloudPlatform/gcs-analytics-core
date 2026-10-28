@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.net.URI;
@@ -194,5 +195,53 @@ class UriUtilTest {
     IllegalArgumentException e =
         assertThrows(IllegalArgumentException.class, () -> UriUtil.getStringPath(null));
     assertThat(e).hasMessageThat().isEqualTo("itemId should not be null");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {TEST_OBJECT, TEST_OBJECT + "/", TEST_PATH, TEST_PATH + "/"})
+  void validateDirectoryItemId_validObjectName_doesNotThrow(String objectName) {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(objectName).build();
+
+    assertDoesNotThrow(() -> UriUtil.validateDirectoryItemId(itemId));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"/", "//", "/dir/subdir", "dir//subdir", "dir/subdir//"})
+  void validateDirectoryItemId_leadingOrConsecutiveSlashes_throwsIllegalArgumentException(
+      String objectName) {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(objectName).build();
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> UriUtil.validateDirectoryItemId(itemId));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Object name cannot start with '/' or contain consecutive '/': " + itemId);
+  }
+
+  @Test
+  void validateDirectoryItemId_nonObjectItemId_throwsIllegalArgumentException() {
+    GcsItemId bucketItemId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    GcsItemId emptyBucketItemId =
+        GcsItemId.builder().setBucketName("").setObjectName(TEST_PATH).build();
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class, () -> UriUtil.validateDirectoryItemId(bucketItemId));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Expected a directory itemId within a bucket but got: " + bucketItemId);
+    assertThrows(
+        IllegalArgumentException.class, () -> UriUtil.validateDirectoryItemId(GcsItemId.ROOT));
+    assertThrows(
+        IllegalArgumentException.class, () -> UriUtil.validateDirectoryItemId(emptyBucketItemId));
+  }
+
+  @Test
+  void validateDirectoryItemId_nullItemId_throwsNullPointerException() {
+    assertThrows(NullPointerException.class, () -> UriUtil.validateDirectoryItemId(null));
   }
 }

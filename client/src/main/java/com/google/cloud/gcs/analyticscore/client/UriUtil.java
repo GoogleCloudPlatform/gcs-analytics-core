@@ -95,6 +95,29 @@ final class UriUtil {
     return GCS_SCHEME + itemId.getBucketName() + "/" + itemId.getObjectName().orElse("");
   }
 
+  /**
+   * Validates that {@code itemId} names a directory within a bucket (with or without a trailing
+   * {@code "/"}) whose object name neither starts with {@code "/"} nor contains consecutive {@code
+   * "/"} characters.
+   *
+   * @param itemId the directory identifier to validate
+   * @throws NullPointerException if {@code itemId} is {@code null}
+   * @throws IllegalArgumentException if {@code itemId} is the root, a bucket, or has an empty
+   *     bucket name, or if its object name starts with {@code "/"} or contains consecutive {@code
+   *     "/"} characters
+   */
+  static void validateDirectoryItemId(GcsItemId itemId) {
+    checkNotNull(itemId, "itemId should not be null");
+    checkArgument(
+        itemId.isGcsObject(), "Expected a directory itemId within a bucket but got: %s", itemId);
+    String objectName = itemId.getObjectName().get();
+    checkArgument(
+        !objectName.startsWith(PATH_DELIMITER)
+            && !objectName.contains(PATH_DELIMITER + PATH_DELIMITER),
+        "Object name cannot start with '/' or contain consecutive '/': %s",
+        itemId);
+  }
+
   static String removeTrailingSlash(String path) {
     if (path != null && path.endsWith(PATH_DELIMITER)) {
       return path.substring(0, path.length() - PATH_DELIMITER.length());

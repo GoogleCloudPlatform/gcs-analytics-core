@@ -16,8 +16,6 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import static com.google.cloud.gcs.analyticscore.client.UriUtil.PATH_DELIMITER;
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.IOException;
@@ -37,15 +35,8 @@ final class HierarchicalNamespaceStrategyImpl implements NamespaceStrategy {
 
   @Override
   public void createDirectory(GcsItemId id) throws IOException {
-    checkNotNull(id, "id must not be null");
-    checkArgument(id.isGcsObject(), "Expected a directory folder itemId but got: %s", id);
-    String rawObjectName = id.getObjectName().orElse("");
-    checkArgument(
-        !rawObjectName.startsWith(PATH_DELIMITER)
-            && !rawObjectName.contains(PATH_DELIMITER + PATH_DELIMITER),
-        "Object name cannot start with '/' or contain consecutive '/': %s",
-        id);
-    String folderName = UriUtil.removeTrailingSlash(rawObjectName);
+    UriUtil.validateDirectoryItemId(id);
+    String folderName = UriUtil.removeTrailingSlash(id.getObjectName().get());
     GcsItemId folderItemId =
         GcsItemId.builder().setBucketName(id.getBucketName()).setObjectName(folderName).build();
     try {

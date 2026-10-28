@@ -16,8 +16,6 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
-import static com.google.cloud.gcs.analyticscore.client.UriUtil.PATH_DELIMITER;
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.FileNotFoundException;
@@ -34,18 +32,10 @@ final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
 
   @Override
   public void createDirectory(GcsItemId id) throws IOException {
-    checkNotNull(id, "id must not be null");
-    checkArgument(id.isGcsObject(), "Expected a directory object itemId but got: %s", id);
-    String rawObjectName = id.getObjectName().orElse("");
-    checkArgument(
-        !rawObjectName.startsWith(PATH_DELIMITER)
-            && !rawObjectName.contains(PATH_DELIMITER + PATH_DELIMITER),
-        "Object name cannot start with '/' or contain consecutive '/': %s",
-        id);
-    String objectName = UriUtil.toDirectoryPath(rawObjectName);
-    GcsItemId dirItemId =
-        GcsItemId.builder().setBucketName(id.getBucketName()).setObjectName(objectName).build();
-    gcsClient.createEmptyObject(dirItemId);
+    UriUtil.validateDirectoryItemId(id);
+    // createEmptyObject throws FileAlreadyExistsException only if a non-empty placeholder object
+    // already exists at "dir/"; an existing empty placeholder object is treated as success.
+    gcsClient.createEmptyObject(id.toDirectoryId());
   }
 
   /**

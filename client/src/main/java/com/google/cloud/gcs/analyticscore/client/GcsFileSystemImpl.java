@@ -402,19 +402,8 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       return;
     }
 
-    checkArgument(itemId.isGcsObject(), "Expected GCS object to be provided. But got: %s", itemId);
-    String objectName = itemId.getObjectName().orElse("");
-    checkArgument(
-        !objectName.startsWith(PATH_DELIMITER)
-            && !objectName.contains(PATH_DELIMITER + PATH_DELIMITER),
-        "Object name cannot start with '/' or contain consecutive '/': %s",
-        itemId);
-
-    GcsItemId dirItemId =
-        GcsItemId.builder()
-            .setBucketName(itemId.getBucketName())
-            .setObjectName(UriUtil.toDirectoryPath(objectName))
-            .build();
+    UriUtil.validateDirectoryItemId(itemId);
+    GcsItemId dirItemId = itemId.toDirectoryId();
 
     NamespaceStrategy strategy = resolveStrategy(itemId.getBucketName());
 
