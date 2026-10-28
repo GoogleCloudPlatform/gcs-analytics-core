@@ -352,6 +352,21 @@ limitations under the License.
                 <version>${apache.parquet.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-format-structures</artifactId>
+                <version>${apache.parquet.version}</version>
+                <exclusions>
+                    <!--
+                      No class in parquet-format-structures references javax.annotation; the
+                      generated Thrift code only carries source-retention annotations from it.
+                    -->
+                    <exclusion>
+                        <groupId>javax.annotation</groupId>
+                        <artifactId>javax.annotation-api</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro</artifactId>
                 <version>${apache.avro.version}</version>
