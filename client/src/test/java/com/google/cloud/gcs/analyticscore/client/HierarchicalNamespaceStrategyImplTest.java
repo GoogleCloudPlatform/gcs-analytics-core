@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.io.FileNotFoundException;
@@ -30,6 +31,8 @@ import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class HierarchicalNamespaceStrategyImplTest {
 
@@ -101,6 +104,17 @@ class HierarchicalNamespaceStrategyImplTest {
 
     assertThrows(NullPointerException.class, () -> strategy.createDirectory(null));
     assertThrows(IllegalArgumentException.class, () -> strategy.createDirectory(bucketItemId));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"/", "//", "/dir/subdir", "dir//subdir", "dir/subdir//"})
+  void createDirectory_leadingOrConsecutiveSlashes_throwsIllegalArgumentException(
+      String invalidObjectName) {
+    GcsItemId invalidItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(invalidObjectName).build();
+
+    assertThrows(IllegalArgumentException.class, () -> strategy.createDirectory(invalidItemId));
+    verifyNoInteractions(mockClient);
   }
 
   @Test

@@ -110,7 +110,8 @@ public interface GcsClient {
 
   /**
    * Creates a 0-byte empty object (such as a flat-namespace directory marker) with default write
-   * options.
+   * options, inheriting {@code kmsKeyName}, {@code encryptionKey}, and {@code userProject} from the
+   * client's configured {@link GcsClientOptions#getGcsWriteOptions()}.
    *
    * <p>For directory items ({@link GcsItemId#isDirectory()}) without an explicit content
    * generation, creation uses a {@code doesNotExist} precondition and is idempotent if a 0-byte

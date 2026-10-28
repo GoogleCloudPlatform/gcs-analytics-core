@@ -73,6 +73,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockedConstruction;
@@ -1593,6 +1594,9 @@ class GcsFileSystemImplTest {
     try (GcsFileSystemImpl customFs = new GcsFileSystemImpl(mockClient, options)) {
       assertThrows(FileNotFoundException.class, () -> customFs.mkdirs(dirUri));
     }
+    if (hnsApiEnabled) {
+      verify(mockClient, never()).getGcsItemInfo(any());
+    }
   }
 
   @Test
@@ -1665,6 +1669,17 @@ class GcsFileSystemImplTest {
 
     assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.mkdirs(emptyBucketFileId));
     assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.mkdirs(emptyBucketDirId));
+    verifyNoInteractions(mockClient);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"/", "//", "/dir/subdir", "dir//subdir", "dir/subdir//"})
+  void mkdirs_itemIdWithLeadingOrConsecutiveSlashes_throwsIllegalArgumentException(
+      String invalidObjectName) {
+    GcsItemId invalidItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(invalidObjectName).build();
+
+    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.mkdirs(invalidItemId));
     verifyNoInteractions(mockClient);
   }
 

@@ -172,7 +172,8 @@ public interface GcsFileSystem extends AutoCloseable {
    *
    * @param itemId the GCS item identifier of the directory, bucket, or root to create
    * @throws IllegalArgumentException if {@code itemId} has an empty bucket name with a non-empty
-   *     object name
+   *     object name, or if the object name starts with {@code "/"} or contains consecutive {@code
+   *     "/"} characters
    * @throws FileNotFoundException if creating a directory inside a bucket that does not exist
    * @throws FileAlreadyExistsException if an object already exists at a path prefix (when conflict
    *     checking is enabled) or a non-empty object already exists at the flat directory marker path
