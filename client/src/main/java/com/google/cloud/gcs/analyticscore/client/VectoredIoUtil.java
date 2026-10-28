@@ -18,13 +18,16 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.common.collect.ImmutableList;
 import java.nio.ByteBuffer;
 import java.util.Comparator;
+import javax.annotation.Nullable;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 class VectoredIoUtil {
-  public static ImmutableList<GcsObjectRange> sortGcsObjectRanges(
-      ImmutableList<GcsObjectRange> ranges) {
-    return ranges.stream()
-        .sorted(Comparator.comparingLong(GcsObjectRange::getOffset))
-        .collect(ImmutableList.toImmutableList());
+  private static final Comparator<GcsObjectRange> OFFSET_COMPARATOR =
+      Comparator.comparingLong(GcsObjectRange::getOffset);
+
+  public static @NonNull ImmutableList<GcsObjectRange> sortGcsObjectRanges(
+      @NonNull ImmutableList<GcsObjectRange> ranges) {
+    return ImmutableList.sortedCopyOf(OFFSET_COMPARATOR, ranges);
   }
 
   public static ImmutableList<GcsObjectCombinedRange> mergeGcsObjectRanges(
@@ -35,30 +38,39 @@ class VectoredIoUtil {
 
     ImmutableList<GcsObjectRange> sortedRanges = sortGcsObjectRanges(ranges);
     ImmutableList.Builder<GcsObjectCombinedRange> combinedRanges = ImmutableList.builder();
-    GcsObjectCombinedRange currentCombinedRange = null;
 
-    for (GcsObjectRange nextRange : sortedRanges) {
-      if (currentCombinedRange == null) {
-        currentCombinedRange = createCombinedRangeFromSingleRange(nextRange);
-        continue;
-      }
+    GcsObjectRange currentFirstRange = sortedRanges.get(0);
+    long currentOffset = currentFirstRange.getOffset();
+    long currentEnd = currentOffset + currentFirstRange.getLength();
+    ImmutableList.Builder<GcsObjectRange> currentUnderlyingRanges = null;
 
-      long currentEnd = currentCombinedRange.getOffset() + currentCombinedRange.getLength();
+    for (int i = 1; i < sortedRanges.size(); i++) {
+      GcsObjectRange nextRange = sortedRanges.get(i);
       long nextEnd = nextRange.getOffset() + nextRange.getLength();
       long gap = nextRange.getOffset() - currentEnd;
-      long potentialMergedSize = Math.max(currentEnd, nextEnd) - currentCombinedRange.getOffset();
+      long mergedEnd = Math.max(currentEnd, nextEnd);
+      long potentialMergedSize = mergedEnd - currentOffset;
 
       if (canMerge(gap, potentialMergedSize, maxMergeGap, maxMergeSize)) {
-        currentCombinedRange = currentCombinedRange.union(nextRange);
+        if (currentUnderlyingRanges == null) {
+          currentUnderlyingRanges = ImmutableList.builder();
+          currentUnderlyingRanges.add(currentFirstRange);
+        }
+        currentUnderlyingRanges.add(nextRange);
+        currentEnd = mergedEnd;
       } else {
-        combinedRanges.add(currentCombinedRange);
-        currentCombinedRange = createCombinedRangeFromSingleRange(nextRange);
+        combinedRanges.add(
+            buildCombinedRange(
+                currentFirstRange, currentOffset, currentEnd, currentUnderlyingRanges));
+        currentFirstRange = nextRange;
+        currentOffset = nextRange.getOffset();
+        currentEnd = nextEnd;
+        currentUnderlyingRanges = null;
       }
     }
 
-    if (currentCombinedRange != null) {
-      combinedRanges.add(currentCombinedRange);
-    }
+    combinedRanges.add(
+        buildCombinedRange(currentFirstRange, currentOffset, currentEnd, currentUnderlyingRanges));
 
     return combinedRanges.build();
   }
@@ -73,11 +85,16 @@ class VectoredIoUtil {
     return result;
   }
 
-  private static GcsObjectCombinedRange createCombinedRangeFromSingleRange(GcsObjectRange range) {
+  private static @NonNull GcsObjectCombinedRange buildCombinedRange(
+      @NonNull GcsObjectRange firstRange,
+      long offset,
+      long end,
+      @Nullable ImmutableList.Builder<GcsObjectRange> underlyingRanges) {
     return GcsObjectCombinedRange.builder()
-        .setOffset(range.getOffset())
-        .setLength(range.getLength())
-        .setUnderlyingRanges(ImmutableList.of(range))
+        .setOffset(offset)
+        .setLength((int) (end - offset))
+        .setUnderlyingRanges(
+            underlyingRanges != null ? underlyingRanges.build() : ImmutableList.of(firstRange))
         .build();
   }
 
