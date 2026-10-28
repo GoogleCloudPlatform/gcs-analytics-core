@@ -128,6 +128,83 @@ class VectoredIoUtilTest {
   }
 
   @Test
+  void mergeGcsObjectRanges_withContainedRangeFollowedByAdjacentRange_mergesAllRanges() {
+    GcsObjectRange outerRange = createRange(0L, 30);
+    GcsObjectRange containedRange = createRange(10L, 5);
+    GcsObjectRange adjacentRange = createRange(32L, 10);
+    ImmutableList<GcsObjectRange> ranges =
+        ImmutableList.of(outerRange, containedRange, adjacentRange);
+
+    List<GcsObjectCombinedRange> merged = VectoredIoUtil.mergeGcsObjectRanges(ranges, 5, 100);
+
+    assertThat(merged).hasSize(1);
+    assertThat(merged.get(0).getOffset()).isEqualTo(0);
+    assertThat(merged.get(0).getLength()).isEqualTo(42);
+    assertThat(merged.get(0).getUnderlyingRanges())
+        .containsExactly(outerRange, containedRange, adjacentRange)
+        .inOrder();
+  }
+
+  @Test
+  void mergeGcsObjectRanges_withUnsortedMultiGroupRanges_sortsAndMergesIntoGroups() {
+    GcsObjectRange group2Range1 = createRange(50L, 10);
+    GcsObjectRange group1Range1 = createRange(0L, 10);
+    GcsObjectRange group2Range2 = createRange(62L, 10);
+    GcsObjectRange group1Range2 = createRange(12L, 10);
+    ImmutableList<GcsObjectRange> ranges =
+        ImmutableList.of(group2Range1, group1Range1, group2Range2, group1Range2);
+
+    List<GcsObjectCombinedRange> merged = VectoredIoUtil.mergeGcsObjectRanges(ranges, 5, 100);
+
+    assertThat(merged).hasSize(2);
+    assertThat(merged.get(0).getOffset()).isEqualTo(0);
+    assertThat(merged.get(0).getLength()).isEqualTo(22);
+    assertThat(merged.get(0).getUnderlyingRanges())
+        .containsExactly(group1Range1, group1Range2)
+        .inOrder();
+    assertThat(merged.get(1).getOffset()).isEqualTo(50);
+    assertThat(merged.get(1).getLength()).isEqualTo(22);
+    assertThat(merged.get(1).getUnderlyingRanges())
+        .containsExactly(group2Range1, group2Range2)
+        .inOrder();
+  }
+
+  @Test
+  void mergeGcsObjectRanges_withEqualOffsetRanges_preservesOrderAndMatchesUnionEquivalence() {
+    GcsObjectRange group1First = createRange(10L, 5);
+    GcsObjectRange group1EqualOffset = createRange(10L, 12);
+    GcsObjectRange group1Next = createRange(25L, 8);
+    GcsObjectRange group2First = createRange(50L, 10);
+    GcsObjectRange group2EqualOffset = createRange(50L, 4);
+    GcsObjectRange group2Next = createRange(62L, 6);
+    ImmutableList<GcsObjectRange> ranges =
+        ImmutableList.of(
+            group2First, group1First, group2EqualOffset, group1EqualOffset, group2Next, group1Next);
+
+    ImmutableList<GcsObjectCombinedRange> merged =
+        VectoredIoUtil.mergeGcsObjectRanges(ranges, 5, 100);
+
+    GcsObjectCombinedRange expectedGroup1 =
+        GcsObjectCombinedRange.builder()
+            .setOffset(group1First.getOffset())
+            .setLength(group1First.getLength())
+            .setUnderlyingRanges(ImmutableList.of(group1First))
+            .build()
+            .union(group1EqualOffset)
+            .union(group1Next);
+    GcsObjectCombinedRange expectedGroup2 =
+        GcsObjectCombinedRange.builder()
+            .setOffset(group2First.getOffset())
+            .setLength(group2First.getLength())
+            .setUnderlyingRanges(ImmutableList.of(group2First))
+            .build()
+            .union(group2EqualOffset)
+            .union(group2Next);
+
+    assertThat(merged).containsExactly(expectedGroup1, expectedGroup2).inOrder();
+  }
+
+  @Test
   void fetchUnderlyingRangeData_withValidInputs_returnsCorrectDataSlice() {
     byte[] data = RandomUtils.nextBytes(100);
     ImmutableList<GcsObjectRange> children = createRanges(ImmutableMap.of(10L, 20, 40L, 30));
