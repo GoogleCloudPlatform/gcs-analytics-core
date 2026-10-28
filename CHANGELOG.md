@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.6.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.5.0...v1.6.0) (2026-10-28)
+
+
+### Features
+
+* Add client methods and update DTO structures for getFileInfo  ([#363](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/363)) ([408eb04](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/408eb04c8ba6e5d7dfdcb95aea0cb2c4cb75c085))
+* **client,core:** propagate lazily resolved GcsItemInfo to ReadStrategy and InputStream ([#395](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/395)) ([85b1173](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/85b11731e1310a647c85299d0543f76b48687387))
+* **client:** 1/5 Config based authentication - add authentication configuration options ([#376](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/376)) ([d58e7ae](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d58e7ae0b3e81b454cece1eb15fb7b96aea698a2))
+* **client:** Add configurable retry settings ([#403](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/403)) ([bc28abc](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/bc28abceda0335eea0772ef5c81343b618ccebc9))
+* **client:** Add createBucket, createEmptyObject, and createFolder to GcsClient ([#397](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/397)) ([167fd44](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/167fd4477593d01e783a35674f465a7accbf8410))
+* **client:** add GCS credentials factory ([#385](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/385)) ([f0e4a2a](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/f0e4a2a368c2c1a47886da217572ed5700ea643e))
+* **client:** add GcsBidiWriteChannel for bidi appendable uploads ([#366](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/366)) ([bd8e202](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/bd8e20219c0f7f5ab45eeb1bd801ca09c7ae62dd))
+* **client:** add HTTP transport factory with proxy support ([#380](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/380)) ([ecebdb6](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/ecebdb689e7cf6d20a9454fec8cdbb99d7b7e233))
+* **client:** apply proxy and HTTP timeouts to GCS data requests ([#401](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/401)) ([a890372](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/a890372628d83a67c4cb7c51010bce48125c0feb))
+* **client:** Implement getFileInfo for HNS and Flat Bucket in GcsFileSystem ([#389](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/389)) ([f6553d3](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/f6553d3ef3823f0a8bcc2f208d2888d06892656c))
+* **client:** wire authentication into GcsFileSystem ([#387](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/387)) ([ea3c90b](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/ea3c90bc95bd62171b64a1a09a1bc2e3e654c65e))
+* **core:** add speculative footer prefetching when file size is unknown ([#396](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/396)) ([f95d064](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/f95d064a5b78ac25b7136fad51ec5975587d947c))
+* Implement Cached and Lazy Executor Service for getFileInfo ([#357](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/357)) ([0c8135b](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/0c8135b819481a12a1d63edc7b7b1990f86d80a1))
+* Introduce Hns and Flat strategy and integrate with GcsFileSystem ([#311](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/311)) ([3542db3](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/3542db3dd25357a23ac3e0a5201365061c6d59ff))
+
+
+### Bug Fixes
+
+* **client:** namespace auth config keys under analytics-core.auth ([#383](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/383)) ([d06d3ce](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d06d3cee6050331e70af50c412fa19954e0ceaf3))
+* **client:** set User-Agent header on StorageControlClient ([#399](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/399)) ([5d5d140](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/5d5d140679a7d3a5053555c05e663374a016a54c))
+* **client:** Throw FileNotFoundException from getGcsObjectInfo when object not found  ([#371](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/371)) ([ae0187c](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/ae0187c9ce393a890dc1426f7d0af6c2486576a1))
+* **client:** translate 404 StorageException on read into FileNotFoundException ([#392](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/392)) ([176b1cf](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/176b1cf0d365c6d61bb1c24d4325954e67ab10a7))
+* **client:** unwrap OTel-decorated channels and defer metadata extraction flag until read ([#394](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/394)) ([1112962](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/111296204091b66a5db1fd8dd92d966147da581e))
+* **deps:** bump libraries-bom to 26.91.0 to pick up google-api-client 2.9.2 (distrusted root CAs) ([#425](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/425)) ([2bc962e](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/2bc962ea94996aafa20bc0685d6a1f795b0645b9))
+
+
+### Performance Improvements
+
+* **client:** avoid per-channel 128 KiB skipBuffer allocation on seek ([#422](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/422)) ([6d0749e](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/6d0749e67e1163ab7138cd8553b594f2dc74fcd9))
+* **common:** cut telemetry allocation on the read/write path; unscoped metric ids are now UNKNOWN ([#378](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/378)) ([1784537](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/1784537f810d9a309033f5ef67fc006c6d10ac91))
+
 ## [1.5.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.4.0...v1.5.0) (2026-08-04)
 
 
