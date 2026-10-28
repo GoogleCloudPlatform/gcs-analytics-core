@@ -118,7 +118,7 @@ public class HermeticInputStreamBenchmark {
 
   /** Reads the whole object with 64 KiB {@code read(byte[], int, int)} calls. */
   @Benchmark
-  public long sequentialRead() throws IOException {
+  public long sequentialRead(IoCounters counters) throws IOException {
     long total = 0;
     try (GoogleCloudStorageInputStream stream =
         GoogleCloudStorageInputStream.create(fileSystem, itemId)) {
@@ -127,6 +127,7 @@ public class HermeticInputStreamBenchmark {
         total += read;
       }
     }
+    counters.record(storage);
     return total;
   }
 
@@ -169,10 +170,12 @@ public class HermeticInputStreamBenchmark {
 
   /** 64 KiB {@code readTail} served from {@code GcsFooterOptimizer}'s 128 KiB prefetch window. */
   @Benchmark
-  public int readTailWithFooterPrefetch() throws IOException {
+  public int readTailWithFooterPrefetch(IoCounters counters) throws IOException {
     try (GoogleCloudStorageInputStream stream =
         GoogleCloudStorageInputStream.create(fileSystem, itemId)) {
-      return stream.readTail(buffer, 0, buffer.length);
+      int n = stream.readTail(buffer, 0, buffer.length);
+      counters.record(storage);
+      return n;
     }
   }
 }
