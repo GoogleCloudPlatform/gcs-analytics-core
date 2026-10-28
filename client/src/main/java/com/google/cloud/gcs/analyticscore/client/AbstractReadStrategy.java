@@ -23,6 +23,7 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobSourceOption;
 import com.google.common.collect.Lists;
 import java.io.IOException;
+import java.lang.ref.SoftReference;
 import java.nio.ByteBuffer;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -34,7 +35,13 @@ abstract class AbstractReadStrategy implements ReadStrategy {
   protected volatile GcsItemInfo itemInfo;
 
   private static final int SKIP_BUFFER_SIZE = 128 * 1024; // 128 KiB
-  private ByteBuffer skipBuffer;
+
+  /**
+   * Per-thread scratch buffer used only to discard bytes during an in-place skip. Its contents are
+   * never read. Thread-local (not shared) so concurrent skips neither race nor contend on cache
+   * lines; soft-referenced so it can be reclaimed under memory pressure.
+   */
+  static final ThreadLocal<SoftReference<ByteBuffer>> SKIP_BUFFER = new ThreadLocal<>();
 
   protected ReadChannel channel;
   protected long position = 0;
@@ -105,10 +112,18 @@ abstract class AbstractReadStrategy implements ReadStrategy {
     return sdkReadChannel;
   }
 
-  boolean skipInPlace(long seekDistance) throws IOException {
-    if (skipBuffer == null) {
-      skipBuffer = ByteBuffer.allocate(SKIP_BUFFER_SIZE);
+  private static ByteBuffer acquireSkipBuffer() {
+    SoftReference<ByteBuffer> ref = SKIP_BUFFER.get();
+    ByteBuffer buffer = (ref != null) ? ref.get() : null;
+    if (buffer == null) {
+      buffer = ByteBuffer.allocate(SKIP_BUFFER_SIZE);
+      SKIP_BUFFER.set(new SoftReference<>(buffer));
     }
+    return buffer;
+  }
+
+  boolean skipInPlace(long seekDistance) throws IOException {
+    ByteBuffer skipBuffer = acquireSkipBuffer();
     while (seekDistance > 0) {
       int bufferSize = (int) Math.min((long) skipBuffer.capacity(), seekDistance);
       skipBuffer.clear();
