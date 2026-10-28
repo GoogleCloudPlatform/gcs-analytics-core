@@ -17,38 +17,37 @@
 package com.google.cloud.gcs.analyticscore.core;
 
 import com.google.cloud.gcs.analyticscore.client.*;
+import java.io.IOException;
+import java.net.URI;
 import org.apache.parquet.io.InputFile;
 import org.apache.parquet.io.SeekableInputStream;
 
-import java.io.IOException;
-import java.net.URI;
-
 public class TestInputStreamInputFile implements InputFile {
 
-    private GcsFileSystem gcsFileSystem;
-    private final URI fileUri;
-    private final boolean enableVectoredIO;
-    private Long size;
+  private GcsFileSystem gcsFileSystem;
+  private final URI fileUri;
+  private final boolean enableVectoredIO;
+  private Long size;
 
-    public TestInputStreamInputFile(
-        URI filePath, boolean enableVectoredIO, GcsFileSystemOptions gcsFileSystemOptions) {
-        this.fileUri = filePath;
-        this.enableVectoredIO = enableVectoredIO;
-        this.gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
-    }
+  public TestInputStreamInputFile(
+      URI filePath, boolean enableVectoredIO, GcsFileSystemOptions gcsFileSystemOptions) {
+    this.fileUri = filePath;
+    this.enableVectoredIO = enableVectoredIO;
+    this.gcsFileSystem = new GcsFileSystemImpl(gcsFileSystemOptions);
+  }
 
-    @Override
-    public long getLength() throws IOException {
-        if (size == null) {
-            size = gcsFileSystem.getFileInfoObject(fileUri).getItemInfo().getSize();
-        }
-        return size;
+  @Override
+  public long getLength() throws IOException {
+    if (size == null) {
+      size = gcsFileSystem.getFileInfoObject(fileUri).getItemInfo().getSize();
     }
+    return size;
+  }
 
-    @Override
-    public SeekableInputStream newStream() throws IOException {
-        GoogleCloudStorageInputStream gcsInputStream = GoogleCloudStorageInputStream
-                .create(gcsFileSystem, fileUri);
-        return new TestSeekableInputStream(gcsInputStream, enableVectoredIO);
-    }
+  @Override
+  public SeekableInputStream newStream() throws IOException {
+    GoogleCloudStorageInputStream gcsInputStream =
+        GoogleCloudStorageInputStream.create(gcsFileSystem, fileUri);
+    return new TestSeekableInputStream(gcsInputStream, enableVectoredIO);
+  }
 }

@@ -16,88 +16,89 @@
 
 package com.google.cloud.gcs.analyticscore.core;
 
-import org.apache.parquet.io.SeekableInputStream;
-import org.apache.parquet.io.ParquetFileRange;
-import org.apache.parquet.bytes.ByteBufferAllocator;
 import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
-
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.apache.parquet.bytes.ByteBufferAllocator;
+import org.apache.parquet.io.ParquetFileRange;
+import org.apache.parquet.io.SeekableInputStream;
 
 public class TestSeekableInputStream extends SeekableInputStream {
-    private final GoogleCloudStorageInputStream inputStream;
-    private final boolean vectoredReadEnabled;
+  private final GoogleCloudStorageInputStream inputStream;
+  private final boolean vectoredReadEnabled;
 
-    public TestSeekableInputStream(GoogleCloudStorageInputStream inputStream, boolean enableVectoredRead) {
-        this.inputStream = inputStream;
-        this.vectoredReadEnabled = enableVectoredRead;
-    }
+  public TestSeekableInputStream(
+      GoogleCloudStorageInputStream inputStream, boolean enableVectoredRead) {
+    this.inputStream = inputStream;
+    this.vectoredReadEnabled = enableVectoredRead;
+  }
 
-    @Override
-    public long getPos() throws IOException {
-        return inputStream.getPos();
-    }
+  @Override
+  public long getPos() throws IOException {
+    return inputStream.getPos();
+  }
 
-    @Override
-    public void seek(long l) throws IOException {
-        inputStream.seek(l);
-    }
+  @Override
+  public void seek(long l) throws IOException {
+    inputStream.seek(l);
+  }
 
-    @Override
-    public void readFully(byte[] bytes) throws IOException {
-        inputStream.read(bytes);
-    }
+  @Override
+  public void readFully(byte[] bytes) throws IOException {
+    inputStream.read(bytes);
+  }
 
-    @Override
-    public void readFully(byte[] bytes, int start, int len) throws IOException {
-        ByteBuffer buffer = ByteBuffer.wrap(bytes, start, len);
-        while (buffer.hasRemaining()) {
-            if (inputStream.read(buffer) == -1) {
-                throw new EOFException();
-            }
-        }
+  @Override
+  public void readFully(byte[] bytes, int start, int len) throws IOException {
+    ByteBuffer buffer = ByteBuffer.wrap(bytes, start, len);
+    while (buffer.hasRemaining()) {
+      if (inputStream.read(buffer) == -1) {
+        throw new EOFException();
+      }
     }
+  }
 
-    @Override
-    public int read(ByteBuffer byteBuffer) throws IOException {
-        return inputStream.read(byteBuffer);
-    }
+  @Override
+  public int read(ByteBuffer byteBuffer) throws IOException {
+    return inputStream.read(byteBuffer);
+  }
 
-    @Override
-    public void readFully(ByteBuffer byteBuffer) throws IOException {
-        while (byteBuffer.hasRemaining()) {
-            if(inputStream.read(byteBuffer) == -1) {
-                throw new EOFException();
-            };
-        }
+  @Override
+  public void readFully(ByteBuffer byteBuffer) throws IOException {
+    while (byteBuffer.hasRemaining()) {
+      if (inputStream.read(byteBuffer) == -1) {
+        throw new EOFException();
+      }
+      ;
     }
+  }
 
-    @Override
-    public int read() throws IOException {
-        return inputStream.read();
-    }
+  @Override
+  public int read() throws IOException {
+    return inputStream.read();
+  }
 
-    @Override
-    public boolean readVectoredAvailable(ByteBufferAllocator allocator) {
-        return vectoredReadEnabled;
-    }
+  @Override
+  public boolean readVectoredAvailable(ByteBufferAllocator allocator) {
+    return vectoredReadEnabled;
+  }
 
-    @Override
-    public void readVectored(List<ParquetFileRange> ranges, ByteBufferAllocator allocator) throws IOException {
-        List<GcsObjectRange> gcsObjectRanges = new ArrayList<>();
-        for (ParquetFileRange range : ranges) {
-            GcsObjectRange.Builder builder = GcsObjectRange.builder()
-                    .setOffset(range.getOffset())
-                    .setLength(range.getLength());
-            CompletableFuture<ByteBuffer> future = new CompletableFuture<>();
-            builder.setByteBufferFuture(future);
-            range.setDataReadFuture(future);
-            gcsObjectRanges.add(builder.build());
-        }
-        inputStream.readVectored(gcsObjectRanges, allocator::allocate);
+  @Override
+  public void readVectored(List<ParquetFileRange> ranges, ByteBufferAllocator allocator)
+      throws IOException {
+    List<GcsObjectRange> gcsObjectRanges = new ArrayList<>();
+    for (ParquetFileRange range : ranges) {
+      GcsObjectRange.Builder builder =
+          GcsObjectRange.builder().setOffset(range.getOffset()).setLength(range.getLength());
+      CompletableFuture<ByteBuffer> future = new CompletableFuture<>();
+      builder.setByteBufferFuture(future);
+      range.setDataReadFuture(future);
+      gcsObjectRanges.add(builder.build());
     }
+    inputStream.readVectored(gcsObjectRanges, allocator::allocate);
+  }
 }

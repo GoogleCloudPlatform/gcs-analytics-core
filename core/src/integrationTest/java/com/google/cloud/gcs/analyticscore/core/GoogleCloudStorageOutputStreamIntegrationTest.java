@@ -29,21 +29,12 @@ import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsWriteOptions;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.cloud.storage.BlobId;
-import com.google.cloud.storage.BlobInfo;
-import com.google.cloud.storage.HttpStorageOptions;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
-import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AccessDeniedException;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -60,23 +51,26 @@ import org.apache.parquet.io.InputFile;
 import org.apache.parquet.io.OutputFile;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.MessageTypeParser;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.MethodSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-@EnabledIfSystemProperty(named = IntegrationTestHelper.GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
-@EnabledIfSystemProperty(named = IntegrationTestHelper.GCS_INTEGRATION_TEST_PROJECT_ID_PROPERTY, matches = ".+")
+@EnabledIfSystemProperty(
+    named = IntegrationTestHelper.GCS_INTEGRATION_TEST_BUCKET_PROPERTY,
+    matches = ".+")
+@EnabledIfSystemProperty(
+    named = IntegrationTestHelper.GCS_INTEGRATION_TEST_PROJECT_ID_PROPERTY,
+    matches = ".+")
 class GoogleCloudStorageOutputStreamIntegrationTest {
 
-  private static final Logger logger = LoggerFactory.getLogger(GoogleCloudStorageOutputStreamIntegrationTest.class);
+  private static final Logger logger =
+      LoggerFactory.getLogger(GoogleCloudStorageOutputStreamIntegrationTest.class);
 
   private static final int KB = 1024;
   private static final int MB = 1024 * KB;
@@ -96,8 +90,7 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
       "Hello, GCS Analytics Core!".getBytes(StandardCharsets.UTF_8);
   private static final byte[] CSV_CONTENT =
       "id,name,city\n1,Alice,NYC\n2,Bob,SFO\n".getBytes(StandardCharsets.UTF_8);
-  private static final byte[] FIRST_WRITE_CONTENT =
-      "First write".getBytes(StandardCharsets.UTF_8);
+  private static final byte[] FIRST_WRITE_CONTENT = "First write".getBytes(StandardCharsets.UTF_8);
   private static final byte[] SECOND_WRITE_CONTENT =
       "Second write attempts to overwrite".getBytes(StandardCharsets.UTF_8);
   private static final byte[] ORIGINAL_CONTENT =
@@ -134,9 +127,10 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
 
   @BeforeEach
   void setUp() throws IOException {
-    GcsFileSystemOptions options = GcsFileSystemOptions.builder()
-        .setGcsClientOptions(GcsClientOptions.builder().build())
-        .build();
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder()
+            .setGcsClientOptions(GcsClientOptions.builder().build())
+            .build();
     gcsFileSystem = new GcsFileSystemImpl(options);
     blobsToDelete = new ArrayList<>();
   }
@@ -159,7 +153,11 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     URI uri = IntegrationTestHelper.getGcsObjectUriForFile(fileName);
     BlobId blobId = BlobId.fromGsUtilUri(uri.toString());
     blobsToDelete.add(blobId);
-    GcsItemId itemId = GcsItemId.builder().setBucketName(blobId.getBucket()).setObjectName(blobId.getName()).build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName(blobId.getBucket())
+            .setObjectName(blobId.getName())
+            .build();
     return new TestFileContext(fileName, uri, itemId);
   }
 
@@ -183,110 +181,124 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     return Stream.of(
         Arguments.of(TEST_CONTENT, FILE_PREFIX_TXT, SUFFIX_TXT),
         Arguments.of(CSV_CONTENT, FILE_PREFIX_CSV, SUFFIX_CSV),
-        Arguments.of(new byte[0], FILE_PREFIX_TXT, SUFFIX_TXT)
-    );
+        Arguments.of(new byte[0], FILE_PREFIX_TXT, SUFFIX_TXT));
   }
 
   @ParameterizedTest
   @MethodSource("provideContentForWrite")
-  void write_variousContentTypes_createsFileSuccessfully(byte[] content, String prefix, String suffix) throws IOException {
+  void write_variousContentTypes_createsFileSuccessfully(
+      byte[] content, String prefix, String suffix) throws IOException {
     TestFileContext ctx = createTestFileContext(prefix, suffix);
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
 
-    try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(createFileSystemWithWriteOptions(writeOptions), ctx.itemId)) {
+    try (GoogleCloudStorageOutputStream outputStream =
+        GoogleCloudStorageOutputStream.create(
+            createFileSystemWithWriteOptions(writeOptions), ctx.itemId)) {
       outputStream.write(content);
     }
 
     assertThat(IntegrationTestHelper.objectPresentInBucket(ctx.fileName)).isTrue();
-    assertThat(gcsFileSystem.getFileInfoObject(ctx.uri).getItemInfo().getSize()).isEqualTo((long) content.length);
+    assertThat(gcsFileSystem.getFileInfoObject(ctx.uri).getItemInfo().getSize())
+        .isEqualTo((long) content.length);
   }
 
   @Test
   void write_withChecksumValidationEnabled_createsFileSuccessfully() throws IOException {
     TestFileContext ctx = createTestFileContext(FILE_PREFIX_TXT, SUFFIX_TXT);
-    GcsWriteOptions writeOptions = GcsWriteOptions.builder()
-        .setChecksumValidationEnabled(true)
-        .build();
+    GcsWriteOptions writeOptions =
+        GcsWriteOptions.builder().setChecksumValidationEnabled(true).build();
 
-    try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(createFileSystemWithWriteOptions(writeOptions), ctx.itemId)) {
+    try (GoogleCloudStorageOutputStream outputStream =
+        GoogleCloudStorageOutputStream.create(
+            createFileSystemWithWriteOptions(writeOptions), ctx.itemId)) {
       outputStream.write(TEST_CONTENT);
     }
 
     assertThat(IntegrationTestHelper.objectPresentInBucket(ctx.fileName)).isTrue();
-    assertThat(gcsFileSystem.getFileInfoObject(ctx.uri).getItemInfo().getSize()).isEqualTo((long) TEST_CONTENT.length);
+    assertThat(gcsFileSystem.getFileInfoObject(ctx.uri).getItemInfo().getSize())
+        .isEqualTo((long) TEST_CONTENT.length);
   }
 
   @Test
   void write_largeFileWithMultipleChunks_createsFileSuccessfully() throws IOException {
     TestFileContext ctx = createTestFileContext(FILE_PREFIX_BIN, SUFFIX_BIN);
-    GcsClientOptions clientOptions = GcsClientOptions.builder()
-        .setUploadChunkSize(256 * KB)
-        .build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder().setUploadChunkSize(256 * KB).build();
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
     int totalSize = MB;
     byte[] chunk = new byte[KB];
 
     GcsFileSystem customFs = createFileSystemWithClientOptions(clientOptions);
-    try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(customFs, ctx.itemId)) {
+    try (GoogleCloudStorageOutputStream outputStream =
+        GoogleCloudStorageOutputStream.create(customFs, ctx.itemId)) {
       for (int i = 0; i < totalSize / chunk.length; i++) {
         outputStream.write(chunk);
       }
     }
 
     assertThat(IntegrationTestHelper.objectPresentInBucket(ctx.fileName)).isTrue();
-    assertThat(gcsFileSystem.getFileInfoObject(ctx.uri).getItemInfo().getSize()).isEqualTo((long) totalSize);
+    assertThat(gcsFileSystem.getFileInfoObject(ctx.uri).getItemInfo().getSize())
+        .isEqualTo((long) totalSize);
   }
 
   @Test
   void write_toDiskThenUploadEnabled_createsFileSuccessfully() throws IOException {
     TestFileContext ctx = createTestFileContext(FILE_PREFIX_TXT, SUFFIX_TXT);
-    GcsClientOptions clientOptions = GcsClientOptions.builder()
-        .setUploadType(GcsClientOptions.UploadType.WRITE_TO_DISK_THEN_UPLOAD)
-        .build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setUploadType(GcsClientOptions.UploadType.WRITE_TO_DISK_THEN_UPLOAD)
+            .build();
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
 
     GcsFileSystem customFs = createFileSystemWithClientOptions(clientOptions);
-    try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(customFs, ctx.itemId)) {
+    try (GoogleCloudStorageOutputStream outputStream =
+        GoogleCloudStorageOutputStream.create(customFs, ctx.itemId)) {
       outputStream.write(TEST_CONTENT);
     }
 
     assertThat(IntegrationTestHelper.objectPresentInBucket(ctx.fileName)).isTrue();
-    assertThat(customFs.getFileInfoObject(ctx.uri).getItemInfo().getSize()).isEqualTo((long) TEST_CONTENT.length);
+    assertThat(customFs.getFileInfoObject(ctx.uri).getItemInfo().getSize())
+        .isEqualTo((long) TEST_CONTENT.length);
   }
 
   @Test
   void write_withJournalingEnabled_throwsUnsupportedOperationException() {
-    GcsClientOptions clientOptions = GcsClientOptions.builder()
-        .setUploadType(GcsClientOptions.UploadType.JOURNALING)
-        .setTemporaryPaths(Collections.singletonList("/tmp/dummy-path"))
-        .build();
-    assertThrows(UnsupportedOperationException.class, () -> createFileSystemWithClientOptions(clientOptions));
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setUploadType(GcsClientOptions.UploadType.JOURNALING)
+            .setTemporaryPaths(Collections.singletonList("/tmp/dummy-path"))
+            .build();
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> createFileSystemWithClientOptions(clientOptions));
   }
 
   @Test
   void write_parquetContent_createsFileSuccessfully() throws IOException {
     TestFileContext ctx = createTestFileContext(FILE_PREFIX_PARQUET, SUFFIX_PARQUET);
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
-      GcsFileSystemOptions readFsOptions = GcsFileSystemOptions.createFromOptions(Map.of(), "gcs.");
+    GcsFileSystemOptions readFsOptions = GcsFileSystemOptions.createFromOptions(Map.of(), "gcs.");
     InputFile inputFile = new TestInputStreamInputFile(ctx.uri, false, readFsOptions);
     List<String> namesRead = new ArrayList<>();
     Configuration conf = new Configuration();
 
     // Use the GCS file system to write Parquet data.
-    try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(createFileSystemWithWriteOptions(writeOptions), ctx.itemId)) {
+    try (GoogleCloudStorageOutputStream outputStream =
+        GoogleCloudStorageOutputStream.create(
+            createFileSystemWithWriteOptions(writeOptions), ctx.itemId)) {
       OutputFile outputFile = new TestOutputStreamOutputFile(outputStream);
       MessageType schema = MessageTypeParser.parseMessageType(PARQUET_SCHEMA_STRING);
       GroupWriteSupport.setSchema(schema, conf);
-      try (ParquetWriter<Group> writer = ExampleParquetWriter.builder(outputFile)
-          .withConf(conf)
-          .build()) {
+      try (ParquetWriter<Group> writer =
+          ExampleParquetWriter.builder(outputFile).withConf(conf).build()) {
         SimpleGroupFactory groupFactory = new SimpleGroupFactory(schema);
         writer.write(groupFactory.newGroup().append(PARQUET_FIELD_NAME, PARQUET_VAL_ALICE));
         writer.write(groupFactory.newGroup().append(PARQUET_FIELD_NAME, PARQUET_VAL_BOB));
       }
     }
     // Read the written content for verifying the correctness of the data written.
-    try (ParquetReader<Group> reader = new GroupParquetReaderBuilder(inputFile).withConf(conf).build()) {
+    try (ParquetReader<Group> reader =
+        new GroupParquetReaderBuilder(inputFile).withConf(conf).build()) {
       Group group;
       while ((group = reader.read()) != null) {
         namesRead.add(group.getString(PARQUET_FIELD_NAME, 0));
@@ -300,11 +312,12 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
   @Test
   void copyParquetFile_fromExistingFile_writesCorrectly() throws IOException {
     IntegrationTestHelper.uploadSampleParquetFilesIfNotExists();
-    URI sourceUri = IntegrationTestHelper.getGcsObjectUriForFile(IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE);
+    URI sourceUri =
+        IntegrationTestHelper.getGcsObjectUriForFile(
+            IntegrationTestHelper.TPCDS_CUSTOMER_SMALL_FILE);
     GcsFileSystemOptions readFsOptions = GcsFileSystemOptions.createFromOptions(Map.of(), "gcs.");
     InputFile inputFile = new TestInputStreamInputFile(sourceUri, false, readFsOptions);
-    ParquetMetadata metadata =
-        ParquetHelper.readParquetMetadata(sourceUri, readFsOptions);
+    ParquetMetadata metadata = ParquetHelper.readParquetMetadata(sourceUri, readFsOptions);
     MessageType schema = metadata.getFileMetaData().getSchema();
     TestFileContext destCtx = createTestFileContext(FILE_PREFIX_CTAS, SUFFIX_PARQUET);
     GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
@@ -313,11 +326,15 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     List<String> sourceRecordSignatures = new ArrayList<>();
 
     // Copy Parquet file from existing file.
-    try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(createFileSystemWithWriteOptions(writeOptions), destCtx.itemId)) {
+    try (GoogleCloudStorageOutputStream outputStream =
+        GoogleCloudStorageOutputStream.create(
+            createFileSystemWithWriteOptions(writeOptions), destCtx.itemId)) {
       OutputFile outputFile = new TestOutputStreamOutputFile(outputStream);
       GroupWriteSupport.setSchema(schema, conf);
-      try (ParquetReader<Group> reader = new GroupParquetReaderBuilder(inputFile).withConf(conf).build();
-          ParquetWriter<Group> writer = ExampleParquetWriter.builder(outputFile).withConf(conf).build()) {
+      try (ParquetReader<Group> reader =
+              new GroupParquetReaderBuilder(inputFile).withConf(conf).build();
+          ParquetWriter<Group> writer =
+              ExampleParquetWriter.builder(outputFile).withConf(conf).build()) {
         Group group;
         while ((group = reader.read()) != null) {
           writer.write(group);
@@ -330,7 +347,8 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     // Read the writtten content for verifying the correctness of the data written.
     InputFile destInputFile = new TestInputStreamInputFile(destCtx.uri, false, readFsOptions);
     List<String> destRecordSignatures = new ArrayList<>();
-    try (ParquetReader<Group> reader = new GroupParquetReaderBuilder(destInputFile).withConf(conf).build()) {
+    try (ParquetReader<Group> reader =
+        new GroupParquetReaderBuilder(destInputFile).withConf(conf).build()) {
       Group group;
       while ((group = reader.read()) != null) {
         destRecordSignatures.add(group.toString());
@@ -353,7 +371,8 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     long positionAfterChunk2;
 
     try (GoogleCloudStorageOutputStream outputStream =
-        GoogleCloudStorageOutputStream.create(createFileSystemWithWriteOptions(writeOptions), ctx.itemId)) {
+        GoogleCloudStorageOutputStream.create(
+            createFileSystemWithWriteOptions(writeOptions), ctx.itemId)) {
       initialPosition = outputStream.getBytesWritten();
       outputStream.write(chunk1);
       positionAfterChunk1 = outputStream.getBytesWritten();
@@ -375,29 +394,35 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     GcsWriteOptions defaultOptions = GcsWriteOptions.builder().build();
 
     try (GoogleCloudStorageOutputStream outputStream =
-        GoogleCloudStorageOutputStream.create(createFileSystemWithWriteOptions(defaultOptions), ctx.itemId)) {
+        GoogleCloudStorageOutputStream.create(
+            createFileSystemWithWriteOptions(defaultOptions), ctx.itemId)) {
       outputStream.write(ORIGINAL_CONTENT);
     }
 
     GcsFileInfo fileInfo = gcsFileSystem.getFileInfoObject(ctx.uri);
     long currentGeneration = fileInfo.getItemInfo().getContentGeneration().orElse(0L);
     try (GoogleCloudStorageOutputStream outputStream =
-        GoogleCloudStorageOutputStream.create(createFileSystemWithWriteOptions(defaultOptions), ctx.itemId)) {
+        GoogleCloudStorageOutputStream.create(
+            createFileSystemWithWriteOptions(defaultOptions), ctx.itemId)) {
       outputStream.write(CONCURRENT_CONTENT);
     }
 
-    GcsItemId itemIdWithOldGeneration = GcsItemId.builder()
-        .setBucketName(ctx.itemId.getBucketName())
-        .setObjectName(ctx.itemId.getObjectName().get())
-        .setContentGeneration(currentGeneration)
-        .build();
+    GcsItemId itemIdWithOldGeneration =
+        GcsItemId.builder()
+            .setBucketName(ctx.itemId.getBucketName())
+            .setObjectName(ctx.itemId.getObjectName().get())
+            .setContentGeneration(currentGeneration)
+            .build();
     // Write with the stale generation should throw exception.
-    IOException exception = assertThrows(IOException.class, () -> {
-      try (GoogleCloudStorageOutputStream outputStream =
-          GoogleCloudStorageOutputStream.create(gcsFileSystem, itemIdWithOldGeneration)) {
-        outputStream.write(STALE_CONTENT);
-      }
-    });
+    IOException exception =
+        assertThrows(
+            IOException.class,
+            () -> {
+              try (GoogleCloudStorageOutputStream outputStream =
+                  GoogleCloudStorageOutputStream.create(gcsFileSystem, itemIdWithOldGeneration)) {
+                outputStream.write(STALE_CONTENT);
+              }
+            });
     assertThat(currentGeneration).isGreaterThan(0L);
     assertThat(exception).hasMessageThat().contains(GENERATION_MISMATCH_MESSAGE);
   }
@@ -405,32 +430,34 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
   @Test
   void write_withCustomerSuppliedEncryptionKey_createsFileSuccessfully() throws IOException {
     TestFileContext ctx = createTestFileContext(FILE_PREFIX_TXT, SUFFIX_TXT);
-    GcsWriteOptions writeOptions = GcsWriteOptions.builder()
-        .setEncryptionKey(CSEK_KEY)
-        .build();
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().setEncryptionKey(CSEK_KEY).build();
     GcsReadOptions readOptionsNoKey = GcsReadOptions.builder().build();
-    GcsReadOptions readOptionsWithKey = GcsReadOptions.builder()
-        .setDecryptionKey(CSEK_KEY)
-        .build();
+    GcsReadOptions readOptionsWithKey = GcsReadOptions.builder().setDecryptionKey(CSEK_KEY).build();
     int bytesRead;
 
     // Write encrypted data with the encryption key.
     try (GoogleCloudStorageOutputStream outputStream =
-        GoogleCloudStorageOutputStream.create(createFileSystemWithWriteOptions(writeOptions), ctx.itemId)) {
+        GoogleCloudStorageOutputStream.create(
+            createFileSystemWithWriteOptions(writeOptions), ctx.itemId)) {
       outputStream.write(CSEK_ENCRYPTED_CONTENT);
     }
 
     // Attempting to read without the encryption key should result in an exception.
-    IOException readWithoutKeyException = assertThrows(IOException.class, () -> {
-      try (VectoredSeekableByteChannel readChannel = gcsFileSystem.open(ctx.itemId, readOptionsNoKey)) {
-        ByteBuffer buffer = ByteBuffer.allocate(10);
-        readChannel.read(buffer);
-      }
-    });
+    IOException readWithoutKeyException =
+        assertThrows(
+            IOException.class,
+            () -> {
+              try (VectoredSeekableByteChannel readChannel =
+                  gcsFileSystem.open(ctx.itemId, readOptionsNoKey)) {
+                ByteBuffer buffer = ByteBuffer.allocate(10);
+                readChannel.read(buffer);
+              }
+            });
 
     // Attempting to read the data without the encryption key should result in an exception.
     ByteBuffer buffer = ByteBuffer.allocate(30);
-    try (VectoredSeekableByteChannel readChannel = gcsFileSystem.open(ctx.itemId, readOptionsWithKey)) {
+    try (VectoredSeekableByteChannel readChannel =
+        gcsFileSystem.open(ctx.itemId, readOptionsWithKey)) {
       bytesRead = readChannel.read(buffer);
       buffer.flip();
     }
@@ -441,15 +468,17 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
     assertThat(new String(buffer.array(), 0, bytesRead, StandardCharsets.UTF_8))
         .isEqualTo(CSEK_RAW_SECRET);
   }
-  
-  private GcsFileSystem createFileSystemWithWriteOptions(GcsWriteOptions writeOptions) throws IOException {
-    return createFileSystemWithClientOptions(GcsClientOptions.builder().setGcsWriteOptions(writeOptions).build());
+
+  private GcsFileSystem createFileSystemWithWriteOptions(GcsWriteOptions writeOptions)
+      throws IOException {
+    return createFileSystemWithClientOptions(
+        GcsClientOptions.builder().setGcsWriteOptions(writeOptions).build());
   }
 
-  private GcsFileSystem createFileSystemWithClientOptions(GcsClientOptions clientOptions) throws IOException {
-    GcsFileSystemOptions options = GcsFileSystemOptions.builder()
-        .setGcsClientOptions(clientOptions)
-        .build();
+  private GcsFileSystem createFileSystemWithClientOptions(GcsClientOptions clientOptions)
+      throws IOException {
+    GcsFileSystemOptions options =
+        GcsFileSystemOptions.builder().setGcsClientOptions(clientOptions).build();
     return new GcsFileSystemImpl(options);
   }
 }

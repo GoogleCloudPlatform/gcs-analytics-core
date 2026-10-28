@@ -475,6 +475,11 @@ limitations under the License.
                             </format>
                         </formats>
                         <java>
+                            <includes>
+                                <include>src/main/java/**/*.java</include>
+                                <include>src/test/java/**/*.java</include>
+                                <include>src/integrationTest/java/**/*.java</include>
+                            </includes>
                             <toggleOffOn>
                                 <off>fmt:off</off>
                                 <on>fmt:on</on>

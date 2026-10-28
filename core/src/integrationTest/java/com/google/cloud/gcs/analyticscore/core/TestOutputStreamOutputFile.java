@@ -16,16 +16,11 @@
 
 package com.google.cloud.gcs.analyticscore.core;
 
-import java.io.EOFException;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.WritableByteChannel;
 import org.apache.parquet.io.OutputFile;
 import org.apache.parquet.io.PositionOutputStream;
 
-/**
- * Adapts GoogleCloudStorageOutputStream to the Parquet OutputFile interface.
- */
+/** Adapts GoogleCloudStorageOutputStream to the Parquet OutputFile interface. */
 public class TestOutputStreamOutputFile implements OutputFile {
   private final GoogleCloudStorageOutputStream gcsos;
 

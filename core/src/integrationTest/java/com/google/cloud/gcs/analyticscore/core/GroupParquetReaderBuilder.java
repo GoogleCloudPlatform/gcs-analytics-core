@@ -23,27 +23,26 @@ import org.apache.parquet.hadoop.example.GroupReadSupport;
 import org.apache.parquet.io.InputFile;
 
 /**
- * A custom ParquetReader.Builder to create a reader for 'Group' objects
- * from an 'InputFile'.
+ * A custom ParquetReader.Builder to create a reader for 'Group' objects from an 'InputFile'.
  *
- * This is necessary because the default ParquetReader.builder() static method
- * only accepts a 'Path', and the protected Builder(InputFile) constructor
- * must be subclassed.
+ * <p>This is necessary because the default ParquetReader.builder() static method only accepts a
+ * 'Path', and the protected Builder(InputFile) constructor must be subclassed.
  */
 public class GroupParquetReaderBuilder extends ParquetReader.Builder<Group> {
 
-    private final GroupReadSupport readSupport = new GroupReadSupport();
+  private final GroupReadSupport readSupport = new GroupReadSupport();
 
-    /**
-     * Creates a builder for reading 'Group' objects from an InputFile.
-     * @param file The InputFile to read from.
-     */
-    public GroupParquetReaderBuilder(InputFile file) {
-        super(file);
-    }
+  /**
+   * Creates a builder for reading 'Group' objects from an InputFile.
+   *
+   * @param file The InputFile to read from.
+   */
+  public GroupParquetReaderBuilder(InputFile file) {
+    super(file);
+  }
 
-    @Override
-    protected ReadSupport<Group> getReadSupport() {
-        return readSupport;
-    }
+  @Override
+  protected ReadSupport<Group> getReadSupport() {
+    return readSupport;
+  }
 }
