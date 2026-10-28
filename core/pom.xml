@@ -31,6 +31,10 @@ limitations under the License.
             <artifactId>client</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-format-structures</artifactId>
+        </dependency>
         <!--
           Test dependencies for unit tests only. The Parquet/Hadoop/Avro stack is NOT here on
           purpose: no test under src/test/java references it, and pulling hadoop-common into every
