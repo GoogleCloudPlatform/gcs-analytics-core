@@ -20,6 +20,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,10 +35,76 @@ class AnalyticsCacheCaffeineImplTest {
   }
 
   @Test
+  void create_nonPositiveMaxWeight_throwsException() {
+    IllegalArgumentException zeroException =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> AnalyticsCacheCaffeineImpl.create(0, (key, value) -> 1));
+    IllegalArgumentException negativeException =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> AnalyticsCacheCaffeineImpl.create(-1, (key, value) -> 1));
+
+    assertThat(zeroException).hasMessageThat().contains("maxWeight must be positive");
+    assertThat(negativeException).hasMessageThat().contains("maxWeight must be positive");
+  }
+
+  @Test
   void create_nullWeigher_throwsException() {
     NullPointerException exception =
         assertThrows(NullPointerException.class, () -> AnalyticsCacheCaffeineImpl.create(10, null));
     assertThat(exception).hasMessageThat().contains("weigher cannot be null");
+  }
+
+  @Test
+  void createWithTtlOnly_nonPositiveTtl_throwsException() {
+    IllegalArgumentException zeroException =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> AnalyticsCacheCaffeineImpl.createWithTtlOnly(0, TimeUnit.SECONDS));
+    IllegalArgumentException negativeException =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> AnalyticsCacheCaffeineImpl.createWithTtlOnly(-1, TimeUnit.SECONDS));
+
+    assertThat(zeroException).hasMessageThat().contains("ttl must be positive");
+    assertThat(negativeException).hasMessageThat().contains("ttl must be positive");
+  }
+
+  @Test
+  void createWithTtlOnly_nullUnit_throwsException() {
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class,
+            () -> AnalyticsCacheCaffeineImpl.createWithTtlOnly(10, null));
+
+    assertThat(exception).hasMessageThat().contains("unit cannot be null");
+  }
+
+  @Test
+  void createWithTtlOnly_validArgs_putAndGetRoundTrips() {
+    AnalyticsCacheCaffeineImpl<String, String> ttlCache =
+        AnalyticsCacheCaffeineImpl.createWithTtlOnly(1, TimeUnit.HOURS);
+
+    ttlCache.put("key1", "value1");
+
+    assertThat(ttlCache.get("key1")).hasValue("value1");
+  }
+
+  @Test
+  void createWithTtlOnly_expiredEntry_evictsOnCleanUp() {
+    AnalyticsCacheCaffeineImpl<String, String> ttlCache =
+        AnalyticsCacheCaffeineImpl.createWithTtlOnly(1, TimeUnit.NANOSECONDS);
+
+    ttlCache.put("key1", "value1");
+    long start = System.nanoTime();
+    while (System.nanoTime() - start < 1_000L) {
+      Thread.onSpinWait();
+    }
+    ttlCache.cleanUp();
+
+    assertThat(ttlCache.get("key1")).isEmpty();
+    assertThat(ttlCache.size()).isEqualTo(0);
   }
 
   @Test
@@ -86,6 +153,24 @@ class AnalyticsCacheCaffeineImplTest {
                 keyToLoad -> {
                   throw new IOException("test-exception");
                 }));
+  }
+
+  @Test
+  void get_withMappingFunction_throwsRuntimeException_rethrowsSameInstance() {
+    IllegalStateException expected = new IllegalStateException("test-runtime-exception");
+
+    IllegalStateException actual =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                cache.get(
+                    "key1",
+                    keyToLoad -> {
+                      throw expected;
+                    }));
+
+    assertThat(actual).isSameInstanceAs(expected);
+    assertThat(cache.get("key1")).isEmpty();
   }
 
   @Test

@@ -98,4 +98,13 @@ class AnalyticsCacheNoOpImplTest {
 
     assertThat(cache.size()).isEqualTo(0);
   }
+
+  @Test
+  void cleanUp_anyState_doesNothing() {
+    cache.put("key1", "value1");
+
+    cache.cleanUp();
+
+    assertThat(cache.size()).isEqualTo(0);
+  }
 }
