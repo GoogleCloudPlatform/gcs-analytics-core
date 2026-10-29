@@ -18,6 +18,8 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileAlreadyExistsException;
 
 /**
  * Strategy interface for handling directory operations across different namespace models (Flat vs.
@@ -26,7 +28,6 @@ import java.io.IOException;
  * <p>Methods for directory operations will be added in follow-up PRs. These methods will include:
  *
  * <ul>
- *   <li>{@code void createDirectory(GcsItemId id) throws IOException;}
  *   <li>{@code boolean isDirectoryEmpty(GcsItemId id) throws IOException;}
  *   <li>{@code void renameDirectory(GcsItemId src, GcsItemId dst) throws IOException;}
  *   <li>{@code java.util.List<GcsItemInfo> listObjectInfo(GcsItemId id) throws IOException;}
@@ -34,6 +35,33 @@ import java.io.IOException;
  * </ul>
  */
 interface NamespaceStrategy {
+
+  /**
+   * Creates a directory at the given {@link GcsItemId}, normalizing the trailing {@code "/"} as
+   * required by the underlying namespace model:
+   *
+   * <ul>
+   *   <li><b>Flat namespace ({@link FlatNamespaceStrategyImpl})</b>: creates a 0-byte directory
+   *       marker object ({@code "dir/"}). Succeeds idempotently if a 0-byte marker already exists,
+   *       and throws {@link FileAlreadyExistsException} if a non-empty ({@code size > 0}) object
+   *       already exists at the marker key.
+   *   <li><b>Hierarchical namespace ({@link HierarchicalNamespaceStrategyImpl})</b>: recursively
+   *       creates native folder resources ({@code "dir"}) via the Storage Control API. Succeeds
+   *       idempotently if the native folder already exists (including when a non-empty object named
+   *       {@code "dir/"} exists, since GCS automatically creates the native folder when that object
+   *       is written).
+   * </ul>
+   *
+   * @param id the directory identifier (with or without a trailing {@code "/"})
+   * @throws IllegalArgumentException if {@code id} does not represent a GCS object, or if its
+   *     object name starts with {@code "/"} or contains consecutive {@code "/"} characters
+   * @throws FileAlreadyExistsException if a non-empty object already exists at the directory marker
+   *     path on a flat-namespace bucket
+   * @throws FileNotFoundException if the target bucket does not exist
+   * @throws AccessDeniedException if the caller lacks required GCS permissions
+   * @throws IOException if an I/O error occurs during directory creation
+   */
+  void createDirectory(GcsItemId id) throws IOException;
 
   /**
    * Retrieves directory metadata for the given {@link GcsItemId}, inferring implicit directories on

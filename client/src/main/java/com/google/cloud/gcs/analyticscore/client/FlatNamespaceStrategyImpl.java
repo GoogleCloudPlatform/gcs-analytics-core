@@ -30,6 +30,14 @@ final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
     this.gcsClient = gcsClient;
   }
 
+  @Override
+  public void createDirectory(GcsItemId id) throws IOException {
+    UriUtil.validateDirectoryItemId(id);
+    // createEmptyObject throws FileAlreadyExistsException only if a non-empty placeholder object
+    // already exists at "dir/"; an existing empty placeholder object is treated as success.
+    gcsClient.createEmptyObject(id.toDirectoryId());
+  }
+
   /**
    * Resolves directory metadata in a flat namespace bucket by listing the first object under the
    * directory prefix (e.g. {@code dir/}).

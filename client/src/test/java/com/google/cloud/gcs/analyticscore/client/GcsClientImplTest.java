@@ -2427,6 +2427,39 @@ class GcsClientImplTest {
   }
 
   @Test
+  void createEmptyObject_inheritsEncryptionAndUserProjectFromClientWriteOptions()
+      throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    GcsWriteOptions configuredWriteOptions =
+        GcsWriteOptions.builder()
+            .setKmsKeyName("client-kms-key")
+            .setEncryptionKey(TEST_ENCRYPTION_KEY)
+            .setUserProject("client-user-project")
+            .setOverwriteExisting(false)
+            .setChecksumValidationEnabled(true)
+            .setContentType("text/plain")
+            .build();
+    GcsClientOptions clientOptions =
+        TEST_GCS_CLIENT_OPTIONS.toBuilder().setGcsWriteOptions(configuredWriteOptions).build();
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage, clientOptions);
+    GcsItemId fileItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_ID).build();
+
+    clientWithMock.createEmptyObject(fileItemId);
+
+    verify(mockStorage)
+        .create(
+            eq(
+                BlobInfo.newBuilder(BlobId.of(TEST_BUCKET_NAME, TEST_OBJECT_ID))
+                    .setContentType("application/octet-stream")
+                    .build()),
+            eq(Storage.BlobTargetOption.disableGzipContent()),
+            eq(Storage.BlobTargetOption.kmsKeyName("client-kms-key")),
+            eq(Storage.BlobTargetOption.encryptionKey(TEST_ENCRYPTION_KEY)),
+            eq(Storage.BlobTargetOption.userProject("client-user-project")));
+  }
+
+  @Test
   void createEmptyObject_conflict_throwsFileAlreadyExistsException() {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
