@@ -51,6 +51,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
 
   private volatile GcsItemId gcsItemId;
   private volatile GcsFileInfo gcsFileInfo;
+  private volatile GcsReadOptions positionalReadOptions;
 
   public static GoogleCloudStorageInputStream create(
       GcsFileSystem gcsFileSystem, GcsFileInfo gcsFileInfo) throws IOException {
@@ -190,11 +191,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   @Override
   public int read(@Nonnull byte[] buffer, int offset, int length) throws IOException {
     checkNotClosed("Cannot read: already closed");
-    checkNotNull(buffer, "buffer must not be null");
-
-    if (offset < 0 || length < 0 || length > buffer.length - offset) {
-      throw new IndexOutOfBoundsException();
-    }
+    validateBufferRange(buffer, offset, length);
     if (length == 0) {
       return 0;
     }
@@ -224,6 +221,12 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
     }
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Opens a temporary channel configured with {@link FileAccessPattern#RANDOM} for bounded,
+   * one-shot random-access reads.
+   */
   @Override
   public void readFully(long position, byte[] buffer, int offset, int length) throws IOException {
     gcsFileSystem
@@ -233,11 +236,29 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             Metric.READ_DURATION,
             commonAttributes,
             recorder -> {
+              checkNotClosed("Cannot read: already closed");
+              validateBufferRange(buffer, offset, length);
+              if (position < 0) {
+                throw new EOFException("position can't be negative: " + position);
+              }
+              if (length == 0) {
+                return null;
+              }
               adoptResolvedItemInfo(channel);
+              GcsFileInfo info = gcsFileInfo;
+              if (info != null && info.getItemInfo().getSize() >= 0) {
+                long available = Math.max(0L, info.getItemInfo().getSize() - position);
+                if (length > available) {
+                  throw new EOFException(
+                      "Reached the end of stream with "
+                          + (length - available)
+                          + " bytes left to read");
+                }
+              }
               try (VectoredSeekableByteChannel byteChannel =
-                  openReadChannel(gcsFileSystem, gcsItemId, gcsFileInfo)) {
+                  openReadChannel(gcsFileSystem, gcsItemId, info, positionalReadOptions())) {
                 byteChannel.position(position);
-                int numberOfBytesRead = byteChannel.read(ByteBuffer.wrap(buffer, offset, length));
+                int numberOfBytesRead = Math.max(0, readUpTo(byteChannel, buffer, offset, length));
                 adoptResolvedItemInfo(byteChannel);
                 if (numberOfBytesRead < length) {
                   throw new EOFException(
@@ -251,6 +272,12 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             });
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Opens a temporary channel configured with {@link FileAccessPattern#RANDOM} for bounded,
+   * one-shot random-access reads.
+   */
   @Override
   public int readTail(byte[] buffer, int offset, int length) throws IOException {
     return gcsFileSystem
@@ -260,18 +287,50 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             Metric.READ_DURATION,
             commonAttributes,
             recorder -> {
+              checkNotClosed("Cannot read: already closed");
+              validateBufferRange(buffer, offset, length);
+              if (length == 0) {
+                return 0;
+              }
               long size = size();
+              if (size <= 0) {
+                return -1;
+              }
+              long startPosition = Math.max(0, size - length);
+              int bytesToRead = (int) Math.min((long) length, size - startPosition);
               try (VectoredSeekableByteChannel byteChannel =
-                  openReadChannel(gcsFileSystem, gcsItemId, gcsFileInfo)) {
-                long startPosition = Math.max(0, size - length);
+                  openReadChannel(gcsFileSystem, gcsItemId, gcsFileInfo, positionalReadOptions())) {
                 byteChannel.position(startPosition);
-                int bytesRead = byteChannel.read(ByteBuffer.wrap(buffer, offset, length));
+                int bytesRead = readUpTo(byteChannel, buffer, offset, bytesToRead);
                 if (bytesRead > 0) {
                   recorder.record(Metric.READ_BYTES, bytesRead, Collections.emptyMap());
                 }
                 return bytesRead;
               }
             });
+  }
+
+  private static void validateBufferRange(byte[] buffer, int offset, int length) {
+    checkNotNull(buffer, "buffer must not be null");
+    if (offset < 0 || length < 0 || length > buffer.length - offset) {
+      throw new IndexOutOfBoundsException();
+    }
+  }
+
+  private static int readUpTo(
+      VectoredSeekableByteChannel source, byte[] buffer, int offset, int bytesToRead)
+      throws IOException {
+    ByteBuffer dst = ByteBuffer.wrap(buffer, offset, bytesToRead);
+    int totalBytesRead = 0;
+    while (totalBytesRead < bytesToRead) {
+      int read = source.read(dst);
+      if (read < 0) {
+        break;
+      }
+      totalBytesRead += read;
+    }
+    // Callers guarantee bytesToRead > 0.
+    return totalBytesRead == 0 ? -1 : totalBytesRead;
   }
 
   @Override
@@ -283,6 +342,16 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   private static VectoredSeekableByteChannel openReadChannel(
       GcsFileSystem gcsFileSystem, GcsItemId gcsItemId, GcsFileInfo gcsFileInfo)
       throws IOException {
+    return openReadChannel(
+        gcsFileSystem, gcsItemId, gcsFileInfo, configuredReadOptions(gcsFileSystem));
+  }
+
+  private static VectoredSeekableByteChannel openReadChannel(
+      GcsFileSystem gcsFileSystem,
+      GcsItemId gcsItemId,
+      GcsFileInfo gcsFileInfo,
+      GcsReadOptions readOptions)
+      throws IOException {
     return gcsFileSystem
         .getTelemetry()
         .measure(
@@ -290,8 +359,6 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             Metric.OPEN_DURATION,
             buildCommonAttributes(),
             recorder -> {
-              GcsReadOptions readOptions =
-                  gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions();
               VectoredSeekableByteChannel rawChannel =
                   gcsFileInfo != null
                       ? gcsFileSystem.open(gcsFileInfo, readOptions)
@@ -310,6 +377,29 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
                   .addOptimizer(new GcsFooterOptimizer(readOptions, gcsFileSystem.getTelemetry()))
                   .build();
             });
+  }
+
+  private static GcsReadOptions configuredReadOptions(GcsFileSystem gcsFileSystem) {
+    return gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions();
+  }
+
+  /**
+   * Lazily caches {@link GcsReadOptions} configured with {@link FileAccessPattern#RANDOM}.
+   *
+   * <p>The race condition on {@link #positionalReadOptions} is benign and idempotent: concurrent
+   * threads will compute identical options, and the volatile write ensures safe publication.
+   */
+  private GcsReadOptions positionalReadOptions() {
+    GcsReadOptions options = positionalReadOptions;
+    if (options == null) {
+      GcsReadOptions configured = configuredReadOptions(gcsFileSystem);
+      options =
+          configured.getFileAccessPattern() == FileAccessPattern.RANDOM
+              ? configured
+              : configured.toBuilder().setFileAccessPattern(FileAccessPattern.RANDOM).build();
+      positionalReadOptions = options;
+    }
+    return options;
   }
 
   private static ImmutableMap<String, String> buildCommonAttributes() {

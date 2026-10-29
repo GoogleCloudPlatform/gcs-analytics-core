@@ -32,6 +32,7 @@ import com.google.cloud.gcs.analyticscore.client.*;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobInfo;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import java.io.EOFException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -749,5 +750,244 @@ class GoogleCloudStorageInputStreamTest {
 
       assertThat(buffer[i]).isEqualTo(testData[100 + i]);
     }
+  }
+
+  private GcsFileInfo testFileInfo(long size) {
+    return GcsFileInfo.builder()
+        .setItemInfo(GcsItemInfo.builder().setItemId(testGcsItemId).setSize(size).build())
+        .setUri(testUri)
+        .setAttributes(ImmutableMap.of())
+        .build();
+  }
+
+  private GoogleCloudStorageInputStream createMockStream(
+      GcsFileInfo fileInfo, GcsFileSystem mockFs, VectoredSeekableByteChannel... channels)
+      throws IOException {
+    when(mockFs.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFs.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
+    when(mockFs.getCacheManager()).thenReturn(fakeFileSystem.getCacheManager());
+    if (channels.length == 1) {
+      when(mockFs.open(eq(fileInfo), any(GcsReadOptions.class))).thenReturn(channels[0]);
+    } else if (channels.length > 1) {
+      when(mockFs.open(eq(fileInfo), any(GcsReadOptions.class)))
+          .thenReturn(channels[0], java.util.Arrays.copyOfRange(channels, 1, channels.length));
+    }
+    return GoogleCloudStorageInputStream.create(mockFs, fileInfo);
+  }
+
+  @Test
+  void readFullyAndTail_openTemporaryChannelWithRandomAccessPattern() throws IOException {
+    GcsFileInfo fileInfo = testFileInfo(fileSize);
+    VectoredSeekableByteChannel streamCh = mock(VectoredSeekableByteChannel.class);
+    VectoredSeekableByteChannel tempCh = mock(VectoredSeekableByteChannel.class);
+    when(tempCh.read(any(ByteBuffer.class))).thenReturn(10);
+    GcsFileSystem mockFs = mock(GcsFileSystem.class);
+    GoogleCloudStorageInputStream stream =
+        createMockStream(fileInfo, mockFs, streamCh, tempCh, tempCh);
+
+    stream.readFully(0, new byte[10], 0, 10);
+    stream.readTail(new byte[10], 0, 10);
+
+    ArgumentCaptor<GcsReadOptions> captor = ArgumentCaptor.forClass(GcsReadOptions.class);
+    verify(mockFs, times(3)).open(eq(fileInfo), captor.capture());
+    List<GcsReadOptions> options = captor.getAllValues();
+    assertThat(options.get(0).getFileAccessPattern()).isEqualTo(FileAccessPattern.AUTO_SEQUENTIAL);
+    assertThat(options.get(1).getFileAccessPattern()).isEqualTo(FileAccessPattern.RANDOM);
+    assertThat(options.get(2)).isSameInstanceAs(options.get(1));
+  }
+
+  @Test
+  void readFullyAndTail_multiChunkPartialRead_readsAllBytes() throws IOException {
+    GcsFileInfo fileInfo = testFileInfo(fileSize);
+    VectoredSeekableByteChannel streamCh = mock(VectoredSeekableByteChannel.class);
+    VectoredSeekableByteChannel readFullyCh = mock(VectoredSeekableByteChannel.class);
+    VectoredSeekableByteChannel tailCh = mock(VectoredSeekableByteChannel.class);
+    org.mockito.stubbing.Answer<Integer> chunkAnswer =
+        inv -> {
+          ByteBuffer bb = inv.getArgument(0);
+          bb.put(bb.remaining() >= 2 ? new byte[] {1, 2} : new byte[] {3});
+          return bb.position() <= 2 ? 2 : 1;
+        };
+    when(readFullyCh.read(any(ByteBuffer.class))).thenAnswer(chunkAnswer);
+    when(tailCh.read(any(ByteBuffer.class))).thenAnswer(chunkAnswer);
+    GcsFileSystem mockFs = mock(GcsFileSystem.class);
+    GoogleCloudStorageInputStream stream =
+        createMockStream(fileInfo, mockFs, streamCh, readFullyCh, tailCh);
+
+    byte[] fullyBuf = new byte[3];
+    stream.readFully(0, fullyBuf, 0, 3);
+    assertThat(fullyBuf).isEqualTo(new byte[] {1, 2, 3});
+
+    byte[] tailBuf = new byte[3];
+    int tailRead = stream.readTail(tailBuf, 0, 3);
+    assertThat(tailRead).isEqualTo(3);
+    assertThat(tailBuf).isEqualTo(new byte[] {1, 2, 3});
+  }
+
+  @Test
+  void readTail_immediateEofFromChannel_returnsMinusOne() throws IOException {
+    GcsFileInfo fileInfo = testFileInfo(fileSize);
+    VectoredSeekableByteChannel streamCh = mock(VectoredSeekableByteChannel.class);
+    VectoredSeekableByteChannel tailCh = mock(VectoredSeekableByteChannel.class);
+    when(tailCh.read(any(ByteBuffer.class))).thenReturn(-1);
+    GcsFileSystem mockFs = mock(GcsFileSystem.class);
+    GoogleCloudStorageInputStream stream = createMockStream(fileInfo, mockFs, streamCh, tailCh);
+
+    assertThat(stream.readTail(new byte[10], 0, 10)).isEqualTo(-1);
+  }
+
+  @Test
+  void readFully_pastEndOfKnownFile_throwsEofFastWithoutOpeningChannel() throws IOException {
+    GcsFileInfo fileInfo = testFileInfo(100L);
+    GcsFileSystem mockFs = mock(GcsFileSystem.class);
+    GoogleCloudStorageInputStream stream =
+        createMockStream(fileInfo, mockFs, mock(VectoredSeekableByteChannel.class));
+
+    EOFException ex =
+        assertThrows(EOFException.class, () -> stream.readFully(95, new byte[10], 0, 10));
+    assertThat(ex).hasMessageThat().contains("Reached the end of stream with 5 bytes left to read");
+    verify(mockFs, times(1)).open(eq(fileInfo), any(GcsReadOptions.class));
+  }
+
+  @Test
+  void readFullyAndTail_zeroLength_doesNotOpenChannel() throws IOException {
+    GcsFileInfo fileInfo = testFileInfo(fileSize);
+    GcsFileSystem mockFs = mock(GcsFileSystem.class);
+    GoogleCloudStorageInputStream stream =
+        createMockStream(fileInfo, mockFs, mock(VectoredSeekableByteChannel.class));
+
+    stream.readFully(0, new byte[10], 0, 0);
+    assertThat(stream.readTail(new byte[10], 0, 0)).isEqualTo(0);
+    verify(mockFs, times(1)).open(any(GcsFileInfo.class), any());
+  }
+
+  @Test
+  void readFully_negativePosition_throwsEofException() throws IOException {
+    googleCloudStorageInputStream = defaultGcsInputStream();
+    EOFException ex =
+        assertThrows(
+            EOFException.class,
+            () -> googleCloudStorageInputStream.readFully(-1L, new byte[10], 0, 10));
+    assertThat(ex).hasMessageThat().contains("position can't be negative: -1");
+  }
+
+  @Test
+  void readFullyAndTail_afterClose_throwsIOException() throws IOException {
+    googleCloudStorageInputStream = defaultGcsInputStream();
+    googleCloudStorageInputStream.close();
+    byte[] buf = new byte[10];
+    assertThat(
+            assertThrows(
+                IOException.class, () -> googleCloudStorageInputStream.readFully(0, buf, 0, 10)))
+        .hasMessageThat()
+        .contains("Cannot read: already closed");
+    assertThat(
+            assertThrows(
+                IOException.class, () -> googleCloudStorageInputStream.readTail(buf, 0, 10)))
+        .hasMessageThat()
+        .contains("Cannot read: already closed");
+  }
+
+  @Test
+  void readFullyAndTail_invalidArguments_throwExpectedExceptions() throws IOException {
+    googleCloudStorageInputStream = defaultGcsInputStream();
+    byte[] buf = new byte[10];
+    assertThrows(
+        NullPointerException.class, () -> googleCloudStorageInputStream.readFully(0, null, 0, 5));
+    assertThrows(
+        IndexOutOfBoundsException.class,
+        () -> googleCloudStorageInputStream.readFully(0, buf, -1, 5));
+    assertThrows(
+        IndexOutOfBoundsException.class,
+        () -> googleCloudStorageInputStream.readFully(0, buf, 0, -1));
+    assertThrows(
+        IndexOutOfBoundsException.class,
+        () -> googleCloudStorageInputStream.readFully(0, buf, 5, 6));
+
+    assertThrows(
+        NullPointerException.class, () -> googleCloudStorageInputStream.readTail(null, 0, 5));
+    assertThrows(
+        IndexOutOfBoundsException.class, () -> googleCloudStorageInputStream.readTail(buf, -1, 5));
+    assertThrows(
+        IndexOutOfBoundsException.class, () -> googleCloudStorageInputStream.readTail(buf, 0, -1));
+    assertThrows(
+        IndexOutOfBoundsException.class, () -> googleCloudStorageInputStream.readTail(buf, 5, 6));
+  }
+
+  @Test
+  void positionalReadOptions_whenConfiguredIsRandom_reusesConfiguredOptions() throws IOException {
+    GcsReadOptions randomOpts =
+        clientOptions.getGcsReadOptions().toBuilder()
+            .setFileAccessPattern(FileAccessPattern.RANDOM)
+            .build();
+    GcsFileSystemOptions newFsOpts =
+        fileSystemOptions.toBuilder()
+            .setGcsClientOptions(clientOptions.toBuilder().setGcsReadOptions(randomOpts).build())
+            .build();
+    GcsFileInfo fileInfo = testFileInfo(fileSize);
+    VectoredSeekableByteChannel streamCh = mock(VectoredSeekableByteChannel.class);
+    VectoredSeekableByteChannel readFullyCh = mock(VectoredSeekableByteChannel.class);
+    when(readFullyCh.read(any(ByteBuffer.class))).thenReturn(5);
+
+    GcsFileSystem mockFs = mock(GcsFileSystem.class);
+    when(mockFs.getFileSystemOptions()).thenReturn(newFsOpts);
+    when(mockFs.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
+    when(mockFs.getCacheManager()).thenReturn(fakeFileSystem.getCacheManager());
+    when(mockFs.open(eq(fileInfo), any(GcsReadOptions.class))).thenReturn(streamCh, readFullyCh);
+
+    GoogleCloudStorageInputStream stream = GoogleCloudStorageInputStream.create(mockFs, fileInfo);
+    stream.readFully(0, new byte[5], 0, 5);
+
+    ArgumentCaptor<GcsReadOptions> captor = ArgumentCaptor.forClass(GcsReadOptions.class);
+    verify(mockFs, times(2)).open(eq(fileInfo), captor.capture());
+    assertThat(captor.getAllValues().get(1)).isSameInstanceAs(randomOpts);
+  }
+
+  @Test
+  void readFully_withGcsItemId_channelReturnsFewerBytes_throwsEOFException() throws IOException {
+    VectoredSeekableByteChannel streamCh = mock(VectoredSeekableByteChannel.class);
+    VectoredSeekableByteChannel readFullyCh = mock(VectoredSeekableByteChannel.class);
+    when(readFullyCh.read(any(ByteBuffer.class)))
+        .thenAnswer(
+            inv -> {
+              ((ByteBuffer) inv.getArgument(0)).put(new byte[5]);
+              return 5;
+            })
+        .thenReturn(-1);
+
+    GcsFileSystem mockFs = mock(GcsFileSystem.class);
+    when(mockFs.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFs.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
+    when(mockFs.getCacheManager()).thenReturn(fakeFileSystem.getCacheManager());
+    when(mockFs.open(eq(testGcsItemId), any(GcsReadOptions.class)))
+        .thenReturn(streamCh, readFullyCh);
+
+    GoogleCloudStorageInputStream stream =
+        GoogleCloudStorageInputStream.create(mockFs, testGcsItemId);
+    EOFException ex =
+        assertThrows(EOFException.class, () -> stream.readFully(0, new byte[10], 0, 10));
+    assertThat(ex).hasMessageThat().contains("Reached the end of stream with 5 bytes left to read");
+  }
+
+  @Test
+  void readFully_unknownSizeInFileInfo_readsFromChannel() throws IOException {
+    GcsFileInfo fileInfo = testFileInfo(-1L);
+    VectoredSeekableByteChannel streamCh = mock(VectoredSeekableByteChannel.class);
+    VectoredSeekableByteChannel readFullyCh = mock(VectoredSeekableByteChannel.class);
+    when(readFullyCh.read(any(ByteBuffer.class)))
+        .thenAnswer(
+            inv -> {
+              ByteBuffer bb = inv.getArgument(0);
+              bb.put(new byte[] {1, 2, 3, 4, 5});
+              return 5;
+            });
+    GcsFileSystem mockFs = mock(GcsFileSystem.class);
+    GoogleCloudStorageInputStream stream =
+        createMockStream(fileInfo, mockFs, streamCh, readFullyCh);
+
+    byte[] buf = new byte[5];
+    stream.readFully(0, buf, 0, 5);
+
+    assertThat(buf).isEqualTo(new byte[] {1, 2, 3, 4, 5});
   }
 }
