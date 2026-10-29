@@ -168,4 +168,27 @@ class GcsReadOptionsTest {
 
     assertThat(readOptions.isBidiReadEnabled()).isTrue();
   }
+
+  @Test
+  void withRandomAccess_whenAlreadyRandom_returnsSameInstance() {
+    GcsReadOptions options =
+        GcsReadOptions.builder().setFileAccessPattern(FileAccessPattern.RANDOM).build();
+
+    GcsReadOptions result = options.withRandomAccess();
+
+    assertThat(result).isSameInstanceAs(options);
+  }
+
+  @Test
+  void withRandomAccess_whenNotRandom_returnsRandomAndMemoizes() {
+    GcsReadOptions options =
+        GcsReadOptions.builder().setFileAccessPattern(FileAccessPattern.AUTO_SEQUENTIAL).build();
+
+    GcsReadOptions result1 = options.withRandomAccess();
+    GcsReadOptions result2 = options.withRandomAccess();
+
+    assertThat(result1.getFileAccessPattern()).isEqualTo(FileAccessPattern.RANDOM);
+    assertThat(result1).isNotSameInstanceAs(options);
+    assertThat(result2).isSameInstanceAs(result1);
+  }
 }
