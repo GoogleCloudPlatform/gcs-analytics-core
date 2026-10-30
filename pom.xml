@@ -73,7 +73,7 @@ limitations under the License.
         <maven.surefire.version>3.5.6</maven.surefire.version>
         <google.auto-value.version>1.11.1</google.auto-value.version>
         <google.cloud-storage.bom.version>2.69.0</google.cloud-storage.bom.version>
-        <google.guava.version>33.6.0-jre</google.guava.version>
+        <google.guava.version>33.7.1-jre</google.guava.version>
         <google.java-format.version>1.17.0</google.java-format.version>
         <google.error-prone.version>2.16</google.error-prone.version>
         <jmh.version>1.37</jmh.version>
