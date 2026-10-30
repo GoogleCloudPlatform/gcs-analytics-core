@@ -25,6 +25,8 @@ import static org.mockito.Mockito.withSettings;
 
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.testing.http.MockHttpTransport;
+import com.google.api.client.testing.http.MockLowLevelHttpResponse;
 import com.google.auth.Credentials;
 import com.google.auth.http.HttpTransportFactory;
 import com.google.auth.oauth2.ComputeEngineCredentials;
@@ -46,9 +48,6 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
-import java.security.KeyPairGenerator;
-import java.security.PrivateKey;
-import java.util.Base64;
 import java.util.Locale;
 import javax.annotation.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -66,6 +65,8 @@ class GcsCredentialsFactoryTest {
       "jdk.http.auth.tunneling.disabledSchemes";
   private static final String PROXY_HOST = "proxy.example.com";
   private static final int PROXY_PORT = 8080;
+
+  private static final String STS_TOKEN_URL = "https://sts.googleapis.com/v1/token";
 
   @TempDir static Path sharedTempDir;
 
@@ -94,29 +95,7 @@ class GcsCredentialsFactoryTest {
 
   @BeforeAll
   static void writeServiceAccountKeyFile() throws GeneralSecurityException, IOException {
-    KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
-    keyPairGenerator.initialize(2048);
-    PrivateKey privateKey = keyPairGenerator.generateKeyPair().getPrivate();
-    String keyFileJson =
-        String.format(
-            "{\"type\":\"service_account\","
-                + "\"project_id\":\"test-project\","
-                + "\"private_key_id\":\"test-key-id\","
-                + "\"private_key\":\"%s\","
-                + "\"client_email\":\"test-email@gserviceaccount.com\","
-                + "\"client_id\":\"test-client-id\","
-                + "\"token_uri\":\"https://accounts.google.com/o/oauth2/token\"}",
-            toEscapedPem(privateKey));
-    Path keyFile = sharedTempDir.resolve("service-account.json");
-    Files.write(keyFile, keyFileJson.getBytes(UTF_8));
-    serviceAccountKeyFile = keyFile.toString();
-  }
-
-  private static String toEscapedPem(PrivateKey privateKey) {
-    String base64 =
-        Base64.getMimeEncoder(64, "\n".getBytes(UTF_8)).encodeToString(privateKey.getEncoded());
-    return ("-----BEGIN PRIVATE KEY-----\n" + base64 + "\n-----END PRIVATE KEY-----\n")
-        .replace("\n", "\\n");
+    serviceAccountKeyFile = TestServiceAccountKeyFile.writeTo(sharedTempDir).toString();
   }
 
   @Test
@@ -162,7 +141,7 @@ class GcsCredentialsFactoryTest {
     Credentials credentials = createCredentials(options);
 
     assertThat(((ServiceAccountCredentials) credentials).getClientEmail())
-        .isEqualTo("test-email@gserviceaccount.com");
+        .isEqualTo(TestServiceAccountKeyFile.CLIENT_EMAIL);
   }
 
   @Test
@@ -287,8 +266,25 @@ class GcsCredentialsFactoryTest {
 
     Credentials credentials = createCredentials(options);
 
-    assertThat(((ExternalAccountCredentials) credentials).getTokenUrl())
-        .isEqualTo("https://sts.googleapis.com/v1/token");
+    assertThat(((ExternalAccountCredentials) credentials).getTokenUrl()).isEqualTo(STS_TOKEN_URL);
+  }
+
+  @Test
+  void createCredentials_workloadIdentityFederation_sendsTokenExchangeThroughTokenTransport()
+      throws IOException {
+    MockHttpTransport tokenTransport = createSuccessfulTokenExchangeTransport();
+    GcsAuthOptions options =
+        GcsAuthOptions.builder()
+            .setAuthType(AuthType.WORKLOAD_IDENTITY_FEDERATION)
+            .setWorkloadIdentityCredentialConfigFile(writeFileSourcedWorkloadIdentityConfig())
+            .build();
+    Credentials credentials =
+        GcsCredentialsFactory.createCredentials(
+            options, () -> tokenTransport, impersonationTransportFactory);
+
+    credentials.getRequestMetadata();
+
+    assertThat(tokenTransport.getLowLevelHttpRequest().getUrl()).isEqualTo(STS_TOKEN_URL);
   }
 
   @Test
@@ -709,6 +705,44 @@ class GcsCredentialsFactoryTest {
         .setAuthType(AuthType.WORKLOAD_IDENTITY_FEDERATION)
         .setWorkloadIdentityCredentialConfigFile(
             getResourcePath("test-workload-identity-config.json"));
+  }
+
+  /**
+   * Writes a Workload Identity Federation config that reads its subject token from a local file and
+   * returns the config's path.
+   *
+   * <p>The shared test config reads its subject token from a URL, which would also go through the
+   * token transport.
+   */
+  private static String writeFileSourcedWorkloadIdentityConfig() throws IOException {
+    Path subjectTokenFile =
+        Files.write(
+            sharedTempDir.resolve("subject-token.txt"), "test-subject-token".getBytes(UTF_8));
+    String config =
+        String.format(
+            "{\"type\":\"external_account\","
+                + "\"audience\":\"//iam.googleapis.com/projects/test/locations/global/"
+                + "workloadIdentityPools/test-pool/providers/tester\","
+                + "\"subject_token_type\":\"urn:ietf:params:oauth:token-type:jwt\","
+                + "\"token_url\":\"%s\","
+                + "\"credential_source\":{\"file\":\"%s\"}}",
+            STS_TOKEN_URL, subjectTokenFile.toString().replace("\\", "\\\\"));
+    Path configFile = sharedTempDir.resolve("file-sourced-workload-identity-config.json");
+    return Files.write(configFile, config.getBytes(UTF_8)).toString();
+  }
+
+  /** Returns a transport that answers every request with a successful token exchange. */
+  private static MockHttpTransport createSuccessfulTokenExchangeTransport() {
+    return new MockHttpTransport.Builder()
+        .setLowLevelHttpResponse(
+            new MockLowLevelHttpResponse()
+                .setContentType("application/json")
+                .setContent(
+                    "{\"access_token\":\"test-access-token\","
+                        + "\"issued_token_type\":\"urn:ietf:params:oauth:token-type:access_token\","
+                        + "\"token_type\":\"Bearer\","
+                        + "\"expires_in\":3600}"))
+        .build();
   }
 
   private static GcsAuthOptions.Builder userCredentialsOptions() {

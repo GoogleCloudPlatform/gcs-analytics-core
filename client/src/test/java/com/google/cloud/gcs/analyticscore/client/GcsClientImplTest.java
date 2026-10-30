@@ -116,6 +116,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -3130,6 +3131,8 @@ class GcsClientImplTest {
   void lazyGetGrpcStorage_concurrentCalls_instantiatesExactlyOnce() throws Exception {
     Storage mockStorageInstance = mock(Storage.class);
     AtomicInteger factoryInvocations = new AtomicInteger();
+    CountDownLatch factoryEntered = new CountDownLatch(1);
+    CountDownLatch releaseFactory = new CountDownLatch(1);
     GcsClientImpl client =
         new GcsClientImpl(
             TEST_GCS_CLIENT_OPTIONS,
@@ -3139,33 +3142,50 @@ class GcsClientImplTest {
           @Override
           protected Storage createGrpcStorage(Optional<Credentials> credentials) {
             factoryInvocations.incrementAndGet();
+            factoryEntered.countDown();
+            try {
+              assertThat(releaseFactory.await(5, TimeUnit.SECONDS)).isTrue();
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            }
             return mockStorageInstance;
           }
         };
     ExecutorService executor = Executors.newFixedThreadPool(2);
-    CountDownLatch ready = new CountDownLatch(2);
-    CountDownLatch start = new CountDownLatch(1);
-    Callable<Storage> task =
-        () -> {
-          ready.countDown();
-          start.await();
-          return client.lazyGetGrpcStorage();
-        };
+    AtomicReference<Thread> secondCaller = new AtomicReference<>();
 
     try {
-      Future<Storage> f1 = executor.submit(task);
-      Future<Storage> f2 = executor.submit(task);
-      ready.await(5, TimeUnit.SECONDS);
-      start.countDown();
-      Storage result1 = f1.get(5, TimeUnit.SECONDS);
-      Storage result2 = f2.get(5, TimeUnit.SECONDS);
+      Future<Storage> firstResult = executor.submit(client::lazyGetGrpcStorage);
+      assertThat(factoryEntered.await(5, TimeUnit.SECONDS)).isTrue();
+      Future<Storage> secondResult =
+          executor.submit(
+              () -> {
+                secondCaller.set(Thread.currentThread());
+                return client.lazyGetGrpcStorage();
+              });
+      awaitBlockedOnMonitor(secondCaller);
+      releaseFactory.countDown();
 
-      assertThat(result1).isSameInstanceAs(mockStorageInstance);
-      assertThat(result2).isSameInstanceAs(mockStorageInstance);
+      assertThat(firstResult.get(5, TimeUnit.SECONDS)).isSameInstanceAs(mockStorageInstance);
+      assertThat(secondResult.get(5, TimeUnit.SECONDS)).isSameInstanceAs(mockStorageInstance);
       assertThat(factoryInvocations.get()).isEqualTo(1);
     } finally {
+      releaseFactory.countDown();
       executor.shutdownNow();
     }
+  }
+
+  private static void awaitBlockedOnMonitor(AtomicReference<Thread> threadRef)
+      throws TimeoutException {
+    long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (System.nanoTime() < deadlineNanos) {
+      Thread thread = threadRef.get();
+      if (thread != null && thread.getState() == Thread.State.BLOCKED) {
+        return;
+      }
+      LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+    }
+    throw new TimeoutException("Timed out waiting for thread to block on monitor");
   }
 
   @Test

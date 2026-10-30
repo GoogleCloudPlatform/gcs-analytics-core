@@ -151,6 +151,16 @@ limitations under the License.
                             <includes>
                                 <include>**/*IntegrationTest.java</include>
                             </includes>
+                            <!--
+                              Run each test class in its own JVM. The JDK reads
+                              jdk.http.auth.tunneling.disabledSchemes only once, when the JVM first
+                              creates an HttpURLConnection, so in a shared JVM an earlier class would
+                              decide whether ProxyAuthIntegrationTest can use Basic proxy
+                              authentication. In a fresh JVM without that property at startup,
+                              ProxyAuthIntegrationTest checks that the library installs the proxy
+                              credentials before its first connection (#416).
+                            -->
+                            <reuseForks>false</reuseForks>
                         </configuration>
                     </plugin>
                 </plugins>
