@@ -55,6 +55,37 @@ class GcsRetryOptionsTest {
   }
 
   @Test
+  void builder_initialRetryDelaySet_hasOverrides() {
+    GcsRetryOptions options =
+        GcsRetryOptions.builder().setInitialRetryDelay(Duration.ofMillis(100)).build();
+
+    assertThat(options.hasOverrides()).isTrue();
+  }
+
+  @Test
+  void builder_retryDelayMultiplierSet_hasOverrides() {
+    GcsRetryOptions options = GcsRetryOptions.builder().setRetryDelayMultiplier(1.5).build();
+
+    assertThat(options.hasOverrides()).isTrue();
+  }
+
+  @Test
+  void builder_maxRetryDelaySet_hasOverrides() {
+    GcsRetryOptions options =
+        GcsRetryOptions.builder().setMaxRetryDelay(Duration.ofSeconds(10)).build();
+
+    assertThat(options.hasOverrides()).isTrue();
+  }
+
+  @Test
+  void builder_totalTimeoutSet_hasOverrides() {
+    GcsRetryOptions options =
+        GcsRetryOptions.builder().setTotalTimeout(Duration.ofSeconds(30)).build();
+
+    assertThat(options.hasOverrides()).isTrue();
+  }
+
+  @Test
   void createFromOptions_noKeys_hasNoOverrides() {
     GcsRetryOptions options = GcsRetryOptions.createFromOptions(ImmutableMap.of(), PREFIX);
 

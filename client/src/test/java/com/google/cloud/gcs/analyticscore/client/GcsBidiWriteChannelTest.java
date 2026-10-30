@@ -284,4 +284,41 @@ class GcsBidiWriteChannelTest {
 
     assertThat(channel.isOpen()).isFalse();
   }
+
+  @Test
+  void write_whenAppendChannelIsNull_throwsClosedChannelException() throws Exception {
+    when(mockSession.open()).thenReturn(null);
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3});
+    try (GcsBidiWriteChannel channel = createChannel(GcsWriteOptions.builder().build())) {
+      assertThrows(ClosedChannelException.class, () -> channel.write(buffer));
+    }
+  }
+
+  @Test
+  void write_whenUnderlyingChannelClosed_throwsClosedChannelException() throws Exception {
+    when(mockAppendChannel.isOpen()).thenReturn(false);
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3});
+    try (GcsBidiWriteChannel channel = createChannel(GcsWriteOptions.builder().build())) {
+      assertThrows(ClosedChannelException.class, () -> channel.write(buffer));
+    }
+  }
+
+  @Test
+  void isOpen_whenAppendChannelIsNull_returnsFalse() throws Exception {
+    when(mockSession.open()).thenReturn(null);
+    try (GcsBidiWriteChannel channel = createChannel(GcsWriteOptions.builder().build())) {
+      assertThat(channel.isOpen()).isFalse();
+    }
+  }
+
+  @Test
+  void close_whenAppendChannelIsNull_completesSuccessfully() throws Exception {
+    when(mockSession.open()).thenReturn(null);
+    GcsBidiWriteChannel channel = createChannel(GcsWriteOptions.builder().build());
+
+    channel.close();
+
+    assertThat(channel.isOpen()).isFalse();
+    verify(mockAppendChannel, never()).close();
+  }
 }

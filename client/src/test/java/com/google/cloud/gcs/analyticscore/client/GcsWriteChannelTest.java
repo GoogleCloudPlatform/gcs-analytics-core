@@ -498,4 +498,47 @@ class GcsWriteChannelTest {
     // Clean up interrupt status
     Thread.interrupted();
   }
+
+  @Test
+  void write_afterClose_throwsClosedChannelException() throws Exception {
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3});
+    try (GcsWriteChannel channel = createChannel(mockChannel, blobInfo, writeOptions)) {
+      channel.close();
+
+      assertThrows(ClosedChannelException.class, () -> channel.write(buffer));
+    }
+  }
+
+  @Test
+  void write_whenSdkChannelIsNull_throwsClosedChannelException() throws Exception {
+    ByteBuffer buffer = ByteBuffer.wrap(new byte[] {1, 2, 3});
+    try (GcsWriteChannel channel = createChannel(null, blobInfo, writeOptions)) {
+      assertThrows(ClosedChannelException.class, () -> channel.write(buffer));
+    }
+  }
+
+  @Test
+  void isOpen_whenChannelAndSdkChannelOpen_returnsTrue() throws Exception {
+    try (GcsWriteChannel channel = createChannel(mockChannel, blobInfo, writeOptions)) {
+      assertThat(channel.isOpen()).isTrue();
+    }
+  }
+
+  @Test
+  void isOpen_whenSdkChannelClosed_returnsFalse() throws Exception {
+    when(mockChannel.isOpen()).thenReturn(false);
+    try (GcsWriteChannel channel = createChannel(mockChannel, blobInfo, writeOptions)) {
+      assertThat(channel.isOpen()).isFalse();
+    }
+  }
+
+  @Test
+  void close_whenBlobWriteSessionIsNull_closesSdkChannelSuccessfully() throws Exception {
+    GcsWriteChannel channel = new GcsWriteChannel(null, mockChannel, blobInfo, writeOptions);
+
+    channel.close();
+
+    verify(mockChannel).close();
+    assertThat(channel.isOpen()).isFalse();
+  }
 }
