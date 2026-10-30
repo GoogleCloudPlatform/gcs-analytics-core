@@ -162,6 +162,23 @@ class FlatNamespaceStrategyImplTest {
     verify(mockClient).getGcsItemInfo(prefixId);
   }
 
+  @Test
+  void
+      getDirectoryInfo_inferImplicitDirectoriesFalseAndInputAlreadyHasTrailingSlash_rethrowsOriginalException()
+          throws IOException {
+    GcsItemId dirIdWithSlash = createGcsItemId(TEST_DIR + "/");
+    FileNotFoundException expected = GcsExceptionUtil.createFileNotFoundException(dirIdWithSlash);
+    when(mockClient.getGcsItemInfo(eq(dirIdWithSlash))).thenThrow(expected);
+
+    FileNotFoundException actual =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> strategy.getDirectoryInfo(dirIdWithSlash, /* inferImplicitDirectories= */ false));
+
+    assertThat(actual).isSameInstanceAs(expected);
+    verify(mockClient).getGcsItemInfo(dirIdWithSlash);
+  }
+
   private static GcsItemId createGcsItemId(String objectName) {
     return GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(objectName).build();
   }

@@ -217,4 +217,15 @@ class GcsItemIdTest {
     assertThat(result.getBucketName()).isEqualTo(TEST_BUCKET);
     assertThat(result.getObjectName()).hasValue("foo/");
   }
+
+  @Test
+  void toDirectoryId_root_returnsSameInstance() {
+    assertThat(GcsItemId.ROOT.toDirectoryId()).isSameInstanceAs(GcsItemId.ROOT);
+  }
+
+  @Test
+  void toDirectoryId_bucket_returnsSameInstance() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    assertThat(bucketId.toDirectoryId()).isSameInstanceAs(bucketId);
+  }
 }

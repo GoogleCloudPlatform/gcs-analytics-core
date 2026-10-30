@@ -17,6 +17,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -103,5 +104,25 @@ class GcsFileSystemOptionsTest {
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
     assertThat(options.isMetadataLookupParallelEnabled()).isFalse();
+  }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  void createFromOptions_withClientType_setsClientType() {
+    ImmutableMap<String, String> properties = ImmutableMap.of("fs.gs.client.type", "GRPC_CLIENT");
+
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
+
+    assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.GRPC_CLIENT);
+  }
+
+  @Test
+  void createFromOptions_withInvalidClientType_throwsIllegalArgumentException() {
+    ImmutableMap<String, String> properties =
+        ImmutableMap.of("fs.gs.client.type", "INVALID_CLIENT");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> GcsFileSystemOptions.createFromOptions(properties, "fs.gs."));
   }
 }
