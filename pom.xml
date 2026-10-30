@@ -72,6 +72,13 @@ limitations under the License.
         <!-- Surefire and Failsafe are released in lockstep; keep them on one version. -->
         <maven.surefire.version>3.5.6</maven.surefire.version>
         <google.auto-value.version>1.11.1</google.auto-value.version>
+        <!--
+          Pin google-api-client to 2.9.2 while libraries-bom stays at 26.84.0: libraries-bom 26.84.0
+          manages 2.7.2, which bundles distrusted root CAs (CVE-2026-111943) and prefers them over
+          the JDK cacerts. Remove this override when google-cloud-storage-bom and libraries-bom are
+          upgraded together.
+        -->
+        <google.api-client.version>2.9.2</google.api-client.version>
         <google.cloud-storage.bom.version>2.69.0</google.cloud-storage.bom.version>
         <google.guava.version>33.6.0-jre</google.guava.version>
         <google.java-format.version>1.17.0</google.java-format.version>
@@ -80,7 +87,7 @@ limitations under the License.
         <mockito.version>5.23.0</mockito.version>
         <truth.version>1.4.5</truth.version>
         <junit.jupiter.version>5.14.4</junit.jupiter.version>
-        <cloud.libraries.bom.version>26.91.0</cloud.libraries.bom.version>
+        <cloud.libraries.bom.version>26.84.0</cloud.libraries.bom.version>
         <apache.commons.version>3.20.0</apache.commons.version>
         <apache.parquet.version>1.17.1</apache.parquet.version>
         <apache.avro.version>1.12.1</apache.avro.version>
@@ -236,6 +243,11 @@ limitations under the License.
                 <groupId>com.google.auto.value</groupId>
                 <artifactId>auto-value-annotations</artifactId>
                 <version>${google.auto-value.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.api-client</groupId>
+                <artifactId>google-api-client</artifactId>
+                <version>${google.api-client.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.google.cloud</groupId>
