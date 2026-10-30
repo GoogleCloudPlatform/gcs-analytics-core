@@ -238,6 +238,25 @@ class GcsClientImplTest {
     assertThat(itemInfo.getVerificationAttributes()).isEmpty();
   }
 
+  @Test
+  void getGcsItemInfo_trailingSlashNotReportedAsDirectory_returnsPlaceholderDirectory()
+      throws IOException {
+    Blob mockBlob = mock(Blob.class);
+    when(mockBlob.getBucket()).thenReturn(TEST_BUCKET_NAME);
+    when(mockBlob.getName()).thenReturn(TEST_DIR);
+    when(mockBlob.isDirectory()).thenReturn(false);
+    when(mockBlob.getSize()).thenReturn(0L);
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.get(
+            eq(BlobId.of(TEST_BUCKET_NAME, TEST_DIR)), any(Storage.BlobGetOption[].class)))
+        .thenReturn(mockBlob);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+    GcsItemInfo itemInfo = clientWithMock.getGcsItemInfo(TEST_DIR_ITEM_ID);
+
+    assertThat(itemInfo.getSize()).isEqualTo(0L);
+    assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY);
+  }
+
   @ParameterizedTest
   @CsvSource({"md5, crc", ", crc", "md5, "})
   void getGcsItemInfo_withChecksums_returnsVerificationAttributes(String md5, String crc32c)
@@ -268,6 +287,7 @@ class GcsClientImplTest {
     Blob mockBlob = mock(Blob.class);
     when(mockBlob.getBucket()).thenReturn(TEST_BUCKET);
     when(mockBlob.getName()).thenReturn(TEST_OBJECT);
+    when(mockBlob.getSize()).thenReturn(null);
     Storage mockStorage = mock(Storage.class);
     when(mockStorage.get(any(BlobId.class), any(Storage.BlobGetOption[].class)))
         .thenReturn(mockBlob);
@@ -625,6 +645,21 @@ class GcsClientImplTest {
         client.createStorageControlClient(Optional.of(NoCredentials.getInstance()))) {
       assertThat(storageControlClient.getSettings().getUniverseDomain())
           .isEqualTo("custom-universe.goog");
+    }
+  }
+
+  @Test
+  void createGrpcStorage_withNoCredentials_returnsGrpcBackedStorage() throws Exception {
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(),
+            TEST_GCS_CLIENT_OPTIONS,
+            executorServiceSupplier,
+            telemetry,
+            newBucketPropertiesCache());
+    try (Storage grpcStorage = client.createGrpcStorage(Optional.of(NoCredentials.getInstance()))) {
+      assertThat(grpcStorage).isNotNull();
+      assertThat(grpcStorage.getOptions()).isInstanceOf(GrpcStorageOptions.class);
     }
   }
 
@@ -1700,6 +1735,25 @@ class GcsClientImplTest {
   }
 
   @Test
+  void close_whenGrpcStorageCloseThrows_suppressesExceptionAndNullsReference() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    Storage mockGrpcStorage = mock(Storage.class);
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    doThrow(new RuntimeException("grpc close error")).when(mockGrpcStorage).close();
+    GcsClientImpl localClient = createClientWithMockStorage(mockStorage);
+    localClient.grpcStorage = mockGrpcStorage;
+    localClient.storageControlClient = mockControlClient;
+
+    localClient.close();
+
+    verify(mockStorage).close();
+    verify(mockGrpcStorage).close();
+    verify(mockControlClient).close();
+    assertThat(localClient.grpcStorage).isNull();
+    assertThat(localClient.storageControlClient).isNull();
+  }
+
+  @Test
   void close_idempotent_closesStorageControlClientOnlyOnce() throws Exception {
     Storage mockStorage = mock(Storage.class);
     StorageControlClient mockControlClient = mock(StorageControlClient.class);
@@ -1915,6 +1969,18 @@ class GcsClientImplTest {
         assertThrows(IOException.class, () -> clientWithMockControl.getFolderInfo(TEST_ITEM_ID));
 
     assertThat(e).hasMessageThat().contains("Failed to get folder info for: " + TEST_ITEM_ID);
+  }
+
+  @Test
+  void getFolderInfo_afterClose_propagatesIOExceptionDirectly() {
+    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class));
+    localClient.close();
+
+    IOException e =
+        assertThrows(IOException.class, () -> localClient.getFolderInfo(TEST_DIR_ITEM_ID));
+
+    assertThat(e).hasMessageThat().isEqualTo("StorageControlClient is closed");
+    assertThat(e).hasCauseThat().isNull();
   }
 
   private GcsClientImpl createClientWithMockControl(StorageControlClient mockControlClient) {
@@ -2660,6 +2726,24 @@ class GcsClientImplTest {
         .get(
             eq(BlobId.of(TEST_BUCKET_NAME, TEST_DIR)),
             eq(Storage.BlobGetOption.fields(Storage.BlobField.SIZE)));
+  }
+
+  @Test
+  void createEmptyObject_directoryConflictWithNullSizeBlob_treatsAsZeroByteAndSucceeds()
+      throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+    Blob existingBlob = mock(Blob.class);
+    when(existingBlob.getSize()).thenReturn(null);
+    when(mockStorage.create(any(BlobInfo.class), any(Storage.BlobTargetOption[].class)))
+        .thenThrow(new StorageException(412, "Precondition Failed"));
+    when(mockStorage.get(
+            eq(BlobId.of(TEST_BUCKET_NAME, TEST_DIR)), any(Storage.BlobGetOption[].class)))
+        .thenReturn(existingBlob);
+    clientWithMock.createEmptyObject(TEST_DIR_ITEM_ID);
+
+    verify(mockStorage)
+        .get(eq(BlobId.of(TEST_BUCKET_NAME, TEST_DIR)), any(Storage.BlobGetOption[].class));
   }
 
   private static Stream<Arguments> rapidCreateEmptyObjectPreconditionCases() {
