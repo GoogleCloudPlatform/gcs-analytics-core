@@ -143,6 +143,27 @@ class ParquetRowGroupTest {
   }
 
   @Test
+  void findDataColumnsInRange_rangeSpanningLastChunk_returnsMatchingColumnsInOrder() {
+    ParquetRowGroup group =
+        rowGroup(
+            0,
+            columnChunk("id", 100, 50),
+            dictionaryEncodedColumnChunk("category", 150, 50, 170),
+            columnChunk("value", 200, 50));
+
+    assertThat(group.findDataColumnsInRange(175, 260))
+        .containsExactly("category", "value")
+        .inOrder();
+  }
+
+  @Test
+  void findDataColumnsInRange_rangeAtOrAfterEndOffset_returnsEmpty() {
+    ParquetRowGroup group = rowGroup(0, columnChunk("id", 100, 50));
+
+    assertThat(group.findDataColumnsInRange(150, 200)).isEmpty();
+  }
+
+  @Test
   void findDictionaryColumnsInRange_returnsOnlyColumnsWhoseDictionaryPagesOverlap() {
     ParquetRowGroup group =
         rowGroup(
@@ -173,6 +194,27 @@ class ParquetRowGroupTest {
     ParquetRowGroup group = rowGroup(0, dictionaryEncodedColumnChunk("category", 150, 50, 170));
 
     assertThat(group.findDataPageRangeAt(160)).isEmpty();
+  }
+
+  @Test
+  void findDataPageRangeAt_positionBeforeFirstChunk_returnsEmpty() {
+    ParquetRowGroup group = rowGroup(0, columnChunk("id", 100, 50));
+
+    assertThat(group.findDataPageRangeAt(99)).isEmpty();
+  }
+
+  @Test
+  void findDataPageRangeAt_positionInGapBetweenChunks_returnsEmpty() {
+    ParquetRowGroup group = rowGroup(0, columnChunk("id", 100, 50), columnChunk("value", 200, 50));
+
+    assertThat(group.findDataPageRangeAt(175)).isEmpty();
+  }
+
+  @Test
+  void findDataPageRangeAt_positionAtChunkEndOffset_returnsEmpty() {
+    ParquetRowGroup group = rowGroup(0, columnChunk("id", 100, 50));
+
+    assertThat(group.findDataPageRangeAt(150)).isEmpty();
   }
 
   @Test
@@ -219,5 +261,24 @@ class ParquetRowGroupTest {
     assertThat(group.getDictionaryPageRanges(ImmutableSet.of("id", "status", "category")))
         .containsExactly(Range.closedOpen(150L, 170L), Range.closedOpen(250L, 270L))
         .inOrder();
+  }
+
+  @Test
+  void getDictionaryPageRanges_columnNotRequested_isExcluded() {
+    ParquetRowGroup group =
+        rowGroup(
+            0,
+            dictionaryEncodedColumnChunk("category", 100, 50, 120),
+            dictionaryEncodedColumnChunk("status", 150, 50, 170));
+
+    assertThat(group.getDictionaryPageRanges(ImmutableSet.of("status")))
+        .containsExactly(Range.closedOpen(150L, 170L));
+  }
+
+  @Test
+  void getDictionaryPageRanges_emptyColumnSet_returnsEmpty() {
+    ParquetRowGroup group = rowGroup(0, dictionaryEncodedColumnChunk("category", 150, 50, 170));
+
+    assertThat(group.getDictionaryPageRanges(ImmutableSet.of())).isEmpty();
   }
 }
