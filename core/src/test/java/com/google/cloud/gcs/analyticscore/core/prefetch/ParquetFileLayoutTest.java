@@ -106,6 +106,13 @@ class ParquetFileLayoutTest {
   }
 
   @Test
+  void findRowGroupAt_positionBeforeFirstRowGroup_returnsEmpty() {
+    ParquetFileLayout fileLayout = layout(rowGroup(0, columnChunk("price", 100, 50)));
+
+    assertThat(fileLayout.findRowGroupAt(4)).isEmpty();
+  }
+
+  @Test
   void equals_layoutsWithEqualRowGroups_areEqual() {
     ParquetFileLayout first = layout(rowGroup(0, columnChunk("price", 100, 50)));
     ParquetFileLayout second = layout(rowGroup(0, columnChunk("price", 100, 50)));
