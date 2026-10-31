@@ -219,11 +219,17 @@ class GcsBidiReadChannel extends GcsReadChannel {
       }
       throw e;
     }
-    for (GcsObjectRange range : pendingRanges) {
+    GcsVectoredReadOptions vectoredReadOptions = readOptions.getGcsVectoredReadOptions();
+    ImmutableList<GcsObjectCombinedRange> combinedRanges =
+        VectoredIoUtil.mergeGcsObjectRanges(
+            pendingRanges,
+            vectoredReadOptions.getMaxMergeGap(),
+            vectoredReadOptions.getMaxMergeSize());
+    for (GcsObjectCombinedRange combinedRange : combinedRanges) {
       try {
-        readAndAttachCallback(range, session, allocate);
+        readAndAttachCallback(combinedRange, session, allocate);
       } catch (RuntimeException e) {
-        range.getByteBufferFuture().completeExceptionally(e);
+        completeWithException(combinedRange, e);
       }
     }
   }
@@ -366,45 +372,55 @@ class GcsBidiReadChannel extends GcsReadChannel {
   }
 
   private void readAndAttachCallback(
-      GcsObjectRange range, BlobReadSession session, IntFunction<ByteBuffer> allocate) {
+      GcsObjectCombinedRange combinedRange,
+      BlobReadSession session,
+      IntFunction<ByteBuffer> allocate) {
     ApiFuture<DisposableByteString> futureBytes =
         session.readAs(
             ReadProjectionConfigs.asFutureByteString()
-                .withRangeSpec(RangeSpec.of(range.getOffset(), range.getLength())));
+                .withRangeSpec(RangeSpec.of(combinedRange.getOffset(), combinedRange.getLength())));
 
     ApiFutures.addCallback(
         futureBytes,
         new ApiFutureCallback<DisposableByteString>() {
           @Override
           public void onFailure(Throwable t) {
-            range.getByteBufferFuture().completeExceptionally(t);
+            completeWithException(combinedRange, t);
             logger.debug(
-                "Vectored Read failed for range starting from {} with length {}",
-                range.getOffset(),
-                range.getLength());
+                "Vectored Read failed for combined range starting from {} with length {} "
+                    + "({} underlying ranges)",
+                combinedRange.getOffset(),
+                combinedRange.getLength(),
+                combinedRange.getUnderlyingRanges().size());
           }
 
           @Override
           public void onSuccess(DisposableByteString disposableByteString) {
             try {
-              processBytesAndCompleteRange(disposableByteString, range, allocate);
+              processBytesAndCompleteRanges(disposableByteString, combinedRange, allocate);
             } catch (Throwable t) {
-              range.getByteBufferFuture().completeExceptionally(t);
+              completeWithException(combinedRange, t);
             }
           }
         },
         executorServiceSupplier.get());
   }
 
-  private void processBytesAndCompleteRange(
+  private void processBytesAndCompleteRanges(
       DisposableByteString disposableByteString,
-      GcsObjectRange range,
+      GcsObjectCombinedRange combinedRange,
       IntFunction<ByteBuffer> allocate)
       throws IOException {
     try (DisposableByteString dbs = disposableByteString) {
       ByteString byteString = dbs.byteString();
-      int size = byteString.size();
-      ByteBuffer buf = allocate.apply(size);
+      int bytesRead = byteString.size();
+      if (bytesRead > combinedRange.getLength()) {
+        throw new IOException(
+            String.format(
+                "Received more bytes (%d) than requested (%d) for combined range: %s, path: %s",
+                bytesRead, combinedRange.getLength(), combinedRange, itemId));
+      }
+      ByteBuffer buf = allocate.apply(bytesRead);
       if (buf == null) {
         throw new NullPointerException("Allocator returned a null ByteBuffer!");
       }
@@ -412,7 +428,50 @@ class GcsBidiReadChannel extends GcsReadChannel {
         buf.put(b);
       }
       buf.flip();
-      range.getByteBufferFuture().complete(buf);
+      ImmutableList<GcsObjectRange> underlyingRanges = combinedRange.getUnderlyingRanges();
+      if (underlyingRanges.size() == 1 && bytesRead >= combinedRange.getLength()) {
+        // Single range that was fully read: hand the buffer over without slicing.
+        underlyingRanges.get(0).getByteBufferFuture().complete(buf);
+        return;
+      }
+      for (GcsObjectRange underlyingRange : underlyingRanges) {
+        completeUnderlyingRange(combinedRange, underlyingRange, bytesRead, buf);
+      }
+    }
+  }
+
+  /**
+   * Completes {@code underlyingRange} with a view over {@code dataBuffer} if the bytes actually
+   * returned for {@code combinedRange} cover it entirely; otherwise fails it with an {@link
+   * EOFException} rather than handing out a truncated buffer.
+   */
+  private void completeUnderlyingRange(
+      GcsObjectCombinedRange combinedRange,
+      GcsObjectRange underlyingRange,
+      int bytesRead,
+      ByteBuffer dataBuffer) {
+    long maxPosition = combinedRange.getOffset() + bytesRead;
+    long underlyingRangeEnd = underlyingRange.getOffset() + underlyingRange.getLength();
+    if (underlyingRangeEnd <= maxPosition) {
+      underlyingRange
+          .getByteBufferFuture()
+          .complete(
+              VectoredIoUtil.fetchUnderlyingRangeData(dataBuffer, combinedRange, underlyingRange));
+      return;
+    }
+    underlyingRange
+        .getByteBufferFuture()
+        .completeExceptionally(
+            new EOFException(
+                String.format(
+                    "EOF reached before child range could be populated, childRange: %s, "
+                        + "combinedRange: %s, expected length: %d, readBytes: %d, path: %s",
+                    underlyingRange, combinedRange, combinedRange.getLength(), bytesRead, itemId)));
+  }
+
+  private static void completeWithException(GcsObjectCombinedRange combinedRange, Throwable t) {
+    for (GcsObjectRange underlyingRange : combinedRange.getUnderlyingRanges()) {
+      underlyingRange.getByteBufferFuture().completeExceptionally(t);
     }
   }
 }
