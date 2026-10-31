@@ -122,4 +122,44 @@ class OpenTelemetryOptionsTest {
         .isEqualTo(OpenTelemetryOptions.ProviderType.CLOUD_MONITORING);
     assertThat(telemetryOptions.get().getProjectId()).hasValue("test-gcp-project");
   }
+
+  @Test
+  void createFromOptions_withProviderOnlyWithoutEnabled_defaultsToDisabled() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.opentelemetry.provider-type", "LOGGING");
+
+    Optional<OpenTelemetryOptions> telemetryOptions =
+        OpenTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isPresent();
+    assertThat(telemetryOptions.get().isEnabled()).isFalse();
+    assertThat(telemetryOptions.get().getProviderType())
+        .isEqualTo(OpenTelemetryOptions.ProviderType.LOGGING);
+  }
+
+  @Test
+  void createFromOptions_withExportIntervalOnlyWithoutEnabled_defaultsToDisabled() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.opentelemetry.export-interval-seconds", "30");
+
+    Optional<OpenTelemetryOptions> telemetryOptions =
+        OpenTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isPresent();
+    assertThat(telemetryOptions.get().isEnabled()).isFalse();
+    assertThat(telemetryOptions.get().getExportIntervalSeconds()).isEqualTo(30);
+  }
+
+  @Test
+  void createFromOptions_withEmptyProjectId_leavesProjectIdEmpty() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.opentelemetry.enabled", "true");
+    options.put("prefix.project-id", "");
+
+    Optional<OpenTelemetryOptions> telemetryOptions =
+        OpenTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isPresent();
+    assertThat(telemetryOptions.get().getProjectId()).isEmpty();
+  }
 }

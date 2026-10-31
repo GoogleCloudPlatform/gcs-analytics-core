@@ -53,4 +53,28 @@ class LoggingOpenTelemetryProviderTest {
       assertThat(openTelemetry).isNotNull();
     }
   }
+
+  @Test
+  void close_whenUninitialized_allowsSubsequentInitialization() {
+    try (LoggingOpenTelemetryProvider provider =
+        new LoggingOpenTelemetryProvider(OpenTelemetryOptions.builder().build())) {
+      provider.close();
+      OpenTelemetry openTelemetry = provider.getOpenTelemetry();
+
+      assertThat(openTelemetry).isNotNull();
+    }
+  }
+
+  @Test
+  void close_afterInitialization_isIdempotentAndResetsInstance() {
+    try (LoggingOpenTelemetryProvider provider =
+        new LoggingOpenTelemetryProvider(OpenTelemetryOptions.builder().build())) {
+      OpenTelemetry first = provider.getOpenTelemetry();
+      provider.close();
+      provider.close();
+      OpenTelemetry second = provider.getOpenTelemetry();
+
+      assertThat(second).isNotSameInstanceAs(first);
+    }
+  }
 }
