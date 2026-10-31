@@ -187,4 +187,14 @@ class LoggingTelemetryReporterTest {
     // The saving this reporter relies on: the message is never rendered when nobody will read it.
     assertThat(formatCalls.get()).isEqualTo(0);
   }
+
+  @Test
+  void formatMetrics_nullMetrics_returnsEmptyBraces() {
+    try (LoggingTelemetryReporter reporter =
+        new LoggingTelemetryReporter(LoggingTelemetryOptions.builder().build())) {
+      String formatted = reporter.formatMetrics(null);
+
+      assertThat(formatted).isEqualTo("{}");
+    }
+  }
 }
