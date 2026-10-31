@@ -1,0 +1,503 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Code Freeze
+
+# Enforces and manages repository code freezes on main (e.g. during pre-release verification).
+# Freeze state is stored as JSON on the orphan ref `refs/meta/code-freeze` so toggling a freeze
+# never commits to `main` or disturbs open Release-Please PRs.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Freeze or unfreeze merges to main'
+        required: true
+        type: choice
+        options:
+          - freeze
+          - unfreeze
+      reason:
+        description: 'Reason (e.g., "Release 0.2.0 verification" or "b/123456")'
+        required: false
+        type: string
+        default: ''
+      reason_type:
+        description: 'Freeze category (release auto-unfreezes after -SNAPSHOT PR merges)'
+        required: false
+        type: choice
+        options:
+          - release
+          - incident
+        default: release
+      ttl_hours:
+        description: 'Auto-expire freeze after N hours (1-168, default: 24)'
+        required: false
+        type: number
+        default: 24
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '*/15 * * * *'
+
+# Least privilege at the workflow level; each job declares what it needs below.
+permissions:
+  contents: read
+
+jobs:
+  # Required status check in the `main branch` ruleset (context: `code-freeze`).
+  code-freeze:
+    name: code-freeze
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    concurrency:
+      group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    env:
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+      HEAD_REF: ${{ github.head_ref }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+      PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Evaluate code freeze status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          read_freeze_state() {
+            local out
+            for _ in 1 2 3; do
+              if out=$(gh api "repos/$REPO/contents/code-freeze.json?ref=refs/meta/code-freeze" \
+                -H "Accept: application/vnd.github.raw+json" 2>&1); then
+                printf '%s\n' "$out"
+                return 0
+              fi
+              if grep -q "HTTP 404" <<< "$out"; then
+                printf '%s\n' '{"frozen":false}'
+                return 0
+              fi
+              sleep 2
+            done
+            echo "::error::Failed to read refs/meta/code-freeze: $out" >&2
+            return 1
+          }
+
+          state_json=$(read_freeze_state)
+          frozen=$(jq -r '.frozen // false' <<< "$state_json")
+          reason=$(jq -r '.reason // ""' <<< "$state_json")
+          reason_type=$(jq -r '.reason_type // "release"' <<< "$state_json")
+          triggered_by=$(jq -r '.triggered_by // "unknown"' <<< "$state_json")
+          triggered_at=$(jq -r '.triggered_at // ""' <<< "$state_json")
+          expires_at=$(jq -r '.expires_at // ""' <<< "$state_json")
+
+          now_epoch=$(date -u +%s)
+          expires_epoch=0
+          if [[ -n "$expires_at" && "$expires_at" != "null" ]]; then
+            expires_epoch=$(date -u -d "$expires_at" +%s 2>/dev/null || echo 0)
+          fi
+          if [[ "$frozen" == "true" && "$expires_epoch" -gt 0 && "$now_epoch" -ge "$expires_epoch" ]]; then
+            frozen="false"
+          fi
+
+          if [[ "$frozen" != "true" ]]; then
+            {
+              echo "### :unlock: Code Freeze: Inactive"
+              echo "Merges to \`main\` are currently open."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "Code freeze is inactive. Merges to main are allowed."
+            exit 0
+          fi
+
+          # Check exemptions:
+          # 1. Release-please PRs from this repo authored by gcs-analytics-core-robot
+          if [[ "$HEAD_REPO" == "$REPO" && \
+                "$HEAD_REF" == "release-please--branches--main" && \
+                "$PR_AUTHOR" == "gcs-analytics-core-robot" ]]; then
+            {
+              echo "### :white_check_mark: Code Freeze: Exempt (Release-Please PR)"
+              echo "Code freeze is active (**Reason**: ${reason}), but Release-Please PRs on \`release-please--branches--main\` are exempt so the release can proceed."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::PR #$PR_NUMBER is exempt from code freeze (Release-Please PR)."
+            exit 0
+          fi
+
+          # 2. Emergency bypass label (`freeze:bypass`)
+          if jq -e 'index("freeze:bypass") != null' <<< "$PR_LABELS_JSON" >/dev/null; then
+            {
+              echo "### :warning: Code Freeze: Bypassed via \`freeze:bypass\`"
+              echo "Code freeze is active (**Reason**: ${reason}), but this PR has the \`freeze:bypass\` label."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::PR #$PR_NUMBER bypassed code freeze via the freeze:bypass label."
+            exit 0
+          fi
+
+          {
+            echo "### :snowflake: Code Freeze: Active"
+            echo ""
+            echo "| Field | Value |"
+            echo "| :--- | :--- |"
+            echo "| **Status** | Frozen (\`${reason_type}\`) |"
+            echo "| **Reason** | ${reason} |"
+            echo "| **Frozen by** | \`@${triggered_by}\` at \`${triggered_at}\` |"
+            echo "| **Expires at** | \`${expires_at}\` |"
+            echo ""
+            echo "> **Emergency Override**: Apply the \`freeze:bypass\` label to this PR, or run the **Code Freeze** workflow with \`action: unfreeze\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::error::Code freeze is active (${reason}). Frozen by @${triggered_by} until ${expires_at}. Apply label 'freeze:bypass' for emergency merges."
+          exit 1
+
+  # Control-plane job that mutates `refs/meta/code-freeze` and updates `code-freeze` check-runs
+  # across all open PRs targeting `main`.
+  manage-code-freeze:
+    name: manage-code-freeze
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'push' &&
+       startsWith(github.event.head_commit.message, 'chore(main): release ') &&
+       contains(github.event.head_commit.message, '-SNAPSHOT'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # update refs/meta/code-freeze
+      checks: write # post code-freeze check-runs on open PRs
+      pull-requests: read # list open PRs targeting main
+    concurrency:
+      group: ${{ github.workflow }}-control-plane
+      cancel-in-progress: false
+    env:
+      REPO: ${{ github.repository }}
+      EVENT_NAME: ${{ github.event_name }}
+      ACTOR: ${{ github.actor }}
+      INPUT_ACTION: ${{ inputs.action }}
+      INPUT_REASON: ${{ inputs.reason }}
+      INPUT_REASON_TYPE: ${{ inputs.reason_type }}
+      INPUT_TTL_HOURS: ${{ inputs.ttl_hours }}
+      COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+      GITHUB_ACTIONS_APP_ID: 15368
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Update freeze state and synchronize open PR checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          read_freeze_state() {
+            local out
+            for _ in 1 2 3; do
+              if out=$(gh api "repos/$REPO/contents/code-freeze.json?ref=refs/meta/code-freeze" \
+                -H "Accept: application/vnd.github.raw+json" 2>&1); then
+                printf '%s\n' "$out"
+                return 0
+              fi
+              if grep -q "HTTP 404" <<< "$out"; then
+                printf '%s\n' '{"frozen":false}'
+                return 0
+              fi
+              sleep 2
+            done
+            echo "::error::Failed to read refs/meta/code-freeze: $out" >&2
+            return 1
+          }
+
+          write_freeze_state() {
+            local new_state_json="$1"
+            local git_commit_msg="$2"
+            local ref_json parent_sha="" blob_sha tree_sha commit_sha
+
+            if ref_json=$(gh api "repos/$REPO/git/ref/meta/code-freeze" 2>&1); then
+              parent_sha=$(jq -r '.object.sha' <<< "$ref_json")
+            elif ! grep -q "HTTP 404" <<< "$ref_json"; then
+              echo "::error::Failed to inspect refs/meta/code-freeze: $ref_json" >&2
+              return 1
+            fi
+
+            blob_sha=$(jq -n --arg content "$new_state_json" \
+              '{content: $content, encoding: "utf-8"}' \
+              | gh api "repos/$REPO/git/blobs" --input - --jq '.sha')
+
+            tree_sha=$(jq -n --arg sha "$blob_sha" \
+              '{tree: [{path: "code-freeze.json", mode: "100644", type: "blob", sha: $sha}]}' \
+              | gh api "repos/$REPO/git/trees" --input - --jq '.sha')
+
+            commit_sha=$(jq -n \
+              --arg message "$git_commit_msg" \
+              --arg tree "$tree_sha" \
+              --arg parent "$parent_sha" \
+              'if $parent != "" then {message: $message, tree: $tree, parents: [$parent]} else {message: $message, tree: $tree, parents: []} end' \
+              | gh api "repos/$REPO/git/commits" --input - --jq '.sha')
+
+            if [[ -z "$parent_sha" ]]; then
+              jq -n --arg sha "$commit_sha" '{ref: "refs/meta/code-freeze", sha: $sha}' \
+                | gh api "repos/$REPO/git/refs" --input - >/dev/null
+            else
+              jq -n --arg sha "$commit_sha" '{sha: $sha, force: false}' \
+                | gh api -X PATCH "repos/$REPO/git/refs/meta/code-freeze" --input - >/dev/null
+            fi
+          }
+
+          sync_open_prs() {
+            local state_json="$1"
+            local force_update="$2"
+            local frozen reason triggered_by expires_at
+            frozen=$(jq -r '.frozen // false' <<< "$state_json")
+            reason=$(jq -r '.reason // ""' <<< "$state_json")
+            triggered_by=$(jq -r '.triggered_by // "unknown"' <<< "$state_json")
+            expires_at=$(jq -r '.expires_at // ""' <<< "$state_json")
+
+            local prs_lines
+            prs_lines=$(gh api --paginate "repos/$REPO/pulls?state=open&base=main&per_page=100" \
+              --jq '.[] | @base64')
+
+            if [[ -z "$prs_lines" ]]; then
+              echo "No open PRs targeting main."
+              return 0
+            fi
+
+            while IFS= read -r pr_b64; do
+              [[ -z "$pr_b64" ]] && continue
+              local pr_json pr_num head_sha head_ref head_repo author has_bypass
+              pr_json=$(base64 --decode <<< "$pr_b64")
+              pr_num=$(jq -r '.number' <<< "$pr_json")
+              head_sha=$(jq -r '.head.sha' <<< "$pr_json")
+              head_ref=$(jq -r '.head.ref' <<< "$pr_json")
+              head_repo=$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")
+              author=$(jq -r '.user.login' <<< "$pr_json")
+              has_bypass=$(jq -r '[.labels[].name] | index("freeze:bypass") != null' <<< "$pr_json")
+
+              local conclusion="success"
+              local title="Code freeze is inactive"
+              local summary="Merges to \`main\` are currently open."
+
+              if [[ "$frozen" == "true" ]]; then
+                if [[ "$head_repo" == "$REPO" && \
+                      "$head_ref" == "release-please--branches--main" && \
+                      "$author" == "gcs-analytics-core-robot" ]]; then
+                  conclusion="success"
+                  title="Exempt from code freeze (Release-Please PR)"
+                  summary="Code freeze is active (${reason}), but Release-Please PRs on \`release-please--branches--main\` are exempt."
+                elif [[ "$has_bypass" == "true" ]]; then
+                  conclusion="success"
+                  title="Code freeze bypassed via freeze:bypass label"
+                  summary="Code freeze is active (${reason}), but this PR has the \`freeze:bypass\` label."
+                else
+                  conclusion="failure"
+                  title="Frozen: ${reason}"
+                  summary="Code freeze is active. Frozen by \`@${triggered_by}\` until \`${expires_at}\` (**Reason**: ${reason}). Apply label \`freeze:bypass\` for emergency merges."
+                fi
+              fi
+
+              if [[ "$force_update" != "true" ]]; then
+                local latest_conclusion
+                latest_conclusion=$(gh api "repos/$REPO/commits/$head_sha/check-runs?check_name=code-freeze&per_page=50" \
+                  --jq "[.check_runs[] | select(.app.id == $GITHUB_ACTIONS_APP_ID and .status == \"completed\")] | sort_by(.completed_at) | last | .conclusion // \"\"" 2>/dev/null || echo "")
+                if [[ "$latest_conclusion" == "$conclusion" ]]; then
+                  echo "PR #$pr_num ($head_sha) already has code-freeze=$conclusion; skipping."
+                  continue
+                fi
+              fi
+
+              echo "Posting code-freeze=$conclusion on PR #$pr_num ($head_sha)..."
+              jq -n \
+                --arg head_sha "$head_sha" \
+                --arg conclusion "$conclusion" \
+                --arg title "$title" \
+                --arg summary "$summary" \
+                '{
+                  name: "code-freeze",
+                  head_sha: $head_sha,
+                  status: "completed",
+                  conclusion: $conclusion,
+                  output: {
+                    title: $title,
+                    summary: $summary
+                  }
+                }' | gh api -X POST "repos/$REPO/check-runs" --input - >/dev/null
+            done <<< "$prs_lines"
+          }
+
+          current_state=$(read_freeze_state)
+          now_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          now_epoch=$(date -u +%s)
+          state_mutated="false"
+          next_state="$current_state"
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$INPUT_ACTION" == "freeze" ]]; then
+              ttl="${INPUT_TTL_HOURS:-24}"
+              if ! [[ "$ttl" =~ ^[0-9]+$ ]] || (( ttl < 1 || ttl > 168 )); then
+                echo "::error::ttl_hours must be an integer between 1 and 168 (got: '$ttl')."
+                exit 1
+              fi
+              reason="${INPUT_REASON:-}"
+              reason_type="${INPUT_REASON_TYPE:-release}"
+              if [[ -z "${reason// /}" ]]; then
+                if [[ "$reason_type" == "release" ]]; then
+                  reason="Release verification freeze"
+                else
+                  echo "::error::A non-empty reason is required when freezing for an incident."
+                  exit 1
+                fi
+              fi
+              expires_iso=$(date -u -d "+${ttl} hours" +"%Y-%m-%dT%H:%M:%SZ")
+              auto_unfreeze="false"
+              if [[ "$reason_type" == "release" ]]; then
+                auto_unfreeze="true"
+              fi
+              next_state=$(jq -n \
+                --arg reason "$reason" \
+                --arg reason_type "$reason_type" \
+                --arg actor "$ACTOR" \
+                --arg now_iso "$now_iso" \
+                --arg expires_iso "$expires_iso" \
+                --argjson auto_unfreeze "$auto_unfreeze" \
+                '{
+                  frozen: true,
+                  reason: $reason,
+                  reason_type: $reason_type,
+                  triggered_by: $actor,
+                  triggered_at: $now_iso,
+                  expires_at: $expires_iso,
+                  auto_unfreeze_on_release: $auto_unfreeze
+                }')
+              write_freeze_state "$next_state" "freeze($reason_type): $reason [by @$ACTOR]"
+              state_mutated="true"
+              echo "::notice::Code freeze enabled by @$ACTOR until $expires_iso ($reason)."
+            elif [[ "$INPUT_ACTION" == "unfreeze" ]]; then
+              reason="${INPUT_REASON:-Manual unfreeze via workflow_dispatch}"
+              next_state=$(jq -n \
+                --arg reason "$reason" \
+                --arg actor "$ACTOR" \
+                --arg now_iso "$now_iso" \
+                '{
+                  frozen: false,
+                  reason: $reason,
+                  reason_type: "none",
+                  triggered_by: $actor,
+                  triggered_at: $now_iso,
+                  expires_at: null,
+                  auto_unfreeze_on_release: false
+                }')
+              write_freeze_state "$next_state" "unfreeze: $reason [by @$ACTOR]"
+              state_mutated="true"
+              echo "::notice::Code freeze disabled by @$ACTOR ($reason)."
+            else
+              echo "::error::Unsupported action: $INPUT_ACTION"
+              exit 1
+            fi
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            was_frozen=$(jq -r '.frozen // false' <<< "$current_state")
+            auto_unfreeze=$(jq -r '.auto_unfreeze_on_release // false' <<< "$current_state")
+            if [[ "$was_frozen" == "true" && "$auto_unfreeze" == "true" ]]; then
+              first_line=$(head -n1 <<< "$COMMIT_MESSAGE")
+              reason="Auto-unfrozen after snapshot bump (${first_line})"
+              next_state=$(jq -n \
+                --arg reason "$reason" \
+                --arg actor "$ACTOR" \
+                --arg now_iso "$now_iso" \
+                '{
+                  frozen: false,
+                  reason: $reason,
+                  reason_type: "none",
+                  triggered_by: $actor,
+                  triggered_at: $now_iso,
+                  expires_at: null,
+                  auto_unfreeze_on_release: false
+                }')
+              write_freeze_state "$next_state" "unfreeze(auto): $reason"
+              state_mutated="true"
+              echo "::notice::$reason"
+            else
+              echo "Freeze is inactive or auto_unfreeze_on_release=false; nothing to update on push."
+              exit 0
+            fi
+          elif [[ "$EVENT_NAME" == "schedule" ]]; then
+            was_frozen=$(jq -r '.frozen // false' <<< "$current_state")
+            if [[ "$was_frozen" != "true" ]]; then
+              echo "Code freeze is inactive; nothing to reconcile."
+              exit 0
+            fi
+            expires_at=$(jq -r '.expires_at // ""' <<< "$current_state")
+            expires_epoch=0
+            if [[ -n "$expires_at" && "$expires_at" != "null" ]]; then
+              expires_epoch=$(date -u -d "$expires_at" +%s 2>/dev/null || echo 0)
+            fi
+            if [[ "$expires_epoch" -gt 0 && "$now_epoch" -ge "$expires_epoch" ]]; then
+              reason="Auto-unfrozen: TTL expired at ${expires_at}"
+              next_state=$(jq -n \
+                --arg reason "$reason" \
+                --arg now_iso "$now_iso" \
+                '{
+                  frozen: false,
+                  reason: $reason,
+                  reason_type: "none",
+                  triggered_by: "github-actions[bot]",
+                  triggered_at: $now_iso,
+                  expires_at: null,
+                  auto_unfreeze_on_release: false
+                }')
+              write_freeze_state "$next_state" "unfreeze(ttl): $reason"
+              state_mutated="true"
+              echo "::notice::$reason"
+            else
+              echo "Code freeze is active (expires at $expires_at); reconciling open PR check-runs..."
+              sync_open_prs "$current_state" "false"
+              exit 0
+            fi
+          fi
+
+          if [[ "$state_mutated" == "true" ]]; then
+            sync_open_prs "$next_state" "true"
+            # Wait briefly and run a second reconcile pass so any PR opened or synchronized
+            # concurrently with the ref update converges to the latest freeze state.
+            sleep 15
+            sync_open_prs "$next_state" "false"
+
+            frozen_now=$(jq -r '.frozen' <<< "$next_state")
+            reason_now=$(jq -r '.reason' <<< "$next_state")
+            expires_now=$(jq -r '.expires_at // "N/A"' <<< "$next_state")
+            {
+              echo "### Code Freeze State Updated"
+              echo "- **Frozen**: \`${frozen_now}\`"
+              echo "- **Reason**: ${reason_now}"
+              echo "- **Expires At**: \`${expires_now}\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
