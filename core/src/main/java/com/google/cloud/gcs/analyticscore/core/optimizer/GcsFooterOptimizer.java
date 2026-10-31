@@ -27,10 +27,10 @@ import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nullable;
 
@@ -38,7 +38,9 @@ import javax.annotation.Nullable;
 public class GcsFooterOptimizer implements FormatOptimizer {
 
   private static final int LARGE_FILE_SIZE_THRESHOLD = 1024 * 1024 * 1024; // 1 GB
-  private static final Set<String> FOOTER_OPTIMIZABLE_EXTENSIONS = Set.of(".parquet", ".orc");
+  private static final ImmutableList<String> FOOTER_OPTIMIZABLE_EXTENSIONS =
+      ImmutableList.of(
+          ".parquet", ".orc", ".hudi", ".hfile", ".lance", ".vortex", ".feather", ".arrow");
   private static final long MAX_SPECULATIVE_PREFETCH_SIZE = 4L * 1024 * 1024; // 4 MiB
 
   private final GcsReadOptions readOptions;
@@ -62,13 +64,8 @@ public class GcsFooterOptimizer implements FormatOptimizer {
   @Override
   public boolean isApplicable(GcsItemId itemId) {
     return readOptions.isFooterPrefetchEnabled()
-        && itemId
-            .getObjectName()
-            .map(
-                name ->
-                    FOOTER_OPTIMIZABLE_EXTENSIONS.stream()
-                        .anyMatch(ext -> name.toLowerCase().endsWith(ext)))
-            .orElse(false);
+        && DataFileExtensions.hasAnyExtension(
+            itemId.getObjectName(), FOOTER_OPTIMIZABLE_EXTENSIONS);
   }
 
   @Override
