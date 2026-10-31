@@ -28,6 +28,7 @@ import com.google.cloud.gcs.analyticscore.core.optimizer.FormatOptimizer;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntFunction;
 import javax.annotation.Nullable;
@@ -39,7 +40,7 @@ import javax.annotation.Nullable;
 public class SmartReadChannel implements VectoredSeekableByteChannel {
 
   private final VectoredSeekableByteChannel delegate;
-  private final List<FormatOptimizer> optimizers;
+  private final ImmutableList<FormatOptimizer> optimizers;
 
   private SmartReadChannel(
       VectoredSeekableByteChannel delegate,
@@ -48,10 +49,7 @@ public class SmartReadChannel implements VectoredSeekableByteChannel {
       List<FormatOptimizer> optimizers)
       throws IOException {
     this.delegate = checkNotNull(delegate, "delegate cannot be null");
-    this.optimizers =
-        optimizers.stream()
-            .filter(optimizer -> optimizer.isApplicable(itemId))
-            .collect(ImmutableList.toImmutableList());
+    this.optimizers = filterApplicableOptimizers(optimizers, itemId);
     int openedCount = 0;
     try {
       for (FormatOptimizer optimizer : this.optimizers) {
@@ -71,10 +69,7 @@ public class SmartReadChannel implements VectoredSeekableByteChannel {
       List<FormatOptimizer> optimizers)
       throws IOException {
     this.delegate = checkNotNull(delegate, "delegate cannot be null");
-    this.optimizers =
-        optimizers.stream()
-            .filter(optimizer -> optimizer.isApplicable(fileInfo))
-            .collect(ImmutableList.toImmutableList());
+    this.optimizers = filterApplicableOptimizers(optimizers, fileInfo);
     int openedCount = 0;
     try {
       for (FormatOptimizer optimizer : this.optimizers) {
@@ -210,13 +205,45 @@ public class SmartReadChannel implements VectoredSeekableByteChannel {
     throw (RuntimeException) t;
   }
 
+  private static ImmutableList<FormatOptimizer> filterApplicableOptimizers(
+      List<FormatOptimizer> candidates, GcsItemId itemId) {
+    ImmutableList.Builder<FormatOptimizer> applicable = null;
+    for (int i = 0; i < candidates.size(); i++) {
+      FormatOptimizer optimizer = candidates.get(i);
+      if (!optimizer.isApplicable(itemId)) {
+        continue;
+      }
+      if (applicable == null) {
+        applicable = ImmutableList.builderWithExpectedSize(candidates.size() - i);
+      }
+      applicable.add(optimizer);
+    }
+    return applicable == null ? ImmutableList.of() : applicable.build();
+  }
+
+  private static ImmutableList<FormatOptimizer> filterApplicableOptimizers(
+      List<FormatOptimizer> candidates, GcsFileInfo fileInfo) {
+    ImmutableList.Builder<FormatOptimizer> applicable = null;
+    for (int i = 0; i < candidates.size(); i++) {
+      FormatOptimizer optimizer = candidates.get(i);
+      if (!optimizer.isApplicable(fileInfo)) {
+        continue;
+      }
+      if (applicable == null) {
+        applicable = ImmutableList.builderWithExpectedSize(candidates.size() - i);
+      }
+      applicable.add(optimizer);
+    }
+    return applicable == null ? ImmutableList.of() : applicable.build();
+  }
+
   /** Builder for {@link SmartReadChannel}. */
   public static class Builder {
     private VectoredSeekableByteChannel delegate;
     private GcsItemId itemId;
     @Nullable private GcsFileInfo fileInfo;
     private AnalyticsCacheManager cacheManager;
-    private final ImmutableList.Builder<FormatOptimizer> optimizers = ImmutableList.builder();
+    private final List<FormatOptimizer> optimizers = new ArrayList<>(2);
 
     public Builder setDelegate(VectoredSeekableByteChannel delegate) {
       this.delegate = delegate;
@@ -239,20 +266,19 @@ public class SmartReadChannel implements VectoredSeekableByteChannel {
     }
 
     public Builder addOptimizer(FormatOptimizer optimizer) {
-      this.optimizers.add(optimizer);
+      this.optimizers.add(checkNotNull(optimizer));
       return this;
     }
 
     public SmartReadChannel build() throws IOException {
       checkNotNull(delegate, "delegate must be set");
       checkNotNull(cacheManager, "cacheManager must be set");
-      List<FormatOptimizer> optimizerList = optimizers.build();
 
       if (fileInfo != null) {
-        return new SmartReadChannel(delegate, fileInfo, cacheManager, optimizerList);
+        return new SmartReadChannel(delegate, fileInfo, cacheManager, optimizers);
       }
       checkNotNull(itemId, "itemId must be set if fileInfo is missing");
-      return new SmartReadChannel(delegate, itemId, cacheManager, optimizerList);
+      return new SmartReadChannel(delegate, itemId, cacheManager, optimizers);
     }
   }
 }

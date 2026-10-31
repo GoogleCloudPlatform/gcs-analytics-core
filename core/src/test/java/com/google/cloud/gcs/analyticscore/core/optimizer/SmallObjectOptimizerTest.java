@@ -126,6 +126,74 @@ class SmallObjectOptimizerTest {
   }
 
   @Test
+  void isApplicable_fileInfo_caseInsensitiveExtensions_returnTrue() {
+    GcsFileInfo uppercaseParquet =
+        FILE_INFO.toBuilder()
+            .setItemInfo(
+                ITEM_INFO.toBuilder()
+                    .setItemId(
+                        GcsItemId.builder()
+                            .setBucketName("b")
+                            .setObjectName("PART.PARQUET")
+                            .build())
+                    .build())
+            .build();
+    GcsFileInfo mixedcaseOrc =
+        FILE_INFO.toBuilder()
+            .setItemInfo(
+                ITEM_INFO.toBuilder()
+                    .setItemId(
+                        GcsItemId.builder().setBucketName("b").setObjectName("data.OrC").build())
+                    .build())
+            .build();
+    GcsFileInfo exactOrc =
+        FILE_INFO.toBuilder()
+            .setItemInfo(
+                ITEM_INFO.toBuilder()
+                    .setItemId(GcsItemId.builder().setBucketName("b").setObjectName(".orc").build())
+                    .build())
+            .build();
+
+    assertThat(optimizer.isApplicable(uppercaseParquet)).isTrue();
+    assertThat(optimizer.isApplicable(mixedcaseOrc)).isTrue();
+    assertThat(optimizer.isApplicable(exactOrc)).isTrue();
+  }
+
+  @Test
+  void isApplicable_fileInfo_shortNames_returnFalse() {
+    GcsFileInfo shortOrc =
+        FILE_INFO.toBuilder()
+            .setItemInfo(
+                ITEM_INFO.toBuilder()
+                    .setItemId(GcsItemId.builder().setBucketName("b").setObjectName("orc").build())
+                    .build())
+            .build();
+    GcsFileInfo singleChar =
+        FILE_INFO.toBuilder()
+            .setItemInfo(
+                ITEM_INFO.toBuilder()
+                    .setItemId(GcsItemId.builder().setBucketName("b").setObjectName("a").build())
+                    .build())
+            .build();
+
+    assertThat(optimizer.isApplicable(shortOrc)).isFalse();
+    assertThat(optimizer.isApplicable(singleChar)).isFalse();
+  }
+
+  @Test
+  void isApplicable_fileInfo_missingObjectName_returnsFalse() {
+    GcsFileInfo bucketOnly =
+        FILE_INFO.toBuilder()
+            .setItemInfo(
+                ITEM_INFO.toBuilder()
+                    .setItemId(GcsItemId.builder().setBucketName("b").build())
+                    .build())
+            .build();
+
+    assertThat(optimizer.isApplicable(bucketOnly)).isFalse();
+  }
+
+  @Test
   void isApplicable_fileInfo_largeFile_returnsFalse() {
     GcsItemInfo largeInfo = GcsItemInfo.builder().setItemId(ITEM_ID).setSize(300).build();
     GcsFileInfo largeFile =
