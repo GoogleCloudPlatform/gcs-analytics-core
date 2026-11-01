@@ -197,4 +197,30 @@ class GcsItemInfoTest {
 
     assertThat(itemInfo.isNativeHnsFolder()).isTrue();
   }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  void isInferredDirectory_withObjectType_returnsFalse() {
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(
+                GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("file.txt").build())
+            .setItemType(GcsItemInfo.ItemType.OBJECT)
+            .build();
+
+    assertThat(itemInfo.isInferredDirectory()).isFalse();
+  }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  void isNativeHnsFolder_withObjectType_returnsFalse() {
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(
+                GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("file.txt").build())
+            .setItemType(GcsItemInfo.ItemType.OBJECT)
+            .build();
+
+    assertThat(itemInfo.isNativeHnsFolder()).isFalse();
+  }
 }
