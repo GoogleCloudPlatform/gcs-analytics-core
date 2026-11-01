@@ -190,9 +190,10 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   public VectoredSeekableByteChannel open(GcsFileInfo gcsFileInfo, GcsReadOptions readOptions)
       throws IOException {
     checkNotNull(gcsFileInfo, "fileInfo should not be null");
-    GcsItemId itemId = UriUtil.getItemIdFromString(gcsFileInfo.getUri().toString());
-    checkArgument(itemId.isGcsObject(), "Expected GCS object to be provided. But got: " + itemId);
-    return gcsClient.openReadChannel(gcsFileInfo.getItemInfo(), readOptions);
+    GcsItemInfo itemInfo = checkNotNull(gcsFileInfo.getItemInfo(), "itemInfo should not be null");
+    GcsItemId itemId = checkNotNull(itemInfo.getItemId(), "itemId should not be null");
+    checkArgument(itemId.isGcsObject(), "Expected GCS object to be provided. But got: %s", itemId);
+    return gcsClient.openReadChannel(itemInfo, readOptions);
   }
 
   @Override
@@ -200,7 +201,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       throws IOException {
     checkNotNull(gcsItemId, "gcsItemId should not be null");
     checkArgument(
-        gcsItemId.isGcsObject(), "Expected GCS object to be provided. But got: " + gcsItemId);
+        gcsItemId.isGcsObject(), "Expected GCS object to be provided. But got: %s", gcsItemId);
     return gcsClient.openReadChannel(gcsItemId, readOptions);
   }
 
