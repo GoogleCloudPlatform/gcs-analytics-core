@@ -243,21 +243,23 @@ class GcsFileSystemImplTest {
   @Test
   void open_withFileInfo_callsGcsClientOpen() throws IOException {
     URI testUri = URI.create("gs://test-bucket/test-object");
-    GcsItemInfo mockItemInfo = mock(GcsItemInfo.class);
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(1024L).build();
     GcsFileInfo fileInfo =
         GcsFileInfo.builder()
             .setUri(testUri)
-            .setItemInfo(mockItemInfo)
+            .setItemInfo(itemInfo)
             .setAttributes(Collections.emptyMap())
             .build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
     VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
-    when(mockClient.openReadChannel(eq(mockItemInfo), eq(readOptions))).thenReturn(mockChannel);
+    when(mockClient.openReadChannel(eq(itemInfo), eq(readOptions))).thenReturn(mockChannel);
 
-    VectoredSeekableByteChannel resultChannel = gcsFileSystem.open(fileInfo, readOptions);
-
-    verify(mockClient).openReadChannel(mockItemInfo, readOptions);
-    assertThat(resultChannel).isSameInstanceAs(mockChannel);
+    try (VectoredSeekableByteChannel resultChannel = gcsFileSystem.open(fileInfo, readOptions)) {
+      verify(mockClient).openReadChannel(itemInfo, readOptions);
+      assertThat(resultChannel).isSameInstanceAs(mockChannel);
+    }
   }
 
   @Test
@@ -274,11 +276,17 @@ class GcsFileSystemImplTest {
   @Test
   void open_withNonObjectFileInfo_throwsIllegalArgumentException() throws URISyntaxException {
     URI bucketUri = new URI("gs://" + TEST_BUCKET);
-    GcsItemInfo mockItemInfo = mock(GcsItemInfo.class);
+    GcsItemId bucketItemId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    GcsItemInfo bucketItemInfo =
+        GcsItemInfo.builder()
+            .setItemId(bucketItemId)
+            .setSize(0L)
+            .setItemType(GcsItemInfo.ItemType.BUCKET)
+            .build();
     GcsFileInfo fileInfo =
         GcsFileInfo.builder()
             .setUri(bucketUri)
-            .setItemInfo(mockItemInfo)
+            .setItemInfo(bucketItemInfo)
             .setAttributes(Collections.emptyMap())
             .build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
@@ -288,6 +296,30 @@ class GcsFileSystemImplTest {
             IllegalArgumentException.class, () -> gcsFileSystem.open(fileInfo, readOptions));
 
     assertThat(e).hasMessageThat().startsWith("Expected GCS object to be provided");
+  }
+
+  @Test
+  void open_withFileInfo_usesItemInfoItemIdWithoutParsingUri() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET)
+            .setObjectName("folder//object.parquet")
+            .build();
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(1024L).build();
+    GcsFileInfo fileInfo =
+        GcsFileInfo.builder()
+            .setUri(URI.create("gs://" + TEST_BUCKET + "/folder//object.parquet"))
+            .setItemInfo(itemInfo)
+            .setAttributes(Collections.emptyMap())
+            .build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
+    VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
+    when(mockClient.openReadChannel(eq(itemInfo), eq(readOptions))).thenReturn(mockChannel);
+
+    try (VectoredSeekableByteChannel resultChannel = gcsFileSystem.open(fileInfo, readOptions)) {
+      verify(mockClient).openReadChannel(itemInfo, readOptions);
+      assertThat(resultChannel).isSameInstanceAs(mockChannel);
+    }
   }
 
   @Test
@@ -505,10 +537,10 @@ class GcsFileSystemImplTest {
     VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
     when(mockClient.openReadChannel(eq(itemId), eq(readOptions))).thenReturn(mockChannel);
 
-    VectoredSeekableByteChannel resultChannel = gcsFileSystem.open(itemId, readOptions);
-
-    verify(mockClient).openReadChannel(itemId, readOptions);
-    assertThat(resultChannel).isSameInstanceAs(mockChannel);
+    try (VectoredSeekableByteChannel resultChannel = gcsFileSystem.open(itemId, readOptions)) {
+      verify(mockClient).openReadChannel(itemId, readOptions);
+      assertThat(resultChannel).isSameInstanceAs(mockChannel);
+    }
   }
 
   @Test
