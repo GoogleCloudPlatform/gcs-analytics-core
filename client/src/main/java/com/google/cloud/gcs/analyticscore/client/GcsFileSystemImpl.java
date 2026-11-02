@@ -43,6 +43,7 @@ import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -441,6 +442,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
       }
 
       // Check results in submission order so that the shallowest conflicting file is reported.
+      boolean accessDeniedLogged = false;
       for (Map.Entry<GcsItemId, Future<GcsItemInfo>> entry : futures.entrySet()) {
         try {
           GcsItemInfo fileInfo = getFromFuture(entry.getValue());
@@ -451,6 +453,18 @@ public class GcsFileSystemImpl implements GcsFileSystem {
               "File '{}' not found, so it does not conflict with directory '{}'.",
               entry.getKey(),
               dirItemId);
+        } catch (AccessDeniedException e) {
+          // The check is best-effort: a path outside a Credential Access Boundary or a role without
+          // storage.objects.get can't be read, and creating the directory still enforces write
+          // permission on the target.
+          if (!accessDeniedLogged) {
+            // Log only the bucket at WARN: object names may contain sensitive data.
+            LOG.warn(
+                "Skipping the mkdirs conflict check for paths the caller cannot read in bucket {}",
+                dirItemId.getBucketName());
+            accessDeniedLogged = true;
+          }
+          LOG.debug("Conflict check access denied for '{}'", entry.getKey(), e);
         }
       }
     } finally {

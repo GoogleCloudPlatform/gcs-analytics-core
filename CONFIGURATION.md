@@ -75,6 +75,7 @@ The value uses the JSON format from the Cloud IAM documentation and can have up 
 * Enable the IAM API and the Security Token Service API. The credentials still need IAM roles that grant the permissions, because a boundary only removes access.
 * A condition on object names must also allow the list prefix, as the example does, or directory lookups fail. On buckets with hierarchical namespace, also allow the folder names, such as `projects/_/buckets/example-bucket/folders/eu/`.
 * The library reads bucket metadata to detect hierarchical namespace and Rapid buckets, which needs `storage.buckets.get`. `roles/storage.objectViewer` doesn't include this permission, and a condition on object names blocks it. Without a rule that allows it, the library treats the bucket as a flat bucket that isn't Rapid: on a bucket with hierarchical namespace, it doesn't find folders that have no objects, and on a Rapid bucket, it creates empty objects without an appendable upload.
+* Before `mkdirs` creates a directory, it checks the parent paths for conflicting files (see `analytics-core.create.items.conflict.check.enable`). With a boundary that allows writes under a prefix, a parent path outside the prefix can't be read, such as `eu` for `mkdirs("gs://example-bucket/eu/data/")`. The check skips such paths and logs one warning per `mkdirs` call that names only the bucket.
 * Downscoped credentials don't keep the quota project of the source credentials, so requests don't send it in the `x-goog-user-project` header. The Cloud Storage client still sends the `quota_project_id` from the file that the `GOOGLE_APPLICATION_CREDENTIALS` environment variable names. To choose the project that pays for object reads and writes in a Requester Pays bucket, set `user-project`. Listing requests and most metadata requests don't send it.
 * The boundary applies only to credentials that the library creates. The library uses `Credentials` that you pass to `GcsFileSystemImpl` as they are, so downscope those yourself.
 
@@ -107,6 +108,14 @@ These parameters fine-tune the low-level data streaming behavior. They allow you
 | `analytics-core.read.file-access-pattern` | File access pattern. Supported values: `RANDOM`, `SEQUENTIAL`, `AUTO_SEQUENTIAL`, `AUTO_RANDOM`. | `AUTO_SEQUENTIAL` |
 | `analytics-core.adaptive-read.sequential-read-threshold` | Threshold for number of sequential reads to switch to sequential mode. | `3` |
 | `analytics-core.random-read.min-request-size` | Minimum request size for random reads. If the requested read size is smaller, it reads up to this size. | `131072` (128 KB) |
+
+### Directory Operations
+
+These settings control how `mkdirs` creates directories.
+
+| Property | Description | Default Value |
+| :--- | :--- | :--- |
+| `analytics-core.create.items.conflict.check.enable` | Before `mkdirs` creates a directory, checks that no file exists at the target path or any of its parent paths, with one `storage.objects.get` request per path level. The check is best-effort: it isn't atomic with concurrent writes, and it skips paths that the caller can't read. | `true` |
 
 ### Telemetry and Monitoring
 

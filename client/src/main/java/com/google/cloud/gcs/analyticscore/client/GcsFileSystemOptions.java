@@ -69,9 +69,9 @@ public abstract class GcsFileSystemOptions {
    * Returns whether prefix conflict checks are performed before creating directories via {@link
    * GcsFileSystem#mkdirs}.
    *
-   * <p>Defaults to {@code true}, issuing {@code O(depth)} object metadata lookups (requiring {@code
-   * storage.objects.get}) to fail if a file exists at any path component. Currently applies only to
-   * {@code mkdirs} (not {@link GcsFileSystem#create}).
+   * <p>Defaults to {@code true}, issuing {@code O(depth)} object metadata lookups ({@code
+   * storage.objects.get}) to fail if a file exists at any path component; paths the caller can't
+   * read are skipped. Currently applies only to {@code mkdirs} (not {@link GcsFileSystem#create}).
    */
   public abstract boolean isCreateItemsConflictCheckEnabled();
 

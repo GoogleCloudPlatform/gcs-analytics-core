@@ -1483,6 +1483,64 @@ class GcsFileSystemImplTest {
   }
 
   @Test
+  void checkNoFilesConflictingWithDirs_accessDeniedParent_skipsItAndChecksRemainingPaths()
+      throws IOException {
+    GcsItemId dirId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_SUBDIR).build();
+    GcsItemId parentFileId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir").build();
+    GcsItemId nestedFileId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/subdir").build();
+    when(mockClient.getGcsItemInfo(parentFileId))
+        .thenThrow(new AccessDeniedException("gs://" + TEST_BUCKET + "/dir"));
+    when(mockClient.getGcsItemInfo(nestedFileId)).thenThrow(new FileNotFoundException("Not found"));
+
+    assertDoesNotThrow(
+        () -> ((GcsFileSystemImpl) gcsFileSystem).checkNoFilesConflictingWithDirs(dirId));
+    verify(mockClient).getGcsItemInfo(nestedFileId);
+  }
+
+  @Test
+  void checkNoFilesConflictingWithDirs_accessDeniedParentThenConflictingFile_throws()
+      throws IOException {
+    GcsItemId dirId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_SUBDIR).build();
+    GcsItemId parentFileId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir").build();
+    GcsItemId conflictingFileId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/subdir").build();
+    GcsItemInfo conflictingFileInfo =
+        GcsItemInfo.builder()
+            .setItemId(conflictingFileId)
+            .setSize(100L)
+            .setContentGeneration(1L)
+            .build();
+    when(mockClient.getGcsItemInfo(parentFileId))
+        .thenThrow(new AccessDeniedException("gs://" + TEST_BUCKET + "/dir"));
+    when(mockClient.getGcsItemInfo(conflictingFileId)).thenReturn(conflictingFileInfo);
+
+    FileAlreadyExistsException e =
+        assertThrows(
+            FileAlreadyExistsException.class,
+            () -> ((GcsFileSystemImpl) gcsFileSystem).checkNoFilesConflictingWithDirs(dirId));
+    assertThat(e.getOtherFile()).isEqualTo("gs://" + TEST_BUCKET + "/dir/subdir");
+  }
+
+  @Test
+  void mkdirs_conflictCheckAccessDeniedForAllPaths_createsDirectory() throws IOException {
+    URI dirUri = URI.create("gs://" + TEST_BUCKET + "/" + TEST_SUBDIR);
+    when(mockClient.getGcsItemInfo(any())).thenThrow(new AccessDeniedException("Access denied"));
+    when(mockClient.getBucketProperties(TEST_BUCKET))
+        .thenReturn(BucketProperties.create(false, false));
+
+    gcsFileSystem.mkdirs(dirUri);
+
+    verify(mockClient)
+        .createEmptyObject(
+            GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_SUBDIR).build());
+  }
+
+  @Test
   void mkdirs_rootUri_returnsImmediatelyWithoutAction() throws IOException {
     gcsFileSystem.mkdirs(URI.create("gs:/"));
 

@@ -177,7 +177,8 @@ public interface GcsFileSystem extends AutoCloseable {
    * <p>When {@link GcsFileSystemOptions#isCreateItemsConflictCheckEnabled()} is {@code true},
    * performs a best-effort prefix check ({@code O(depth)} {@code storage.objects.get} lookups) for
    * conflicting files before creating the directory; this check is not atomic with respect to
-   * concurrent writes.
+   * concurrent writes, and it skips paths the caller can't read (for example, outside a Credential
+   * Access Boundary or with a role that lacks {@code storage.objects.get}).
    *
    * <p>The default implementation throws {@link UnsupportedOperationException}, so that
    * implementations written against earlier versions of this interface keep compiling; {@link
