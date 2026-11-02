@@ -38,6 +38,9 @@ import javax.annotation.Nonnull;
 
 /** This is a seekable input stream for GCS objects. It is backed by a GcsFileSystem instance. */
 public class GoogleCloudStorageInputStream extends SeekableInputStream {
+  private static final ImmutableMap<String, String> COMMON_ATTRIBUTES =
+      ImmutableMap.of(Attribute.CLASS_NAME.name(), GoogleCloudStorageInputStream.class.getName());
+
   // Used for single-byte reads to avoid repeated allocation.
   private final ByteBuffer singleByteBuffer = ByteBuffer.wrap(new byte[1]);
 
@@ -45,7 +48,6 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   private final VectoredSeekableByteChannel channel;
   private long position;
   private final URI gcsPath;
-  private final ImmutableMap<String, String> commonAttributes;
 
   private volatile boolean closed;
 
@@ -75,20 +77,34 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   }
 
   private GoogleCloudStorageInputStream(
-      GcsFileSystem gcsFileSystem, VectoredSeekableByteChannel channel, GcsFileInfo gcsFileInfo) {
-    this(gcsFileSystem, channel, gcsFileInfo.getItemInfo().getItemId());
+      @Nonnull GcsFileSystem gcsFileSystem,
+      @Nonnull VectoredSeekableByteChannel channel,
+      @Nonnull GcsFileInfo gcsFileInfo) {
+    this(gcsFileSystem, channel, gcsFileInfo.getUri(), gcsFileInfo.getItemInfo().getItemId());
     this.gcsFileInfo = gcsFileInfo;
   }
 
   private GoogleCloudStorageInputStream(
-      GcsFileSystem gcsFileSystem, VectoredSeekableByteChannel channel, GcsItemId itemId) {
+      @Nonnull GcsFileSystem gcsFileSystem,
+      @Nonnull VectoredSeekableByteChannel channel,
+      @Nonnull GcsItemId itemId) {
+    this(
+        gcsFileSystem,
+        channel,
+        URI.create(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()).toGsUtilUri()),
+        itemId);
+  }
+
+  private GoogleCloudStorageInputStream(
+      @Nonnull GcsFileSystem gcsFileSystem,
+      @Nonnull VectoredSeekableByteChannel channel,
+      @Nonnull URI gcsPath,
+      @Nonnull GcsItemId itemId) {
     this.gcsFileSystem = gcsFileSystem;
     this.channel = channel;
-    this.gcsPath =
-        URI.create(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()).toGsUtilUri());
-    this.gcsItemId = itemId;
+    this.gcsPath = checkNotNull(gcsPath, "gcsPath shouldn't be null");
     this.position = 0;
-    this.commonAttributes = buildCommonAttributes();
+    this.gcsItemId = checkNotNull(itemId, "gcsItemId shouldn't be null");
   }
 
   @Override
@@ -136,7 +152,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         .measure(
             Operation.SEEK.name(),
             Metric.SEEK_DURATION,
-            commonAttributes,
+            COMMON_ATTRIBUTES,
             recorder -> {
               checkArgument(newPos >= 0, "position can't be negative: %s", newPos);
               checkNotClosed("Cannot seek: already closed");
@@ -167,7 +183,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         .measure(
             Operation.READ.name(),
             Metric.READ_DURATION,
-            commonAttributes,
+            COMMON_ATTRIBUTES,
             recorder -> {
               checkNotClosed("Cannot read: already closed");
               long channelPosition = channel.position();
@@ -208,7 +224,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         .measure(
             Operation.READ_CLOSE.name(),
             Metric.READ_CLOSE_DURATION,
-            commonAttributes,
+            COMMON_ATTRIBUTES,
             recorder -> {
               if (!closed) {
                 closed = true;
@@ -231,7 +247,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         .measure(
             Operation.READ_FULLY.name(),
             Metric.READ_DURATION,
-            commonAttributes,
+            COMMON_ATTRIBUTES,
             recorder -> {
               adoptResolvedItemInfo(channel);
               try (VectoredSeekableByteChannel byteChannel =
@@ -258,7 +274,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         .measure(
             Operation.READ_TAIL.name(),
             Metric.READ_DURATION,
-            commonAttributes,
+            COMMON_ATTRIBUTES,
             recorder -> {
               long size = size();
               try (VectoredSeekableByteChannel byteChannel =
@@ -288,7 +304,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
         .measure(
             Operation.OPEN.name(),
             Metric.OPEN_DURATION,
-            buildCommonAttributes(),
+            COMMON_ATTRIBUTES,
             recorder -> {
               GcsReadOptions readOptions =
                   gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions();
@@ -310,10 +326,5 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
                   .addOptimizer(new GcsFooterOptimizer(readOptions, gcsFileSystem.getTelemetry()))
                   .build();
             });
-  }
-
-  private static ImmutableMap<String, String> buildCommonAttributes() {
-    return ImmutableMap.of(
-        Attribute.CLASS_NAME.name(), GoogleCloudStorageInputStream.class.getName());
   }
 }

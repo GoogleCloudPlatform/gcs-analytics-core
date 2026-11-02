@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -45,6 +46,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.IntFunction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 class SmartReadChannelTest {
 
@@ -115,6 +117,75 @@ class SmartReadChannelTest {
 
     verify(mockOptimizer, never()).onOpen(any(GcsItemId.class), any());
     verify(mockOptimizer, never()).onOpen(any(GcsFileInfo.class), any());
+  }
+
+  @Test
+  void constructor_withFileInfo_inapplicableOptimizer_skipsOnOpen() throws IOException {
+    when(mockOptimizer.isApplicable(any(GcsFileInfo.class))).thenReturn(false);
+
+    SmartReadChannel.builder()
+        .setDelegate(mockDelegate)
+        .setFileInfo(FILE_INFO)
+        .setCacheManager(mockCacheManager)
+        .addOptimizer(mockOptimizer)
+        .build();
+
+    verify(mockOptimizer, never()).onOpen(any(GcsItemId.class), any());
+    verify(mockOptimizer, never()).onOpen(any(GcsFileInfo.class), any());
+  }
+
+  @Test
+  void constructor_itemIdOnly_multipleMixedOptimizers_opensOnlyApplicableInOrder()
+      throws IOException {
+    FormatOptimizer applicable1 = mock(FormatOptimizer.class);
+    FormatOptimizer inapplicable = mock(FormatOptimizer.class);
+    FormatOptimizer applicable2 = mock(FormatOptimizer.class);
+
+    when(applicable1.isApplicable(ITEM_ID)).thenReturn(true);
+    when(inapplicable.isApplicable(ITEM_ID)).thenReturn(false);
+    when(applicable2.isApplicable(ITEM_ID)).thenReturn(true);
+
+    SmartReadChannel.builder()
+        .setDelegate(mockDelegate)
+        .setItemId(ITEM_ID)
+        .setCacheManager(mockCacheManager)
+        .addOptimizer(applicable1)
+        .addOptimizer(inapplicable)
+        .addOptimizer(applicable2)
+        .build();
+
+    InOrder inOrder = inOrder(applicable1, applicable2);
+    inOrder.verify(applicable1).onOpen(ITEM_ID, mockCacheManager);
+    inOrder.verify(applicable2).onOpen(ITEM_ID, mockCacheManager);
+    verify(inapplicable, never()).onOpen(any(GcsItemId.class), any());
+    verify(inapplicable, never()).onOpen(any(GcsFileInfo.class), any());
+  }
+
+  @Test
+  void constructor_withFileInfo_multipleMixedOptimizers_opensOnlyApplicableInOrder()
+      throws IOException {
+    FormatOptimizer applicable1 = mock(FormatOptimizer.class);
+    FormatOptimizer inapplicable = mock(FormatOptimizer.class);
+    FormatOptimizer applicable2 = mock(FormatOptimizer.class);
+
+    when(applicable1.isApplicable(FILE_INFO)).thenReturn(true);
+    when(inapplicable.isApplicable(FILE_INFO)).thenReturn(false);
+    when(applicable2.isApplicable(FILE_INFO)).thenReturn(true);
+
+    SmartReadChannel.builder()
+        .setDelegate(mockDelegate)
+        .setFileInfo(FILE_INFO)
+        .setCacheManager(mockCacheManager)
+        .addOptimizer(applicable1)
+        .addOptimizer(inapplicable)
+        .addOptimizer(applicable2)
+        .build();
+
+    InOrder inOrder = inOrder(applicable1, applicable2);
+    inOrder.verify(applicable1).onOpen(FILE_INFO, mockCacheManager);
+    inOrder.verify(applicable2).onOpen(FILE_INFO, mockCacheManager);
+    verify(inapplicable, never()).onOpen(any(GcsItemId.class), any());
+    verify(inapplicable, never()).onOpen(any(GcsFileInfo.class), any());
   }
 
   @Test

@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -157,6 +158,158 @@ class OpenTelemetryReporterTest {
       reporter.onOperationEnd(operationWithOpId("first"), Map.of());
 
       verify(mockCounter, never()).add(anyLong(), any(Attributes.class));
+    }
+  }
+
+  @Test
+  void constructor_loggingProvider_recordsAndClosesCleanly() {
+    OpenTelemetryOptions options =
+        OpenTelemetryOptions.builder()
+            .setEnabled(true)
+            .setProviderType(OpenTelemetryOptions.ProviderType.LOGGING)
+            .setExportIntervalSeconds(60)
+            .build();
+    try (OpenTelemetryReporter reporter = new OpenTelemetryReporter(options)) {
+      assertThat(reporter).isNotNull();
+      Operation operation =
+          Operation.builder()
+              .setName("testOp")
+              .setDurationMetric(TestMetric.of("testOp.duration", Metric.MetricType.DURATION))
+              .build();
+      Map<MetricKey, Long> metrics =
+          Map.of(
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("testOp.bytes", Metric.MetricType.COUNTER))
+                  .build(),
+              100L);
+      reporter.onOperationEnd(operation, metrics);
+    }
+  }
+
+  @Test
+  void constructor_cloudMonitoringProvider_createsAndClosesCleanly() {
+    OpenTelemetryOptions options =
+        OpenTelemetryOptions.builder()
+            .setEnabled(true)
+            .setProviderType(OpenTelemetryOptions.ProviderType.CLOUD_MONITORING)
+            .setProjectId("test-project-123")
+            .setExportIntervalSeconds(60)
+            .build();
+    try (OpenTelemetryReporter reporter = new OpenTelemetryReporter(options)) {
+      assertThat(reporter).isNotNull();
+    }
+  }
+
+  @Test
+  void constructor_globalProvider_recordsAndClosesCleanly() {
+    OpenTelemetryOptions options =
+        OpenTelemetryOptions.builder()
+            .setEnabled(true)
+            .setProviderType(OpenTelemetryOptions.ProviderType.GLOBAL)
+            .build();
+    try (OpenTelemetryReporter reporter = new OpenTelemetryReporter(options)) {
+      assertThat(reporter).isNotNull();
+      Operation operation =
+          Operation.builder()
+              .setName("testOp")
+              .setDurationMetric(TestMetric.of("testOp.duration", Metric.MetricType.DURATION))
+              .build();
+      Map<MetricKey, Long> metrics =
+          Map.of(
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("testOp.bytes", Metric.MetricType.COUNTER))
+                  .build(),
+              50L);
+      reporter.onOperationEnd(operation, metrics);
+    }
+  }
+
+  @Test
+  void constructor_preConfiguredWithoutInstance_throwsIllegalStateException() {
+    OpenTelemetryOptions options =
+        OpenTelemetryOptions.builder()
+            .setEnabled(true)
+            .setProviderType(OpenTelemetryOptions.ProviderType.PRE_CONFIGURED)
+            .build();
+
+    IllegalStateException exception =
+        assertThrows(IllegalStateException.class, () -> new OpenTelemetryReporter(options));
+
+    assertThat(exception).hasMessageThat().contains("Missing OpenTelemetry instance");
+  }
+
+  @Test
+  void onOperationStart_validOperation_completesWithoutRecordingMetrics() {
+    OpenTelemetryOptions options =
+        OpenTelemetryOptions.builder()
+            .setEnabled(true)
+            .setProviderType(OpenTelemetryOptions.ProviderType.PRE_CONFIGURED)
+            .setPreconfiguredOpenTelemetryInstance(mockOpenTelemetry)
+            .build();
+    try (OpenTelemetryReporter reporter = new OpenTelemetryReporter(options)) {
+      reporter.onOperationStart(operationWithOpId("test"));
+
+      verify(mockCounter, never()).add(anyLong(), any(Attributes.class));
+      verify(mockHistogram, never()).record(anyLong(), any(Attributes.class));
+    }
+  }
+
+  @Test
+  void operationEnd_nullMetrics_recordsNothing() {
+    OpenTelemetryOptions options =
+        OpenTelemetryOptions.builder()
+            .setEnabled(true)
+            .setProviderType(OpenTelemetryOptions.ProviderType.PRE_CONFIGURED)
+            .setPreconfiguredOpenTelemetryInstance(mockOpenTelemetry)
+            .build();
+    try (OpenTelemetryReporter reporter = new OpenTelemetryReporter(options)) {
+      reporter.onOperationEnd(operationWithOpId("first"), null);
+
+      verify(mockCounter, never()).add(anyLong(), any(Attributes.class));
+      verify(mockHistogram, never()).record(anyLong(), any(Attributes.class));
+    }
+  }
+
+  @Test
+  void operationEnd_emptyOperationAttributes_recordsMetricWithOnlyMetricAttributes() {
+    OpenTelemetryOptions options =
+        OpenTelemetryOptions.builder()
+            .setEnabled(true)
+            .setProviderType(OpenTelemetryOptions.ProviderType.PRE_CONFIGURED)
+            .setPreconfiguredOpenTelemetryInstance(mockOpenTelemetry)
+            .build();
+    try (OpenTelemetryReporter reporter = new OpenTelemetryReporter(options)) {
+      Operation operation = Operation.builder().setName("testOp").build();
+      Map<MetricKey, Long> metrics =
+          Map.of(
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("testOp.duration", Metric.MetricType.DURATION))
+                  .setAttributes(Map.of("status", "SUCCESS"))
+                  .build(),
+              200L,
+              MetricKey.builder()
+                  .setMetric(TestMetric.of("testOp.bytes", Metric.MetricType.COUNTER))
+                  .setAttributes(Map.of("status", "SUCCESS"))
+                  .build(),
+              512L);
+
+      reporter.onOperationEnd(operation, metrics);
+      reporter.onOperationEnd(operation, metrics);
+
+      verify(mockMeter, times(1)).histogramBuilder("testOp.duration");
+      verify(mockMeter, times(1)).counterBuilder("testOp.bytes");
+
+      ArgumentCaptor<Attributes> histogramCaptor = ArgumentCaptor.forClass(Attributes.class);
+      verify(mockHistogram, times(2)).record(eq(200L), histogramCaptor.capture());
+      assertThat(histogramCaptor.getValue().get(AttributeKey.stringKey("status")))
+          .isEqualTo("SUCCESS");
+      assertThat(histogramCaptor.getValue().size()).isEqualTo(1);
+
+      ArgumentCaptor<Attributes> counterCaptor = ArgumentCaptor.forClass(Attributes.class);
+      verify(mockCounter, times(2)).add(eq(512L), counterCaptor.capture());
+      assertThat(counterCaptor.getValue().get(AttributeKey.stringKey("status")))
+          .isEqualTo("SUCCESS");
+      assertThat(counterCaptor.getValue().size()).isEqualTo(1);
     }
   }
 

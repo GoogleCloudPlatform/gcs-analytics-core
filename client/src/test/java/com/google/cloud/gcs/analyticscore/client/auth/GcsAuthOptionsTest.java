@@ -37,6 +37,10 @@ class GcsAuthOptionsTest {
   private static final String REFRESH_TOKEN_VALUE = "refresh-token-value";
   private static final String PROXY_USERNAME_VALUE = "proxy-username-value";
   private static final String PROXY_PASSWORD_VALUE = "proxy-password-value";
+  private static final String CREDENTIAL_ACCESS_BOUNDARY =
+      "{\"accessBoundary\": {\"accessBoundaryRules\": [{"
+          + "\"availableResource\": \"//storage.googleapis.com/projects/_/buckets/example-bucket\","
+          + " \"availablePermissions\": [\"inRole:roles/storage.objectViewer\"]}]}}";
 
   @Test
   void builder_defaults_areSetCorrectly() {
@@ -52,6 +56,7 @@ class GcsAuthOptionsTest {
     assertThat(options.getRefreshToken()).isEmpty();
     assertThat(options.getImpersonationServiceAccount()).isEmpty();
     assertThat(options.getTokenServerUri()).isEmpty();
+    assertThat(options.getCredentialAccessBoundary()).isEmpty();
     assertThat(options.getProxyAddress()).isEmpty();
     assertThat(options.getProxyUsername()).isEmpty();
     assertThat(options.getProxyPassword()).isEmpty();
@@ -69,6 +74,7 @@ class GcsAuthOptionsTest {
             .setRefreshToken(RedactedString.create("token-789"))
             .setImpersonationServiceAccount("sa@project.iam.gserviceaccount.com")
             .setTokenServerUri(URI.create("https://oauth2.googleapis.com/token"))
+            .setCredentialAccessBoundary(CREDENTIAL_ACCESS_BOUNDARY)
             .setProxyAddress("proxy.mycompany.com:8080")
             .setProxyUsername(RedactedString.create("proxyuser"))
             .setProxyPassword(RedactedString.create("proxypass"))
@@ -86,6 +92,7 @@ class GcsAuthOptionsTest {
         .hasValue("sa@project.iam.gserviceaccount.com");
     assertThat(options.getTokenServerUri())
         .hasValue(URI.create("https://oauth2.googleapis.com/token"));
+    assertThat(options.getCredentialAccessBoundary()).hasValue(CREDENTIAL_ACCESS_BOUNDARY);
     assertThat(options.getProxyAddress()).hasValue("proxy.mycompany.com:8080");
     assertThat(options.getProxyUsername()).hasValue(RedactedString.create("proxyuser"));
     assertThat(options.getProxyPassword()).hasValue(RedactedString.create("proxypass"));
@@ -151,6 +158,7 @@ class GcsAuthOptionsTest {
                 "gcs.analytics-core.auth.impersonation-service-account",
                 "target@iam.gserviceaccount.com")
             .put("gcs.analytics-core.auth.token-server-uri", "https://oauth2.googleapis.com/token")
+            .put("gcs.analytics-core.auth.credential-access-boundary", CREDENTIAL_ACCESS_BOUNDARY)
             .put("gcs.analytics-core.auth.proxy.address", "https://proxy:8443")
             .put("gcs.analytics-core.auth.proxy.username", "user")
             .put("gcs.analytics-core.auth.proxy.password", "pass")
@@ -169,6 +177,7 @@ class GcsAuthOptionsTest {
     assertThat(options.getImpersonationServiceAccount()).hasValue("target@iam.gserviceaccount.com");
     assertThat(options.getTokenServerUri())
         .hasValue(URI.create("https://oauth2.googleapis.com/token"));
+    assertThat(options.getCredentialAccessBoundary()).hasValue(CREDENTIAL_ACCESS_BOUNDARY);
     assertThat(options.getProxyAddress()).hasValue("https://proxy:8443");
     assertThat(options.getProxyUsername()).hasValue(RedactedString.create("user"));
     assertThat(options.getProxyPassword()).hasValue(RedactedString.create("pass"));
@@ -256,6 +265,7 @@ class GcsAuthOptionsTest {
             .put("analytics-core.auth.refresh-token", "   ")
             .put("analytics-core.auth.impersonation-service-account", "   ")
             .put("analytics-core.auth.token-server-uri", "   ")
+            .put("analytics-core.auth.credential-access-boundary", "   ")
             .put("analytics-core.auth.proxy.address", "   ")
             .put("analytics-core.auth.proxy.username", "   ")
             .put("analytics-core.auth.proxy.password", "   ")
@@ -690,6 +700,65 @@ class GcsAuthOptionsTest {
             "sa@project.iam.gserviceaccount.com");
 
     assertThrows(IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, ""));
+  }
+
+  @Test
+  void build_invalidCredentialAccessBoundary_reportsKey() {
+    GcsAuthOptions.Builder builder = GcsAuthOptions.builder().setCredentialAccessBoundary("{}");
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .startsWith(
+            "analytics-core.auth.credential-access-boundary is not a valid Credential Access"
+                + " Boundary: ");
+  }
+
+  @Test
+  void createFromOptions_invalidCredentialAccessBoundary_reportsPrefixedKey() {
+    Map<String, String> map =
+        ImmutableMap.of("gcs.analytics-core.auth.credential-access-boundary", "not json");
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, "gcs."));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .startsWith("gcs.analytics-core.auth.credential-access-boundary is not a valid");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", "   "})
+  void build_blankCredentialAccessBoundary_throwsIllegalArgumentException(String blankBoundary) {
+    GcsAuthOptions.Builder builder =
+        GcsAuthOptions.builder().setCredentialAccessBoundary(blankBoundary);
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("analytics-core.auth.credential-access-boundary cannot be blank");
+  }
+
+  @Test
+  void build_unauthenticatedWithCredentialAccessBoundary_throwsIllegalArgumentException() {
+    GcsAuthOptions.Builder builder =
+        GcsAuthOptions.builder()
+            .setAuthType(AuthType.UNAUTHENTICATED)
+            .setCredentialAccessBoundary(CREDENTIAL_ACCESS_BOUNDARY);
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "analytics-core.auth.credential-access-boundary cannot be set when"
+                + " analytics-core.auth.type is UNAUTHENTICATED");
   }
 
   private static GcsAuthOptions createOptionsWithSecrets() {

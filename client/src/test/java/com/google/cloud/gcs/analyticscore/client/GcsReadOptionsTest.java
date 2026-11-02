@@ -156,4 +156,15 @@ class GcsReadOptionsTest {
     GcsReadOptions readOptions = GcsReadOptions.createFromOptions(properties, "gcs.");
     assertThat(readOptions.getBidiTimeout()).isEqualTo(45);
   }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  void createFromOptions_withBidiEnabledSet_parsesCorrectly() {
+    Map<String, String> properties =
+        ImmutableMap.of("gcs.analytics-core.read.bidi.enabled", "true");
+
+    GcsReadOptions readOptions = GcsReadOptions.createFromOptions(properties, "gcs.");
+
+    assertThat(readOptions.isBidiReadEnabled()).isTrue();
+  }
 }

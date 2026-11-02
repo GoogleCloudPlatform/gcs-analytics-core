@@ -52,6 +52,8 @@ public abstract class GcsAuthOptions {
   private static final String IMPERSONATION_SERVICE_ACCOUNT_KEY =
       "analytics-core.auth.impersonation-service-account";
   private static final String TOKEN_SERVER_URI_KEY = "analytics-core.auth.token-server-uri";
+  private static final String CREDENTIAL_ACCESS_BOUNDARY_KEY =
+      "analytics-core.auth.credential-access-boundary";
   private static final String PROXY_ADDRESS_KEY = "analytics-core.auth.proxy.address";
   private static final String PROXY_USERNAME_KEY = "analytics-core.auth.proxy.username";
   private static final String PROXY_PASSWORD_KEY = "analytics-core.auth.proxy.password";
@@ -65,7 +67,7 @@ public abstract class GcsAuthOptions {
   /**
    * Returns the configured authentication type, or empty if not explicitly set (in which case
    * Application Default Credentials are tried first with a fallback to unauthenticated access,
-   * unless impersonation or a token server URI is configured).
+   * unless impersonation, a token server URI, or a Credential Access Boundary is configured).
    */
   public abstract Optional<AuthType> getAuthType();
 
@@ -83,7 +85,8 @@ public abstract class GcsAuthOptions {
   boolean allowsUnauthenticatedFallback() {
     return getAuthType().isEmpty()
         && getImpersonationServiceAccount().isEmpty()
-        && getTokenServerUri().isEmpty();
+        && getTokenServerUri().isEmpty()
+        && getCredentialAccessBoundary().isEmpty();
   }
 
   public abstract Optional<String> getServiceAccountJsonKeyfile();
@@ -99,6 +102,9 @@ public abstract class GcsAuthOptions {
   public abstract Optional<String> getImpersonationServiceAccount();
 
   public abstract Optional<URI> getTokenServerUri();
+
+  /** Returns the Credential Access Boundary JSON that downscopes the credentials. */
+  public abstract Optional<String> getCredentialAccessBoundary();
 
   public abstract Optional<String> getProxyAddress();
 
@@ -156,6 +162,8 @@ public abstract class GcsAuthOptions {
     getTrimmedValue(options, prefix + TOKEN_SERVER_URI_KEY)
         .map(value -> parseUri(prefix + TOKEN_SERVER_URI_KEY, value))
         .ifPresent(optionsBuilder::setTokenServerUri);
+    getTrimmedValue(options, prefix + CREDENTIAL_ACCESS_BOUNDARY_KEY)
+        .ifPresent(optionsBuilder::setCredentialAccessBoundary);
     getTrimmedValue(options, prefix + PROXY_ADDRESS_KEY).ifPresent(optionsBuilder::setProxyAddress);
     getTrimmedValue(options, prefix + PROXY_USERNAME_KEY)
         .map(RedactedString::create)
@@ -272,6 +280,8 @@ public abstract class GcsAuthOptions {
 
     public abstract Builder setTokenServerUri(@Nullable URI tokenServerUri);
 
+    public abstract Builder setCredentialAccessBoundary(@Nullable String credentialAccessBoundary);
+
     public abstract Builder setProxyAddress(@Nullable String proxyAddress);
 
     public abstract Builder setProxyUsername(@Nullable RedactedString proxyUsername);
@@ -293,6 +303,7 @@ public abstract class GcsAuthOptions {
       GcsAuthOptions options = autoBuild();
       validateRequiredFields(options, prefix);
       validateTypeSpecificFieldsRequireAuthType(options, prefix);
+      validateCredentialAccessBoundary(options, prefix);
       validateProxyFields(options, prefix);
       validateTimeouts(options, prefix);
       return options;
@@ -370,6 +381,12 @@ public abstract class GcsAuthOptions {
               prefix + IMPERSONATION_SERVICE_ACCOUNT_KEY,
               prefix + AUTH_TYPE_KEY,
               authType);
+          checkArgument(
+              options.getCredentialAccessBoundary().isEmpty(),
+              "%s cannot be set when %s is %s",
+              prefix + CREDENTIAL_ACCESS_BOUNDARY_KEY,
+              prefix + AUTH_TYPE_KEY,
+              authType);
           break;
           // Listed rather than defaulted, so that adding an auth type without deciding which keys
           // it requires is a compile-time failure instead of silently skipped validation.
@@ -411,6 +428,26 @@ public abstract class GcsAuthOptions {
           prefix + REFRESH_TOKEN_KEY,
           authTypeKey,
           AuthType.USER_CREDENTIALS);
+    }
+
+    /** Rejects a blank or invalid boundary instead of treating a blank one as unset. */
+    private static void validateCredentialAccessBoundary(GcsAuthOptions options, String prefix) {
+      if (options.getCredentialAccessBoundary().isEmpty()) {
+        return;
+      }
+      checkArgument(
+          !options.getCredentialAccessBoundary().get().isBlank(),
+          "%s cannot be blank",
+          prefix + CREDENTIAL_ACCESS_BOUNDARY_KEY);
+      try {
+        CredentialAccessBoundaryParser.parse(options.getCredentialAccessBoundary().get());
+      } catch (IllegalArgumentException e) {
+        throw new IllegalArgumentException(
+            String.format(
+                "%s is not a valid Credential Access Boundary: %s",
+                prefix + CREDENTIAL_ACCESS_BOUNDARY_KEY, e.getMessage()),
+            e);
+      }
     }
 
     private static void validateTimeouts(GcsAuthOptions options, String prefix) {

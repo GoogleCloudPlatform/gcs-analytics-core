@@ -17,14 +17,20 @@
 package com.google.cloud.gcs.analyticscore.client.auth;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mockStatic;
 
+import com.google.api.client.googleapis.GoogleUtils;
 import com.google.auth.http.HttpTransportFactory;
 import com.google.cloud.http.HttpTransportOptions;
 import com.google.cloud.http.HttpTransportOptions.DefaultHttpTransportFactory;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.MockedStatic;
 
 class GcsTransportOptionsFactoryTest {
 
@@ -98,6 +104,42 @@ class GcsTransportOptionsFactoryTest {
             .getHttpTransportFactory();
 
     assertThat(transportFactory.create()).isSameInstanceAs(transportFactory.create());
+  }
+
+  @Test
+  void createHttpTransportOptions_whenProxyTransportCreationThrowsIOException_throws() {
+    GcsAuthOptions options = GcsAuthOptions.builder().setProxyAddress(PROXY_ADDRESS).build();
+    try (MockedStatic<GoogleUtils> mockedGoogleUtils = mockStatic(GoogleUtils.class)) {
+      mockedGoogleUtils
+          .when(GoogleUtils::getCertificateTrustStore)
+          .thenThrow(new IOException("trust store failure"));
+
+      HttpTransportFactory transportFactory =
+          GcsTransportOptionsFactory.createHttpTransportOptions(
+                  options, /* storageEndpoint= */ null, /* universeDomain= */ null)
+              .getHttpTransportFactory();
+
+      UncheckedIOException thrown =
+          assertThrows(UncheckedIOException.class, transportFactory::create);
+      assertThat(thrown).hasMessageThat().contains("Failed to create the proxy HTTP transport");
+      assertThat(thrown).hasCauseThat().isInstanceOf(IOException.class);
+    }
+  }
+
+  @Test
+  void createHttpTransportOptions_withProxyAndCustomEndpoint_usesSystemDefaultTrustStore() {
+    GcsAuthOptions options = GcsAuthOptions.builder().setProxyAddress(PROXY_ADDRESS).build();
+    try (MockedStatic<GoogleUtils> mockedGoogleUtils = mockStatic(GoogleUtils.class)) {
+      HttpTransportFactory transportFactory =
+          GcsTransportOptionsFactory.createHttpTransportOptions(
+                  options,
+                  /* storageEndpoint= */ "https://localhost:8443",
+                  /* universeDomain= */ null)
+              .getHttpTransportFactory();
+
+      assertThat(transportFactory.create()).isNotNull();
+      mockedGoogleUtils.verifyNoInteractions();
+    }
   }
 
   @ParameterizedTest

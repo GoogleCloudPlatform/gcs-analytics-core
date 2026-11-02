@@ -25,11 +25,14 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
+import com.google.auth.Credentials;
+import com.google.auth.http.HttpTransportFactory;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.UserCredentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.gcs.analyticscore.client.auth.AuthType;
 import com.google.cloud.gcs.analyticscore.client.auth.GcsAuthOptions;
+import com.google.cloud.gcs.analyticscore.common.RedactedString;
 import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryOptions;
 import com.google.cloud.gcs.analyticscore.common.telemetry.LoggingTelemetryReporter;
@@ -44,10 +47,12 @@ import com.google.cloud.storage.StorageException;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import io.opentelemetry.api.OpenTelemetry;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
+import java.net.Authenticator;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.channels.WritableByteChannel;
@@ -73,6 +78,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 import org.mockito.Mock;
@@ -88,6 +94,8 @@ class GcsFileSystemImplTest {
   private static final String TEST_BUCKET = "test-bucket";
   private static final String TEST_OBJECT = "test-dir/test-object.txt";
   private static final String TEST_SUBDIR = "dir/subdir/";
+  private static final String TUNNELING_DISABLED_SCHEMES_PROPERTY =
+      "jdk.http.auth.tunneling.disabledSchemes";
   private static final GcsClientOptions TEST_GCS_CLIENT_OPTIONS =
       GcsClientOptions.builder().setProjectId(TEST_PROJECT).build();
   private static final GcsFileSystemOptions TEST_GCS_FILESYSTEM_OPTIONS =
@@ -102,9 +110,12 @@ class GcsFileSystemImplTest {
   @Mock private GcsClient mockClient;
 
   private GcsFileSystem gcsFileSystem;
+  private Authenticator originalAuthenticator;
+  private String originalTunnelingDisabledSchemes;
 
   @BeforeEach
   void setUp() throws IOException {
+    captureGlobalState();
     lenient()
         .when(mockClient.getBucketProperties(anyString()))
         .thenReturn(BucketProperties.create(false, false));
@@ -113,8 +124,23 @@ class GcsFileSystemImplTest {
 
   @AfterEach
   void tearDown() {
+    restoreGlobalState();
     if (gcsFileSystem != null) {
       gcsFileSystem.close();
+    }
+  }
+
+  private void captureGlobalState() {
+    originalAuthenticator = Authenticator.getDefault();
+    originalTunnelingDisabledSchemes = System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY);
+  }
+
+  private void restoreGlobalState() {
+    Authenticator.setDefault(originalAuthenticator);
+    if (originalTunnelingDisabledSchemes == null) {
+      System.clearProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY);
+    } else {
+      System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, originalTunnelingDisabledSchemes);
     }
   }
 
@@ -139,6 +165,24 @@ class GcsFileSystemImplTest {
         assertThrows(
             NullPointerException.class,
             () -> new GcsFileSystemImpl(NoCredentials.getInstance(), null));
+
+    assertThat(exception).hasMessageThat().contains("fileSystemOptions should not be null");
+  }
+
+  @Test
+  void constructor_withNullCredentials_throwsNullPointerException() {
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class,
+            () -> new GcsFileSystemImpl((Credentials) null, TEST_GCS_FILESYSTEM_OPTIONS));
+
+    assertThat(exception).hasMessageThat().contains("credentials should not be null");
+  }
+
+  @Test
+  void constructor_withNullOptions_throwsNullPointerException() {
+    NullPointerException exception =
+        assertThrows(NullPointerException.class, () -> new GcsFileSystemImpl(null));
 
     assertThat(exception).hasMessageThat().contains("fileSystemOptions should not be null");
   }
@@ -204,21 +248,23 @@ class GcsFileSystemImplTest {
   @Test
   void open_withFileInfo_callsGcsClientOpen() throws IOException {
     URI testUri = URI.create("gs://test-bucket/test-object");
-    GcsItemInfo mockItemInfo = mock(GcsItemInfo.class);
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(1024L).build();
     GcsFileInfo fileInfo =
         GcsFileInfo.builder()
             .setUri(testUri)
-            .setItemInfo(mockItemInfo)
+            .setItemInfo(itemInfo)
             .setAttributes(Collections.emptyMap())
             .build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
     VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
-    when(mockClient.openReadChannel(eq(mockItemInfo), eq(readOptions))).thenReturn(mockChannel);
+    when(mockClient.openReadChannel(eq(itemInfo), eq(readOptions))).thenReturn(mockChannel);
 
-    VectoredSeekableByteChannel resultChannel = gcsFileSystem.open(fileInfo, readOptions);
-
-    verify(mockClient).openReadChannel(mockItemInfo, readOptions);
-    assertThat(resultChannel).isSameInstanceAs(mockChannel);
+    try (VectoredSeekableByteChannel resultChannel = gcsFileSystem.open(fileInfo, readOptions)) {
+      verify(mockClient).openReadChannel(itemInfo, readOptions);
+      assertThat(resultChannel).isSameInstanceAs(mockChannel);
+    }
   }
 
   @Test
@@ -235,11 +281,17 @@ class GcsFileSystemImplTest {
   @Test
   void open_withNonObjectFileInfo_throwsIllegalArgumentException() throws URISyntaxException {
     URI bucketUri = new URI("gs://" + TEST_BUCKET);
-    GcsItemInfo mockItemInfo = mock(GcsItemInfo.class);
+    GcsItemId bucketItemId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    GcsItemInfo bucketItemInfo =
+        GcsItemInfo.builder()
+            .setItemId(bucketItemId)
+            .setSize(0L)
+            .setItemType(GcsItemInfo.ItemType.BUCKET)
+            .build();
     GcsFileInfo fileInfo =
         GcsFileInfo.builder()
             .setUri(bucketUri)
-            .setItemInfo(mockItemInfo)
+            .setItemInfo(bucketItemInfo)
             .setAttributes(Collections.emptyMap())
             .build();
     GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
@@ -249,6 +301,30 @@ class GcsFileSystemImplTest {
             IllegalArgumentException.class, () -> gcsFileSystem.open(fileInfo, readOptions));
 
     assertThat(e).hasMessageThat().startsWith("Expected GCS object to be provided");
+  }
+
+  @Test
+  void open_withFileInfo_usesItemInfoItemIdWithoutParsingUri() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET)
+            .setObjectName("folder//object.parquet")
+            .build();
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(1024L).build();
+    GcsFileInfo fileInfo =
+        GcsFileInfo.builder()
+            .setUri(URI.create("gs://" + TEST_BUCKET + "/folder//object.parquet"))
+            .setItemInfo(itemInfo)
+            .setAttributes(Collections.emptyMap())
+            .build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("test-project").build();
+    VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
+    when(mockClient.openReadChannel(eq(itemInfo), eq(readOptions))).thenReturn(mockChannel);
+
+    try (VectoredSeekableByteChannel resultChannel = gcsFileSystem.open(fileInfo, readOptions)) {
+      verify(mockClient).openReadChannel(itemInfo, readOptions);
+      assertThat(resultChannel).isSameInstanceAs(mockChannel);
+    }
   }
 
   @Test
@@ -466,10 +542,10 @@ class GcsFileSystemImplTest {
     VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
     when(mockClient.openReadChannel(eq(itemId), eq(readOptions))).thenReturn(mockChannel);
 
-    VectoredSeekableByteChannel resultChannel = gcsFileSystem.open(itemId, readOptions);
-
-    verify(mockClient).openReadChannel(itemId, readOptions);
-    assertThat(resultChannel).isSameInstanceAs(mockChannel);
+    try (VectoredSeekableByteChannel resultChannel = gcsFileSystem.open(itemId, readOptions)) {
+      verify(mockClient).openReadChannel(itemId, readOptions);
+      assertThat(resultChannel).isSameInstanceAs(mockChannel);
+    }
   }
 
   @Test
@@ -1829,6 +1905,156 @@ class GcsFileSystemImplTest {
         new GcsFileSystemImpl(NoCredentials.getInstance(), options)) {
       assertThat(storageTimeouts(gcsFileSystem)).containsExactly(12_000, 34_000).inOrder();
     }
+  }
+
+  @ParameterizedTest
+  @EnumSource(GcsClientOptions.Protocol.class)
+  void constructor_withCredentialsAndProxyCredentials_enablesBasicTunnelingBeforeCreatingTelemetry(
+      GcsClientOptions.Protocol protocol) {
+    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "Basic");
+    AtomicReference<String> tunnelingSchemesWhenTelemetryStarts = new AtomicReference<>();
+    GcsFileSystemOptions options =
+        proxyCredentialsOptionsWithTelemetry(
+            protocol,
+            openTelemetryThatRuns(
+                () ->
+                    tunnelingSchemesWhenTelemetryStarts.set(
+                        System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY))));
+
+    new GcsFileSystemImpl(NoCredentials.getInstance(), options).close();
+
+    assertThat(tunnelingSchemesWhenTelemetryStarts.get()).isEmpty();
+  }
+
+  @ParameterizedTest
+  @EnumSource(GcsClientOptions.Protocol.class)
+  void constructor_withOptionsAndProxyCredentials_enablesBasicTunnelingBeforeCreatingTelemetry(
+      GcsClientOptions.Protocol protocol) {
+    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "Basic");
+    AtomicReference<String> tunnelingSchemesWhenTelemetryStarts = new AtomicReference<>();
+    GcsFileSystemOptions options =
+        proxyCredentialsOptionsWithTelemetry(
+            protocol,
+            openTelemetryThatRuns(
+                () ->
+                    tunnelingSchemesWhenTelemetryStarts.set(
+                        System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY))));
+
+    new GcsFileSystemImpl(options).close();
+
+    assertThat(tunnelingSchemesWhenTelemetryStarts.get()).isEmpty();
+  }
+
+  @ParameterizedTest
+  @EnumSource(GcsClientOptions.Protocol.class)
+  void constructor_withOptionsAndProxyCredentials_enablesBasicTunnelingBeforeResolvingCredentials(
+      GcsClientOptions.Protocol protocol) {
+    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "Basic");
+    AtomicReference<String> tunnelingSchemesWhenResolvingCredentials = new AtomicReference<>();
+    GcsFileSystemOptions options = proxyCredentialsAdcOptions(protocol);
+
+    try (MockedStatic<GoogleCredentials> mockedGoogleCredentials =
+        mockStatic(GoogleCredentials.class, withSettings().defaultAnswer(CALLS_REAL_METHODS))) {
+      mockedGoogleCredentials
+          .when(() -> GoogleCredentials.getApplicationDefault(any(HttpTransportFactory.class)))
+          .thenAnswer(
+              invocation -> {
+                tunnelingSchemesWhenResolvingCredentials.set(
+                    System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY));
+                return GoogleCredentials.newBuilder().build();
+              });
+
+      new GcsFileSystemImpl(options).close();
+    }
+
+    assertThat(tunnelingSchemesWhenResolvingCredentials.get()).isEmpty();
+  }
+
+  @Test
+  void
+      constructor_withOptionsAndProxyCredentials_installsAuthenticatorBeforeResolvingCredentials() {
+    Authenticator.setDefault(null);
+    AtomicReference<Authenticator> authenticatorWhenResolvingCredentials = new AtomicReference<>();
+    GcsFileSystemOptions options = proxyCredentialsAdcOptions(GcsClientOptions.Protocol.HTTP);
+
+    try (MockedStatic<GoogleCredentials> mockedGoogleCredentials =
+        mockStatic(GoogleCredentials.class, withSettings().defaultAnswer(CALLS_REAL_METHODS))) {
+      mockedGoogleCredentials
+          .when(() -> GoogleCredentials.getApplicationDefault(any(HttpTransportFactory.class)))
+          .thenAnswer(
+              invocation -> {
+                authenticatorWhenResolvingCredentials.set(Authenticator.getDefault());
+                return GoogleCredentials.newBuilder().build();
+              });
+
+      new GcsFileSystemImpl(options).close();
+    }
+
+    assertThat(authenticatorWhenResolvingCredentials.get()).isNotNull();
+  }
+
+  @Test
+  void constructor_withoutProxyCredentials_leavesDefaultAuthenticatorUnchanged() {
+    Authenticator sentinelAuthenticator = new Authenticator() {};
+    Authenticator.setDefault(sentinelAuthenticator);
+
+    new GcsFileSystemImpl(TEST_GCS_FILESYSTEM_OPTIONS).close();
+
+    assertThat(Authenticator.getDefault()).isSameInstanceAs(sentinelAuthenticator);
+  }
+
+  /**
+   * Returns an OpenTelemetry instance that runs {@code onStart} when its meter is requested, which
+   * {@code OpenTelemetryReporter} does in its constructor.
+   */
+  private static OpenTelemetry openTelemetryThatRuns(Runnable onStart) {
+    OpenTelemetry openTelemetry = mock(OpenTelemetry.class);
+    when(openTelemetry.getMeter(anyString()))
+        .thenAnswer(
+            invocation -> {
+              onStart.run();
+              return OpenTelemetry.noop().getMeter(invocation.getArgument(0));
+            });
+    return openTelemetry;
+  }
+
+  private static GcsFileSystemOptions proxyCredentialsAdcOptions(
+      GcsClientOptions.Protocol protocol) {
+    return GcsFileSystemOptions.builder()
+        .setGcsClientOptions(
+            GcsClientOptions.builder().setProjectId(TEST_PROJECT).setProtocol(protocol).build())
+        .setGcsAuthOptions(
+            GcsAuthOptions.builder()
+                .setAuthType(AuthType.APPLICATION_DEFAULT)
+                .setProxyAddress("proxy.example.com:8080")
+                .setProxyUsername(RedactedString.create("user"))
+                .setProxyPassword(RedactedString.create("pass"))
+                .build())
+        .build();
+  }
+
+  private static GcsFileSystemOptions proxyCredentialsOptionsWithTelemetry(
+      GcsClientOptions.Protocol protocol, OpenTelemetry openTelemetry) {
+    return testOptionsBuilder()
+        .setGcsClientOptions(
+            GcsClientOptions.builder().setProjectId(TEST_PROJECT).setProtocol(protocol).build())
+        .setGcsAuthOptions(
+            GcsAuthOptions.builder()
+                .setAuthType(AuthType.UNAUTHENTICATED)
+                .setProxyAddress("proxy.example.com:8080")
+                .setProxyUsername(RedactedString.create("user"))
+                .setProxyPassword(RedactedString.create("pass"))
+                .build())
+        .setAnalyticsCoreTelemetryOptions(
+            TelemetryOptions.builder()
+                .setOpenTelemetryOptions(
+                    OpenTelemetryOptions.builder()
+                        .setEnabled(true)
+                        .setProviderType(OpenTelemetryOptions.ProviderType.PRE_CONFIGURED)
+                        .setPreconfiguredOpenTelemetryInstance(openTelemetry)
+                        .build())
+                .build())
+        .build();
   }
 
   private static GcsAuthOptions.Builder timeoutAuthOptions() {

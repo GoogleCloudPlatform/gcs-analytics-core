@@ -21,17 +21,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mockStatic;
 
 import com.google.api.client.googleapis.GoogleUtils;
+import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.cloud.gcs.analyticscore.client.auth.GcsHttpTransportFactory.KeepAliveSslSocketFactory;
-import com.google.cloud.gcs.analyticscore.common.RedactedString;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.Authenticator;
-import java.net.Authenticator.RequestorType;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.PasswordAuthentication;
 import java.net.Proxy;
 import java.net.Socket;
 import java.net.SocketException;
@@ -39,11 +36,8 @@ import java.net.URI;
 import java.security.GeneralSecurityException;
 import java.time.Duration;
 import java.util.stream.Stream;
-import javax.annotation.Nullable;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLSocketFactory;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -52,37 +46,10 @@ import org.mockito.MockedStatic;
 
 class GcsHttpTransportFactoryTest {
 
-  private static final String TUNNELING_DISABLED_SCHEMES_PROPERTY =
-      "jdk.http.auth.tunneling.disabledSchemes";
   private static final String PROXY_HOST = "proxy.example.com";
   private static final int PROXY_PORT = 8080;
   private static final String PROXY_ADDRESS = PROXY_HOST + ":" + PROXY_PORT;
-  private static final RedactedString PROXY_USERNAME = RedactedString.create("user");
-  private static final RedactedString PROXY_PASSWORD = RedactedString.create("pass");
   private static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
-
-  private Authenticator originalAuthenticator;
-  private String originalTunnelingDisabledSchemes;
-
-  /**
-   * Captures the JVM wide state that configuring an authenticated proxy overwrites, so that these
-   * tests cannot leak a default {@link Authenticator} into tests that run after them.
-   */
-  @BeforeEach
-  void captureGlobalState() {
-    originalAuthenticator = Authenticator.getDefault();
-    originalTunnelingDisabledSchemes = System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY);
-  }
-
-  @AfterEach
-  void restoreGlobalState() {
-    Authenticator.setDefault(originalAuthenticator);
-    if (originalTunnelingDisabledSchemes == null) {
-      System.clearProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY);
-    } else {
-      System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, originalTunnelingDisabledSchemes);
-    }
-  }
 
   @Test
   void createProxy_nullUri_returnsNull() {
@@ -142,114 +109,11 @@ class GcsHttpTransportFactoryTest {
   }
 
   @Test
-  void createHttpTransport_withProxyCredentials_installsDefaultAuthenticator() throws IOException {
-    installProxyAuthenticator();
-
-    assertThat(Authenticator.getDefault()).isNotNull();
-  }
-
-  @Test
-  void createHttpTransport_withProxyCredentials_enablesBasicAuthenticationForTunnels()
-      throws IOException {
-    installProxyAuthenticator();
-
-    assertThat(System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY)).isEmpty();
-  }
-
-  @Test
-  void proxyAuthenticator_matchingProxy_returnsProxyUsername() throws IOException {
-    installProxyAuthenticator();
-
-    PasswordAuthentication credentials =
-        requestProxyCredentials(PROXY_HOST, PROXY_PORT, RequestorType.PROXY);
-
-    assertThat(credentials.getUserName()).isEqualTo(PROXY_USERNAME.value());
-  }
-
-  @Test
-  void proxyAuthenticator_matchingProxy_returnsProxyPassword() throws IOException {
-    installProxyAuthenticator();
-
-    PasswordAuthentication credentials =
-        requestProxyCredentials(PROXY_HOST, PROXY_PORT, RequestorType.PROXY);
-
-    assertThat(credentials.getPassword()).isEqualTo(PROXY_PASSWORD.value().toCharArray());
-  }
-
-  @Test
-  void proxyAuthenticator_differentHost_returnsNull() throws IOException {
-    installProxyAuthenticator();
-
-    PasswordAuthentication credentials =
-        requestProxyCredentials("other.example.com", PROXY_PORT, RequestorType.PROXY);
-
-    assertThat(credentials).isNull();
-  }
-
-  @Test
-  void proxyAuthenticator_differentPort_returnsNull() throws IOException {
-    installProxyAuthenticator();
-
-    PasswordAuthentication credentials =
-        requestProxyCredentials(PROXY_HOST, PROXY_PORT + 1, RequestorType.PROXY);
-
-    assertThat(credentials).isNull();
-  }
-
-  @Test
-  void proxyAuthenticator_serverRequestor_returnsNull() throws IOException {
-    installProxyAuthenticator();
-
-    PasswordAuthentication credentials =
-        requestProxyCredentials(PROXY_HOST, PROXY_PORT, RequestorType.SERVER);
-
-    assertThat(credentials).isNull();
-  }
-
-  @Test
-  void proxyAuthenticator_unknownRequestingHost_returnsNull() throws IOException {
-    installProxyAuthenticator();
-
-    // The JDK reports a null host when it only knows the requestor by address.
-    PasswordAuthentication credentials =
-        requestProxyCredentials(/* host= */ null, PROXY_PORT, RequestorType.PROXY);
-
-    assertThat(credentials).isNull();
-  }
-
-  /** Installs the JVM wide {@link Authenticator} that serves the configured proxy credentials. */
-  private static void installProxyAuthenticator() throws IOException {
-    GcsHttpTransportFactory.createHttpTransport(
-        PROXY_ADDRESS,
-        PROXY_USERNAME,
-        PROXY_PASSWORD,
-        Duration.ofSeconds(10),
-        TrustStoreSource.GOOGLE_BUNDLED);
-  }
-
-  /** Asks the installed {@link Authenticator} for credentials the way the JDK's HTTP stack does. */
-  @Nullable
-  private static PasswordAuthentication requestProxyCredentials(
-      @Nullable String host, int port, RequestorType requestorType) {
-    return Authenticator.requestPasswordAuthentication(
-        host,
-        /* addr= */ null,
-        port,
-        /* protocol= */ "http",
-        /* prompt= */ "",
-        /* scheme= */ "basic",
-        /* url= */ null,
-        requestorType);
-  }
-
-  @Test
   void createNetHttpTransportBuilder_fromGcsAuthOptionsWithProxy_appliesConfiguredReadTimeout()
       throws IOException, GeneralSecurityException {
     GcsAuthOptions options =
         GcsAuthOptions.builder()
             .setProxyAddress(PROXY_ADDRESS)
-            .setProxyUsername(PROXY_USERNAME)
-            .setProxyPassword(PROXY_PASSWORD)
             .setHttpReadTimeout(Duration.ofSeconds(10))
             .build();
 
@@ -275,90 +139,27 @@ class GcsHttpTransportFactoryTest {
   }
 
   @Test
-  void createHttpTransport_fromGcsAuthOptionsWithProxy_installsConfiguredProxyCredentials()
-      throws IOException {
-    GcsAuthOptions options =
-        GcsAuthOptions.builder()
-            .setProxyAddress(PROXY_ADDRESS)
-            .setProxyUsername(PROXY_USERNAME)
-            .setProxyPassword(PROXY_PASSWORD)
-            .setHttpReadTimeout(Duration.ofSeconds(10))
-            .build();
+  void createHttpTransport_withProxyAddress_returnsNetHttpTransport() throws IOException {
+    GcsAuthOptions options = GcsAuthOptions.builder().setProxyAddress(PROXY_ADDRESS).build();
 
-    GcsHttpTransportFactory.createHttpTransport(options, TrustStoreSource.GOOGLE_BUNDLED);
-    PasswordAuthentication credentials =
-        requestProxyCredentials(PROXY_HOST, PROXY_PORT, RequestorType.PROXY);
+    HttpTransport transport =
+        GcsHttpTransportFactory.createHttpTransport(options, TrustStoreSource.GOOGLE_BUNDLED);
 
-    assertThat(credentials.getUserName()).isEqualTo(PROXY_USERNAME.value());
+    assertThat(transport).isInstanceOf(NetHttpTransport.class);
   }
 
   @Test
-  void createHttpTransport_fromGcsAuthOptionsWithoutProxy_leavesDefaultAuthenticatorUnchanged()
-      throws IOException {
-    Authenticator sentinelAuthenticator = new Authenticator() {};
-    Authenticator.setDefault(sentinelAuthenticator);
-    GcsAuthOptions options = GcsAuthOptions.builder().build();
-
-    GcsHttpTransportFactory.createHttpTransport(options, TrustStoreSource.GOOGLE_BUNDLED);
-
-    assertThat(Authenticator.getDefault()).isSameInstanceAs(sentinelAuthenticator);
-  }
-
-  @Test
-  void createHttpTransport_proxyAuthWithoutProxyAddress_throwsIllegalArgumentException() {
+  void createHttpTransport_nullOptions_throwsNullPointerException() {
     assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            GcsHttpTransportFactory.createHttpTransport(
-                null,
-                PROXY_USERNAME,
-                PROXY_PASSWORD,
-                READ_TIMEOUT,
-                TrustStoreSource.GOOGLE_BUNDLED));
+        NullPointerException.class,
+        () -> GcsHttpTransportFactory.createHttpTransport(null, TrustStoreSource.GOOGLE_BUNDLED));
   }
 
   @Test
-  void createHttpTransport_proxyAuthWithEmptyProxyAddress_throwsIllegalArgumentException() {
+  void createHttpTransport_nullTrustStoreSource_throwsNullPointerException() {
     assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            GcsHttpTransportFactory.createHttpTransport(
-                "", PROXY_USERNAME, PROXY_PASSWORD, READ_TIMEOUT, TrustStoreSource.GOOGLE_BUNDLED));
-  }
-
-  @Test
-  void createHttpTransport_proxyUsernameWithoutPassword_throwsIllegalArgumentException() {
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            GcsHttpTransportFactory.createHttpTransport(
-                PROXY_ADDRESS,
-                PROXY_USERNAME,
-                null,
-                READ_TIMEOUT,
-                TrustStoreSource.GOOGLE_BUNDLED));
-  }
-
-  @Test
-  void createHttpTransport_proxyPasswordWithoutUsername_throwsIllegalArgumentException() {
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            GcsHttpTransportFactory.createHttpTransport(
-                PROXY_ADDRESS,
-                null,
-                PROXY_PASSWORD,
-                READ_TIMEOUT,
-                TrustStoreSource.GOOGLE_BUNDLED));
-  }
-
-  @Test
-  void createHttpTransport_proxyPasswordWithoutAddressAndUsername_throwsIllegalArgumentException() {
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            GcsHttpTransportFactory.createHttpTransport(
-                null, null, PROXY_PASSWORD, READ_TIMEOUT, TrustStoreSource.GOOGLE_BUNDLED));
+        NullPointerException.class,
+        () -> GcsHttpTransportFactory.createHttpTransport(GcsAuthOptions.builder().build(), null));
   }
 
   @Test
@@ -374,53 +175,19 @@ class GcsHttpTransportFactoryTest {
               IOException.class,
               () ->
                   GcsHttpTransportFactory.createHttpTransport(
-                      null, null, null, READ_TIMEOUT, TrustStoreSource.GOOGLE_BUNDLED));
+                      GcsAuthOptions.builder().build(), TrustStoreSource.GOOGLE_BUNDLED));
 
       assertThat(thrown).hasCauseThat().isSameInstanceAs(trustStoreFailure);
     }
   }
 
   @Test
-  void createHttpTransport_trustStoreFailure_leavesDefaultAuthenticatorUnchanged() {
-    Authenticator sentinelAuthenticator = new Authenticator() {};
-    Authenticator.setDefault(sentinelAuthenticator);
-
-    try (MockedStatic<GoogleUtils> mockedGoogleUtils = mockStatic(GoogleUtils.class)) {
-      mockedGoogleUtils
-          .when(GoogleUtils::getCertificateTrustStore)
-          .thenThrow(new GeneralSecurityException("Simulated trust store load failure"));
-
-      assertThrows(IOException.class, GcsHttpTransportFactoryTest::installProxyAuthenticator);
-
-      // A transport that could not be created must not leave its credentials behind for the rest
-      // of the process.
-      assertThat(Authenticator.getDefault()).isSameInstanceAs(sentinelAuthenticator);
-    }
-  }
-
-  @Test
-  void createHttpTransport_trustStoreFailure_leavesTunnelingSchemesPropertyUnchanged() {
-    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "Basic");
-
-    try (MockedStatic<GoogleUtils> mockedGoogleUtils = mockStatic(GoogleUtils.class)) {
-      mockedGoogleUtils
-          .when(GoogleUtils::getCertificateTrustStore)
-          .thenThrow(new GeneralSecurityException("Simulated trust store load failure"));
-
-      assertThrows(IOException.class, GcsHttpTransportFactoryTest::installProxyAuthenticator);
-
-      // Failing to build a transport must not relax the JVM's proxy tunneling restrictions.
-      assertThat(System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY)).isEqualTo("Basic");
-    }
-  }
-
-  @Test
-  void createHttpTransport_nullReadTimeout_throwsNullPointerException() {
+  void createNetHttpTransportBuilder_nullReadTimeout_throwsNullPointerException() {
     assertThrows(
         NullPointerException.class,
         () ->
-            GcsHttpTransportFactory.createHttpTransport(
-                null, null, null, null, TrustStoreSource.GOOGLE_BUNDLED));
+            GcsHttpTransportFactory.createNetHttpTransportBuilder(
+                null, null, TrustStoreSource.GOOGLE_BUNDLED));
   }
 
   @Test
@@ -435,22 +202,22 @@ class GcsHttpTransportFactoryTest {
   }
 
   @Test
-  void createHttpTransport_negativeReadTimeout_throwsIllegalArgumentException() {
+  void createNetHttpTransportBuilder_negativeReadTimeout_throwsIllegalArgumentException() {
     assertThrows(
         IllegalArgumentException.class,
         () ->
-            GcsHttpTransportFactory.createHttpTransport(
-                null, null, null, Duration.ofMillis(-1), TrustStoreSource.GOOGLE_BUNDLED));
+            GcsHttpTransportFactory.createNetHttpTransportBuilder(
+                null, Duration.ofMillis(-1), TrustStoreSource.GOOGLE_BUNDLED));
   }
 
   @Test
-  void createHttpTransport_subMillisecondReadTimeout_throwsIllegalArgumentException() {
+  void createNetHttpTransportBuilder_subMillisecondReadTimeout_throwsIllegalArgumentException() {
     // Rounding this down to zero would silently leave reads unbounded.
     assertThrows(
         IllegalArgumentException.class,
         () ->
-            GcsHttpTransportFactory.createHttpTransport(
-                null, null, null, Duration.ofNanos(500), TrustStoreSource.GOOGLE_BUNDLED));
+            GcsHttpTransportFactory.createNetHttpTransportBuilder(
+                null, Duration.ofNanos(500), TrustStoreSource.GOOGLE_BUNDLED));
   }
 
   @Test
@@ -465,26 +232,14 @@ class GcsHttpTransportFactoryTest {
   }
 
   @Test
-  void createHttpTransport_readTimeoutOverflowingInt_throwsIllegalArgumentException() {
+  void createNetHttpTransportBuilder_readTimeoutOverflowingInt_throwsIllegalArgumentException() {
     Duration readTimeout = Duration.ofMillis(Integer.MAX_VALUE + 1L);
 
     assertThrows(
         IllegalArgumentException.class,
         () ->
-            GcsHttpTransportFactory.createHttpTransport(
-                null, null, null, readTimeout, TrustStoreSource.GOOGLE_BUNDLED));
-  }
-
-  @Test
-  void createNetHttpTransport_proxyAuthWithoutProxyUri_throwsIllegalArgumentException() {
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            GcsHttpTransportFactory.createNetHttpTransport(
-                null,
-                new PasswordAuthentication("u", "p".toCharArray()),
-                READ_TIMEOUT,
-                TrustStoreSource.GOOGLE_BUNDLED));
+            GcsHttpTransportFactory.createNetHttpTransportBuilder(
+                null, readTimeout, TrustStoreSource.GOOGLE_BUNDLED));
   }
 
   @Test

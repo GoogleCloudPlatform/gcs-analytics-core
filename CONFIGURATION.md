@@ -22,14 +22,14 @@ These properties govern the core connections, identity, and access parameters be
 
 ### Authentication Options
 
-These properties configure standard Google Cloud authentication, OAuth2 token renewal, static service account impersonation, and the HTTP proxy and timeouts.
+These properties configure standard Google Cloud authentication, OAuth2 token renewal, static service account impersonation, Credential Access Boundaries, and the HTTP proxy and timeouts.
 
 > [!WARNING]
 > `analytics-core.auth.client-secret`, `analytics-core.auth.refresh-token`, and `analytics-core.auth.proxy.password` are secrets. Supply them through a secret store appropriate to your deployment, such as the Hadoop credential provider or a Spark secret, rather than committing them to a properties file.
 
 | Property | Description | Default Value |
 | :--- | :--- | :--- |
-| `analytics-core.auth.type` | Google Cloud authentication type. Supported values: `APPLICATION_DEFAULT`, `COMPUTE_ENGINE`, `SERVICE_ACCOUNT_JSON_KEYFILE`, `WORKLOAD_IDENTITY_FEDERATION`, `USER_CREDENTIALS`, `UNAUTHENTICATED`. When not set, attempts `APPLICATION_DEFAULT` and falls back to `UNAUTHENTICATED` if unavailable, unless `analytics-core.auth.impersonation-service-account` or `analytics-core.auth.token-server-uri` is set. Must be set when using the keyfile, Workload Identity Federation, or user credential properties below; once set, properties of other authentication types are ignored. | - |
+| `analytics-core.auth.type` | Google Cloud authentication type. Supported values: `APPLICATION_DEFAULT`, `COMPUTE_ENGINE`, `SERVICE_ACCOUNT_JSON_KEYFILE`, `WORKLOAD_IDENTITY_FEDERATION`, `USER_CREDENTIALS`, `UNAUTHENTICATED`. When not set, attempts `APPLICATION_DEFAULT` and falls back to `UNAUTHENTICATED` if unavailable, unless `analytics-core.auth.impersonation-service-account`, `analytics-core.auth.token-server-uri`, or `analytics-core.auth.credential-access-boundary` is set. Must be set when using the keyfile, Workload Identity Federation, or user credential properties below; once set, properties of other authentication types are ignored. | - |
 | `analytics-core.auth.service-account-json-keyfile` | Path to a Service Account JSON keyfile. Required when `analytics-core.auth.type` is `SERVICE_ACCOUNT_JSON_KEYFILE`. | - |
 | `analytics-core.auth.workload-identity-federation.credential-config-file` | Path to a Workload Identity Federation credential configuration JSON file. Required when `analytics-core.auth.type` is `WORKLOAD_IDENTITY_FEDERATION`. | - |
 | `analytics-core.auth.client-id` | OAuth2 client ID. Required when `analytics-core.auth.type` is `USER_CREDENTIALS`. | - |
@@ -37,11 +37,46 @@ These properties configure standard Google Cloud authentication, OAuth2 token re
 | `analytics-core.auth.refresh-token` | OAuth2 refresh token. Required when `analytics-core.auth.type` is `USER_CREDENTIALS`. | - |
 | `analytics-core.auth.impersonation-service-account` | Service account email to impersonate via static service account impersonation. Cannot be used when `analytics-core.auth.type` is `UNAUTHENTICATED`. | - |
 | `analytics-core.auth.token-server-uri` | Custom token server URI used to refresh OAuth2 access tokens. Applies to `SERVICE_ACCOUNT_JSON_KEYFILE`, `USER_CREDENTIALS`, and `APPLICATION_DEFAULT` when it resolves to one of those credentials; token requests then use the JVM's default trust store instead of the bundled Google trust store. Ignored for other authentication types. | - |
+| `analytics-core.auth.credential-access-boundary` | Credential Access Boundary, as JSON, that limits which Cloud Storage buckets and objects the credentials can access. When impersonation is set, the boundary limits the impersonated service account. Cannot be used when `analytics-core.auth.type` is `UNAUTHENTICATED`. See [Credential Access Boundaries](#credential-access-boundaries). | - |
 | `analytics-core.auth.proxy.address` | HTTP proxy address of the form `[https?://]hostname:port`. Used for authentication requests and, when `client.protocol` is `HTTP` (the default), for GCS requests. gRPC requests (`client.protocol` `GRPC` or `BIDI`, and folder requests on hierarchical namespace buckets) use the JVM proxy settings instead. | - |
-| `analytics-core.auth.proxy.username` | Username for the HTTP proxy. Must be set together with `analytics-core.auth.proxy.password` and requires `analytics-core.auth.proxy.address`. Proxy credentials are installed as the JVM-wide default `Authenticator`. | - |
+| `analytics-core.auth.proxy.username` | Username for the HTTP proxy. Must be set together with `analytics-core.auth.proxy.password` and requires `analytics-core.auth.proxy.address`. Proxy credentials are installed as the JVM-wide default `Authenticator`. See [Proxy username and password](#proxy-username-and-password). | - |
 | `analytics-core.auth.proxy.password` | Password for the HTTP proxy. Must be set together with `analytics-core.auth.proxy.username` and requires `analytics-core.auth.proxy.address`. | - |
 | `analytics-core.auth.http.connect-timeout-ms` | Connect timeout, in milliseconds, for GCS requests when `client.protocol` is `HTTP`. Does not apply to authentication requests or gRPC requests. `0` means no timeout. | `5000` |
 | `analytics-core.auth.http.read-timeout-ms` | Socket read timeout, in milliseconds, for GCS requests when `client.protocol` is `HTTP`. Does not apply to authentication requests or gRPC requests. `0` means no timeout. | `5000` |
+
+#### Proxy username and password
+
+* **One proxy login per JVM.** When you create a file system, the library sets the proxy username and password for the whole JVM before the file system opens any connection. All file systems in the same JVM that set a proxy username and password must use the same proxy address, username, and password. If they differ, the last file system created wins, and requests from the others fail with an HTTP `407 Proxy Authentication Required` status code.
+* **An extra JVM flag when other code connects first.** By default, Java blocks Basic authentication to HTTPS proxies. Java checks this setting only once, when the JVM opens its first HTTP connection. If Spark, Hadoop, or other code opens an HTTP connection before you create the file system, start the JVM with the `-Djdk.http.auth.tunneling.disabledSchemes=` flag. In Spark, add the flag to the `spark.driver.extraJavaOptions` and `spark.executor.extraJavaOptions` properties. Without the flag, proxy requests fail with an HTTP `407 Proxy Authentication Required` status code and an `Unable to tunnel through proxy` error.
+
+#### Credential Access Boundaries
+
+A [Credential Access Boundary](https://cloud.google.com/iam/docs/downscoping-short-lived-credentials) limits the credentials to the Cloud Storage buckets and objects that you list, even when the credentials can access more. The library exchanges each access token for a downscoped token at the Security Token Service, so a request succeeds only when both the credentials and the boundary allow it.
+
+The value uses the JSON format from the Cloud IAM documentation and can have up to 9 rules (Cloud IAM allows 10, but the Google Auth Library for Java rejects a tenth rule). The following boundary allows reading and listing the objects whose names start with `eu/` in `example-bucket`:
+
+```json
+{
+  "accessBoundary": {
+    "accessBoundaryRules": [
+      {
+        "availableResource": "//storage.googleapis.com/projects/_/buckets/example-bucket",
+        "availablePermissions": ["inRole:roles/storage.objectViewer"],
+        "availabilityCondition": {
+          "expression": "resource.name.startsWith('projects/_/buckets/example-bucket/objects/eu/') || api.getAttribute('storage.googleapis.com/objectListPrefix', '').startsWith('eu/')"
+        }
+      }
+    ]
+  }
+}
+```
+
+* The library rejects a boundary that isn't strict JSON, such as one with comments, that misspells or repeats a field, that sets a field to `null`, or that leaves a resource, permission, or expression blank, so that a mistake fails instead of widening access. To leave out an optional field, such as `availabilityCondition`, omit it.
+* Enable the IAM API and the Security Token Service API. The credentials still need IAM roles that grant the permissions, because a boundary only removes access.
+* A condition on object names must also allow the list prefix, as the example does, or directory lookups fail. On buckets with hierarchical namespace, also allow the folder names, such as `projects/_/buckets/example-bucket/folders/eu/`.
+* The library reads bucket metadata to detect hierarchical namespace and Rapid buckets, which needs `storage.buckets.get`. `roles/storage.objectViewer` doesn't include this permission, and a condition on object names blocks it. Without a rule that allows it, the library treats the bucket as a flat bucket that isn't Rapid: on a bucket with hierarchical namespace, it doesn't find folders that have no objects, and on a Rapid bucket, it creates empty objects without an appendable upload.
+* Downscoped credentials don't keep the quota project of the source credentials, so requests don't send it in the `x-goog-user-project` header. The Cloud Storage client still sends the `quota_project_id` from the file that the `GOOGLE_APPLICATION_CREDENTIALS` environment variable names. To choose the project that pays for object reads and writes in a Requester Pays bucket, set `user-project`. Listing requests and most metadata requests don't send it.
+* The boundary applies only to credentials that the library creates. The library uses `Credentials` that you pass to `GcsFileSystemImpl` as they are, so downscope those yourself.
 
 ### Caching and Prefetching
 

@@ -25,9 +25,13 @@ import static org.mockito.Mockito.withSettings;
 
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.json.Json;
+import com.google.api.client.testing.http.MockHttpTransport;
+import com.google.api.client.testing.http.MockLowLevelHttpResponse;
 import com.google.auth.Credentials;
 import com.google.auth.http.HttpTransportFactory;
 import com.google.auth.oauth2.ComputeEngineCredentials;
+import com.google.auth.oauth2.DownscopedCredentials;
 import com.google.auth.oauth2.ExternalAccountCredentials;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.ImpersonatedCredentials;
@@ -36,9 +40,14 @@ import com.google.auth.oauth2.UserCredentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.gcs.analyticscore.common.RedactedString;
 import com.google.common.base.VerifyException;
+import com.google.common.collect.ImmutableList;
 import com.google.common.io.Resources;
 import java.io.IOException;
+import java.net.Authenticator;
+import java.net.Authenticator.RequestorType;
+import java.net.PasswordAuthentication;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -46,7 +55,13 @@ import java.security.GeneralSecurityException;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
 import java.util.Base64;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import javax.annotation.Nullable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockedStatic;
@@ -55,16 +70,55 @@ class GcsCredentialsFactoryTest {
 
   private static final String CLOUD_PLATFORM_SCOPE =
       "https://www.googleapis.com/auth/cloud-platform";
+  private static final String TUNNELING_DISABLED_SCHEMES_PROPERTY =
+      "jdk.http.auth.tunneling.disabledSchemes";
+  private static final String PROXY_HOST = "proxy.example.com";
+  private static final int PROXY_PORT = 8080;
+  private static final String CREDENTIAL_ACCESS_BOUNDARY =
+      "{\"accessBoundary\": {\"accessBoundaryRules\": [{"
+          + "\"availableResource\": \"//storage.googleapis.com/projects/_/buckets/example-bucket\","
+          + " \"availablePermissions\": [\"inRole:roles/storage.objectViewer\"]}]}}";
+  private static final String SOURCE_TOKEN_RESPONSE =
+      "{\"access_token\": \"source-access-token\", \"expires_in\": 3600,"
+          + " \"token_type\": \"Bearer\"}";
+  private static final String DOWNSCOPED_TOKEN_RESPONSE =
+      "{\"access_token\": \"downscoped-access-token\", \"expires_in\": 3600,"
+          + " \"issued_token_type\": \"urn:ietf:params:oauth:token-type:access_token\","
+          + " \"token_type\": \"Bearer\"}";
+  private static final URI STORAGE_URI = URI.create("https://storage.googleapis.com");
 
   @TempDir static Path sharedTempDir;
 
   private static String serviceAccountKeyFile;
 
   private final HttpTransportFactory tokenTransportFactory = NetHttpTransport::new;
-  private final HttpTransportFactory impersonationTransportFactory = NetHttpTransport::new;
+  private final HttpTransportFactory iamTransportFactory = NetHttpTransport::new;
+  private Authenticator originalAuthenticator;
+  private String originalTunnelingDisabledSchemes;
+
+  @BeforeEach
+  void captureGlobalState() {
+    originalAuthenticator = Authenticator.getDefault();
+    originalTunnelingDisabledSchemes = System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY);
+  }
+
+  @AfterEach
+  void restoreGlobalState() {
+    Authenticator.setDefault(originalAuthenticator);
+    if (originalTunnelingDisabledSchemes == null) {
+      System.clearProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY);
+    } else {
+      System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, originalTunnelingDisabledSchemes);
+    }
+  }
 
   @BeforeAll
   static void writeServiceAccountKeyFile() throws GeneralSecurityException, IOException {
+    serviceAccountKeyFile = writeServiceAccountKeyFile("service-account.json", "");
+  }
+
+  private static String writeServiceAccountKeyFile(String fileName, String commaPrefixedFields)
+      throws GeneralSecurityException, IOException {
     KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
     keyPairGenerator.initialize(2048);
     PrivateKey privateKey = keyPairGenerator.generateKeyPair().getPrivate();
@@ -76,11 +130,11 @@ class GcsCredentialsFactoryTest {
                 + "\"private_key\":\"%s\","
                 + "\"client_email\":\"test-email@gserviceaccount.com\","
                 + "\"client_id\":\"test-client-id\","
-                + "\"token_uri\":\"https://accounts.google.com/o/oauth2/token\"}",
-            toEscapedPem(privateKey));
-    Path keyFile = sharedTempDir.resolve("service-account.json");
+                + "\"token_uri\":\"https://accounts.google.com/o/oauth2/token\"%s}",
+            toEscapedPem(privateKey), commaPrefixedFields);
+    Path keyFile = sharedTempDir.resolve(fileName);
     Files.write(keyFile, keyFileJson.getBytes(UTF_8));
-    serviceAccountKeyFile = keyFile.toString();
+    return keyFile.toString();
   }
 
   private static String toEscapedPem(PrivateKey privateKey) {
@@ -185,8 +239,7 @@ class GcsCredentialsFactoryTest {
   }
 
   @Test
-  void createCredentials_impersonationServiceAccountSet_usesImpersonationTransport()
-      throws IOException {
+  void createCredentials_impersonationServiceAccountSet_usesIamTransport() throws IOException {
     GcsAuthOptions options =
         serviceAccountOptions()
             .setImpersonationServiceAccount("target@test-project.iam.gserviceaccount.com")
@@ -195,7 +248,7 @@ class GcsCredentialsFactoryTest {
     Credentials credentials = createCredentials(options);
 
     assertThat(((ImpersonatedCredentials) credentials).toBuilder().getHttpTransportFactory())
-        .isSameInstanceAs(impersonationTransportFactory);
+        .isSameInstanceAs(iamTransportFactory);
   }
 
   @Test
@@ -213,6 +266,113 @@ class GcsCredentialsFactoryTest {
     ServiceAccountCredentials sourceCredentials =
         (ServiceAccountCredentials) ((ImpersonatedCredentials) credentials).getSourceCredentials();
     assertThat(sourceCredentials.toBuilder().getTokenServerUri()).isEqualTo(customUri);
+  }
+
+  @Test
+  void createCredentials_credentialAccessBoundarySet_returnsDownscopedCredentials()
+      throws IOException {
+    GcsAuthOptions options =
+        userCredentialsOptions().setCredentialAccessBoundary(CREDENTIAL_ACCESS_BOUNDARY).build();
+
+    Credentials credentials = createCredentials(options);
+
+    assertThat(credentials).isInstanceOf(DownscopedCredentials.class);
+  }
+
+  @Test
+  void createCredentials_credentialAccessBoundarySet_appliesConfiguredBoundary()
+      throws IOException {
+    GcsAuthOptions options =
+        userCredentialsOptions().setCredentialAccessBoundary(CREDENTIAL_ACCESS_BOUNDARY).build();
+
+    DownscopedCredentials credentials = (DownscopedCredentials) createCredentials(options);
+
+    assertThat(
+            credentials
+                .getCredentialAccessBoundary()
+                .getAccessBoundaryRules()
+                .get(0)
+                .getAvailableResource())
+        .isEqualTo("//storage.googleapis.com/projects/_/buckets/example-bucket");
+  }
+
+  @Test
+  void createCredentials_credentialAccessBoundarySet_downscopesConfiguredCredentials()
+      throws IOException {
+    GcsAuthOptions options =
+        userCredentialsOptions().setCredentialAccessBoundary(CREDENTIAL_ACCESS_BOUNDARY).build();
+
+    DownscopedCredentials credentials = (DownscopedCredentials) createCredentials(options);
+
+    assertThat(credentials.getSourceCredentials())
+        .isEqualTo(createCredentials(userCredentialsOptions().build()));
+  }
+
+  @Test
+  void createCredentials_impersonationWithCredentialAccessBoundary_downscopesImpersonation()
+      throws IOException {
+    String targetSa = "target@test-project.iam.gserviceaccount.com";
+    GcsAuthOptions options =
+        serviceAccountOptions()
+            .setImpersonationServiceAccount(targetSa)
+            .setCredentialAccessBoundary(CREDENTIAL_ACCESS_BOUNDARY)
+            .build();
+
+    DownscopedCredentials credentials = (DownscopedCredentials) createCredentials(options);
+
+    assertThat(((ImpersonatedCredentials) credentials.getSourceCredentials()).getAccount())
+        .isEqualTo(targetSa);
+  }
+
+  @Test
+  void createCredentials_credentialAccessBoundaryInOtherUniverse_keepsSourceUniverseDomain()
+      throws GeneralSecurityException, IOException {
+    String keyFile =
+        writeServiceAccountKeyFile(
+            "service-account-other-universe.json",
+            ",\"universe_domain\":\"example-universe.test\"");
+    GcsAuthOptions options =
+        GcsAuthOptions.builder()
+            .setAuthType(AuthType.SERVICE_ACCOUNT_JSON_KEYFILE)
+            .setServiceAccountJsonKeyfile(keyFile)
+            .setCredentialAccessBoundary(CREDENTIAL_ACCESS_BOUNDARY)
+            .build();
+
+    DownscopedCredentials credentials = (DownscopedCredentials) createCredentials(options);
+
+    assertThat(credentials.getUniverseDomain()).isEqualTo("example-universe.test");
+  }
+
+  @Test
+  void createCredentials_credentialAccessBoundarySet_authorizesWithDownscopedToken()
+      throws IOException {
+    GcsAuthOptions options =
+        userCredentialsOptions().setCredentialAccessBoundary(CREDENTIAL_ACCESS_BOUNDARY).build();
+    MockHttpTransport tokenTransport = jsonResponseTransport(SOURCE_TOKEN_RESPONSE);
+    MockHttpTransport iamTransport = jsonResponseTransport(DOWNSCOPED_TOKEN_RESPONSE);
+    Credentials credentials =
+        GcsCredentialsFactory.createCredentials(options, () -> tokenTransport, () -> iamTransport);
+
+    Map<String, List<String>> requestMetadata = credentials.getRequestMetadata(STORAGE_URI);
+
+    assertThat(requestMetadata)
+        .containsEntry("Authorization", ImmutableList.of("Bearer downscoped-access-token"));
+  }
+
+  @Test
+  void createCredentials_credentialAccessBoundarySet_sendsBoundaryToSecurityTokenService()
+      throws IOException {
+    GcsAuthOptions options =
+        userCredentialsOptions().setCredentialAccessBoundary(CREDENTIAL_ACCESS_BOUNDARY).build();
+    MockHttpTransport tokenTransport = jsonResponseTransport(SOURCE_TOKEN_RESPONSE);
+    MockHttpTransport iamTransport = jsonResponseTransport(DOWNSCOPED_TOKEN_RESPONSE);
+    Credentials credentials =
+        GcsCredentialsFactory.createCredentials(options, () -> tokenTransport, () -> iamTransport);
+
+    credentials.getRequestMetadata(STORAGE_URI);
+
+    assertThat(URLDecoder.decode(iamTransport.getLowLevelHttpRequest().getContentAsString(), UTF_8))
+        .contains("//storage.googleapis.com/projects/_/buckets/example-bucket");
   }
 
   @Test
@@ -310,6 +470,153 @@ class GcsCredentialsFactoryTest {
   @Test
   void createCredentials_nullOptions_throwsNullPointerException() {
     assertThrows(NullPointerException.class, () -> GcsCredentialsFactory.createCredentials(null));
+  }
+
+  @Test
+  void createCredentials_unauthenticatedWithProxyCredentials_enablesBasicTunneling()
+      throws IOException {
+    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "Basic");
+
+    GcsCredentialsFactory.createCredentials(proxyCredentialsOptions(AuthType.UNAUTHENTICATED));
+
+    assertThat(System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY)).isEmpty();
+  }
+
+  @Test
+  void createCredentials_unauthenticatedWithProxyCredentials_installsAuthenticator()
+      throws IOException {
+    Authenticator.setDefault(null);
+
+    GcsCredentialsFactory.createCredentials(proxyCredentialsOptions(AuthType.UNAUTHENTICATED));
+
+    assertThat(Authenticator.getDefault()).isNotNull();
+  }
+
+  @Test
+  void createCredentials_withoutProxyCredentials_leavesDefaultAuthenticatorUnchanged()
+      throws IOException {
+    Authenticator sentinelAuthenticator = new Authenticator() {};
+    Authenticator.setDefault(sentinelAuthenticator);
+
+    GcsCredentialsFactory.createCredentials(
+        GcsAuthOptions.builder().setAuthType(AuthType.UNAUTHENTICATED).build());
+
+    assertThat(Authenticator.getDefault()).isSameInstanceAs(sentinelAuthenticator);
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_withProxyCredentials_enablesBasicTunneling() {
+    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "Basic");
+
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    assertThat(System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY)).isEmpty();
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_withProxyCredentials_installsAuthenticator() {
+    Authenticator.setDefault(null);
+
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    assertThat(Authenticator.getDefault()).isNotNull();
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_withProxyCredentials_servesUsernameToProxy() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials(PROXY_HOST, PROXY_PORT, RequestorType.PROXY);
+
+    assertThat(credentials.getUserName()).isEqualTo("user");
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_withProxyCredentials_servesPasswordToProxy() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials(PROXY_HOST, PROXY_PORT, RequestorType.PROXY);
+
+    assertThat(credentials.getPassword()).isEqualTo("pass".toCharArray());
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_caseInsensitiveHost_servesCredentialsToProxy() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials(
+            PROXY_HOST.toUpperCase(Locale.ROOT), PROXY_PORT, RequestorType.PROXY);
+
+    assertThat(credentials.getUserName()).isEqualTo("user");
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_differentHost_returnsNull() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials("other.example.com", PROXY_PORT, RequestorType.PROXY);
+
+    assertThat(credentials).isNull();
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_differentPort_returnsNull() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials(PROXY_HOST, PROXY_PORT + 1, RequestorType.PROXY);
+
+    assertThat(credentials).isNull();
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_serverRequestor_returnsNull() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials(PROXY_HOST, PROXY_PORT, RequestorType.SERVER);
+
+    assertThat(credentials).isNull();
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_nullRequestingHost_returnsNull() {
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyCredentialsOptions());
+
+    PasswordAuthentication credentials =
+        requestProxyCredentials(/* host= */ null, PROXY_PORT, RequestorType.PROXY);
+
+    assertThat(credentials).isNull();
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_withoutProxyCredentials_leavesBasicTunnelingDisabled() {
+    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "Basic");
+
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyWithoutCredentialsOptions());
+
+    assertThat(System.getProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY)).isEqualTo("Basic");
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_withoutProxyCredentials_leavesAuthenticatorUnchanged() {
+    Authenticator sentinelAuthenticator = new Authenticator() {};
+    Authenticator.setDefault(sentinelAuthenticator);
+
+    GcsCredentialsFactory.installProxyCredentialsIfConfigured(proxyWithoutCredentialsOptions());
+
+    assertThat(Authenticator.getDefault()).isSameInstanceAs(sentinelAuthenticator);
+  }
+
+  @Test
+  void installProxyCredentialsIfConfigured_nullOptions_throwsNullPointerException() {
+    assertThrows(
+        NullPointerException.class,
+        () -> GcsCredentialsFactory.installProxyCredentialsIfConfigured(null));
   }
 
   @Test
@@ -424,6 +731,21 @@ class GcsCredentialsFactoryTest {
   }
 
   @Test
+  void createCredentials_authTypeUnsetWithBoundaryAndAdcUnavailable_throwsIOException() {
+    GcsAuthOptions options =
+        GcsAuthOptions.builder().setCredentialAccessBoundary(CREDENTIAL_ACCESS_BOUNDARY).build();
+
+    try (MockedStatic<GoogleCredentials> mockedGoogleCredentials =
+        mockStatic(GoogleCredentials.class, withSettings().defaultAnswer(CALLS_REAL_METHODS))) {
+      mockedGoogleCredentials
+          .when(() -> GoogleCredentials.getApplicationDefault(tokenTransportFactory))
+          .thenThrow(new IOException("ADC not available"));
+
+      assertThrows(IOException.class, () -> createCredentials(options));
+    }
+  }
+
+  @Test
   void createCredentials_unauthenticatedWithTransportFactories_throwsVerifyException() {
     GcsAuthOptions options = GcsAuthOptions.builder().setAuthType(AuthType.UNAUTHENTICATED).build();
 
@@ -431,18 +753,17 @@ class GcsCredentialsFactoryTest {
   }
 
   @Test
-  void createImpersonationTransport_noImpersonation_reusesTokenTransport() throws IOException {
+  void createIamTransport_noImpersonation_reusesTokenTransport() throws IOException {
     HttpTransport tokenTransport = new NetHttpTransport();
     GcsAuthOptions options = serviceAccountOptions().build();
 
-    HttpTransport impersonationTransport =
-        GcsCredentialsFactory.createImpersonationTransport(options, tokenTransport);
+    HttpTransport iamTransport = GcsCredentialsFactory.createIamTransport(options, tokenTransport);
 
-    assertThat(impersonationTransport).isSameInstanceAs(tokenTransport);
+    assertThat(iamTransport).isSameInstanceAs(tokenTransport);
   }
 
   @Test
-  void createImpersonationTransport_impersonationWithDefaultTokenServer_reusesTokenTransport()
+  void createIamTransport_impersonationWithDefaultTokenServer_reusesTokenTransport()
       throws IOException {
     HttpTransport tokenTransport = new NetHttpTransport();
     GcsAuthOptions options =
@@ -450,14 +771,13 @@ class GcsCredentialsFactoryTest {
             .setImpersonationServiceAccount("target@test-project.iam.gserviceaccount.com")
             .build();
 
-    HttpTransport impersonationTransport =
-        GcsCredentialsFactory.createImpersonationTransport(options, tokenTransport);
+    HttpTransport iamTransport = GcsCredentialsFactory.createIamTransport(options, tokenTransport);
 
-    assertThat(impersonationTransport).isSameInstanceAs(tokenTransport);
+    assertThat(iamTransport).isSameInstanceAs(tokenTransport);
   }
 
   @Test
-  void createImpersonationTransport_impersonationWithCustomTokenServer_createsSeparateTransport()
+  void createIamTransport_impersonationWithCustomTokenServer_createsSeparateTransport()
       throws IOException {
     HttpTransport tokenTransport = new NetHttpTransport();
     GcsAuthOptions options =
@@ -466,10 +786,24 @@ class GcsCredentialsFactoryTest {
             .setTokenServerUri(URI.create("https://custom-auth.example.com/token"))
             .build();
 
-    HttpTransport impersonationTransport =
-        GcsCredentialsFactory.createImpersonationTransport(options, tokenTransport);
+    HttpTransport iamTransport = GcsCredentialsFactory.createIamTransport(options, tokenTransport);
 
-    assertThat(impersonationTransport).isNotSameInstanceAs(tokenTransport);
+    assertThat(iamTransport).isNotSameInstanceAs(tokenTransport);
+  }
+
+  @Test
+  void createIamTransport_boundaryWithCustomTokenServer_createsSeparateTransport()
+      throws IOException {
+    HttpTransport tokenTransport = new NetHttpTransport();
+    GcsAuthOptions options =
+        serviceAccountOptions()
+            .setCredentialAccessBoundary(CREDENTIAL_ACCESS_BOUNDARY)
+            .setTokenServerUri(URI.create("https://custom-auth.example.com/token"))
+            .build();
+
+    HttpTransport iamTransport = GcsCredentialsFactory.createIamTransport(options, tokenTransport);
+
+    assertThat(iamTransport).isNotSameInstanceAs(tokenTransport);
   }
 
   @Test
@@ -519,7 +853,14 @@ class GcsCredentialsFactoryTest {
 
   private Credentials createCredentials(GcsAuthOptions options) throws IOException {
     return GcsCredentialsFactory.createCredentials(
-        options, tokenTransportFactory, impersonationTransportFactory);
+        options, tokenTransportFactory, iamTransportFactory);
+  }
+
+  private static MockHttpTransport jsonResponseTransport(String json) {
+    return new MockHttpTransport.Builder()
+        .setLowLevelHttpResponse(
+            new MockLowLevelHttpResponse().setContentType(Json.MEDIA_TYPE).setContent(json))
+        .build();
   }
 
   private static GcsAuthOptions.Builder serviceAccountOptions() {
@@ -551,5 +892,36 @@ class GcsCredentialsFactoryTest {
       throw new AssertionError("Failed to copy test resource " + resourceName, e);
     }
     return file.toString();
+  }
+
+  @Nullable
+  private static PasswordAuthentication requestProxyCredentials(
+      @Nullable String host, int port, RequestorType requestorType) {
+    return Authenticator.requestPasswordAuthentication(
+        host,
+        /* addr= */ null,
+        port,
+        /* protocol= */ "http",
+        /* prompt= */ "",
+        /* scheme= */ "basic",
+        /* url= */ null,
+        requestorType);
+  }
+
+  private static GcsAuthOptions proxyCredentialsOptions() {
+    return proxyCredentialsOptions(AuthType.APPLICATION_DEFAULT);
+  }
+
+  private static GcsAuthOptions proxyCredentialsOptions(AuthType authType) {
+    return GcsAuthOptions.builder()
+        .setAuthType(authType)
+        .setProxyAddress(PROXY_HOST + ":" + PROXY_PORT)
+        .setProxyUsername(RedactedString.create("user"))
+        .setProxyPassword(RedactedString.create("pass"))
+        .build();
+  }
+
+  private static GcsAuthOptions proxyWithoutCredentialsOptions() {
+    return GcsAuthOptions.builder().setProxyAddress(PROXY_HOST + ":" + PROXY_PORT).build();
   }
 }

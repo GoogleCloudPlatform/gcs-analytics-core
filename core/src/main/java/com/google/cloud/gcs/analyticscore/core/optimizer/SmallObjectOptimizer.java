@@ -27,19 +27,20 @@ import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.common.collect.ImmutableList;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntFunction;
 
 /** A {@link FormatOptimizer} that caches and serves small objects in a private buffer. */
 public class SmallObjectOptimizer implements FormatOptimizer {
 
-  private static final Set<String> DATA_FILE_EXTENSIONS = Set.of(".parquet", ".orc");
+  private static final ImmutableList<String> DATA_FILE_EXTENSIONS =
+      ImmutableList.of(".parquet", ".orc");
 
   private final GcsCacheOptions cacheOptions;
   private final GcsReadOptions readOptions;
@@ -66,14 +67,8 @@ public class SmallObjectOptimizer implements FormatOptimizer {
   public boolean isApplicable(GcsFileInfo fileInfo) {
     return cacheOptions.isSmallObjectCacheEnabled()
         && fileInfo.getItemInfo().getSize() <= readOptions.getSmallObjectCacheThresholdBytes()
-        && fileInfo
-            .getItemInfo()
-            .getItemId()
-            .getObjectName()
-            .map(
-                name ->
-                    DATA_FILE_EXTENSIONS.stream().anyMatch(ext -> name.toLowerCase().endsWith(ext)))
-            .orElse(false);
+        && DataFileExtensions.hasAnyExtension(
+            fileInfo.getItemInfo().getItemId().getObjectName(), DATA_FILE_EXTENSIONS);
   }
 
   @Override

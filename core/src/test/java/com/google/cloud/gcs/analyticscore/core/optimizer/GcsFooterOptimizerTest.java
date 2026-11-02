@@ -48,6 +48,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
@@ -133,6 +134,16 @@ class GcsFooterOptimizerTest {
   }
 
   @Test
+  void isApplicable_additionalFooterFormats_returnTrue() {
+    for (String ext :
+        ImmutableList.of(".hudi", ".hfile", ".lance", ".vortex", ".feather", ".arrow")) {
+      GcsItemId itemId =
+          GcsItemId.builder().setBucketName("b").setObjectName("part-0" + ext).build();
+      assertThat(optimizer.isApplicable(itemId)).isTrue();
+    }
+  }
+
+  @Test
   void isApplicable_nonParquetFile_returnsFalse() {
     GcsItemId csvItemId = GcsItemId.builder().setBucketName("b").setObjectName("test.csv").build();
     assertThat(optimizer.isApplicable(csvItemId)).isFalse();
@@ -156,6 +167,76 @@ class GcsFooterOptimizerTest {
     readOptions = GcsReadOptions.builder().setFooterPrefetchEnabled(false).build();
     optimizer = new GcsFooterOptimizer(readOptions, telemetry);
     assertThat(optimizer.isApplicable(FILE_INFO)).isFalse();
+  }
+
+  @Test
+  void isApplicable_caseInsensitiveExtensions_returnTrue() {
+    GcsItemId uppercaseParquet =
+        GcsItemId.builder().setBucketName("b").setObjectName("test.PARQUET").build();
+    GcsItemId mixedcaseParquet =
+        GcsItemId.builder().setBucketName("b").setObjectName("test.Parquet").build();
+    GcsItemId uppercaseOrc =
+        GcsItemId.builder().setBucketName("b").setObjectName("test.ORC").build();
+
+    assertThat(optimizer.isApplicable(uppercaseParquet)).isTrue();
+    assertThat(optimizer.isApplicable(mixedcaseParquet)).isTrue();
+    assertThat(optimizer.isApplicable(uppercaseOrc)).isTrue();
+  }
+
+  @Test
+  void isApplicable_exactLengthExtensions_returnTrue() {
+    GcsItemId exactParquet =
+        GcsItemId.builder().setBucketName("b").setObjectName(".parquet").build();
+    GcsItemId exactOrc = GcsItemId.builder().setBucketName("b").setObjectName(".ORC").build();
+
+    assertThat(optimizer.isApplicable(exactParquet)).isTrue();
+    assertThat(optimizer.isApplicable(exactOrc)).isTrue();
+  }
+
+  @Test
+  void isApplicable_shortOrMismatchNames_returnFalse() {
+    assertThat(
+            optimizer.isApplicable(
+                GcsItemId.builder().setBucketName("b").setObjectName("").build()))
+        .isFalse();
+    assertThat(
+            optimizer.isApplicable(
+                GcsItemId.builder().setBucketName("b").setObjectName("a").build()))
+        .isFalse();
+    assertThat(
+            optimizer.isApplicable(
+                GcsItemId.builder().setBucketName("b").setObjectName("orc").build()))
+        .isFalse();
+    assertThat(
+            optimizer.isApplicable(
+                GcsItemId.builder().setBucketName("b").setObjectName("parquet").build()))
+        .isFalse();
+    assertThat(
+            optimizer.isApplicable(
+                GcsItemId.builder().setBucketName("b").setObjectName("test.parquet.bak").build()))
+        .isFalse();
+  }
+
+  @Test
+  void isApplicable_turkishLocaleUppercase_returnsTrue() {
+    Locale defaultLocale = Locale.getDefault();
+    try {
+      Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+      assertThat(
+              optimizer.isApplicable(
+                  GcsItemId.builder()
+                      .setBucketName("b")
+                      .setObjectName("DIR_ID=1/PART.PARQUET")
+                      .build()))
+          .isTrue();
+    } finally {
+      Locale.setDefault(defaultLocale);
+    }
+  }
+
+  @Test
+  void isApplicable_missingObjectName_returnsFalse() {
+    assertThat(optimizer.isApplicable(GcsItemId.builder().setBucketName("b").build())).isFalse();
   }
 
   @Test

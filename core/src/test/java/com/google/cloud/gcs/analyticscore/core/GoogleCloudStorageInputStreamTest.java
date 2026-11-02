@@ -28,16 +28,37 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.google.cloud.gcs.analyticscore.client.*;
+import com.google.cloud.gcs.analyticscore.client.FakeGcsClientImpl;
+import com.google.cloud.gcs.analyticscore.client.FakeGcsFileSystemImpl;
+import com.google.cloud.gcs.analyticscore.client.GcsCacheOptions;
+import com.google.cloud.gcs.analyticscore.client.GcsClientOptions;
+import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
+import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
+import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
+import com.google.cloud.gcs.analyticscore.client.GcsItemId;
+import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
+import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
+import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
+import com.google.cloud.gcs.analyticscore.client.HermeticGcsFileSystem;
+import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
+import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
+import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import com.google.cloud.storage.BlobInfo;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import java.io.EOFException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.BeforeEach;
@@ -749,5 +770,77 @@ class GoogleCloudStorageInputStreamTest {
 
       assertThat(buffer[i]).isEqualTo(testData[100 + i]);
     }
+  }
+
+  @Test
+  void read_afterCloseWithGcsFileInfo_includesFileInfoUriInMessage() throws IOException {
+    URI customUri = URI.create("gs://alias-bucket/alias-object");
+    GcsFileInfo fileInfo =
+        fakeFileSystem.getFileInfo(testUri).toBuilder().setUri(customUri).build();
+    IOException exception;
+    try (GoogleCloudStorageInputStream stream =
+        GoogleCloudStorageInputStream.create(fakeFileSystem, fileInfo)) {
+      stream.close();
+
+      exception = assertThrows(IOException.class, stream::read);
+    }
+
+    assertThat(exception).hasMessageThat().isEqualTo(customUri + ": Cannot read: already closed");
+  }
+
+  @Test
+  void operations_withTelemetryListener_recordInputStreamClassName() throws IOException {
+    List<Map.Entry<String, ImmutableMap<String, String>>> recorded = new ArrayList<>();
+    OperationListener listener =
+        new OperationListener() {
+          @Override
+          public void onOperationStart(Operation operation) {
+            recorded.add(Map.entry(operation.getName(), operation.getAttributes()));
+          }
+
+          @Override
+          public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {}
+        };
+    GcsFileSystemOptions telemetryFsOptions =
+        fileSystemOptions.toBuilder()
+            .setAnalyticsCoreTelemetryOptions(
+                TelemetryOptions.builder()
+                    .setCustomTelemetryOptions(
+                        CustomTelemetryOptions.builder()
+                            .setOperationListeners(ImmutableList.of(listener))
+                            .build())
+                    .build())
+            .build();
+
+    try (GcsFileSystem instrumentedFs =
+        HermeticGcsFileSystem.create(
+            ImmutableMap.of(testGcsItemId, testData), telemetryFsOptions)) {
+      GcsFileInfo fileInfo = instrumentedFs.getFileInfo(testUri);
+      try (GoogleCloudStorageInputStream stream =
+          GoogleCloudStorageInputStream.create(instrumentedFs, fileInfo)) {
+        stream.seek(4L);
+        stream.read();
+        stream.readFully(0L, new byte[4], 0, 4);
+        stream.readTail(new byte[4], 0, 4);
+      }
+    }
+
+    ImmutableMap<String, String> expectedAttrs =
+        ImmutableMap.of(
+            GcsAnalyticsCoreTelemetryConstants.Attribute.CLASS_NAME.name(),
+            GoogleCloudStorageInputStream.class.getName());
+    assertThat(recorded)
+        .containsExactly(
+            Map.entry(GcsAnalyticsCoreTelemetryConstants.Operation.OPEN.name(), expectedAttrs),
+            Map.entry(GcsAnalyticsCoreTelemetryConstants.Operation.SEEK.name(), expectedAttrs),
+            Map.entry(GcsAnalyticsCoreTelemetryConstants.Operation.READ.name(), expectedAttrs),
+            Map.entry(
+                GcsAnalyticsCoreTelemetryConstants.Operation.READ_FULLY.name(), expectedAttrs),
+            Map.entry(GcsAnalyticsCoreTelemetryConstants.Operation.OPEN.name(), expectedAttrs),
+            Map.entry(GcsAnalyticsCoreTelemetryConstants.Operation.READ_TAIL.name(), expectedAttrs),
+            Map.entry(GcsAnalyticsCoreTelemetryConstants.Operation.OPEN.name(), expectedAttrs),
+            Map.entry(
+                GcsAnalyticsCoreTelemetryConstants.Operation.READ_CLOSE.name(), expectedAttrs))
+        .inOrder();
   }
 }

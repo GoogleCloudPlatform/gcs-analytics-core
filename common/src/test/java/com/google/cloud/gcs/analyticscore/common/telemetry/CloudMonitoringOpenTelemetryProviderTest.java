@@ -84,4 +84,34 @@ class CloudMonitoringOpenTelemetryProviderTest {
 
     assertDoesNotThrow(provider::close);
   }
+
+  @Test
+  void close_withOtherActiveProvider_keepsSharedSdkOpenUntilLastProviderCloses() {
+    OpenTelemetryOptions options =
+        OpenTelemetryOptions.builder()
+            .setProviderType(OpenTelemetryOptions.ProviderType.CLOUD_MONITORING)
+            .setProjectId("test-project-123")
+            .setExportIntervalSeconds(30)
+            .build();
+
+    OpenTelemetry otel1;
+    try (CloudMonitoringOpenTelemetryProvider provider1 =
+            new CloudMonitoringOpenTelemetryProvider(options);
+        CloudMonitoringOpenTelemetryProvider provider2 =
+            new CloudMonitoringOpenTelemetryProvider(options)) {
+      otel1 = provider1.getOpenTelemetry();
+      OpenTelemetry otel2 = provider2.getOpenTelemetry();
+      assertThat(otel1).isSameInstanceAs(otel2);
+
+      // Explicit close to drop the refcount to 1; implicit close at block exit is an idempotent
+      // no-op.
+      provider1.close();
+      assertThat(provider2.getOpenTelemetry()).isSameInstanceAs(otel1);
+    }
+
+    try (CloudMonitoringOpenTelemetryProvider provider3 =
+        new CloudMonitoringOpenTelemetryProvider(options)) {
+      assertThat(provider3.getOpenTelemetry()).isNotSameInstanceAs(otel1);
+    }
+  }
 }

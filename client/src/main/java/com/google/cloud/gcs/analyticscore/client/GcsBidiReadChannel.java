@@ -31,6 +31,7 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.ZeroCopySupport.DisposableByteString;
 import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableList;
 import com.google.protobuf.ByteString;
 import java.io.EOFException;
 import java.io.FileNotFoundException;
@@ -199,17 +200,32 @@ class GcsBidiReadChannel extends GcsReadChannel {
               return "Reader is closed.";
             }
           };
-      ranges.forEach(range -> range.getByteBufferFuture().completeExceptionally(e));
+      for (GcsObjectRange range : ranges) {
+        range.getByteBufferFuture().completeExceptionally(e);
+      }
       throw e;
+    }
+    ImmutableList<GcsObjectRange> pendingRanges =
+        VectoredIoUtil.completeDegenerateRanges(ranges, itemId);
+    if (pendingRanges.isEmpty()) {
+      return;
     }
     BlobReadSession session;
     try {
       session = getBlobReadSession();
     } catch (IOException | RuntimeException e) {
-      ranges.forEach(range -> range.getByteBufferFuture().completeExceptionally(e));
+      for (GcsObjectRange range : pendingRanges) {
+        range.getByteBufferFuture().completeExceptionally(e);
+      }
       throw e;
     }
-    ranges.forEach(range -> readAndAttachCallback(range, session, allocate));
+    for (GcsObjectRange range : pendingRanges) {
+      try {
+        readAndAttachCallback(range, session, allocate);
+      } catch (RuntimeException e) {
+        range.getByteBufferFuture().completeExceptionally(e);
+      }
+    }
   }
 
   @Override

@@ -33,6 +33,8 @@ import javax.annotation.Nullable;
 /**
  * Factory for the {@link HttpTransportOptions} used by the GCS JSON API client.
  *
+ * <p>This class is for internal use by the library and can change without notice.
+ *
  * <p>The connect and read timeouts always apply. The client's default transport is replaced only
  * when a proxy is configured, so without a proxy requests keep the JVM's trust store and share its
  * connection pool. The proxy transport trusts Google's bundled certificates, unless the client
@@ -51,6 +53,9 @@ public final class GcsTransportOptionsFactory {
 
   /**
    * Creates the transport options for GCS JSON API requests.
+   *
+   * <p>Call {@link GcsCredentialsFactory#installProxyCredentialsIfConfigured(GcsAuthOptions)}
+   * first, because this method does not set the proxy username and password.
    *
    * @param options The authentication options supplying the proxy and timeouts.
    * @param storageEndpoint The configured storage endpoint, or {@code null} for the default one.

@@ -70,4 +70,18 @@ class LoggingTelemetryOptionsTest {
     assertThat(telemetryOptions.get().getLogLevel())
         .isEqualTo(LoggingTelemetryOptions.LogLevel.DEBUG);
   }
+
+  @Test
+  void createFromOptions_withLevelOnlyWithoutEnabled_defaultsToDisabled() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.logging.level", "INFO");
+
+    Optional<LoggingTelemetryOptions> telemetryOptions =
+        LoggingTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isPresent();
+    assertThat(telemetryOptions.get().isEnabled()).isFalse();
+    assertThat(telemetryOptions.get().getLogLevel())
+        .isEqualTo(LoggingTelemetryOptions.LogLevel.INFO);
+  }
 }

@@ -1126,6 +1126,74 @@ class GcsReadChannelTest {
         .contains("Buffer allocation returned null for combinedObjectRange");
   }
 
+  @Test
+  void readVectored_zeroLengthRange_completesEmptyWithoutOpeningReader() throws Exception {
+    GcsItemInfo itemInfo = createItemInfoWith(11);
+    StorageTestUtils.createBlobInStorage(
+        storage, BlobId.of(TEST_BUCKET, TEST_OBJECT, 0L), "hello world");
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+    GcsObjectRange tailRange = createRange(/* offset= */ 11, /* length= */ 0);
+    // The constructor eagerly opens one (lazy) SDK reader; only count readers opened from here on.
+    Mockito.clearInvocations(storage);
+
+    gcsReadChannel.readVectored(ImmutableList.of(tailRange), ByteBuffer::allocate);
+
+    assertThat(tailRange.getByteBufferFuture().get().remaining()).isEqualTo(0);
+    Mockito.verify(storage, Mockito.never())
+        .reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class));
+  }
+
+  @Test
+  void readVectored_zeroLengthRangeBetweenMergeableRanges_doesNotDisturbMerge() throws Exception {
+    GcsItemInfo itemInfo = createItemInfoWith(11);
+    StorageTestUtils.createBlobInStorage(
+        storage, BlobId.of(TEST_BUCKET, TEST_OBJECT, 0L), "hello world");
+    GcsReadOptions readOptions =
+        TEST_GCS_READ_OPTIONS.toBuilder()
+            .setGcsVectoredReadOptions(GcsVectoredReadOptions.builder().setMaxMergeGap(10).build())
+            .build();
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+    GcsObjectRange hello = createRange(0, 5);
+    GcsObjectRange empty = createRange(5, 0);
+    GcsObjectRange world = createRange(6, 5);
+    Mockito.clearInvocations(storage);
+
+    gcsReadChannel.readVectored(ImmutableList.of(hello, empty, world), ByteBuffer::allocate);
+
+    assertThat(getGcsObjectRangeData(hello)).isEqualTo("hello");
+    assertThat(getGcsObjectRangeData(empty)).isEmpty();
+    assertThat(getGcsObjectRangeData(world)).isEqualTo("world");
+    Mockito.verify(storage, Mockito.times(1))
+        .reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class));
+  }
+
+  @Test
+  void readVectored_negativeOffsetRange_failsRangeWithEofException() throws Exception {
+    GcsItemInfo itemInfo = createItemInfoWith(11);
+    StorageTestUtils.createBlobInStorage(
+        storage, BlobId.of(TEST_BUCKET, TEST_OBJECT, 0L), "hello world");
+    GcsReadChannel gcsReadChannel =
+        new GcsReadChannel(
+            storage, itemInfo, TEST_GCS_READ_OPTIONS, executorServiceSupplier, telemetry);
+    GcsObjectRange negative = createRange(/* offset= */ -5, /* length= */ 5);
+    Mockito.clearInvocations(storage);
+
+    gcsReadChannel.readVectored(ImmutableList.of(negative), ByteBuffer::allocate);
+
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> negative.getByteBufferFuture().get());
+    assertThat(e).hasCauseThat().isInstanceOf(EOFException.class);
+    assertThat(e)
+        .hasCauseThat()
+        .hasMessageThat()
+        .contains("Invalid seek offset: position value (-5) must be >= 0");
+    Mockito.verify(storage, Mockito.never())
+        .reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class));
+  }
+
   private GcsItemInfo createItemInfoWith(long size) {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("test-bucket").setObjectName("test-object").build();

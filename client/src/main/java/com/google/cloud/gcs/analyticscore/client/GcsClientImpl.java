@@ -213,7 +213,8 @@ class GcsClientImpl implements GcsClient {
     checkNotNull(readOptions, "readOptions should not be null");
     checkArgument(
         gcsItemInfo.getItemId().isGcsObject(),
-        "Expected GCS object to be provided. But got: " + gcsItemInfo.getItemId());
+        "Expected GCS object to be provided. But got: %s",
+        gcsItemInfo.getItemId());
 
     if (clientOptions.isBidiEnabled()) {
       return new GcsBidiReadChannel(

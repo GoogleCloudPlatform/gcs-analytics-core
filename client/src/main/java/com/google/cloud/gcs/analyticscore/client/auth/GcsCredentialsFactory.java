@@ -22,6 +22,7 @@ import com.google.api.client.http.HttpTransport;
 import com.google.auth.Credentials;
 import com.google.auth.http.HttpTransportFactory;
 import com.google.auth.oauth2.ComputeEngineCredentials;
+import com.google.auth.oauth2.DownscopedCredentials;
 import com.google.auth.oauth2.ExternalAccountCredentials;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.ImpersonatedCredentials;
@@ -35,21 +36,29 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.Authenticator;
+import java.net.PasswordAuthentication;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Factory for creating Google Cloud {@link Credentials} from {@link GcsAuthOptions}.
  *
- * <p>Applies the {@code cloud-platform} scope, optional custom token server URI, and optional
- * service account impersonation.
+ * <p>This class is for internal use by the library and can change without notice.
+ *
+ * <p>Applies the {@code cloud-platform} scope, optional custom token server URI, optional service
+ * account impersonation, and an optional Credential Access Boundary.
  */
 public final class GcsCredentialsFactory {
 
   private static final Logger LOG = LoggerFactory.getLogger(GcsCredentialsFactory.class);
+
+  private static final String TUNNELING_DISABLED_SCHEMES_PROPERTY =
+      "jdk.http.auth.tunneling.disabledSchemes";
 
   private static final ImmutableList<String> CLOUD_PLATFORM_SCOPES =
       ImmutableList.of("https://www.googleapis.com/auth/cloud-platform");
@@ -64,7 +73,57 @@ public final class GcsCredentialsFactory {
   private GcsCredentialsFactory() {}
 
   /**
+   * Sets the proxy username and password from {@code options} for the whole JVM, if they are set.
+   *
+   * <p>The JDK has no way to give proxy credentials to a single HTTPS connection, so this method
+   * changes two JVM-wide settings that stay for the life of the JVM:
+   *
+   * <ul>
+   *   <li>The default {@link Authenticator}. The last proxy set wins.
+   *   <li>The {@code jdk.http.auth.tunneling.disabledSchemes} system property, which is cleared so
+   *       that the JDK allows Basic authentication to HTTPS proxies.
+   * </ul>
+   *
+   * <p>Call this before anything opens an HTTP connection, because the JDK reads the system
+   * property only once, when the JVM opens its first HTTP connection.
+   *
+   * @param options The authentication options that may hold a proxy username and password.
+   */
+  public static void installProxyCredentialsIfConfigured(GcsAuthOptions options) {
+    checkNotNull(options, "options cannot be null");
+    if (options.getProxyUsername().isEmpty()) {
+      return;
+    }
+    URI proxyUri = GcsAuthOptions.parseProxyAddress(options.getProxyAddress().orElseThrow());
+    PasswordAuthentication proxyAuth =
+        new PasswordAuthentication(
+            options.getProxyUsername().orElseThrow().value(),
+            options.getProxyPassword().orElseThrow().value().toCharArray());
+    System.setProperty(TUNNELING_DISABLED_SCHEMES_PROPERTY, "");
+    Authenticator.setDefault(createProxyAuthenticator(proxyUri, proxyAuth));
+  }
+
+  private static Authenticator createProxyAuthenticator(
+      URI proxyUri, PasswordAuthentication proxyAuth) {
+    return new Authenticator() {
+      @Nullable
+      @Override
+      protected PasswordAuthentication getPasswordAuthentication() {
+        if (getRequestorType() == RequestorType.PROXY
+            && proxyUri.getHost().equalsIgnoreCase(getRequestingHost())
+            && getRequestingPort() == proxyUri.getPort()) {
+          return proxyAuth;
+        }
+        return null;
+      }
+    };
+  }
+
+  /**
    * Creates a {@link Credentials} instance according to the specified {@link GcsAuthOptions}.
+   *
+   * <p>First sets any proxy username and password for the whole JVM; see {@link
+   * #installProxyCredentialsIfConfigured(GcsAuthOptions)}.
    *
    * @param options The authentication options.
    * @return A configured {@link Credentials} instance, or {@link NoCredentials} if unauthenticated.
@@ -72,25 +131,27 @@ public final class GcsCredentialsFactory {
    */
   public static Credentials createCredentials(GcsAuthOptions options) throws IOException {
     checkNotNull(options, "options cannot be null");
+    installProxyCredentialsIfConfigured(options);
     if (options.effectiveAuthType() == AuthType.UNAUTHENTICATED) {
       return NoCredentials.getInstance();
     }
 
     HttpTransport tokenTransport =
         GcsHttpTransportFactory.createHttpTransport(options, tokenTrustStoreSource(options));
-    HttpTransport impersonationTransport = createImpersonationTransport(options, tokenTransport);
+    HttpTransport iamTransport = createIamTransport(options, tokenTransport);
 
-    return createCredentials(options, () -> tokenTransport, () -> impersonationTransport);
+    return createCredentials(options, () -> tokenTransport, () -> iamTransport);
   }
 
   /**
-   * Returns the HTTP transport for IAM Credentials requests, reusing {@code tokenTransport} when it
-   * already uses the bundled Google trust store.
+   * Returns the transport for impersonation and the boundary token exchange, reusing {@code
+   * tokenTransport} when it already uses the bundled Google trust store.
    */
   @VisibleForTesting
-  static HttpTransport createImpersonationTransport(
-      GcsAuthOptions options, HttpTransport tokenTransport) throws IOException {
-    if (options.getImpersonationServiceAccount().isEmpty()
+  static HttpTransport createIamTransport(GcsAuthOptions options, HttpTransport tokenTransport)
+      throws IOException {
+    if ((options.getImpersonationServiceAccount().isEmpty()
+            && options.getCredentialAccessBoundary().isEmpty())
         || tokenTrustStoreSource(options) == TrustStoreSource.GOOGLE_BUNDLED) {
       return tokenTransport;
     }
@@ -113,7 +174,7 @@ public final class GcsCredentialsFactory {
   static Credentials createCredentials(
       GcsAuthOptions options,
       HttpTransportFactory tokenTransportFactory,
-      HttpTransportFactory impersonationTransportFactory)
+      HttpTransportFactory iamTransportFactory)
       throws IOException {
     GoogleCredentials credentials;
     try {
@@ -137,10 +198,16 @@ public final class GcsCredentialsFactory {
             .orElse(credentials)
             .createScoped(CLOUD_PLATFORM_SCOPES);
 
-    return options
-        .getImpersonationServiceAccount()
-        .map(principal -> impersonate(scopedCredentials, principal, impersonationTransportFactory))
-        .orElse(scopedCredentials);
+    GoogleCredentials principalCredentials =
+        options
+            .getImpersonationServiceAccount()
+            .map(principal -> impersonate(scopedCredentials, principal, iamTransportFactory))
+            .orElse(scopedCredentials);
+    if (options.getCredentialAccessBoundary().isEmpty()) {
+      return principalCredentials;
+    }
+    return downscope(
+        principalCredentials, options.getCredentialAccessBoundary().get(), iamTransportFactory);
   }
 
   private static GoogleCredentials createCredentialsForAuthType(
@@ -218,6 +285,20 @@ public final class GcsCredentialsFactory {
         .setTargetPrincipal(targetPrincipal)
         .setScopes(CLOUD_PLATFORM_SCOPES)
         .setHttpTransportFactory(transportFactory)
+        .build();
+  }
+
+  private static Credentials downscope(
+      GoogleCredentials sourceCredentials,
+      String credentialAccessBoundary,
+      HttpTransportFactory transportFactory)
+      throws IOException {
+    LOG.debug("Downscoping credentials with a Credential Access Boundary");
+    return DownscopedCredentials.newBuilder()
+        .setSourceCredential(sourceCredentials)
+        .setCredentialAccessBoundary(CredentialAccessBoundaryParser.parse(credentialAccessBoundary))
+        .setHttpTransportFactory(transportFactory)
+        .setUniverseDomain(sourceCredentials.getUniverseDomain())
         .build();
   }
 }
