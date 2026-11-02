@@ -46,6 +46,7 @@ import shaded.parquet.org.apache.thrift.protocol.TProtocolException;
 import shaded.parquet.org.apache.thrift.protocol.TProtocolUtil;
 import shaded.parquet.org.apache.thrift.protocol.TStruct;
 import shaded.parquet.org.apache.thrift.transport.TIOStreamTransport;
+import shaded.parquet.org.apache.thrift.transport.TTransportException;
 
 class BoundedCompactProtocolTest {
 
@@ -123,6 +124,21 @@ class BoundedCompactProtocolTest {
         assertThrows(TProtocolException.class, () -> new Statistics().read(protocol));
 
     assertThat(exception.getType()).isEqualTo(TProtocolException.NEGATIVE_SIZE);
+  }
+
+  @Test
+  void readStatistics_maxLongerThanRemainingBytes_throwsEndOfFileException() throws TException {
+    // Field 1, max, as a binary value that declares 5 bytes, within the 10-byte message limit, but
+    // no bytes follow it.
+    byte[] message = {0x18, 0x05};
+    BoundedCompactProtocol protocol =
+        new BoundedCompactProtocol(
+            new TIOStreamTransport(new ByteArrayInputStream(message)), /* messageLength= */ 10);
+
+    TTransportException exception =
+        assertThrows(TTransportException.class, () -> new Statistics().read(protocol));
+
+    assertThat(exception.getType()).isEqualTo(TTransportException.END_OF_FILE);
   }
 
   @Test

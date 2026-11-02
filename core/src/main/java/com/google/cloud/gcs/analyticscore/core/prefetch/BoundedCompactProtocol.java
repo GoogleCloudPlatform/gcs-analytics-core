@@ -37,8 +37,10 @@ import shaded.parquet.org.apache.thrift.transport.TTransport;
  * unknown value can nest, so such messages fail with a {@link TException} instead.
  *
  * <p>Generated code skips unknown fields through {@link TProtocolUtil#skip}, whose depth limit is
- * shared by the whole process. Loading this class sets it to {@link #MAX_SKIP_DEPTH}. The build
- * relocates Thrift into this library, so the limit applies only to this library's copy.
+ * shared by every user of the same {@code TProtocolUtil} class. Loading this class sets it to
+ * {@link #MAX_SKIP_DEPTH}. The packaged jar relocates Thrift, so there the limit applies only to
+ * this library's copy. On an unshaded classpath, such as unit tests or an IDE, it also applies to
+ * any other library that uses the Thrift runtime of {@code parquet-format-structures}.
  *
  * <p>The cap applies to each value on its own, not to the message as a whole. The generated code
  * sizes every list before it reads the elements, so a message of {@code n} bytes can still allocate

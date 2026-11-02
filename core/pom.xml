@@ -33,9 +33,11 @@ limitations under the License.
         </dependency>
         <!--
           Shaded and relocated into this jar so consumers never see Parquet's generated types or
-          internal Thrift classes on their classpath. Marked optional rather than generating a
-          dependency-reduced POM under target/, which would shift basedir and drop core from the
-          aggregate JaCoCo report in coverage/.
+          internal Thrift classes on their classpath. Marked optional because the classes are
+          bundled, so consumers must not also get the artifact as a transitive dependency. This
+          replaces a dependency-reduced POM, which is written into this module's directory by
+          default, and which shifts basedir and drops core from the aggregate JaCoCo report in
+          coverage/ when moved under target/.
         -->
         <dependency>
             <groupId>org.apache.parquet</groupId>
@@ -89,6 +91,12 @@ limitations under the License.
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
+                <!--
+                  Failsafe runs the integration tests against this shaded jar, but they compile
+                  against the unrelocated classes in target/classes. A call from an integration test
+                  to a method whose signature names a Parquet format or Thrift type therefore
+                  compiles and then fails with NoSuchMethodError.
+                -->
                 <executions>
                     <execution>
                         <id>shade-parquet-format</id>
@@ -108,6 +116,21 @@ limitations under the License.
                                     <artifact>org.apache.parquet:parquet-format-structures</artifact>
                                     <excludes>
                                         <exclude>parquet.thrift</exclude>
+                                        <!--
+                                          This jar has its own manifest, and the copied Maven
+                                          metadata would make scanners report an unshaded
+                                          parquet-format-structures inside it.
+                                        -->
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                        <exclude>META-INF/maven/**</exclude>
+                                        <!--
+                                          Util decodes footers with the plain compact protocol,
+                                          which does not cap strings or containers, and only Util
+                                          uses the event package. Leaving both out keeps
+                                          BoundedCompactProtocol the only way to decode a footer.
+                                        -->
+                                        <exclude>org/apache/parquet/format/Util*.class</exclude>
+                                        <exclude>org/apache/parquet/format/event/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
