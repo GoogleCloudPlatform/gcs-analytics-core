@@ -160,10 +160,9 @@ public interface GcsFileSystem extends AutoCloseable {
    * <ul>
    *   <li><b>Root ({@link GcsItemId#ROOT})</b>: returns immediately as a no-op.
    *   <li><b>Bucket</b>: invokes {@link GcsClient#createBucket(String)} with {@link
-   *       GcsCreateBucketOptions#DEFAULT} (requiring a configured {@code projectId} and {@code
-   *       storage.buckets.create}; HTTP {@code 409 Conflict} on an existing bucket, including one
-   *       owned by another project, is treated as success, whereas object-only IAM roles fail with
-   *       {@link AccessDeniedException}).
+   *       GcsCreateBucketOptions#DEFAULT} (requiring {@code storage.buckets.create}; HTTP {@code
+   *       409 Conflict} on an existing bucket, including one owned by another project, is treated
+   *       as success, whereas object-only IAM roles fail with {@link AccessDeniedException}).
    *   <li><b>Directory</b>: on hierarchical namespace (HNS) buckets (when {@link
    *       GcsFileSystemOptions#isHnsApiEnabled()} is {@code true} and bucket metadata lookup via
    *       {@code storage.buckets.get} succeeds; {@code 401}/{@code 403} falls back to flat),

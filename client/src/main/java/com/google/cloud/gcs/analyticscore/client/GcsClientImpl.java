@@ -601,9 +601,10 @@ class GcsClientImpl implements GcsClient {
           e,
           GcsItemId.builder().setBucketName(bucketName).build(),
           "Failed to create bucket: " + bucketName);
-    } finally {
-      bucketPropertiesCache.invalidate(bucketName);
     }
+    // Clear only after a successful create, so that a 409 or 403 keeps the cached properties of the
+    // existing bucket.
+    bucketPropertiesCache.invalidate(bucketName);
   }
 
   private static void enableHns(BucketInfo.Builder bucketInfoBuilder) {
