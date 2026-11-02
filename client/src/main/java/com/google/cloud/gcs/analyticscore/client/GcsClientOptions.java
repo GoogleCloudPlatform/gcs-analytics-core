@@ -57,6 +57,12 @@ public abstract class GcsClientOptions {
   private static final String PCU_PART_FILE_NAME_PREFIX_KEY =
       "channel.write.pcu.part-file.name-prefix";
   private static final String TEMPORARY_PATHS_KEY = "channel.write.temporary-paths";
+  static final String BATCH_THREADS_KEY = "batch.threads";
+
+  // TODO: Benchmark and determine the optimal default batch executor configuration; currently
+  // mirrors hadoop-connectors defaults.
+  private static final int DEFAULT_BATCH_THREADS = 15;
+  static final int MAX_BATCH_THREADS = 1024;
 
   /**
    * Upload strategies matching the configurations offered by the google-cloud-storage Java client.
@@ -141,6 +147,8 @@ public abstract class GcsClientOptions {
 
   public abstract ImmutableSet<String> getTemporaryPaths();
 
+  public abstract int getBatchThreads();
+
   public abstract Builder toBuilder();
 
   // TODO: Benchmark and determine the optimal default values for write options.
@@ -156,7 +164,8 @@ public abstract class GcsClientOptions {
         .setPcuBufferCapacity(32 * MB)
         .setPcuPartFileCleanupType(PartFileCleanupType.ALWAYS)
         .setPcuPartFileNamePrefix("")
-        .setTemporaryPaths(ImmutableSet.of());
+        .setTemporaryPaths(ImmutableSet.of())
+        .setBatchThreads(DEFAULT_BATCH_THREADS);
   }
 
   public static GcsClientOptions createFromOptions(
@@ -207,6 +216,9 @@ public abstract class GcsClientOptions {
                     .filter(s -> !s.isEmpty())
                     .collect(Collectors.toList()))
         .ifPresent(optionsBuilder::setTemporaryPaths);
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + BATCH_THREADS_KEY)
+        .map(val -> ConfigurationUtil.safeParseInteger(prefix + BATCH_THREADS_KEY, val))
+        .ifPresent(optionsBuilder::setBatchThreads);
 
     optionsBuilder.setGcsReadOptions(
         GcsReadOptions.createFromOptions(analyticsCoreOptions, prefix));
@@ -258,6 +270,8 @@ public abstract class GcsClientOptions {
       return setTemporaryPaths(ImmutableSet.copyOf(paths));
     }
 
+    public abstract Builder setBatchThreads(int batchThreads);
+
     abstract GcsClientOptions autoBuild();
 
     public GcsClientOptions build() {
@@ -268,6 +282,17 @@ public abstract class GcsClientOptions {
           "Appendable writes require %s=BIDI, but was %s",
           CLIENT_PROTOCOL_KEY,
           options.getProtocol());
+      checkArgument(
+          options.getBatchThreads() >= 0,
+          "%s must be non-negative, but was %s",
+          BATCH_THREADS_KEY,
+          options.getBatchThreads());
+      checkArgument(
+          options.getBatchThreads() <= MAX_BATCH_THREADS,
+          "%s must be at most %s, but was %s",
+          BATCH_THREADS_KEY,
+          MAX_BATCH_THREADS,
+          options.getBatchThreads());
       return options;
     }
   }
