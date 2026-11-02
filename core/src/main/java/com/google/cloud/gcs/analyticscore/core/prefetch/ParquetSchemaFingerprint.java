@@ -60,8 +60,8 @@ final class ParquetSchemaFingerprint {
       SchemaElement element = schema.get(index);
       if (index > 0) {
         String name = element.getName();
-        // The length prefix keeps adjacent names apart, so "ab" then "c" differs from "a" then
-        // "bc".
+        // The length prefix tells where each name ends, so no name can pass for the shape values
+        // and names that follow it.
         hasher.putInt(name.length()).putUnencodedChars(name);
       }
       putShape(hasher, element);

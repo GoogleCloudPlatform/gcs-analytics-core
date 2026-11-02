@@ -56,7 +56,9 @@ final class ParquetDictionaryEncoding {
    * Requires at least one dictionary-encoded data page and no other data page entries.
    *
    * <p>Like parquet-mr's {@code EncodingStats}, an entry for a non-dictionary data page counts
-   * whatever its page count says. A negative count marks the stats as corrupt.
+   * whatever its page count says. A negative count marks the stats as corrupt. Unlike {@code
+   * EncodingStats}, stats without data page entries, or whose dictionary data page entries all
+   * count zero pages, do not count as dictionary encoded.
    */
   private static boolean statsShowOnlyDictionaryDataPages(List<PageEncodingStats> encodingStats) {
     boolean hasDictionaryDataPages = false;

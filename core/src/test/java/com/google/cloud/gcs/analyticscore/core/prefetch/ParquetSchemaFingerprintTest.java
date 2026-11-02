@@ -148,6 +148,15 @@ class ParquetSchemaFingerprintTest {
   }
 
   @Test
+  void of_leafAndEmptyGroupWithSameName_returnsDifferentFingerprints() {
+    long leaf = ParquetSchemaFingerprint.of(ImmutableList.of(root(1), leaf("a", Type.INT32)));
+
+    long group = ParquetSchemaFingerprint.of(ImmutableList.of(root(1), group("a", 0)));
+
+    assertThat(leaf).isNotEqualTo(group);
+  }
+
+  @Test
   void of_emptySchema_throwsIllegalArgumentException() {
     ImmutableList<SchemaElement> schema = ImmutableList.of();
 
