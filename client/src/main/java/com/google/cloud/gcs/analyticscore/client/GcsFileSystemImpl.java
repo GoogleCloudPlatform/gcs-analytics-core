@@ -108,8 +108,12 @@ public class GcsFileSystemImpl implements GcsFileSystem {
         fileSystemOptions);
   }
 
+  // Takes the JDK Supplier, not Guava's. javac loads the parameter types of every constructor
+  // with the same number of arguments when a caller picks an overload, and some callers, such as
+  // Apache Iceberg, do not have Guava on their compile classpath.
   private GcsFileSystemImpl(
-      Supplier<Credentials> credentialsSupplier, GcsFileSystemOptions fileSystemOptions) {
+      java.util.function.Supplier<Credentials> credentialsSupplier,
+      GcsFileSystemOptions fileSystemOptions) {
     checkNotNull(fileSystemOptions, "fileSystemOptions should not be null");
     // Must run first. Telemetry, the project ID lookup, and token requests can open the JVM's
     // first HTTP connection.
