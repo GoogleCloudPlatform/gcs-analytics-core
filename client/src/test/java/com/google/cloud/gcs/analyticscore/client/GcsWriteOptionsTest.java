@@ -240,4 +240,14 @@ class GcsWriteOptionsTest {
             BlobTargetOption.userProject("user-proj"))
         .inOrder();
   }
+
+  @Test
+  void generateTargetOptions_whenDisableGzipIsFalse_returnsEmptyOptions() {
+    GcsWriteOptions options = GcsWriteOptions.builder().setDisableGzipContent(false).build();
+    GcsItemId itemId = GcsItemId.builder().setBucketName("bucket").setObjectName("object").build();
+
+    BlobTargetOption[] sdkOptions = options.generateTargetOptions(itemId);
+
+    assertThat(sdkOptions).isEmpty();
+  }
 }
