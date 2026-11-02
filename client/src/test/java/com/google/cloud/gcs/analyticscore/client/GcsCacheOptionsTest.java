@@ -71,6 +71,38 @@ class GcsCacheOptionsTest {
   }
 
   @Test
+  void build_enabledSmallObjectCacheZeroSizeBytes_throws() {
+    GcsCacheOptions.Builder builder =
+        GcsCacheOptions.builder()
+            .setSmallObjectCacheEnabled(true)
+            .setSmallObjectCacheMaxSizeBytes(0);
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "smallObjectCacheMaxSizeBytes must be positive when smallObjectCacheEnabled is true");
+  }
+
+  @Test
+  void build_enabledSmallObjectCacheNegativeSizeBytes_throws() {
+    GcsCacheOptions.Builder builder =
+        GcsCacheOptions.builder()
+            .setSmallObjectCacheEnabled(true)
+            .setSmallObjectCacheMaxSizeBytes(-1);
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "smallObjectCacheMaxSizeBytes must be positive when smallObjectCacheEnabled is true");
+  }
+
+  @Test
   void createFromOptions_withAllOptions_succeeds() {
     boolean footerCacheEnabled = false;
     long footerCacheMaxSizeBytes = 50 * MB;

@@ -475,6 +475,19 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void translateException_when404WithZeroGeneration_omitsGeneration() {
+    StorageException se = new StorageException(404, "Not Found");
+
+    IOException exception =
+        GcsExceptionUtil.translateException(se, CONTEXT, BlobId.of(BUCKET, NAME, 0L), POSITION);
+
+    assertThat(exception).isInstanceOf(FileNotFoundException.class);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Location does not exist or generation not found: gs://" + BUCKET + "/" + NAME);
+  }
+
+  @Test
   void createFileNotFoundException_matchesTranslated404Exception() {
     GcsItemId itemId = GcsItemId.builder().setBucketName(BUCKET).setObjectName(NAME).build();
 
