@@ -292,6 +292,20 @@ class BatchExecutorTest {
   }
 
   @Test
+  void awaitRequestsCompletion_whenRequestsShareOneException_throwsItWithoutSelfSuppression() {
+    BatchExecutor executor = newExecutor(0); // Never blocks: requests run inside queue().
+    IOException shared = new IOException("shared failure");
+    executor.queue(failWith(shared), null);
+    executor.queue(failWith(shared), null);
+
+    // Suppressing the failure into itself would throw IllegalArgumentException instead.
+    IOException thrown = assertThrows(IOException.class, executor::awaitRequestsCompletion);
+
+    assertThat(thrown).isSameInstanceAs(shared);
+    assertThat(thrown.getSuppressed()).isEmpty();
+  }
+
+  @Test
   void awaitRequestsCompletion_isReusablePhaseBarrier() {
     BatchExecutor executor = newExecutor(4);
     int phaseSize = 8;
@@ -510,6 +524,7 @@ class BatchExecutorTest {
     BatchExecutor busy = newExecutor(1);
     RecordingCallback<Thread> idleCallback = new RecordingCallback<>();
     RecordingCallback<Thread> busyCallback = new RecordingCallback<>();
+    RecordingCallback<Thread> queuedCallback = new RecordingCallback<>();
     assertTimeoutPreemptively(
         TIMEOUT,
         () -> {
@@ -530,6 +545,8 @@ class BatchExecutorTest {
               },
               busyCallback);
           started.await();
+          // Waits in the pool queue behind the blocked request until shutdownNow() drains it.
+          busy.queue(Thread::currentThread, queuedCallback);
           Thread.currentThread().interrupt();
           long start = System.nanoTime(); // shutdown() must wait out its 1 s grace period first.
           assertThrows(InterruptedIOException.class, busy::shutdown);
@@ -538,6 +555,7 @@ class BatchExecutorTest {
           busyCallback.called.await(); // Only shutdownNow() can interrupt the request again.
           assertThat(busyCallback.failures.get(0)).isInstanceOf(InterruptedException.class);
           assertTerminates(busyCallback.thread);
+          assertThat(queuedCallback.called.getCount()).isEqualTo(1); // It never ran.
           assertThrows(IllegalStateException.class, () -> busy.queue(() -> null, null));
         });
   }

@@ -226,6 +226,9 @@ final class BatchExecutor {
    * then throws the first failure with up to {@link #MAX_SUPPRESSED} later failures suppressed. The
    * executor stays usable, so multi-phase operations can call this between phases.
    *
+   * <p>Queue every request of the current phase before calling this method. Only requests queued by
+   * the owner thread before the call, or by callbacks of the requests it awaits, are awaited.
+   *
    * @throws InterruptedIOException if the calling thread is interrupted while waiting for an
    *     unfinished request (remaining requests are cancelled and the interrupt status is restored),
    *     or if the first failed request was itself interrupted or threw an InterruptedIOException
@@ -298,6 +301,18 @@ final class BatchExecutor {
   }
 
   /**
+   * Stops the pool and cancels the requests it never started, so their futures always complete even
+   * if they are tracked after {@link #cancelRemainingFutures()} runs.
+   */
+  private void forceShutdown() {
+    for (Runnable neverStarted : requestsExecutor.shutdownNow()) {
+      if (neverStarted instanceof Future) {
+        ((Future<?>) neverStarted).cancel(false);
+      }
+    }
+  }
+
+  /**
    * Waits for all queued requests like {@link #awaitRequestsCompletion()} and then shuts down the
    * pool, even if waiting fails. Calling it again has no effect.
    */
@@ -311,11 +326,11 @@ final class BatchExecutor {
       try {
         if (!requestsExecutor.awaitTermination(SHUTDOWN_GRACE_PERIOD_SECONDS, TimeUnit.SECONDS)) {
           LOG.warn("Forcibly shutting down batch executor thread pool.");
-          requestsExecutor.shutdownNow();
+          forceShutdown();
         }
       } catch (InterruptedException e) {
         interrupted = true;
-        requestsExecutor.shutdownNow();
+        forceShutdown();
       } finally {
         // Complete futures whose requests never ran so that later waits cannot block forever.
         cancelRemainingFutures();
