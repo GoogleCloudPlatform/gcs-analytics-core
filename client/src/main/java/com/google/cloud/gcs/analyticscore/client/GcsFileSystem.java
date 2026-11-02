@@ -135,6 +135,8 @@ public interface GcsFileSystem extends AutoCloseable {
    * percent-decoding; callers with object names containing spaces or pre-decoded characters should
    * construct a {@link GcsItemId} and call {@link #mkdirs(GcsItemId)} instead.
    *
+   * <p>The default implementation parses {@code path} and calls {@link #mkdirs(GcsItemId)}.
+   *
    * @param path the {@code gs://} URI of the directory or bucket to create
    * @throws IllegalArgumentException if {@code path} is not a valid {@code gs://} URI (for example,
    *     {@code gs:///} or consecutive slashes)
@@ -143,9 +145,13 @@ public interface GcsFileSystem extends AutoCloseable {
    *     GcsFileSystemOptions#isCreateItemsConflictCheckEnabled()} is {@code true}) or a non-empty
    *     object already exists at the flat directory marker path
    * @throws AccessDeniedException if the caller lacks required GCS permissions
+   * @throws UnsupportedOperationException if this implementation does not support {@link
+   *     #mkdirs(GcsItemId)}
    * @throws IOException if an I/O error occurs
    */
-  void mkdirs(URI path) throws IOException;
+  default void mkdirs(URI path) throws IOException {
+    mkdirs(UriUtil.getItemIdFromUri(path));
+  }
 
   /**
    * Creates the target directory or bucket for the given {@link GcsItemId}, succeeding idempotently
@@ -173,6 +179,10 @@ public interface GcsFileSystem extends AutoCloseable {
    * conflicting files before creating the directory; this check is not atomic with respect to
    * concurrent writes.
    *
+   * <p>The default implementation throws {@link UnsupportedOperationException}, so that
+   * implementations written against earlier versions of this interface keep compiling; {@link
+   * GcsFileSystemImpl} overrides it.
+   *
    * @param itemId the GCS item identifier of the directory, bucket, or root to create
    * @throws IllegalArgumentException if {@code itemId} has an empty bucket name with a non-empty
    *     object name, or if the object name starts with {@code "/"} or contains consecutive {@code
@@ -181,7 +191,11 @@ public interface GcsFileSystem extends AutoCloseable {
    * @throws FileAlreadyExistsException if an object already exists at a path prefix (when conflict
    *     checking is enabled) or a non-empty object already exists at the flat directory marker path
    * @throws AccessDeniedException if the caller lacks required GCS permissions
+   * @throws UnsupportedOperationException if this implementation does not support creating
+   *     directories
    * @throws IOException if an I/O error occurs
    */
-  void mkdirs(GcsItemId itemId) throws IOException;
+  default void mkdirs(GcsItemId itemId) throws IOException {
+    throw new UnsupportedOperationException("mkdirs is not supported by " + getClass().getName());
+  }
 }

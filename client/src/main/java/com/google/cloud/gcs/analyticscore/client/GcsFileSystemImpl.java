@@ -402,12 +402,6 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   }
 
   @Override
-  public void mkdirs(URI path) throws IOException {
-    checkNotNull(path, "path should not be null");
-    mkdirs(UriUtil.getItemIdFromUri(path));
-  }
-
-  @Override
   public void mkdirs(GcsItemId itemId) throws IOException {
     checkNotNull(itemId, "itemId should not be null");
     if (itemId.isRoot()) {
