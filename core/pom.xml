@@ -32,6 +32,25 @@ limitations under the License.
             <version>${project.version}</version>
         </dependency>
         <!--
+          Shaded and relocated into this jar so consumers never see Parquet's generated types or
+          internal Thrift classes on their classpath. Marked optional rather than generating a
+          dependency-reduced POM under target/, which would shift basedir and drop core from the
+          aggregate JaCoCo report in coverage/.
+        -->
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-format-structures</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!--
+          The Thrift runtime shaded into parquet-format-structures still logs through unshaded
+          slf4j, but its POM does not declare it.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <!--
           Test dependencies for unit tests only. The Parquet/Hadoop/Avro stack is NOT here on
           purpose: no test under src/test/java references it, and pulling hadoop-common into every
           `mvn test` drags in ~80 transitive jars. It lives in the integration-test and jmh
@@ -64,6 +83,55 @@ limitations under the License.
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>shade-parquet-format</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <artifactSet>
+                                <includes>
+                                    <include>org.apache.parquet:parquet-format-structures</include>
+                                </includes>
+                            </artifactSet>
+                            <filters>
+                                <filter>
+                                    <artifact>org.apache.parquet:parquet-format-structures</artifact>
+                                    <excludes>
+                                        <exclude>parquet.thrift</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <relocations>
+                                <!--
+                                  Relocate under com.google.cloud.gcs.analyticscore.** so
+                                  hadoop-connectors also bundles and re-relocates these classes.
+                                -->
+                                <relocation>
+                                    <pattern>org.apache.parquet.format</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.internal.shaded.parquet.format</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>shaded.parquet.org.apache.thrift</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.internal.shaded.parquet.thrift</shadedPattern>
+                                </relocation>
+                            </relocations>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
     <profiles>
         <!--
           The integration tests under src/integrationTest/java read and write real Parquet files,
