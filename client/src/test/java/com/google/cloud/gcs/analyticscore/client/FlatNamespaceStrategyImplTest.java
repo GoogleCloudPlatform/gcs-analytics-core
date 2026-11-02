@@ -76,20 +76,23 @@ class FlatNamespaceStrategyImplTest {
   }
 
   @Test
-  void createDirectory_nonEmptyObjectAlreadyExists_propagatesFileAlreadyExistsException()
+  void createDirectory_nonEmptyObjectAlreadyExists_throwsFileAlreadyExistsExceptionWithReason()
       throws IOException {
     GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir").build();
     GcsItemId expectedItemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/").build();
-    doThrow(
-            GcsExceptionUtil.createFileAlreadyExistsException(
-                expectedItemId, new StorageException(412, "Precondition Failed")))
-        .when(mockClient)
-        .createEmptyObject(expectedItemId);
+    FileAlreadyExistsException clientException =
+        GcsExceptionUtil.createFileAlreadyExistsException(
+            expectedItemId, new StorageException(412, "Precondition Failed"));
+    doThrow(clientException).when(mockClient).createEmptyObject(expectedItemId);
 
     FileAlreadyExistsException e =
         assertThrows(FileAlreadyExistsException.class, () -> strategy.createDirectory(itemId));
     assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/dir/");
+    assertThat(e.getOtherFile()).isNull();
+    assertThat(e.getReason())
+        .isEqualTo("A non-empty object already exists at the directory marker path");
+    assertThat(e).hasCauseThat().isSameInstanceAs(clientException);
   }
 
   @Test

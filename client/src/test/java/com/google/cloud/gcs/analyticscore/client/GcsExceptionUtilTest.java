@@ -615,6 +615,22 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void createFileAlreadyExistsException_withReason_setsFileReasonAndCause() {
+    GcsItemId dirItemId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    StorageException cause = new StorageException(412, "Precondition Failed");
+
+    FileAlreadyExistsException exception =
+        GcsExceptionUtil.createFileAlreadyExistsException(
+            dirItemId, "A non-empty object already exists at the directory marker path", cause);
+
+    assertThat(exception.getFile()).isEqualTo("gs://" + BUCKET + "/dir/");
+    assertThat(exception.getOtherFile()).isNull();
+    assertThat(exception.getReason())
+        .isEqualTo("A non-empty object already exists at the directory marker path");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  @Test
   void createBucketNotFoundException_returnsBucketNotFoundMessage() {
     StorageException cause = new StorageException(404, "The specified bucket does not exist.");
 

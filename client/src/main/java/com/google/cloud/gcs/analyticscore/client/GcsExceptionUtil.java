@@ -255,6 +255,27 @@ class GcsExceptionUtil {
         UriUtil.getStringPath(itemId), UriUtil.getStringPath(conflictingItemId), reason);
   }
 
+  /**
+   * Creates a {@link FileAlreadyExistsException} for {@code itemId} with an explicit {@code
+   * reason}, setting {@link FileAlreadyExistsException#getFile()} to its {@code gs://} URI string
+   * and attaching {@code cause}.
+   *
+   * @param itemId the GCS item identifier that could not be created
+   * @param reason human-readable reason describing the conflict
+   * @param cause the underlying exception that triggered the conflict
+   * @return a FileAlreadyExistsException with {@code getFile()}, {@code getReason()}, and the cause
+   *     set
+   */
+  static FileAlreadyExistsException createFileAlreadyExistsException(
+      GcsItemId itemId, String reason, Exception cause) {
+    checkNotNull(itemId, "itemId should not be null");
+    checkNotNull(cause, "cause should not be null");
+    FileAlreadyExistsException exception =
+        new FileAlreadyExistsException(UriUtil.getStringPath(itemId), null, reason);
+    exception.initCause(cause);
+    return exception;
+  }
+
   private static FileAlreadyExistsException createFileAlreadyExistsException(
       String location, Exception cause) {
     FileAlreadyExistsException exception =

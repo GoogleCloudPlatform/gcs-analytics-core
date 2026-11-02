@@ -162,7 +162,10 @@ public interface GcsFileSystem extends AutoCloseable {
    *       GcsFileSystemOptions#isHnsApiEnabled()} is {@code true} and bucket metadata lookup via
    *       {@code storage.buckets.get} succeeds; {@code 401}/{@code 403} falls back to flat),
    *       recursively creates native folders via the Storage Control API. On flat buckets, creates
-   *       only the leaf 0-byte directory marker object ({@code "dir/"}).
+   *       only the leaf 0-byte directory marker object ({@code "dir/"}); if a non-empty object
+   *       already exists there, the marker can't be created and {@link FileAlreadyExistsException}
+   *       is thrown. HNS buckets succeed in that case, because writing such an object also creates
+   *       the native folder.
    * </ul>
    *
    * <p>When {@link GcsFileSystemOptions#isCreateItemsConflictCheckEnabled()} is {@code true},

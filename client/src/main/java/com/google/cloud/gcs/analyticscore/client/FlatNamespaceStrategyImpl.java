@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 
 final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
@@ -33,9 +34,17 @@ final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
   @Override
   public void createDirectory(GcsItemId id) throws IOException {
     UriUtil.validateDirectoryItemId(id);
-    // createEmptyObject throws FileAlreadyExistsException only if a non-empty placeholder object
-    // already exists at "dir/"; an existing empty placeholder object is treated as success.
-    gcsClient.createEmptyObject(id.toDirectoryId());
+    GcsItemId dirItemId = id.toDirectoryId();
+    try {
+      // Succeeds if a 0-byte marker already exists.
+      gcsClient.createEmptyObject(dirItemId);
+    } catch (FileAlreadyExistsException e) {
+      // A non-empty object occupies "dir/", so the 0-byte marker can't be created. On HNS, writing
+      // "dir/" also creates the native folder, so only flat buckets hit this; fail as
+      // hadoop-connectors does.
+      throw GcsExceptionUtil.createFileAlreadyExistsException(
+          dirItemId, "A non-empty object already exists at the directory marker path", e);
+    }
   }
 
   /**

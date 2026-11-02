@@ -38,18 +38,19 @@ interface NamespaceStrategy {
 
   /**
    * Creates a directory at the given {@link GcsItemId}, normalizing the trailing {@code "/"} as
-   * required by the underlying namespace model:
+   * required by the underlying namespace model. Succeeds when the directory's own resource exists
+   * afterwards, whether this call created it or it already existed:
    *
    * <ul>
-   *   <li><b>Flat namespace ({@link FlatNamespaceStrategyImpl})</b>: creates a 0-byte directory
-   *       marker object ({@code "dir/"}). Succeeds idempotently if a 0-byte marker already exists,
-   *       and throws {@link FileAlreadyExistsException} if a non-empty ({@code size > 0}) object
-   *       already exists at the marker key.
-   *   <li><b>Hierarchical namespace ({@link HierarchicalNamespaceStrategyImpl})</b>: recursively
-   *       creates native folder resources ({@code "dir"}) via the Storage Control API. Succeeds
-   *       idempotently if the native folder already exists (including when a non-empty object named
-   *       {@code "dir/"} exists, since GCS automatically creates the native folder when that object
-   *       is written).
+   *   <li><b>Flat namespace ({@link FlatNamespaceStrategyImpl})</b>: the resource is a 0-byte
+   *       directory marker object ({@code "dir/"}). Succeeds if a 0-byte marker already exists, and
+   *       throws {@link FileAlreadyExistsException} if a non-empty ({@code size > 0}) object
+   *       already exists at the marker key, because the marker can't be created there.
+   *   <li><b>Hierarchical namespace ({@link HierarchicalNamespaceStrategyImpl})</b>: the resource
+   *       is a native folder ({@code "dir"}), created recursively via the Storage Control API.
+   *       Succeeds if the folder already exists, including when a non-empty object named {@code
+   *       "dir/"} exists, since GCS automatically creates the native folder when that object is
+   *       written.
    * </ul>
    *
    * @param id the directory identifier (with or without a trailing {@code "/"})

@@ -1623,6 +1623,8 @@ class GcsFileSystemImplTest {
         assertThrows(FileAlreadyExistsException.class, () -> gcsFileSystem.mkdirs(dirUri));
     assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/" + TEST_SUBDIR);
     assertThat(e.getOtherFile()).isNull();
+    assertThat(e.getReason())
+        .isEqualTo("A non-empty object already exists at the directory marker path");
   }
 
   @Test

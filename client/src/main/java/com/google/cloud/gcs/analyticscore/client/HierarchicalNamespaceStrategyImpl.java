@@ -42,6 +42,7 @@ final class HierarchicalNamespaceStrategyImpl implements NamespaceStrategy {
     try {
       gcsClient.createFolder(folderItemId, /* recursive= */ true);
     } catch (FileAlreadyExistsException e) {
+      // The folder exists, also when a "dir/" object was written (GCS creates the folder then).
       LOG.debug("Folder already exists for item: {}", folderItemId, e);
     }
   }
