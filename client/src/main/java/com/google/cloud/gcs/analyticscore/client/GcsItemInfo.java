@@ -61,7 +61,10 @@ public abstract class GcsItemInfo {
     OBJECT,
     /** An inferred directory, which only exists because of other objects with this prefix */
     INFERRED_DIRECTORY,
-    /** A 0-byte placeholder object created in a flat bucket to explicitly represent a directory */
+    /**
+     * An object whose name ends with {@code /}, used in flat buckets to explicitly represent a
+     * directory; usually 0 bytes (see {@link GcsItemInfo#getSize()}).
+     */
     PLACEHOLDER_DIRECTORY,
     /** A native directory resource in a Hierarchical Namespace (HNS) enabled bucket */
     NATIVE_FOLDER,

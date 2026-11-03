@@ -34,7 +34,8 @@ class GcsFileSystemOptionsTest {
             "fs.gs.project-id", "test-project",
             "fs.gs.client.protocol", "GRPC",
             "fs.gs.analytics-core.read.thread.count", "32",
-            "fs.gs.analytics-core.hierarchical.namespace.enable", "true");
+            "fs.gs.analytics-core.hierarchical.namespace.enable", "true",
+            "fs.gs.analytics-core.create.items.conflict.check.enable", "false");
 
     GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
 
@@ -43,6 +44,7 @@ class GcsFileSystemOptionsTest {
         .isEqualTo(GcsClientOptions.Protocol.GRPC);
     assertThat(options.getReadThreadCount()).isEqualTo(32);
     assertThat(options.isHnsApiEnabled()).isTrue();
+    assertThat(options.isCreateItemsConflictCheckEnabled()).isFalse();
   }
 
   @Test
@@ -78,6 +80,7 @@ class GcsFileSystemOptionsTest {
         .isEqualTo(GcsClientOptions.Protocol.HTTP);
     assertThat(options.getReadThreadCount()).isEqualTo(16);
     assertThat(options.isHnsApiEnabled()).isTrue();
+    assertThat(options.isCreateItemsConflictCheckEnabled()).isTrue();
 
     GcsCacheOptions cacheOptions = options.getGcsCacheOptions();
     assertThat(cacheOptions.isFooterCacheEnabled()).isFalse();

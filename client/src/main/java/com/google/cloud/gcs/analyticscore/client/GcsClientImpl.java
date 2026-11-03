@@ -110,8 +110,6 @@ class GcsClientImpl implements GcsClient {
       };
   private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
   private static final String RAPID_STORAGE_CLASS = "RAPID";
-  private static final GcsWriteOptions EMPTY_OBJECT_WRITE_OPTIONS =
-      GcsWriteOptions.builder().build();
   private static final ImmutableSet<Integer> IGNORABLE_EMPTY_OBJECT_CREATE_ERROR_CODES =
       ImmutableSet.of(408, 429, 500, 502, 503, 504);
   private static final String UNIVERSE_DOMAIN_ENV_VAR = "GOOGLE_CLOUD_UNIVERSE_DOMAIN";
@@ -603,9 +601,10 @@ class GcsClientImpl implements GcsClient {
           e,
           GcsItemId.builder().setBucketName(bucketName).build(),
           "Failed to create bucket: " + bucketName);
-    } finally {
-      bucketPropertiesCache.invalidate(bucketName);
     }
+    // Clear only after a successful create, so that a 409 or 403 keeps the cached properties of the
+    // existing bucket.
+    bucketPropertiesCache.invalidate(bucketName);
   }
 
   private static void enableHns(BucketInfo.Builder bucketInfoBuilder) {
@@ -617,7 +616,12 @@ class GcsClientImpl implements GcsClient {
 
   @Override
   public void createEmptyObject(GcsItemId itemId) throws IOException {
-    createEmptyObject(itemId, EMPTY_OBJECT_WRITE_OPTIONS);
+    GcsWriteOptions configuredWriteOptions = clientOptions.getGcsWriteOptions();
+    GcsWriteOptions.Builder optionsBuilder = GcsWriteOptions.builder();
+    configuredWriteOptions.getKmsKeyName().ifPresent(optionsBuilder::setKmsKeyName);
+    configuredWriteOptions.getEncryptionKey().ifPresent(optionsBuilder::setEncryptionKey);
+    configuredWriteOptions.getUserProject().ifPresent(optionsBuilder::setUserProject);
+    createEmptyObject(itemId, optionsBuilder.build());
   }
 
   @Override

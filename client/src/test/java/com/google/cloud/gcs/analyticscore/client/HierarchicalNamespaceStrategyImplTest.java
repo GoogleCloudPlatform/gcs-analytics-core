@@ -17,16 +17,22 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class HierarchicalNamespaceStrategyImplTest {
 
@@ -40,6 +46,75 @@ class HierarchicalNamespaceStrategyImplTest {
   void setUp() {
     mockClient = mock(GcsClient.class);
     strategy = new HierarchicalNamespaceStrategyImpl(mockClient);
+  }
+
+  @Test
+  void createDirectory_validItemIdWithTrailingSlash_createsFolderWithoutTrailingSlash()
+      throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/subdir/").build();
+    GcsItemId expectedItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/subdir").build();
+
+    strategy.createDirectory(itemId);
+
+    verify(mockClient).createFolder(expectedItemId, true);
+  }
+
+  @Test
+  void createDirectory_validItemIdWithoutTrailingSlash_createsFolderWithoutTrailingSlash()
+      throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/subdir").build();
+    GcsItemId expectedItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/subdir").build();
+
+    strategy.createDirectory(itemId);
+
+    verify(mockClient).createFolder(expectedItemId, true);
+  }
+
+  @Test
+  void createDirectory_alreadyExists_suppressesException() throws IOException {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/").build();
+    GcsItemId expectedItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir").build();
+    doThrow(new FileAlreadyExistsException("dir"))
+        .when(mockClient)
+        .createFolder(expectedItemId, true);
+
+    assertDoesNotThrow(() -> strategy.createDirectory(itemId));
+  }
+
+  @Test
+  void createDirectory_ioException_propagatesException() throws IOException {
+    GcsItemId itemId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/").build();
+    GcsItemId expectedItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir").build();
+    doThrow(new IOException("Network failure")).when(mockClient).createFolder(expectedItemId, true);
+
+    assertThat(assertThrows(IOException.class, () -> strategy.createDirectory(itemId)))
+        .hasMessageThat()
+        .isEqualTo("Network failure");
+  }
+
+  @Test
+  void createDirectory_nullOrNonObjectItemId_throwsException() {
+    GcsItemId bucketItemId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+
+    assertThrows(NullPointerException.class, () -> strategy.createDirectory(null));
+    assertThrows(IllegalArgumentException.class, () -> strategy.createDirectory(bucketItemId));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"/", "//", "/dir/subdir", "dir//subdir", "dir/subdir//"})
+  void createDirectory_leadingOrConsecutiveSlashes_throwsIllegalArgumentException(
+      String invalidObjectName) {
+    GcsItemId invalidItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(invalidObjectName).build();
+
+    assertThrows(IllegalArgumentException.class, () -> strategy.createDirectory(invalidItemId));
+    verifyNoInteractions(mockClient);
   }
 
   @Test

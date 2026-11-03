@@ -15,8 +15,10 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.cloud.gcs.analyticscore.client.UriUtil.PATH_DELIMITER;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Strings.isNullOrEmpty;
 
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.client.auth.GcsCredentialsFactory;
@@ -41,7 +43,11 @@ import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -212,7 +218,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   @Override
   public GcsFileInfo getFileInfo(URI path) throws IOException {
     checkNotNull(path, "path should not be null");
-    GcsItemId itemId = UriUtil.getItemIdFromString(path.toString());
+    GcsItemId itemId = UriUtil.getItemIdFromUri(path);
     return getFileInfo(itemId);
   }
 
@@ -224,7 +230,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   @Override
   public GcsFileInfo getFileInfoObject(URI path) throws IOException {
     checkNotNull(path, "path should not be null");
-    return getFileInfoObject(UriUtil.getItemIdFromString(path.toString()));
+    return getFileInfoObject(UriUtil.getItemIdFromUri(path));
   }
 
   @Override
@@ -394,6 +400,110 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
     // Delegate the actual SDK interaction and exception handling to the internal client
     return gcsClient.createWriteChannel(itemId, writeOptions);
+  }
+
+  @Override
+  public void mkdirs(GcsItemId itemId) throws IOException {
+    checkNotNull(itemId, "itemId should not be null");
+    if (itemId.isRoot()) {
+      // Root path always exists.
+      return;
+    }
+    if (itemId.isBucket()) {
+      try {
+        gcsClient.createBucket(itemId.getBucketName());
+      } catch (FileAlreadyExistsException e) {
+        LOG.debug("Bucket {} already exists.", itemId.getBucketName(), e);
+      }
+      return;
+    }
+
+    UriUtil.validateDirectoryItemId(itemId);
+    GcsItemId dirItemId = itemId.toDirectoryId();
+
+    NamespaceStrategy strategy = resolveStrategy(itemId.getBucketName());
+
+    if (fileSystemOptions.isCreateItemsConflictCheckEnabled()) {
+      checkNoFilesConflictingWithDirs(dirItemId);
+    }
+
+    strategy.createDirectory(dirItemId);
+  }
+
+  @VisibleForTesting
+  void checkNoFilesConflictingWithDirs(GcsItemId dirItemId) throws IOException {
+    ExecutorService statusExecutor = statusExecutorServiceSupplier.get();
+    Map<GcsItemId, Future<GcsItemInfo>> futures = new LinkedHashMap<>();
+    try {
+      for (String dir : getDirs(dirItemId.getObjectName().orElse(""))) {
+        GcsItemId fileId =
+            GcsItemId.builder().setBucketName(dirItemId.getBucketName()).setObjectName(dir).build();
+        futures.put(fileId, statusExecutor.submit(() -> gcsClient.getGcsItemInfo(fileId)));
+      }
+
+      // Check results in submission order so that the shallowest conflicting file is reported.
+      boolean accessDeniedLogged = false;
+      for (Map.Entry<GcsItemId, Future<GcsItemInfo>> entry : futures.entrySet()) {
+        try {
+          GcsItemInfo fileInfo = getFromFuture(entry.getValue());
+          throw GcsExceptionUtil.createFileAlreadyExistsException(
+              dirItemId, fileInfo.getItemId(), "Cannot create directory because of existing file");
+        } catch (FileNotFoundException ignored) {
+          LOG.debug(
+              "File '{}' not found, so it does not conflict with directory '{}'.",
+              entry.getKey(),
+              dirItemId);
+        } catch (AccessDeniedException e) {
+          // The check is best-effort: a path outside a Credential Access Boundary or a role without
+          // storage.objects.get can't be read, and creating the directory still enforces write
+          // permission on the target.
+          if (!accessDeniedLogged) {
+            // Log only the bucket at WARN: object names may contain sensitive data.
+            LOG.warn(
+                "Skipping the mkdirs conflict check for paths the caller cannot read in bucket {}",
+                dirItemId.getBucketName());
+            accessDeniedLogged = true;
+          }
+          LOG.debug("Conflict check access denied for '{}'", entry.getKey(), e);
+        }
+      }
+    } finally {
+      for (Future<GcsItemInfo> future : futures.values()) {
+        future.cancel(true);
+      }
+    }
+  }
+
+  /**
+   * For objects whose name looks like a path (e.g. {@code "a/b/c"} or {@code "a/b/c/"}), returns
+   * all parent/intermediate directory paths.
+   *
+   * <p>For example:
+   *
+   * <ul>
+   *   <li>a/b/c => returns: ["a", "a/b"]
+   *   <li>a/b/c/ => returns: ["a", "a/b", "a/b/c"]
+   *   <li>a => returns: []
+   * </ul>
+   *
+   * @param objectName Name of an object.
+   * @return List of subdirectory like paths.
+   */
+  @VisibleForTesting
+  static ImmutableList<String> getDirs(String objectName) {
+    if (isNullOrEmpty(objectName)) {
+      return ImmutableList.of();
+    }
+    ImmutableList.Builder<String> dirs = ImmutableList.builder();
+    int index = 0;
+    while ((index = objectName.indexOf(PATH_DELIMITER, index)) >= 0) {
+      String dir = objectName.substring(0, index);
+      if (!dir.isEmpty()) {
+        dirs.add(dir);
+      }
+      index += PATH_DELIMITER.length();
+    }
+    return dirs.build();
   }
 
   @VisibleForTesting
