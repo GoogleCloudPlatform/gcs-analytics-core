@@ -205,6 +205,10 @@ class BatchExecutorTest {
     BatchExecutor executor = newExecutor(2);
     OutOfMemoryError error = new OutOfMemoryError("simulated");
     RecordingCallback<Object> callback = new RecordingCallback<>();
+    OutOfMemoryError errorWithFailingCallback = new OutOfMemoryError("simulated with callback bug");
+    IllegalStateException callbackFailure = new IllegalStateException("onFailure failed");
+    RecordingCallback<Object> failingCallback =
+        new RecordingCallback<Object>().throwing(callbackFailure);
     assertTimeoutPreemptively(
         TIMEOUT,
         () -> {
@@ -218,6 +222,20 @@ class BatchExecutorTest {
 
           assertThat(callback.failures).containsExactly(error);
           assertThat(thrown).hasCauseThat().isSameInstanceAs(error);
+
+          executor.queue(
+              () -> {
+                throw errorWithFailingCallback;
+              },
+              failingCallback);
+
+          thrown = assertThrows(IOException.class, executor::awaitRequestsCompletion);
+
+          assertThat(failingCallback.failures).containsExactly(errorWithFailingCallback);
+          assertThat(thrown).hasCauseThat().isSameInstanceAs(errorWithFailingCallback);
+          assertThat(errorWithFailingCallback.getSuppressed())
+              .asList()
+              .containsExactly(callbackFailure);
         });
   }
 
@@ -227,6 +245,20 @@ class BatchExecutorTest {
     IOException taskFailure = new IOException("request failed");
     IllegalStateException callbackFailure = new IllegalStateException("onFailure failed");
     RecordingCallback<Object> callback = new RecordingCallback<Object>().throwing(callbackFailure);
+    IllegalArgumentException rethrownException =
+        new IllegalArgumentException("rethrown by callback");
+    AssertionError rethrownError = new AssertionError("rethrown error by callback");
+    FutureCallback<Object> rethrowingCallback =
+        new RecordingCallback<Object>() {
+          @Override
+          public void onFailure(Throwable t) {
+            super.onFailure(t);
+            if (t instanceof Error) {
+              throw (Error) t;
+            }
+            throw (RuntimeException) t;
+          }
+        };
     assertTimeoutPreemptively(
         TIMEOUT,
         () -> {
@@ -237,6 +269,20 @@ class BatchExecutorTest {
           assertThat(callback.failures).containsExactly(taskFailure);
           assertThat(thrown).hasCauseThat().isSameInstanceAs(callbackFailure);
           assertThat(callbackFailure.getSuppressed()).asList().containsExactly(taskFailure);
+
+          executor.queue(failWith(rethrownException), rethrowingCallback);
+          thrown = assertThrows(IOException.class, executor::awaitRequestsCompletion);
+          assertThat(thrown).hasCauseThat().isSameInstanceAs(rethrownException);
+          assertThat(rethrownException.getSuppressed()).isEmpty();
+
+          executor.queue(
+              () -> {
+                throw rethrownError;
+              },
+              rethrowingCallback);
+          thrown = assertThrows(IOException.class, executor::awaitRequestsCompletion);
+          assertThat(thrown).hasCauseThat().isSameInstanceAs(rethrownError);
+          assertThat(rethrownError.getSuppressed()).isEmpty();
         });
   }
 

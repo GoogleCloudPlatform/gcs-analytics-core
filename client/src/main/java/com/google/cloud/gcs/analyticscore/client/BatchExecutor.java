@@ -19,10 +19,10 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.common.util.concurrent.Uninterruptibles;
 import java.io.IOException;
@@ -96,7 +96,7 @@ final class BatchExecutor {
         GcsClientOptions.MAX_BATCH_THREADS,
         numThreads);
     this.requestsExecutor =
-        numThreads == 0 ? newDirectExecutorService() : newRequestExecutor(numThreads);
+        numThreads == 0 ? MoreExecutors.newDirectExecutorService() : newRequestExecutor(numThreads);
     this.harvestInterval = Math.max(1, numThreads) * (QUEUE_CAPACITY_PER_THREAD + 2);
   }
 
@@ -188,6 +188,12 @@ final class BatchExecutor {
       try {
         callback.onFailure(t);
       } catch (Throwable callbackFailure) {
+        if (t instanceof Error) {
+          if (callbackFailure != t) {
+            t.addSuppressed(callbackFailure);
+          }
+          throw (Error) t;
+        }
         if (callbackFailure != t) {
           callbackFailure.addSuppressed(t);
         }
