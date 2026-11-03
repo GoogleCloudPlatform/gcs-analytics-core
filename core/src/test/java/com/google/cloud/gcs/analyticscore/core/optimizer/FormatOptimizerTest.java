@@ -23,11 +23,15 @@ import com.google.cloud.gcs.analyticscore.client.AnalyticsCacheManager;
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
+import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 
 class FormatOptimizerTest {
@@ -113,5 +117,38 @@ class FormatOptimizerTest {
 
     // Should not throw
     optimizer.onClose();
+  }
+
+  @Test
+  void readVectored_defaultReturnsOriginalRanges() throws IOException {
+    FormatOptimizer optimizer =
+        new FormatOptimizer() {
+          @Override
+          public boolean isApplicable(GcsItemId itemId) {
+            return true;
+          }
+
+          @Override
+          public void onOpen(GcsItemId itemId, AnalyticsCacheManager cacheManager)
+              throws IOException {}
+
+          @Override
+          public int read(long position, ByteBuffer dst, VectoredSeekableByteChannel delegate) {
+            return 0;
+          }
+        };
+
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(10)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+    List<GcsObjectRange> ranges = ImmutableList.of(range);
+
+    List<GcsObjectRange> remaining = optimizer.readVectored(ranges, ByteBuffer::allocate);
+
+    assertThat(remaining).isSameInstanceAs(ranges);
+    assertThat(range.getByteBufferFuture().isDone()).isFalse();
   }
 }

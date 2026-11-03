@@ -23,17 +23,22 @@ import org.junit.jupiter.api.Test;
 
 class GcsVectoredReadOptionsTest {
 
+  private static final int KB = 1024;
+  private static final int MB = 1024 * KB;
+
   @Test
   void createFromOptions_withValidProperties_shouldCreateCorrectOptions() {
     ImmutableMap<String, String> properties =
         ImmutableMap.of(
-            "gcs.analytics-core.read.vectored.range.merge-gap.max-bytes", "8192",
-            "gcs.analytics-core.read.vectored.range.merged-size.max-bytes", "16777216");
+            "gcs.analytics-core.read.vectored.range.merge-gap.max-bytes",
+            String.valueOf(8 * KB),
+            "gcs.analytics-core.read.vectored.range.merged-size.max-bytes",
+            String.valueOf(16 * MB));
 
     GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "gcs.");
 
-    assertThat(options.getMaxMergeGap()).isEqualTo(8192);
-    assertThat(options.getMaxMergeSize()).isEqualTo(16777216);
+    assertThat(options.getMaxMergeGap()).isEqualTo(8 * KB);
+    assertThat(options.getMaxMergeSize()).isEqualTo(16 * MB);
   }
 
   @Test
@@ -42,7 +47,43 @@ class GcsVectoredReadOptionsTest {
 
     GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "gcs.");
 
-    assertThat(options.getMaxMergeGap()).isEqualTo(4 * 1024);
-    assertThat(options.getMaxMergeSize()).isEqualTo(8 * 1024 * 1024);
+    assertThat(options.getMaxMergeGap()).isEqualTo(4 * KB);
+    assertThat(options.getMaxMergeSize()).isEqualTo(8 * MB);
+  }
+
+  @Test
+  void createFromOptions_onlyMergeGap_usesDefaultMergeSize() {
+    ImmutableMap<String, String> properties =
+        ImmutableMap.of(
+            "gcs.analytics-core.read.vectored.range.merge-gap.max-bytes", String.valueOf(8 * KB));
+
+    GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "gcs.");
+
+    assertThat(options.getMaxMergeGap()).isEqualTo(8 * KB);
+    assertThat(options.getMaxMergeSize()).isEqualTo(8 * MB);
+  }
+
+  @Test
+  void createFromOptions_onlyMergeSize_usesDefaultMergeGap() {
+    ImmutableMap<String, String> properties =
+        ImmutableMap.of(
+            "gcs.analytics-core.read.vectored.range.merged-size.max-bytes",
+            String.valueOf(16 * MB));
+
+    GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "gcs.");
+
+    assertThat(options.getMaxMergeGap()).isEqualTo(4 * KB);
+    assertThat(options.getMaxMergeSize()).isEqualTo(16 * MB);
+  }
+
+  @Test
+  void toBuilder_overridingMaxMergeGap_preservesMaxMergeSize() {
+    GcsVectoredReadOptions options =
+        GcsVectoredReadOptions.builder().setMaxMergeGap(2 * KB).setMaxMergeSize(4 * MB).build();
+
+    GcsVectoredReadOptions modified = options.toBuilder().setMaxMergeGap(4 * KB).build();
+
+    assertThat(modified.getMaxMergeGap()).isEqualTo(4 * KB);
+    assertThat(modified.getMaxMergeSize()).isEqualTo(4 * MB);
   }
 }

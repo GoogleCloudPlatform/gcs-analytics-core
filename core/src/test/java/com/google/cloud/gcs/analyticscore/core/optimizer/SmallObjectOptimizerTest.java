@@ -34,6 +34,11 @@ import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Metric;
+import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobInfo;
 import com.google.common.collect.ImmutableList;
@@ -41,7 +46,9 @@ import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,6 +67,8 @@ class SmallObjectOptimizerTest {
           .setAttributes(ImmutableMap.of())
           .build();
 
+  private GcsCacheOptions cacheOptions;
+  private GcsReadOptions readOptions;
   private Telemetry telemetry;
   private VectoredSeekableByteChannel realSource;
   private SmallObjectOptimizer optimizer;
@@ -67,7 +76,7 @@ class SmallObjectOptimizerTest {
 
   @BeforeEach
   void initializeOptimizerAndFakeStorage() throws IOException {
-    GcsCacheOptions cacheOptions =
+    cacheOptions =
         GcsCacheOptions.builder()
             .setSmallObjectCacheEnabled(true)
             .setSmallObjectCacheMaxSizeBytes(200)
@@ -75,8 +84,7 @@ class SmallObjectOptimizerTest {
     cacheManager = new AnalyticsCacheManager(cacheOptions);
     telemetry = new Telemetry(ImmutableList.of());
 
-    GcsReadOptions readOptions =
-        GcsReadOptions.builder().setSmallObjectCacheThresholdBytes(200).build();
+    readOptions = GcsReadOptions.builder().setSmallObjectCacheThresholdBytes(200).build();
     optimizer = new SmallObjectOptimizer(cacheOptions, readOptions, telemetry);
 
     GcsClientOptions clientOptions =
@@ -477,5 +485,43 @@ class SmallObjectOptimizerTest {
     assertThat(result.remaining()).isEqualTo(20);
     assertThat(result.get()).isEqualTo((byte) 10);
     assertThat(result.get(19)).isEqualTo((byte) 29);
+  }
+
+  @Test
+  void read_warmSharedCache_servesFromCacheAndRecordsHit() throws IOException {
+    optimizer.onOpen(FILE_INFO, cacheManager);
+    optimizer.read(0, ByteBuffer.allocate(10), realSource);
+
+    FakeGcsClientImpl.storage.delete(ITEM_ID.getBucketName(), ITEM_ID.getObjectName().get());
+
+    List<Metric> recordedMetrics = new ArrayList<>();
+    OperationListener listener =
+        new OperationListener() {
+          @Override
+          public void onOperationStart(Operation operation) {}
+
+          @Override
+          public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {
+            for (MetricKey key : metrics.keySet()) {
+              recordedMetrics.add(key.getMetric());
+            }
+          }
+        };
+
+    try (Telemetry hitTelemetry = new Telemetry(ImmutableList.of(listener))) {
+      SmallObjectOptimizer warmOptimizer =
+          new SmallObjectOptimizer(cacheOptions, readOptions, hitTelemetry);
+      warmOptimizer.onOpen(FILE_INFO, cacheManager);
+
+      ByteBuffer dst = ByteBuffer.allocate(10);
+      int bytesRead = warmOptimizer.read(15, dst, realSource);
+
+      assertThat(bytesRead).isEqualTo(10);
+      assertThat(dst.array()).isEqualTo(new byte[] {15, 16, 17, 18, 19, 20, 21, 22, 23, 24});
+      assertThat(recordedMetrics)
+          .contains(GcsAnalyticsCoreTelemetryConstants.Metric.SMALL_OBJECT_CACHE_HIT);
+      assertThat(recordedMetrics)
+          .doesNotContain(GcsAnalyticsCoreTelemetryConstants.Metric.SMALL_OBJECT_CACHE_MISS);
+    }
   }
 }

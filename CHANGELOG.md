@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.7.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.6.0...v1.7.0) (2026-11-02)
+
+
+### Features
+
+* **client:** support Credential Access Boundary (downscoped) credentials ([#413](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/413)) ([70b526f](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/70b526f0fa9e6a12cccb23fff87ddc1fcecf6a4b))
+* **core:** add a byte-range layout model for Parquet files ([#420](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/420)) ([e946bf0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/e946bf048cf3438e8418619a804d9641414ec041))
+
+
+### Bug Fixes
+
+* **client:** install proxy credentials before the first HTTP connection ([#418](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/418)) ([6a6d7ae](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/6a6d7ae80a4898697d659360a383dc9ae09a3895)), closes [#416](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/416)
+* **client:** keep Guava types out of GcsFileSystemImpl constructor signatures ([#456](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/456)) ([f425f88](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/f425f8883d6d24c479d0d0c806ffd259a0e88db8))
+* **deps:** align libraries-bom at 26.84.0, remove redundant storage BOM, and import google-api-client-bom 2.9.2 ([#448](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/448)) ([73569ea](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/73569eafb561d8f177b4d6d90212337ea49bfaf4))
+
+
+### Performance Improvements
+
+* **client:** avoid O(N^2) copying in VectoredIoUtil.mergeGcsObjectRanges ([#428](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/428)) ([fd3284a](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/fd3284a684406a5a93950a08a439205cdaaaaa06))
+* **client:** avoid URI reparsing and eager formatting on channel open ([#452](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/452)) ([e959e40](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/e959e401cfab1c3ca705daaad1d93b3f519b8625))
+* **client:** cache reflective metadata accessors per channel class ([#437](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/437)) ([1f839b0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/1f839b067b5b9da36fbb4467e3476bc3e20f6f68))
+* **core:** avoid stream and case-folding allocations on channel open ([#450](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/450)) ([6e01c95](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/6e01c953029a1a1228a441a32926df75ddf6d485))
+
 ## [1.6.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.5.0...v1.6.0) (2026-10-28)
 
 

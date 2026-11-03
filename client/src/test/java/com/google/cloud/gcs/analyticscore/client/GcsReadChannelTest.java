@@ -65,6 +65,9 @@ class GcsReadChannelTest {
   private static final String TEST_PROJECT_ID = "test-project-id";
   private static final String TEST_BUCKET = "test-bucket";
   private static final String TEST_OBJECT = "test-object";
+  private static final String TEST_DECRYPTION_KEY = "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=";
+  private static final int KB = 1024;
+  private static final int READ_BUFFER_SIZE = 16;
   private static GcsReadOptions TEST_GCS_READ_OPTIONS =
       GcsReadOptions.builder().setUserProjectId(TEST_PROJECT_ID).build();
 
@@ -1910,6 +1913,108 @@ class GcsReadChannelTest {
     int bytesRead = gcsReadChannel.read(ByteBuffer.allocate(5));
 
     assertThat(bytesRead).isEqualTo(-1);
+  }
+
+  @Test
+  void constructor_withDecryptionKey_passesDecryptionKeyToStorageReader() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(KB).setContentGeneration(0L).build();
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder()
+            .setUserProjectId(TEST_PROJECT_ID)
+            .setDecryptionKey(TEST_DECRYPTION_KEY)
+            .build();
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+
+    try (GcsReadChannel channel =
+        new GcsReadChannel(
+            mockStorage, itemInfo, readOptions, executorServiceSupplier, telemetry)) {
+      assertThat(channel.isOpen()).isTrue();
+    }
+
+    ArgumentCaptor<BlobSourceOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(BlobSourceOption[].class);
+    Mockito.verify(mockStorage).reader(Mockito.any(BlobId.class), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .contains(BlobSourceOption.decryptionKey(TEST_DECRYPTION_KEY));
+  }
+
+  @Test
+  void read_inRandomAccessModeWithDecryptionKey_passesDecryptionKeyToBoundedChannel()
+      throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(KB).setContentGeneration(0L).build();
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder()
+            .setUserProjectId(TEST_PROJECT_ID)
+            .setFileAccessPattern(FileAccessPattern.RANDOM)
+            .setDecryptionKey(TEST_DECRYPTION_KEY)
+            .build();
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+    Mockito.when(mockReadChannel.read(Mockito.any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              ByteBuffer buffer = invocation.getArgument(0);
+              int remaining = buffer.remaining();
+              buffer.position(buffer.limit());
+              return remaining;
+            });
+
+    try (GcsReadChannel channel =
+        new GcsReadChannel(
+            mockStorage, itemInfo, readOptions, executorServiceSupplier, telemetry)) {
+      int bytesRead = channel.read(ByteBuffer.allocate(READ_BUFFER_SIZE));
+      assertThat(bytesRead).isEqualTo(READ_BUFFER_SIZE);
+    }
+
+    ArgumentCaptor<BlobSourceOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(BlobSourceOption[].class);
+    Mockito.verify(mockStorage).reader(Mockito.any(BlobId.class), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .contains(BlobSourceOption.decryptionKey(TEST_DECRYPTION_KEY));
+  }
+
+  @Test
+  void constructor_withInvalidDecryptionKeyRejectedByStorage_throwsStorageException() {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(KB).setContentGeneration(0L).build();
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder()
+            .setUserProjectId(TEST_PROJECT_ID)
+            .setDecryptionKey(TEST_DECRYPTION_KEY)
+            .build();
+    Storage mockStorage = Mockito.mock(Storage.class);
+    Mockito.when(
+            mockStorage.reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class)))
+        .thenThrow(new StorageException(400, "Invalid encryption key"));
+
+    StorageException exception =
+        assertThrows(
+            StorageException.class,
+            () ->
+                new GcsReadChannel(
+                    mockStorage, itemInfo, readOptions, executorServiceSupplier, telemetry));
+
+    assertThat(exception.getCode()).isEqualTo(400);
+    assertThat(exception).hasMessageThat().contains("Invalid encryption key");
   }
 
   private static Storage storageReturningBytesThenEof(int bytesBeforeEof, long objectSize)
