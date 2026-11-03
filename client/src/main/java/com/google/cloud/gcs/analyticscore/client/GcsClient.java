@@ -19,6 +19,7 @@ import com.google.common.annotations.VisibleForTesting;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 
@@ -84,6 +85,34 @@ public interface GcsClient {
    * for fast directory emptiness checks.
    */
   Optional<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) throws IOException;
+
+  /**
+   * Lists a single page of GCS objects and collapsed prefixes under {@code prefixId} (either a
+   * bucket root {@code gs://bucket} or an object/directory prefix such as {@code gs://bucket/dir/})
+   * in a single RPC (retried automatically per {@link GcsRetryOptions}).
+   *
+   * <p>Results preserve GCS unsigned UTF-8 ordering. Collapsed prefixes matching a placeholder
+   * object in {@link GcsListPage#getItems()} or the listed directory prefix itself are omitted from
+   * {@link GcsListPage#getPrefixes()}. No synthetic self-directory is fabricated: when {@link
+   * GcsListOptions#isIncludePrefixObject()} is {@code false}, a real self-marker object is surfaced
+   * via {@link GcsListPage#getPrefixObject()} rather than {@link GcsListPage#getItems()}. A missing
+   * prefix returns an empty page.
+   *
+   * @param prefixId bucket or object/directory prefix to list (must have a non-empty bucket name
+   *     and no content generation)
+   * @param options listing options controlling delimiter, projection, filters, and pagination
+   * @return a single {@link GcsListPage} of object metadata and deduplicated prefix IDs
+   * @throws IllegalArgumentException if {@code prefixId} has an empty bucket name (including root)
+   *     or specifies a content generation
+   * @throws FileNotFoundException if the target bucket does not exist ({@code 404})
+   * @throws AccessDeniedException if listing is denied ({@code 401}/{@code 403})
+   * @throws IOException if an I/O error occurs while listing
+   */
+  default GcsListPage<GcsItemInfo> listObjectsPage(GcsItemId prefixId, GcsListOptions options)
+      throws IOException {
+    throw new UnsupportedOperationException(
+        "listObjectsPage is not implemented by " + getClass().getName());
+  }
 
   /**
    * Creates a GCS bucket with {@link GcsCreateBucketOptions#DEFAULT}.

@@ -74,9 +74,12 @@ import java.nio.channels.WritableByteChannel;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
@@ -399,7 +402,137 @@ class GcsClientImpl implements GcsClient {
     }
   }
 
-  private static GcsItemInfo fromBlob(Blob blob) {
+  @Override
+  public GcsListPage<GcsItemInfo> listObjectsPage(GcsItemId prefixId, GcsListOptions options)
+      throws IOException {
+    checkNotNull(prefixId, "prefixId must not be null");
+    checkNotNull(options, "options must not be null");
+    checkArgument(!prefixId.getBucketName().isEmpty(), "Empty bucket name: %s", prefixId);
+    checkArgument(
+        prefixId.getContentGeneration().isEmpty(),
+        "prefixId must not specify contentGeneration: %s",
+        prefixId);
+
+    String bucketName = prefixId.getBucketName();
+    String prefix = prefixId.getObjectName().orElse("");
+    List<BlobListOption> blobListOptions = new ArrayList<>();
+    blobListOptions.add(BlobListOption.prefix(prefix));
+    options
+        .getDelimiter()
+        .ifPresent(
+            d -> {
+              blobListOptions.add(BlobListOption.delimiter(d));
+              if (options.isIncludeTrailingDelimiter()) {
+                blobListOptions.add(BlobListOption.includeTrailingDelimiter());
+              }
+            });
+    if (options.isIncludeFoldersAsPrefixes()) {
+      blobListOptions.add(BlobListOption.includeFolders(true));
+    }
+    options.getPageSize().ifPresent(size -> blobListOptions.add(BlobListOption.pageSize(size)));
+    options.getPageToken().map(BlobListOption::pageToken).ifPresent(blobListOptions::add);
+    options.getStartOffset().map(BlobListOption::startOffset).ifPresent(blobListOptions::add);
+    options.getEndOffset().map(BlobListOption::endOffset).ifPresent(blobListOptions::add);
+    options.getMatchGlob().map(BlobListOption::matchGlob).ifPresent(blobListOptions::add);
+    clientOptions
+        .getGcsReadOptions()
+        .getUserProjectId()
+        .or(() -> clientOptions.getGcsWriteOptions().getUserProject())
+        .map(BlobListOption::userProject)
+        .ifPresent(blobListOptions::add);
+    blobListOptions.add(BlobListOption.fields(resolveBlobFields(options)));
+
+    try {
+      Page<Blob> page = storage.list(bucketName, blobListOptions.toArray(new BlobListOption[0]));
+      String dirSuffix = options.getDelimiter().orElse("/");
+      boolean isDirectoryPrefix = !prefix.isEmpty() && prefix.endsWith(dirSuffix);
+      List<GcsItemInfo> items = new ArrayList<>();
+      Set<String> rawPrefixes = new LinkedHashSet<>();
+      Set<String> seenObjectNames = new HashSet<>();
+      GcsItemInfo prefixObject = null;
+      for (Blob blob : page.getValues()) {
+        if (blob == null) {
+          continue;
+        }
+        if (blob.isDirectory()) {
+          rawPrefixes.add(blob.getName());
+        } else {
+          seenObjectNames.add(blob.getName());
+          GcsItemInfo info = fromBlob(blob);
+          if (isDirectoryPrefix
+              && blob.getName().equals(prefix)
+              && !options.isIncludePrefixObject()) {
+            prefixObject = info;
+          } else {
+            items.add(info);
+          }
+        }
+      }
+      List<GcsItemId> prefixes = new ArrayList<>(rawPrefixes.size());
+      for (String p : rawPrefixes) {
+        if (!(isDirectoryPrefix && p.equals(prefix)) && !seenObjectNames.contains(p)) {
+          prefixes.add(GcsItemId.builder().setBucketName(bucketName).setObjectName(p).build());
+        }
+      }
+      return GcsListPage.<GcsItemInfo>builder()
+          .setItems(items)
+          .setPrefixes(prefixes)
+          .setPrefixObject(Optional.ofNullable(prefixObject))
+          .setNextPageToken(Optional.ofNullable(page.getNextPageToken()))
+          .build();
+    } catch (StorageException e) {
+      if (e.getCode() == 404) {
+        throw GcsExceptionUtil.createBucketNotFoundException(bucketName, e);
+      }
+      if (GcsExceptionUtil.getErrorType(e) == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
+        throw GcsExceptionUtil.createAccessDeniedException(
+            UriUtil.getStringPath(prefixId), "list", e);
+      }
+      throw new IOException(
+          "Failed to list objects for prefix: " + UriUtil.getStringPath(prefixId), e);
+    }
+  }
+
+  static BlobField[] resolveBlobFields(GcsListOptions options) {
+    Set<GcsListOptions.ListField> fields = options.getFields();
+    return fields.isEmpty()
+        ? BLOB_METADATA_FIELDS_ARRAY.clone()
+        : fields.stream().map(GcsClientImpl::toBlobField).toArray(BlobField[]::new);
+  }
+
+  static BlobField toBlobField(GcsListOptions.ListField field) {
+    switch (field) {
+      case NAME:
+        return BlobField.NAME;
+      case BUCKET:
+        return BlobField.BUCKET;
+      case GENERATION:
+        return BlobField.GENERATION;
+      case METAGENERATION:
+        return BlobField.METAGENERATION;
+      case SIZE:
+        return BlobField.SIZE;
+      case CONTENT_TYPE:
+        return BlobField.CONTENT_TYPE;
+      case CONTENT_ENCODING:
+        return BlobField.CONTENT_ENCODING;
+      case TIME_CREATED:
+        return BlobField.TIME_CREATED;
+      case UPDATED:
+        return BlobField.UPDATED;
+      case STORAGE_CLASS:
+        return BlobField.STORAGE_CLASS;
+      case CRC32C:
+        return BlobField.CRC32C;
+      case MD5HASH:
+        return BlobField.MD5HASH;
+      case METADATA:
+        return BlobField.METADATA;
+    }
+    throw new AssertionError("Unsupported ListField: " + field);
+  }
+
+  static GcsItemInfo fromBlob(Blob blob) {
     GcsItemId.Builder idBuilder =
         GcsItemId.builder().setBucketName(blob.getBucket()).setObjectName(blob.getName());
     Optional.ofNullable(blob.getGeneration()).ifPresent(idBuilder::setContentGeneration);
@@ -422,6 +555,9 @@ class GcsClientImpl implements GcsClient {
     Optional.ofNullable(blob.getGeneration()).ifPresent(infoBuilder::setContentGeneration);
     Optional.ofNullable(blob.getContentType()).ifPresent(infoBuilder::setContentType);
     Optional.ofNullable(blob.getContentEncoding()).ifPresent(infoBuilder::setContentEncoding);
+    Optional.ofNullable(blob.getStorageClass())
+        .map(Object::toString)
+        .ifPresent(infoBuilder::setStorageClass);
     Optional.ofNullable(blob.getMetageneration()).ifPresent(infoBuilder::setMetaGeneration);
 
     // A real 0-byte "dir/" object is not reported by Blob.isDirectory() (only delimiter prefixes

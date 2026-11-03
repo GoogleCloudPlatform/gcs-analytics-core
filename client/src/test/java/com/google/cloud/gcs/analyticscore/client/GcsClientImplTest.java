@@ -68,6 +68,8 @@ import com.google.cloud.storage.GrpcStorageOptions;
 import com.google.cloud.storage.HttpStorageOptions;
 import com.google.cloud.storage.ParallelCompositeUploadBlobWriteSessionConfig;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.Storage.BlobField;
+import com.google.cloud.storage.Storage.BlobListOption;
 import com.google.cloud.storage.Storage.BucketGetOption;
 import com.google.cloud.storage.StorageClass;
 import com.google.cloud.storage.StorageException;
@@ -105,6 +107,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -125,6 +128,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
@@ -3492,5 +3496,302 @@ class GcsClientImplTest {
     verify(mockGrpcStorage, times(1))
         .get(eq(BlobId.of(TEST_BUCKET_NAME, TEST_DIR)), any(Storage.BlobGetOption[].class));
     verify(mockHttpStorage, never()).get(any(BlobId.class), any(Storage.BlobGetOption[].class));
+  }
+
+  @Test
+  void listObjectsPage_defaultMethodOnUnimplementedClient_throwsUnsupportedOperationException() {
+    GcsClient minimalClient = mock(GcsClient.class, Answers.CALLS_REAL_METHODS);
+
+    UnsupportedOperationException e =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> minimalClient.listObjectsPage(TEST_DIR_ITEM_ID, GcsListOptions.LIST_DIRECTORY));
+
+    assertThat(e).hasMessageThat().contains("listObjectsPage is not implemented by");
+  }
+
+  @Test
+  void gcsClientSignatures_doNotExposeGuavaTypes() {
+    ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(GcsClient.class);
+  }
+
+  @Test
+  void listObjectsPage_localStorageRecursive_returnsAllObjectsUnderPrefix() throws IOException {
+    String bucket = "local-rec-bucket";
+    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "rec/"), "");
+    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "rec/a.txt"), "a");
+    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "rec/sub/b.txt"), "b");
+    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "other/c.txt"), "c");
+    GcsItemId prefixId = GcsItemId.builder().setBucketName(bucket).setObjectName("rec/").build();
+
+    GcsListPage<GcsItemInfo> page =
+        gcsClient.listObjectsPage(prefixId, GcsListOptions.LIST_RECURSIVE);
+
+    assertThat(page.getItems().stream().map(i -> i.getItemId().getObjectName().orElse("")))
+        .containsExactly("rec/", "rec/a.txt", "rec/sub/b.txt");
+    assertThat(page.getPrefixes()).isEmpty();
+    assertThat(page.getPrefixObject()).isEmpty();
+  }
+
+  @Test
+  void listObjectsPage_localStorageDelimiterWithoutTrailingDelimiter_collapsesChildPrefixes()
+      throws IOException {
+    String bucket = "local-delim-bucket";
+    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "d/a.txt"), "a");
+    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "d/sub/b.txt"), "b");
+    GcsItemId prefixId = GcsItemId.builder().setBucketName(bucket).setObjectName("d/").build();
+    GcsListOptions options =
+        GcsListOptions.builder().setDelimiter("/").setIncludeTrailingDelimiter(false).build();
+
+    GcsListPage<GcsItemInfo> page = gcsClient.listObjectsPage(prefixId, options);
+
+    assertThat(page.getItems().stream().map(i -> i.getItemId().getObjectName().orElse("")))
+        .containsExactly("d/a.txt");
+    assertThat(page.getPrefixes())
+        .containsExactly(GcsItemId.builder().setBucketName(bucket).setObjectName("d/sub/").build());
+  }
+
+  @Test
+  void listObjectsPage_allOptionsSet_forwardsExactBlobListOptionsUnchanged() throws IOException {
+    Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET_NAME);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsListOptions options =
+        GcsListOptions.builder()
+            .setDelimiter("/")
+            .setIncludeFoldersAsPrefixes(true)
+            .setIncludeTrailingDelimiter(true)
+            .setPageSize(25)
+            .setPageToken("tok-1")
+            .setStartOffset("dir/a")
+            .setEndOffset("dir/z")
+            .setMatchGlob("dir/*.parquet")
+            .setFields(Set.of(GcsListOptions.ListField.NAME))
+            .build();
+    ArgumentCaptor<BlobListOption[]> captor = ArgumentCaptor.forClass(BlobListOption[].class);
+
+    client.listObjectsPage(TEST_DIR_ITEM_ID, options);
+
+    verify(mockStorage).list(eq(TEST_BUCKET_NAME), captor.capture());
+    assertThat(Arrays.asList(captor.getValue()))
+        .containsExactly(
+            BlobListOption.prefix(TEST_DIR),
+            BlobListOption.delimiter("/"),
+            BlobListOption.includeTrailingDelimiter(),
+            BlobListOption.includeFolders(true),
+            BlobListOption.pageSize(25),
+            BlobListOption.pageToken("tok-1"),
+            BlobListOption.startOffset("dir/a"),
+            BlobListOption.endOffset("dir/z"),
+            BlobListOption.matchGlob("dir/*.parquet"),
+            BlobListOption.fields(BlobField.NAME));
+  }
+
+  @Test
+  void listObjectsPage_emptyDelimiterAndEmptyFields_usesDefaultFieldsAndOmitsDelimiterOptions()
+      throws IOException {
+    Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET_NAME);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsListOptions options = GcsListOptions.builder().setDelimiter(Optional.empty()).build();
+    ArgumentCaptor<BlobListOption[]> captor = ArgumentCaptor.forClass(BlobListOption[].class);
+
+    client.listObjectsPage(GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build(), options);
+
+    verify(mockStorage).list(eq(TEST_BUCKET_NAME), captor.capture());
+    BlobField[] defaultFields = GcsClientImpl.resolveBlobFields(options);
+    assertThat(defaultFields).hasLength(12);
+    assertThat(Arrays.asList(captor.getValue()))
+        .containsExactly(BlobListOption.prefix(""), BlobListOption.fields(defaultFields));
+  }
+
+  @ParameterizedTest
+  @MethodSource("requesterPaysCases")
+  void listObjectsPage_requesterPaysConfigured_forwardsExpectedUserProject(
+      String readProject, String writeProject, String expectedProject) throws IOException {
+    Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET_NAME);
+    GcsReadOptions.Builder readBuilder = GcsReadOptions.builder();
+    if (readProject != null) {
+      readBuilder.setUserProjectId(readProject);
+    }
+    GcsWriteOptions.Builder writeBuilder = GcsWriteOptions.builder();
+    if (writeProject != null) {
+      writeBuilder.setUserProject(writeProject);
+    }
+    GcsClientOptions clientOpts =
+        TEST_GCS_CLIENT_OPTIONS.toBuilder()
+            .setGcsReadOptions(readBuilder.build())
+            .setGcsWriteOptions(writeBuilder.build())
+            .build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, clientOpts);
+    ArgumentCaptor<BlobListOption[]> captor = ArgumentCaptor.forClass(BlobListOption[].class);
+
+    client.listObjectsPage(TEST_DIR_ITEM_ID, GcsListOptions.EMPTINESS_CHECK_FLAT);
+
+    verify(mockStorage).list(eq(TEST_BUCKET_NAME), captor.capture());
+    assertThat(Arrays.asList(captor.getValue()))
+        .contains(BlobListOption.userProject(expectedProject));
+  }
+
+  private static Stream<Arguments> requesterPaysCases() {
+    return Stream.of(
+        Arguments.of("read-proj", "write-proj", "read-proj"),
+        Arguments.of(null, "write-proj", "write-proj"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void listObjectsPage_selfDirectoryMarker_routesToPrefixObjectOrItems(boolean includePrefixObj)
+      throws IOException {
+    Blob selfMarker = createMockBlob(TEST_BUCKET_NAME, TEST_DIR);
+    Blob syntheticSelf = createMockDirectoryPrefixBlob(TEST_BUCKET_NAME, TEST_DIR);
+    Blob child = createMockBlob(TEST_BUCKET_NAME, TEST_DIR + "file.parquet");
+    Storage mockStorage =
+        createMockStorageWithBlobs(TEST_BUCKET_NAME, selfMarker, syntheticSelf, child);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsListOptions options =
+        GcsListOptions.LIST_DIRECTORY.toBuilder().setIncludePrefixObject(includePrefixObj).build();
+
+    GcsListPage<GcsItemInfo> page = client.listObjectsPage(TEST_DIR_ITEM_ID, options);
+
+    assertThat(page.getPrefixes()).isEmpty();
+    if (includePrefixObj) {
+      assertThat(page.getPrefixObject()).isEmpty();
+      assertThat(page.getItems().stream().map(i -> i.getItemId().getObjectName().orElse("")))
+          .containsExactly(TEST_DIR, TEST_DIR + "file.parquet")
+          .inOrder();
+    } else {
+      assertThat(page.getPrefixObject()).isPresent();
+      assertThat(page.getPrefixObject().get().getItemId().getObjectName()).hasValue(TEST_DIR);
+      assertThat(page.getItems().stream().map(i -> i.getItemId().getObjectName().orElse("")))
+          .containsExactly(TEST_DIR + "file.parquet");
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void listObjectsPage_childPlaceholderAndSyntheticPrefixes_deduplicatesAndSkipsFromBlobOnPrefixes(
+      boolean syntheticFirst) throws IOException {
+    Blob realSub = createMockBlob(TEST_BUCKET_NAME, "dir/sub/");
+    Blob syntheticSub = createMockDirectoryPrefixBlob(TEST_BUCKET_NAME, "dir/sub/");
+    Blob syntheticOther = createMockDirectoryPrefixBlob(TEST_BUCKET_NAME, "dir/other/");
+    Blob[] blobs =
+        syntheticFirst
+            ? new Blob[] {syntheticSub, realSub, syntheticOther}
+            : new Blob[] {realSub, syntheticSub, syntheticOther};
+    Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET_NAME, blobs);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+
+    GcsListPage<GcsItemInfo> page =
+        client.listObjectsPage(TEST_DIR_ITEM_ID, GcsListOptions.LIST_DIRECTORY);
+
+    assertThat(page.getItems()).hasSize(1);
+    assertThat(page.getItems().get(0).getItemType())
+        .isEqualTo(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY);
+    assertThat(page.getPrefixes())
+        .containsExactly(
+            GcsItemId.builder()
+                .setBucketName(TEST_BUCKET_NAME)
+                .setObjectName("dir/other/")
+                .build());
+    verify(syntheticSub, never()).getSize();
+    verify(syntheticOther, never()).getSize();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void listObjectsPage_grpcEmptyTokenAndStorageClass_normalizesTokenMapsStorageClassAndSinglePage()
+      throws IOException {
+    Blob blob = createMockBlob(TEST_BUCKET_NAME, TEST_DIR + "cold.parquet");
+    when(blob.getStorageClass()).thenReturn(StorageClass.NEARLINE);
+    Page<Blob> mockPage = mock(Page.class);
+    when(mockPage.getValues()).thenReturn(ImmutableList.of(blob));
+    when(mockPage.getNextPageToken()).thenReturn("");
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.list(eq(TEST_BUCKET_NAME), any(BlobListOption[].class))).thenReturn(mockPage);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+
+    GcsListPage<GcsItemInfo> page =
+        client.listObjectsPage(TEST_DIR_ITEM_ID, GcsListOptions.LIST_DIRECTORY);
+
+    assertThat(page.getNextPageToken()).isEmpty();
+    assertThat(page.hasNextPage()).isFalse();
+    assertThat(page.getItems().get(0).getStorageClass()).hasValue("NEARLINE");
+    verify(mockPage, never()).iterateAll();
+  }
+
+  @ParameterizedTest
+  @EnumSource(GcsListOptions.ListField.class)
+  void listObjectsPage_eachListField_mapsToExpectedBlobField(GcsListOptions.ListField field)
+      throws IOException {
+    Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET_NAME);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsListOptions options =
+        GcsListOptions.LIST_DIRECTORY.toBuilder().setFields(Set.of(field)).build();
+    ArgumentCaptor<BlobListOption[]> captor = ArgumentCaptor.forClass(BlobListOption[].class);
+
+    client.listObjectsPage(TEST_DIR_ITEM_ID, options);
+
+    verify(mockStorage).list(eq(TEST_BUCKET_NAME), captor.capture());
+    assertThat(Arrays.asList(captor.getValue()))
+        .contains(BlobListOption.fields(BlobField.valueOf(field.name())));
+  }
+
+  @ParameterizedTest
+  @MethodSource("invalidListObjectsPageInputs")
+  void listObjectsPage_invalidArguments_throwsExpectedException(
+      GcsItemId prefixId, GcsListOptions options, Class<? extends Throwable> expectedType) {
+    assertThrows(expectedType, () -> gcsClient.listObjectsPage(prefixId, options));
+  }
+
+  private static Stream<Arguments> invalidListObjectsPageInputs() {
+    GcsItemId emptyBucketWithObject =
+        GcsItemId.builder().setBucketName("").setObjectName(TEST_DIR).build();
+    GcsItemId versionedId =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET_NAME)
+            .setObjectName(TEST_DIR)
+            .setContentGeneration(123L)
+            .build();
+    return Stream.of(
+        Arguments.of(null, GcsListOptions.LIST_DIRECTORY, NullPointerException.class),
+        Arguments.of(TEST_DIR_ITEM_ID, null, NullPointerException.class),
+        Arguments.of(GcsItemId.ROOT, GcsListOptions.LIST_DIRECTORY, IllegalArgumentException.class),
+        Arguments.of(
+            emptyBucketWithObject, GcsListOptions.LIST_DIRECTORY, IllegalArgumentException.class),
+        Arguments.of(versionedId, GcsListOptions.LIST_DIRECTORY, IllegalArgumentException.class));
+  }
+
+  @ParameterizedTest
+  @MethodSource("listStorageErrors")
+  void listObjectsPage_storageException_translatesExceptionAndPreservesCause(
+      int statusCode, Class<? extends IOException> expectedType, String expectedMsgFragment) {
+    Storage mockStorage = mock(Storage.class);
+    StorageException cause = new StorageException(statusCode, "Storage failure " + statusCode);
+    when(mockStorage.list(eq(TEST_BUCKET_NAME), any(BlobListOption[].class))).thenThrow(cause);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+
+    IOException e =
+        assertThrows(
+            expectedType,
+            () -> client.listObjectsPage(TEST_DIR_ITEM_ID, GcsListOptions.LIST_DIRECTORY));
+
+    assertThat(e).hasMessageThat().contains(expectedMsgFragment);
+    assertThat(e).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  private static Stream<Arguments> listStorageErrors() {
+    return Stream.of(
+        Arguments.of(404, FileNotFoundException.class, "Bucket not found: " + TEST_BUCKET_NAME),
+        Arguments.of(401, AccessDeniedException.class, "Access denied during list"),
+        Arguments.of(403, AccessDeniedException.class, "Access denied during list"),
+        Arguments.of(
+            500,
+            IOException.class,
+            "Failed to list objects for prefix: " + UriUtil.getStringPath(TEST_DIR_ITEM_ID)));
+  }
+
+  private static Blob createMockDirectoryPrefixBlob(String bucket, String prefixName) {
+    Blob mockBlob = createMockBlob(bucket, prefixName);
+    when(mockBlob.isDirectory()).thenReturn(true);
+    return mockBlob;
   }
 }
