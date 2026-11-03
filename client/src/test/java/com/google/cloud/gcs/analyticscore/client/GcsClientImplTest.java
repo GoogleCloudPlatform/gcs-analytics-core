@@ -2493,6 +2493,39 @@ class GcsClientImplTest {
   }
 
   @Test
+  void createEmptyObject_inheritsEncryptionAndUserProjectFromClientWriteOptions()
+      throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    GcsWriteOptions configuredWriteOptions =
+        GcsWriteOptions.builder()
+            .setKmsKeyName("client-kms-key")
+            .setEncryptionKey(TEST_ENCRYPTION_KEY)
+            .setUserProject("client-user-project")
+            .setOverwriteExisting(false)
+            .setChecksumValidationEnabled(true)
+            .setContentType("text/plain")
+            .build();
+    GcsClientOptions clientOptions =
+        TEST_GCS_CLIENT_OPTIONS.toBuilder().setGcsWriteOptions(configuredWriteOptions).build();
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage, clientOptions);
+    GcsItemId fileItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_ID).build();
+
+    clientWithMock.createEmptyObject(fileItemId);
+
+    verify(mockStorage)
+        .create(
+            eq(
+                BlobInfo.newBuilder(BlobId.of(TEST_BUCKET_NAME, TEST_OBJECT_ID))
+                    .setContentType("application/octet-stream")
+                    .build()),
+            eq(Storage.BlobTargetOption.disableGzipContent()),
+            eq(Storage.BlobTargetOption.kmsKeyName("client-kms-key")),
+            eq(Storage.BlobTargetOption.encryptionKey(TEST_ENCRYPTION_KEY)),
+            eq(Storage.BlobTargetOption.userProject("client-user-project")));
+  }
+
+  @Test
   void createEmptyObject_conflict_throwsFileAlreadyExistsException() {
     Storage mockStorage = mock(Storage.class);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
@@ -3304,7 +3337,7 @@ class GcsClientImplTest {
   }
 
   @Test
-  void createBucket_conflict409_invalidatesCachedBucketProperties() throws IOException {
+  void createBucket_conflict409_keepsCachedBucketProperties() throws IOException {
     Storage mockStorage = mock(Storage.class);
     Bucket flatBucket = mockBucketWithHns(false);
     when(flatBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
@@ -3324,9 +3357,26 @@ class GcsClientImplTest {
             clientWithMock.createBucket(
                 TEST_BUCKET_NAME,
                 GcsCreateBucketOptions.builder().setHierarchicalNamespaceEnabled(true).build()));
-    assertThat(clientWithMock.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isTrue();
+    assertThat(clientWithMock.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isFalse();
 
-    verify(mockStorage, times(2)).get(eq(TEST_BUCKET_NAME), any(BucketGetOption.class));
+    verify(mockStorage, times(1)).get(eq(TEST_BUCKET_NAME), any(BucketGetOption.class));
+  }
+
+  @Test
+  void createBucket_accessDenied403_keepsCachedBucketProperties() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    Bucket flatBucket = mockBucketWithHns(false);
+    when(flatBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
+    when(mockStorage.get(eq(TEST_BUCKET_NAME), any(BucketGetOption.class))).thenReturn(flatBucket);
+    when(mockStorage.create(any(BucketInfo.class)))
+        .thenThrow(new StorageException(403, "Forbidden"));
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    assertThat(clientWithMock.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isFalse();
+    assertThrows(AccessDeniedException.class, () -> clientWithMock.createBucket(TEST_BUCKET_NAME));
+    assertThat(clientWithMock.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isFalse();
+
+    verify(mockStorage, times(1)).get(eq(TEST_BUCKET_NAME), any(BucketGetOption.class));
   }
 
   @Test

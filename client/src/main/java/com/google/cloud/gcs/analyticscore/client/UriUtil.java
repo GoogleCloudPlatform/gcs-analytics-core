@@ -16,13 +16,17 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Strings.isNullOrEmpty;
 
+import java.net.URI;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Utility class for parsing and formatting GCS URIs. */
 final class UriUtil {
+
+  static final String PATH_DELIMITER = "/";
 
   private UriUtil() {}
 
@@ -40,6 +44,12 @@ final class UriUtil {
 
   /** Canonical string form of the GCS global root. */
   private static final String GCS_ROOT_PATH = "gs:/";
+
+  /** Parses {@link GcsItemId} from specified URI. */
+  static GcsItemId getItemIdFromUri(URI uri) {
+    checkNotNull(uri, "uri should not be null");
+    return getItemIdFromString(uri.toString());
+  }
 
   /** Parses {@link GcsItemId} from specified string. */
   static GcsItemId getItemIdFromString(String path) {
@@ -85,14 +95,37 @@ final class UriUtil {
     return GCS_SCHEME + itemId.getBucketName() + "/" + itemId.getObjectName().orElse("");
   }
 
+  /**
+   * Validates that {@code itemId} names a directory within a bucket (with or without a trailing
+   * {@code "/"}) whose object name neither starts with {@code "/"} nor contains consecutive {@code
+   * "/"} characters.
+   *
+   * @param itemId the directory identifier to validate
+   * @throws NullPointerException if {@code itemId} is {@code null}
+   * @throws IllegalArgumentException if {@code itemId} is the root, a bucket, or has an empty
+   *     bucket name, or if its object name starts with {@code "/"} or contains consecutive {@code
+   *     "/"} characters
+   */
+  static void validateDirectoryItemId(GcsItemId itemId) {
+    checkNotNull(itemId, "itemId should not be null");
+    checkArgument(
+        itemId.isGcsObject(), "Expected a directory itemId within a bucket but got: %s", itemId);
+    String objectName = itemId.getObjectName().get();
+    checkArgument(
+        !objectName.startsWith(PATH_DELIMITER)
+            && !objectName.contains(PATH_DELIMITER + PATH_DELIMITER),
+        "Object name cannot start with '/' or contain consecutive '/': %s",
+        itemId);
+  }
+
   static String removeTrailingSlash(String path) {
-    if (path != null && path.endsWith("/")) {
-      return path.substring(0, path.length() - 1);
+    if (path != null && path.endsWith(PATH_DELIMITER)) {
+      return path.substring(0, path.length() - PATH_DELIMITER.length());
     }
     return path;
   }
 
   static String toDirectoryPath(String path) {
-    return isNullOrEmpty(path) || path.endsWith("/") ? path : path + "/";
+    return isNullOrEmpty(path) || path.endsWith(PATH_DELIMITER) ? path : path + PATH_DELIMITER;
   }
 }
