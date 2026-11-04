@@ -74,8 +74,8 @@ class AuthTypeIntegrationTest {
   private static final String USER_REFRESH_TOKEN = "test-refresh-token";
 
   /**
-   * The grant type that service account credentials send. The signed JWT assertion changes on
-   * every request, so the fake server does not check it.
+   * The grant type that service account credentials send. The signed JWT assertion changes on every
+   * request, so the fake server does not check it.
    */
   private static final ImmutableMap<String, String> JWT_BEARER_GRANT =
       ImmutableMap.of("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer");
