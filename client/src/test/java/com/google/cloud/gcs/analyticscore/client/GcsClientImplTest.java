@@ -4319,7 +4319,7 @@ class GcsClientImplTest {
             factoryInvocations.incrementAndGet();
             factoryEntered.countDown();
             try {
-              assertThat(releaseFactory.await(5, TimeUnit.SECONDS)).isTrue();
+              releaseFactory.await();
             } catch (InterruptedException e) {
               Thread.currentThread().interrupt();
             }
@@ -4338,7 +4338,7 @@ class GcsClientImplTest {
                 secondCaller.set(Thread.currentThread());
                 return client.lazyGetGrpcStorage();
               });
-      awaitBlockedOnMonitor(secondCaller);
+      awaitBlockedOnMonitor(secondCaller, secondResult);
       releaseFactory.countDown();
 
       assertThat(firstResult.get(5, TimeUnit.SECONDS)).isSameInstanceAs(mockStorageInstance);
@@ -4350,10 +4350,13 @@ class GcsClientImplTest {
     }
   }
 
-  private static void awaitBlockedOnMonitor(AtomicReference<Thread> threadRef)
+  private static void awaitBlockedOnMonitor(AtomicReference<Thread> threadRef, Future<?> task)
       throws TimeoutException {
     long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
     while (System.nanoTime() < deadlineNanos) {
+      if (task.isDone()) {
+        throw new IllegalStateException("Task finished before blocking on monitor");
+      }
       Thread thread = threadRef.get();
       if (thread != null && thread.getState() == Thread.State.BLOCKED) {
         return;
