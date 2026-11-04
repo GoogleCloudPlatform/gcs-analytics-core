@@ -38,6 +38,7 @@ class GcsListOptionsTest {
   void builder_defaults_matchesListDirectoryPreset() {
     GcsListOptions options = GcsListOptions.builder().build();
 
+    assertThat(GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL).isEqualTo(5000);
     assertThat(options).isEqualTo(GcsListOptions.LIST_DIRECTORY);
     assertThat(options.getDelimiter()).hasValue("/");
     assertThat(options.isIncludeFoldersAsPrefixes()).isFalse();

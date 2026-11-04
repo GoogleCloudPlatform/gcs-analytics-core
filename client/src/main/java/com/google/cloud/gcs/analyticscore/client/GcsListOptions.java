@@ -71,6 +71,14 @@ public abstract class GcsListOptions {
   }
 
   /**
+   * Default per-RPC upper-bound hint on {@code items + prefixes} ({@code 5,000}) used by {@link
+   * GcsClient} when {@link #getPageSize()} is empty, matching {@code hadoop-connectors} ({@code
+   * fs.gs.list.max.items.per.call} / {@code GoogleCloudStorage.LIST_MAX_RESULTS}) and GCS's
+   * server-side ceiling for non-ACL {@code objects.list} requests.
+   */
+  public static final int DEFAULT_MAX_LIST_ITEMS_PER_CALL = 5000;
+
+  /**
    * Preset for listing immediate children of a directory in a flat-namespace bucket (equals {@code
    * builder().build()}, matching {@code hadoop-connectors} {@code ListObjectOptions.DEFAULT}).
    */
@@ -142,8 +150,11 @@ public abstract class GcsListOptions {
   public abstract boolean isIncludePrefixObject();
 
   /**
-   * Returns the per-RPC upper-bound hint on {@code items + prefixes} passed unchanged to GCS
-   * (capped at {@code 1,000} by GCS). Pages may contain fewer or {@code 0} entries while {@link
+   * Returns the per-RPC upper-bound hint on {@code items + prefixes}, or empty to defer to the
+   * client's default per-RPC limit ({@link #DEFAULT_MAX_LIST_ITEMS_PER_CALL}, {@code 5,000}). When
+   * present, the value is passed unchanged as the per-RPC {@code pageSize} (GCS enforces a {@code
+   * 5,000} ceiling on non-ACL list requests, vs. GCS's {@code 1,000} server default when {@code
+   * pageSize} is omitted on the wire). Pages may contain fewer or {@code 0} entries while {@link
    * GcsListPage#hasNextPage()} is {@code true} due to server behavior, self-prefix filtering, or
    * placeholder-prefix deduplication.
    */
