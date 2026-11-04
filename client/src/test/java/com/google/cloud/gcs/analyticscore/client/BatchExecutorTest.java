@@ -201,8 +201,9 @@ class BatchExecutorTest {
   }
 
   @Test
-  void queue_whenTaskThrowsErrorWithCallback_callsOnFailureAndAwaitThrows() {
+  void queue_whenTaskThrowsErrorWithCallback_callsOnFailureAndAwaitRethrowsError() {
     BatchExecutor executor = newExecutor(2);
+    IOException earlierFailure = new IOException("earlier request failed");
     OutOfMemoryError error = new OutOfMemoryError("simulated");
     RecordingCallback<Object> callback = new RecordingCallback<>();
     OutOfMemoryError errorWithFailingCallback = new OutOfMemoryError("simulated with callback bug");
@@ -212,16 +213,19 @@ class BatchExecutorTest {
     assertTimeoutPreemptively(
         TIMEOUT,
         () -> {
+          executor.queue(failWith(earlierFailure), null);
           executor.queue(
               () -> {
                 throw error;
               },
               callback);
 
-          IOException thrown = assertThrows(IOException.class, executor::awaitRequestsCompletion);
+          OutOfMemoryError thrown =
+              assertThrows(OutOfMemoryError.class, executor::awaitRequestsCompletion);
 
           assertThat(callback.failures).containsExactly(error);
-          assertThat(thrown).hasCauseThat().isSameInstanceAs(error);
+          assertThat(thrown).isSameInstanceAs(error);
+          assertThat(error.getSuppressed()).asList().containsExactly(earlierFailure);
 
           executor.queue(
               () -> {
@@ -229,10 +233,10 @@ class BatchExecutorTest {
               },
               failingCallback);
 
-          thrown = assertThrows(IOException.class, executor::awaitRequestsCompletion);
+          thrown = assertThrows(OutOfMemoryError.class, executor::awaitRequestsCompletion);
 
           assertThat(failingCallback.failures).containsExactly(errorWithFailingCallback);
-          assertThat(thrown).hasCauseThat().isSameInstanceAs(errorWithFailingCallback);
+          assertThat(thrown).isSameInstanceAs(errorWithFailingCallback);
           assertThat(errorWithFailingCallback.getSuppressed())
               .asList()
               .containsExactly(callbackFailure);
@@ -280,8 +284,9 @@ class BatchExecutorTest {
                 throw rethrownError;
               },
               rethrowingCallback);
-          thrown = assertThrows(IOException.class, executor::awaitRequestsCompletion);
-          assertThat(thrown).hasCauseThat().isSameInstanceAs(rethrownError);
+          AssertionError thrownError =
+              assertThrows(AssertionError.class, executor::awaitRequestsCompletion);
+          assertThat(thrownError).isSameInstanceAs(rethrownError);
           assertThat(rethrownError.getSuppressed()).isEmpty();
         });
   }
@@ -436,7 +441,7 @@ class BatchExecutorTest {
 
     executor.queue(failWith(first), null);
     for (int call = 2; call <= 3 * HARVEST_INTERVAL_PER_THREAD; call++) { // Harvests 3 times.
-      executor.queue(call == 30 ? failWith(second) : () -> "ok", null);
+      executor.queue(call == HARVEST_INTERVAL_PER_THREAD + 1 ? failWith(second) : () -> "ok", null);
     }
 
     assertThat(executor.getPendingFuturesCount()).isEqualTo(2);
@@ -565,6 +570,35 @@ class BatchExecutorTest {
   }
 
   @Test
+  void close_inTryWithResources_shutsDownPoolAndSuppressesTaskFailureOnPrimaryException() {
+    IOException primaryFailure = new IOException("listing failed with 403");
+    IOException taskFailure = new IOException("queued delete failed");
+    RecordingCallback<Thread> callback = new RecordingCallback<>();
+    assertTimeoutPreemptively(
+        TIMEOUT,
+        () -> {
+          BatchExecutor[] closedExecutor = new BatchExecutor[1];
+          IOException thrown =
+              assertThrows(
+                  IOException.class,
+                  () -> {
+                    try (BatchExecutor executor = newExecutor(1)) {
+                      closedExecutor[0] = executor;
+                      executor.queue(Thread::currentThread, callback);
+                      executor.queue(failWith(taskFailure), null);
+                      throw primaryFailure;
+                    }
+                  });
+
+          assertThat(thrown).isSameInstanceAs(primaryFailure);
+          assertThat(thrown.getSuppressed()).asList().containsExactly(taskFailure);
+          assertThrows(
+              IllegalStateException.class, () -> closedExecutor[0].queue(() -> null, null));
+          assertTerminates(callback.thread);
+        });
+  }
+
+  @Test
   void shutdown_withInterruptedCaller_terminatesPoolAndPreservesInterrupt() {
     BatchExecutor idle = newExecutor(1);
     BatchExecutor busy = newExecutor(1);
@@ -606,32 +640,6 @@ class BatchExecutorTest {
         });
   }
 
-  @Test
-  void isIdle_reflectsRunningAndQueuedWork() {
-    BatchExecutor executor = newExecutor(1);
-    BatchExecutor direct = newExecutor(0);
-    RecordingCallback<Boolean> directCallback = new RecordingCallback<>();
-    assertTimeoutPreemptively(
-        TIMEOUT,
-        () -> {
-          assertThat(executor.isIdle()).isTrue();
-          executor.queue(this::blockOnGate, null);
-          started.await();
-          assertThat(executor.isIdle()).isFalse();
-          executor.queue(() -> null, null);
-          assertThat(executor.isIdle()).isFalse();
-
-          gate.countDown();
-          executor.awaitRequestsCompletion();
-          while (!executor.isIdle()) { // The worker goes inactive just after the future completes.
-            Thread.onSpinWait();
-          }
-
-          direct.queue(direct::isIdle, directCallback); // Always idle, even inside a request.
-          assertThat(directCallback.successes).containsExactly(true);
-        });
-  }
-
   private BatchExecutor newExecutor(int numThreads) {
     BatchExecutor executor = new BatchExecutor(numThreads);
     executors.add(executor);
@@ -663,7 +671,9 @@ class BatchExecutorTest {
               while (!condition.getAsBoolean() && gate.getCount() > 0) {
                 Thread.onSpinWait();
               }
-              action.run();
+              if (condition.getAsBoolean()) {
+                action.run();
+              }
             });
     helper.setDaemon(true);
     helper.start();

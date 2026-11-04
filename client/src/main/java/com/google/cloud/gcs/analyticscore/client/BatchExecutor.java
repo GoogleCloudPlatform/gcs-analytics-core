@@ -47,23 +47,26 @@ import org.slf4j.LoggerFactory;
 /**
  * Runs independent GCS requests, such as object deletes or moves, on a bounded thread pool.
  *
- * <p>Create one instance per logical operation and call {@link #shutdown()} when it is done. An
- * instance cannot be reused after shutdown.
+ * <p>Create one instance per logical operation and close it (or call {@link #shutdown()}) when it
+ * is done. An instance cannot be reused after shutdown.
  *
  * <p><b>Threading contract:</b> a single owner thread calls {@link #queue}, {@link
- * #awaitRequestsCompletion()} and {@link #shutdown()}. Callbacks run on pool threads, or on the
- * owner thread when the pool is saturated or {@code numThreads} is 0, and may call {@link #queue}
- * before returning (for example to retry a request). Calling {@code awaitRequestsCompletion()} or
- * {@code shutdown()} concurrently from several threads is not supported.
+ * #awaitRequestsCompletion()} and {@link #shutdown()} (or {@link #close()}). Callbacks run on pool
+ * threads, or on the owner thread when the pool is saturated or {@code numThreads} is 0, and may
+ * call {@link #queue} before returning (for example to retry a request, though callbacks must not
+ * re-queue on {@link InterruptedException} or {@link CancellationException}). Calling {@code
+ * awaitRequestsCompletion()} or {@code shutdown()} concurrently from several threads is not
+ * supported.
  *
  * <p><b>Failures:</b> pass a callback that records failures to handle per-request errors; the
- * request's future then completes normally. Exceptions from requests without a callback, {@link
- * Error}s, and exceptions thrown by callbacks are reported by {@link #awaitRequestsCompletion()}
- * and {@link #shutdown()}, which wait for every queued request before throwing. If the calling
- * thread is interrupted, the remaining requests are cancelled instead and may still be running
- * after the method throws (see {@link #awaitRequestsCompletion()}).
+ * request's future then completes normally ({@code onFailure} for an interrupted request runs with
+ * the thread's interrupt status set). Exceptions from requests without a callback, {@link Error}s,
+ * and exceptions thrown by callbacks are reported by {@link #awaitRequestsCompletion()} and {@link
+ * #shutdown()}, which wait for every queued request before throwing. If the calling thread is
+ * interrupted, the remaining requests are cancelled instead and may still be running after the
+ * method throws (see {@link #awaitRequestsCompletion()}).
  */
-final class BatchExecutor {
+final class BatchExecutor implements AutoCloseable {
 
   private static final Logger LOG = LoggerFactory.getLogger(BatchExecutor.class);
 
@@ -88,6 +91,7 @@ final class BatchExecutor {
   private final int harvestInterval;
 
   private final AtomicInteger queueCalls = new AtomicInteger();
+  private boolean closed;
 
   BatchExecutor(int numThreads) {
     checkArgument(
@@ -130,18 +134,23 @@ final class BatchExecutor {
    *
    * @throws IllegalStateException if this executor has been shut down
    */
-  public <T> void queue(Callable<T> task, @Nullable FutureCallback<? super T> callback) {
+  <T> void queue(Callable<T> task, @Nullable FutureCallback<? super T> callback) {
     checkNotNull(task, "task must not be null");
     checkState(!requestsExecutor.isShutdown(), "BatchExecutor has been shut down");
+    Future<Void> future;
     try {
-      responseFutures.add(
+      future =
           requestsExecutor.submit(
               () -> {
                 execute(task, callback);
                 return null;
-              }));
+              });
     } catch (RejectedExecutionException e) {
       throw new IllegalStateException("BatchExecutor has been shut down", e);
+    }
+    responseFutures.add(future);
+    if (requestsExecutor.isShutdown()) {
+      future.cancel(false);
     }
     if (queueCalls.incrementAndGet() % harvestInterval == 0) {
       dropUnreportableFutures();
@@ -210,18 +219,6 @@ final class BatchExecutor {
     }
   }
 
-  /**
-   * Returns whether the pool has no running or queued requests, for detecting stalls. Always {@code
-   * true} when {@code numThreads} is 0.
-   */
-  public boolean isIdle() {
-    if (requestsExecutor instanceof ThreadPoolExecutor) {
-      ThreadPoolExecutor executor = (ThreadPoolExecutor) requestsExecutor;
-      return executor.getActiveCount() == 0 && executor.getQueue().isEmpty();
-    }
-    return true;
-  }
-
   @VisibleForTesting
   int getPendingFuturesCount() {
     return responseFutures.size();
@@ -229,8 +226,9 @@ final class BatchExecutor {
 
   /**
    * Waits for every queued request, including requests that callbacks queue while it waits, and
-   * then throws the first failure with up to {@link #MAX_SUPPRESSED} later failures suppressed. The
-   * executor stays usable, so multi-phase operations can call this between phases.
+   * then throws the first failure with up to {@link #MAX_SUPPRESSED} later failures suppressed
+   * (prioritizing {@link Error} over {@link IOException}). The executor stays usable, so
+   * multi-phase operations can call this between phases.
    *
    * <p>Queue every request of the current phase before calling this method. Only requests queued by
    * the owner thread before the call, or by callbacks of the requests it awaits, are awaited.
@@ -238,11 +236,12 @@ final class BatchExecutor {
    * @throws InterruptedIOException if the calling thread is interrupted while waiting for an
    *     unfinished request (remaining requests are cancelled and the interrupt status is restored),
    *     or if the first failed request was itself interrupted or threw an InterruptedIOException
-   *     (all requests were awaited; an interrupted request that ran on the calling thread leaves
-   *     the interrupt status set)
+   *     (all requests were awaited). A request interrupted while running on the calling thread
+   *     leaves the calling thread interrupted, so a later call cancels unfinished requests as
+   *     described above.
    */
   void awaitRequestsCompletion() throws IOException {
-    IOException failure = null;
+    Throwable failure = null;
     int suppressedCount = 0;
     Future<Void> future;
     while ((future = responseFutures.poll()) != null) {
@@ -255,12 +254,24 @@ final class BatchExecutor {
         InterruptedIOException interrupted =
             new InterruptedIOException("Interrupted while awaiting batch requests");
         interrupted.initCause(e);
+        if (failure instanceof Error) {
+          if (suppressedCount < MAX_SUPPRESSED) {
+            failure.addSuppressed(interrupted);
+          }
+          throw (Error) failure;
+        }
         if (failure != null) {
           interrupted.addSuppressed(failure);
         }
         throw interrupted;
-      } catch (IOException e) {
+      } catch (IOException | Error e) {
         if (failure == null) {
+          failure = e;
+        } else if (e instanceof Error && !(failure instanceof Error)) {
+          if (suppressedCount < MAX_SUPPRESSED) {
+            e.addSuppressed(failure);
+            suppressedCount++;
+          }
           failure = e;
         } else if (e != failure && suppressedCount < MAX_SUPPRESSED) {
           failure.addSuppressed(e);
@@ -268,12 +279,18 @@ final class BatchExecutor {
         }
       }
     }
+    if (failure instanceof Error) {
+      throw (Error) failure;
+    }
     if (failure != null) {
-      throw failure;
+      throw (IOException) failure;
     }
   }
 
-  /** Waits for {@code future} and translates its failure into an {@link IOException}. */
+  /**
+   * Waits for {@code future}, rethrowing any {@link Error} directly and translating other failures
+   * into an {@link IOException}.
+   */
   private static void getFromFuture(Future<Void> future) throws IOException, InterruptedException {
     try {
       if (future.isDone()) {
@@ -286,6 +303,9 @@ final class BatchExecutor {
       throw new IOException("Batch request was cancelled", e);
     } catch (ExecutionException e) {
       Throwable cause = e.getCause();
+      if (cause instanceof Error) {
+        throw (Error) cause;
+      }
       if (cause instanceof IOException) {
         throw (IOException) cause;
       }
@@ -318,14 +338,24 @@ final class BatchExecutor {
     }
   }
 
+  /** Equivalent to {@link #shutdown()}, for use with try-with-resources. */
+  @Override
+  public void close() throws IOException {
+    shutdown();
+  }
+
   /**
    * Waits for all queued requests like {@link #awaitRequestsCompletion()} and then shuts down the
    * pool, even if waiting fails. Calling it again has no effect.
    */
-  public void shutdown() throws IOException {
+  void shutdown() throws IOException {
+    if (closed) {
+      return;
+    }
     try {
       awaitRequestsCompletion();
     } finally {
+      closed = true;
       requestsExecutor.shutdown();
       // Clear the interrupt status so the grace-period wait is not cut short; restored below.
       boolean interrupted = Thread.interrupted();

@@ -147,6 +147,15 @@ public abstract class GcsClientOptions {
 
   public abstract ImmutableSet<String> getTemporaryPaths();
 
+  /**
+   * Returns the maximum number of threads used per batch operation (default {@code 15}, valid range
+   * {@code [0, 1024]}).
+   *
+   * <p>When {@code 0}, batch requests run synchronously on the calling thread. Configured via the
+   * {@code batch.threads} option key under the embedder prefix (for example {@code
+   * fs.gs.batch.threads}); values outside {@code [0, 1024]} are rejected by {@link
+   * Builder#build()}.
+   */
   public abstract int getBatchThreads();
 
   public abstract Builder toBuilder();
@@ -270,6 +279,12 @@ public abstract class GcsClientOptions {
       return setTemporaryPaths(ImmutableSet.copyOf(paths));
     }
 
+    /**
+     * Sets the maximum number of threads used per batch operation (default {@code 15}).
+     *
+     * <p>Must be in {@code [0, 1024]} (validated by {@link #build()}); {@code 0} runs batch
+     * requests synchronously on the calling thread.
+     */
     public abstract Builder setBatchThreads(int batchThreads);
 
     abstract GcsClientOptions autoBuild();
