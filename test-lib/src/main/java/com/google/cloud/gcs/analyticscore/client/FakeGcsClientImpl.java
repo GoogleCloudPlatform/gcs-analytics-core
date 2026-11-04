@@ -160,9 +160,7 @@ public class FakeGcsClientImpl extends GcsClientImpl {
         continue;
       }
       int delimIdx = delimiter.map(d -> name.indexOf(d, prefix.length())).orElse(-1);
-      if (delimIdx < 0
-          || (delimIdx + delimiter.get().length() == name.length()
-              && options.isIncludeTrailingDelimiter())) {
+      if (delimIdx < 0 || delimIdx + delimiter.get().length() == name.length()) {
         emittedObjects.put(name, blob);
         entryNames.add(name);
       } else {

@@ -118,7 +118,7 @@ class GcsClientImpl implements GcsClient {
       ImmutableSet.of(408, 429, 500, 502, 503, 504);
   private static final String UNIVERSE_DOMAIN_ENV_VAR = "GOOGLE_CLOUD_UNIVERSE_DOMAIN";
   private static final GcsListOptions FIRST_OBJECT_LIST_OPTIONS =
-      GcsListOptions.LIST_RECURSIVE.toBuilder().setPageSize(1).build();
+      GcsListOptions.LIST_RECURSIVE.toBuilder().setIncludePrefixObject(true).setPageSize(1).build();
   private static final Map<GcsListOptions.ListField, BlobField> LIST_FIELD_TO_BLOB_FIELD =
       Maps.immutableEnumMap(
           ImmutableMap.<GcsListOptions.ListField, BlobField>builder()
@@ -423,9 +423,7 @@ class GcsClientImpl implements GcsClient {
         .ifPresent(
             d -> {
               blobListOptions.add(BlobListOption.delimiter(d));
-              if (options.isIncludeTrailingDelimiter()) {
-                blobListOptions.add(BlobListOption.includeTrailingDelimiter());
-              }
+              blobListOptions.add(BlobListOption.includeTrailingDelimiter());
             });
     if (options.isIncludeFoldersAsPrefixes()) {
       blobListOptions.add(BlobListOption.includeFolders(true));

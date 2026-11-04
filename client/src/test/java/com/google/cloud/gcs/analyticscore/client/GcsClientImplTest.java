@@ -2084,6 +2084,20 @@ class GcsClientImplTest {
   }
 
   @Test
+  void listFirstObjectWithPrefix_onlyEmptyPlaceholderDirectoryExists_returnsPlaceholderObject()
+      throws IOException {
+    String bucket = "placeholder-only-first-bucket";
+    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "b/"), "");
+    GcsItemId prefixId = GcsItemId.builder().setBucketName(bucket).setObjectName("b/").build();
+
+    Optional<GcsItemInfo> result = gcsClient.listFirstObjectWithPrefix(prefixId);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getItemId().getObjectName()).hasValue("b/");
+    assertThat(result.get().getItemType()).isEqualTo(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY);
+  }
+
+  @Test
   void listFirstObjectWithPrefix_placeholderAndNestedObjectExist_returnsPlaceholderObject()
       throws IOException {
     String bucket = "placeholder-and-nested-bucket";
@@ -3586,27 +3600,10 @@ class GcsClientImplTest {
         gcsClient.listObjectsPage(prefixId, GcsListOptions.LIST_RECURSIVE);
 
     assertThat(page.getItems().stream().map(i -> i.getItemId().getObjectName().orElse("")))
-        .containsExactly("rec/", "rec/a.txt", "rec/sub/b.txt");
+        .containsExactly("rec/a.txt", "rec/sub/b.txt");
     assertThat(page.getPrefixes()).isEmpty();
-    assertThat(page.getPrefixObject()).isEmpty();
-  }
-
-  @Test
-  void listObjectsPage_localStorageDelimiterWithoutTrailingDelimiter_collapsesChildPrefixes()
-      throws IOException {
-    String bucket = "local-delim-bucket";
-    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "d/a.txt"), "a");
-    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "d/sub/b.txt"), "b");
-    GcsItemId prefixId = GcsItemId.builder().setBucketName(bucket).setObjectName("d/").build();
-    GcsListOptions options =
-        GcsListOptions.builder().setDelimiter("/").setIncludeTrailingDelimiter(false).build();
-
-    GcsListPage<GcsItemInfo> page = gcsClient.listObjectsPage(prefixId, options);
-
-    assertThat(page.getItems().stream().map(i -> i.getItemId().getObjectName().orElse("")))
-        .containsExactly("d/a.txt");
-    assertThat(page.getPrefixes())
-        .containsExactly(GcsItemId.builder().setBucketName(bucket).setObjectName("d/sub/").build());
+    assertThat(page.getPrefixObject()).isPresent();
+    assertThat(page.getPrefixObject().get().getItemId().getObjectName()).hasValue("rec/");
   }
 
   @Test
@@ -3617,7 +3614,6 @@ class GcsClientImplTest {
         GcsListOptions.builder()
             .setDelimiter("/")
             .setIncludeFoldersAsPrefixes(true)
-            .setIncludeTrailingDelimiter(true)
             .setPageSize(25)
             .setPageToken("tok-1")
             .setStartOffset("dir/a")
