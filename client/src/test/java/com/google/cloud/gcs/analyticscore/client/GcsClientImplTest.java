@@ -3760,10 +3760,8 @@ class GcsClientImplTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  void listObjectsPage_grpcEmptyTokenNullBlobAndStorageClass_skipsNullNormalizesTokenAndMapsClass()
-      throws IOException {
+  void listObjectsPage_grpcEmptyTokenAndNullBlob_skipsNullAndNormalizesToken() throws IOException {
     Blob blob = createMockBlob(TEST_BUCKET_NAME, TEST_DIR + "cold.parquet");
-    when(blob.getStorageClass()).thenReturn(StorageClass.NEARLINE);
     Page<Blob> mockPage = mock(Page.class);
     when(mockPage.getValues()).thenReturn(Arrays.asList(null, blob));
     when(mockPage.getNextPageToken()).thenReturn("");
@@ -3777,10 +3775,18 @@ class GcsClientImplTest {
 
     verify(mockStorage).list(eq(TEST_BUCKET_NAME), captor.capture());
     assertThat(Arrays.asList(captor.getValue())).contains(BlobListOption.pageSize(5000));
+    assertThat(GcsClientImpl.resolveBlobFields(GcsListOptions.LIST_DIRECTORY))
+        .asList()
+        .containsExactlyElementsIn(
+            Arrays.asList(
+                Arrays.stream(GcsListOptions.ListField.values())
+                    .map(GcsClientImpl::toBlobField)
+                    .toArray(BlobField[]::new)));
     assertThat(page.getNextPageToken()).isEmpty();
     assertThat(page.hasNextPage()).isFalse();
     assertThat(page.getItems()).hasSize(1);
-    assertThat(page.getItems().get(0).getStorageClass()).hasValue("NEARLINE");
+    assertThat(page.getItems().get(0).getItemId().getObjectName())
+        .hasValue(TEST_DIR + "cold.parquet");
     verify(mockPage, never()).iterateAll();
   }
 

@@ -131,7 +131,6 @@ class GcsClientImpl implements GcsClient {
               .put(GcsListOptions.ListField.CONTENT_ENCODING, BlobField.CONTENT_ENCODING)
               .put(GcsListOptions.ListField.TIME_CREATED, BlobField.TIME_CREATED)
               .put(GcsListOptions.ListField.UPDATED, BlobField.UPDATED)
-              .put(GcsListOptions.ListField.STORAGE_CLASS, BlobField.STORAGE_CLASS)
               .put(GcsListOptions.ListField.CRC32C, BlobField.CRC32C)
               .put(GcsListOptions.ListField.MD5HASH, BlobField.MD5HASH)
               .put(GcsListOptions.ListField.METADATA, BlobField.METADATA)
@@ -531,9 +530,6 @@ class GcsClientImpl implements GcsClient {
     Optional.ofNullable(blob.getGeneration()).ifPresent(infoBuilder::setContentGeneration);
     Optional.ofNullable(blob.getContentType()).ifPresent(infoBuilder::setContentType);
     Optional.ofNullable(blob.getContentEncoding()).ifPresent(infoBuilder::setContentEncoding);
-    Optional.ofNullable(blob.getStorageClass())
-        .map(Object::toString)
-        .ifPresent(infoBuilder::setStorageClass);
     Optional.ofNullable(blob.getMetageneration()).ifPresent(infoBuilder::setMetaGeneration);
 
     // A real 0-byte "dir/" object is not reported by Blob.isDirectory() (only delimiter prefixes
