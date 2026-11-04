@@ -166,6 +166,15 @@ limitations under the License.
                               credentials before its first connection (#416).
                             -->
                             <reuseForks>false</reuseForks>
+                            <!--
+                              Turn off DirectPath for gRPC clients in integration tests. On Kokoro VMs,
+                              gRPC reads over DirectPath stall for 6 minutes and then fail with
+                              RST_STREAM INTERNAL_ERROR. The tests check authentication and the client,
+                              not the network path, so they use the standard gRPC route.
+                            -->
+                            <environmentVariables>
+                                <GOOGLE_CLOUD_DISABLE_DIRECT_PATH>true</GOOGLE_CLOUD_DISABLE_DIRECT_PATH>
+                            </environmentVariables>
                         </configuration>
                     </plugin>
                 </plugins>
