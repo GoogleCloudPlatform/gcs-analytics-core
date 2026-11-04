@@ -2017,6 +2017,61 @@ class GcsReadChannelTest {
     assertThat(exception).hasMessageThat().contains("Invalid encryption key");
   }
 
+  @Test
+  void constructor_withBlankUserProject_omitsUserProjectSourceOption() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(KB).setContentGeneration(0L).build();
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("   ").build();
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+
+    try (GcsReadChannel channel =
+        new GcsReadChannel(
+            mockStorage, itemInfo, readOptions, executorServiceSupplier, telemetry)) {
+      assertThat(channel.isOpen()).isTrue();
+    }
+
+    ArgumentCaptor<BlobSourceOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(BlobSourceOption[].class);
+    Mockito.verify(mockStorage).reader(Mockito.any(BlobId.class), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue()).isEmpty();
+  }
+
+  @Test
+  void constructor_withPaddedUserProject_passesTrimmedUserProjectSourceOption() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_OBJECT).build();
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(KB).setContentGeneration(0L).build();
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setUserProjectId("  padded-project  ").build();
+    Storage mockStorage = Mockito.mock(Storage.class);
+    ReadChannel mockReadChannel = Mockito.mock(ReadChannel.class);
+    Mockito.when(
+            mockStorage.reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    Mockito.when(mockReadChannel.isOpen()).thenReturn(true);
+
+    try (GcsReadChannel channel =
+        new GcsReadChannel(
+            mockStorage, itemInfo, readOptions, executorServiceSupplier, telemetry)) {
+      assertThat(channel.isOpen()).isTrue();
+    }
+
+    ArgumentCaptor<BlobSourceOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(BlobSourceOption[].class);
+    Mockito.verify(mockStorage).reader(Mockito.any(BlobId.class), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .containsExactly(BlobSourceOption.userProject("padded-project"));
+  }
+
   private static Storage storageReturningBytesThenEof(int bytesBeforeEof, long objectSize)
       throws IOException {
     StorageObject storageObject =

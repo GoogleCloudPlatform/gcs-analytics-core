@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
 import com.google.cloud.storage.Storage.BlobTargetOption;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.common.collect.ImmutableMap;
@@ -105,7 +106,7 @@ public abstract class GcsWriteOptions {
         .ifPresent(optionsBuilder::setOverwriteExisting);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + KMS_KEY_NAME_KEY))
         .ifPresent(optionsBuilder::setKmsKeyName);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + USER_PROJECT_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + USER_PROJECT_KEY)
         .ifPresent(optionsBuilder::setUserProject);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + ENCRYPTION_KEY_KEY))
         .ifPresent(optionsBuilder::setEncryptionKey);
@@ -163,6 +164,13 @@ public abstract class GcsWriteOptions {
 
     public GcsWriteOptions build() {
       GcsWriteOptions options = autoBuild();
+      Optional<String> userProject = options.getUserProject();
+      if (userProject.isPresent()) {
+        String trimmed = userProject.get().trim();
+        if (!trimmed.isEmpty() && !trimmed.equals(userProject.get())) {
+          options = setUserProject(trimmed).autoBuild();
+        }
+      }
       if (!options.getMetadata().isEmpty()) {
         boolean hasContentEncoding =
             options.getMetadata().keySet().stream()
@@ -200,7 +208,11 @@ public abstract class GcsWriteOptions {
     }
     this.getKmsKeyName().map(BlobWriteOption::kmsKeyName).ifPresent(sdkWriteOptions::add);
     this.getEncryptionKey().map(BlobWriteOption::encryptionKey).ifPresent(sdkWriteOptions::add);
-    this.getUserProject().map(BlobWriteOption::userProject).ifPresent(sdkWriteOptions::add);
+    this.getUserProject()
+        .map(String::trim)
+        .filter(p -> !p.isEmpty())
+        .map(BlobWriteOption::userProject)
+        .ifPresent(sdkWriteOptions::add);
 
     return sdkWriteOptions.toArray(new BlobWriteOption[0]);
   }
@@ -222,7 +234,11 @@ public abstract class GcsWriteOptions {
 
     this.getKmsKeyName().map(BlobTargetOption::kmsKeyName).ifPresent(sdkTargetOptions::add);
     this.getEncryptionKey().map(BlobTargetOption::encryptionKey).ifPresent(sdkTargetOptions::add);
-    this.getUserProject().map(BlobTargetOption::userProject).ifPresent(sdkTargetOptions::add);
+    this.getUserProject()
+        .map(String::trim)
+        .filter(p -> !p.isEmpty())
+        .map(BlobTargetOption::userProject)
+        .ifPresent(sdkTargetOptions::add);
 
     return sdkTargetOptions.toArray(new BlobTargetOption[0]);
   }

@@ -33,6 +33,7 @@ import static org.mockito.Mockito.when;
 import com.google.api.core.ApiFuture;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.NoHeaderProvider;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.api.gax.rpc.UnauthenticatedException;
@@ -167,7 +168,7 @@ class GcsClientImplTest {
           .build();
   private static final GcsWriteOptions DEFAULT_WRITE_OPTIONS = GcsWriteOptions.builder().build();
 
-  private final Storage storage = LocalStorageHelper.getOptions().getService();
+  private final Storage storage = LocalStorageHelper.customOptions(false).getService();
   private final Supplier<ExecutorService> executorServiceSupplier =
       Suppliers.memoize(() -> Executors.newFixedThreadPool(30));
   private final Telemetry telemetry = new Telemetry(ImmutableList.of());
@@ -825,7 +826,7 @@ class GcsClientImplTest {
         && mockingDetails(mockStorage).getStubbings().isEmpty()) {
       doReturn(mockBucketWithHns(false))
           .when(mockStorage)
-          .get(eq(TEST_BUCKET_NAME), any(BucketGetOption.class));
+          .get(eq(TEST_BUCKET_NAME), any(BucketGetOption[].class));
     }
     return new GcsClientImpl(
         clientOptions, executorServiceSupplier, telemetry, newBucketPropertiesCache()) {
@@ -1459,12 +1460,17 @@ class GcsClientImplTest {
         GcsItemInfo.builder().setItemId(itemId).setSize(100L).setContentGeneration(0L).build();
     Storage mockStorage = mock(Storage.class);
     ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
-    when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
+    when(mockStorage.blobReadSession(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockSessionFuture);
     GcsClient bidiClient = createClientWithMockStorage(mockStorage, bidiClientOptions());
 
     VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemInfo, readOptions);
 
     assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
+    verify(mockStorage)
+        .blobReadSession(
+            BlobId.of(TEST_BUCKET_NAME, TEST_OBJECT_NAME),
+            Storage.BlobSourceOption.userProject(TEST_PROJECT));
   }
 
   @Test
@@ -1474,12 +1480,17 @@ class GcsClientImplTest {
         GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(TEST_OBJECT_NAME).build();
     Storage mockStorage = mock(Storage.class);
     ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
-    when(mockStorage.blobReadSession(any(BlobId.class))).thenReturn(mockSessionFuture);
+    when(mockStorage.blobReadSession(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockSessionFuture);
     GcsClient bidiClient = createClientWithMockStorage(mockStorage, bidiClientOptions());
 
     VectoredSeekableByteChannel channel = bidiClient.openReadChannel(itemId, readOptions);
 
     assertThat(channel).isInstanceOf(GcsBidiReadChannel.class);
+    verify(mockStorage)
+        .blobReadSession(
+            BlobId.of(TEST_BUCKET_NAME, TEST_OBJECT_NAME),
+            Storage.BlobSourceOption.userProject(TEST_PROJECT));
   }
 
   @Test
@@ -3492,5 +3503,707 @@ class GcsClientImplTest {
     verify(mockGrpcStorage, times(1))
         .get(eq(BlobId.of(TEST_BUCKET_NAME, TEST_DIR)), any(Storage.BlobGetOption[].class));
     verify(mockHttpStorage, never()).get(any(BlobId.class), any(Storage.BlobGetOption[].class));
+  }
+
+  @Test
+  void gcsClientSignatures_doNotExposeGuavaTypes() {
+    ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(
+        GcsClient.class,
+        GcsReadOptions.class,
+        GcsReadOptions.Builder.class,
+        GcsReadOptions.builder().getClass(),
+        GcsReadOptions.builder().build().getClass(),
+        GcsFileSystemOptions.class,
+        GcsFileSystemOptions.Builder.class,
+        GcsFileSystemOptions.builder().getClass(),
+        GcsFileSystemOptions.builder().build().getClass());
+  }
+
+  @ParameterizedTest
+  @EnumSource(GcsClientOptions.Protocol.class)
+  void createStorage_withUserProject_setsQuotaProjectIdWithoutDuplicateHeader(
+      GcsClientOptions.Protocol protocol) {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("billing-project")
+            .setProtocol(protocol)
+            .build();
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(),
+            options,
+            executorServiceSupplier,
+            telemetry,
+            newBucketPropertiesCache());
+    try {
+      StorageOptions storageOptions = client.storage.getOptions();
+      assertThat(storageOptions.getQuotaProjectId()).isEqualTo("billing-project");
+      assertThat(storageOptions.getMergedHeaderProvider(new NoHeaderProvider()).getHeaders())
+          .containsExactly("User-Agent", client.getUserAgent());
+    } finally {
+      client.close();
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", "   "})
+  void createStorage_withBlankUserProject_leavesQuotaProjectIdNull(String blankUserProject) {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject(blankUserProject)
+            .build();
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(),
+            options,
+            executorServiceSupplier,
+            telemetry,
+            newBucketPropertiesCache());
+    try {
+      assertThat(client.storage.getOptions().getQuotaProjectId()).isNull();
+    } finally {
+      client.close();
+    }
+  }
+
+  @Test
+  void createGrpcStorage_withUserProject_setsQuotaProjectId() throws Exception {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("billing-project")
+            .build();
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(),
+            options,
+            executorServiceSupplier,
+            telemetry,
+            newBucketPropertiesCache());
+    try (Storage grpcStorage = client.createGrpcStorage(Optional.of(NoCredentials.getInstance()))) {
+      assertThat(grpcStorage.getOptions().getQuotaProjectId()).isEqualTo("billing-project");
+      assertThat(
+              grpcStorage.getOptions().getMergedHeaderProvider(new NoHeaderProvider()).getHeaders())
+          .containsExactly("User-Agent", client.getUserAgent());
+    } finally {
+      client.close();
+    }
+  }
+
+  @Test
+  void createGrpcStorage_withBlankUserProject_leavesQuotaProjectIdNull() throws Exception {
+    GcsClientOptions options =
+        GcsClientOptions.builder().setProjectId(TEST_PROJECT).setUserProject("   ").build();
+    GcsClientImpl client =
+        new GcsClientImpl(
+            NoCredentials.getInstance(),
+            options,
+            executorServiceSupplier,
+            telemetry,
+            newBucketPropertiesCache());
+    try (Storage grpcStorage = client.createGrpcStorage(Optional.of(NoCredentials.getInstance()))) {
+      assertThat(grpcStorage.getOptions().getQuotaProjectId()).isNull();
+      assertThat(
+              grpcStorage.getOptions().getMergedHeaderProvider(new NoHeaderProvider()).getHeaders())
+          .containsExactly("User-Agent", client.getUserAgent());
+    } finally {
+      client.close();
+    }
+  }
+
+  @Test
+  void createStorageControlClient_withUserProject_setsQuotaProjectIdAndNoDuplicateHeader()
+      throws Exception {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("billing-project")
+            .build();
+    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class), options);
+
+    try (StorageControlClient controlClient =
+        localClient.createStorageControlClient(Optional.of(NoCredentials.getInstance()))) {
+      StorageControlSettings settings = controlClient.getSettings();
+      assertThat(settings.getQuotaProjectId()).isEqualTo("billing-project");
+      assertThat(settings.getHeaderProvider().getHeaders())
+          .containsExactly("User-Agent", localClient.getUserAgent());
+    }
+  }
+
+  @Test
+  void createStorageControlClient_withBlankUserProject_leavesQuotaProjectIdNull() throws Exception {
+    GcsClientOptions options =
+        GcsClientOptions.builder().setProjectId(TEST_PROJECT).setUserProject("   ").build();
+    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class), options);
+
+    try (StorageControlClient controlClient =
+        localClient.createStorageControlClient(Optional.of(NoCredentials.getInstance()))) {
+      assertThat(controlClient.getSettings().getQuotaProjectId()).isNull();
+      assertThat(controlClient.getSettings().getHeaderProvider().getHeaders())
+          .containsExactly("User-Agent", localClient.getUserAgent());
+    }
+  }
+
+  @Test
+  void getGcsItemInfo_withUserProject_forwardsBlobGetUserProjectOption() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    Blob mockBlob = createMockBlob(TEST_BUCKET, TEST_OBJECT);
+    BlobId expectedBlobId = BlobId.of(TEST_BUCKET, TEST_OBJECT);
+    when(mockStorage.get(eq(expectedBlobId), any(Storage.BlobGetOption[].class)))
+        .thenReturn(mockBlob);
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("billing-project")
+            .build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, options);
+
+    GcsItemInfo info = client.getGcsItemInfo(TEST_ITEM_ID);
+
+    assertThat(info.getItemId().getBucketName()).isEqualTo(TEST_BUCKET);
+    ArgumentCaptor<Storage.BlobGetOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobGetOption[].class);
+    verify(mockStorage).get(eq(expectedBlobId), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .containsExactly(
+            Storage.BlobGetOption.fields(GcsClientImpl.BLOB_METADATA_FIELDS_ARRAY),
+            Storage.BlobGetOption.userProject("billing-project"))
+        .inOrder();
+  }
+
+  @Test
+  void getGcsItemInfo_withBlankUserProject_omitsUserProjectOption() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    Blob mockBlob = createMockBlob(TEST_BUCKET, TEST_OBJECT);
+    BlobId expectedBlobId = BlobId.of(TEST_BUCKET, TEST_OBJECT);
+    when(mockStorage.get(eq(expectedBlobId), any(Storage.BlobGetOption[].class)))
+        .thenReturn(mockBlob);
+    GcsClientOptions options =
+        GcsClientOptions.builder().setProjectId(TEST_PROJECT).setUserProject("   ").build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, options);
+
+    client.getGcsItemInfo(TEST_ITEM_ID);
+
+    ArgumentCaptor<Storage.BlobGetOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobGetOption[].class);
+    verify(mockStorage).get(eq(expectedBlobId), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .containsExactly(Storage.BlobGetOption.fields(GcsClientImpl.BLOB_METADATA_FIELDS_ARRAY));
+  }
+
+  @Test
+  void getBucketInfo_withUserProject_forwardsBucketGetUserProjectOption() throws IOException {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    Storage mockStorage = mock(Storage.class);
+    Bucket mockBucket = createMockBucket(TEST_BUCKET);
+    when(mockStorage.get(eq(TEST_BUCKET), any(Storage.BucketGetOption[].class)))
+        .thenReturn(mockBucket);
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("billing-project")
+            .build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, options);
+
+    GcsItemInfo info = client.getBucketInfo(bucketId);
+
+    assertThat(info.getItemId()).isEqualTo(bucketId);
+    ArgumentCaptor<Storage.BucketGetOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BucketGetOption[].class);
+    verify(mockStorage).get(eq(TEST_BUCKET), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .containsExactly(
+            Storage.BucketGetOption.fields(GcsClientImpl.BUCKET_METADATA_FIELDS_ARRAY),
+            Storage.BucketGetOption.userProject("billing-project"))
+        .inOrder();
+  }
+
+  @Test
+  void getBucketInfo_withBlankUserProject_omitsUserProjectOption() throws IOException {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    Storage mockStorage = mock(Storage.class);
+    Bucket mockBucket = createMockBucket(TEST_BUCKET);
+    when(mockStorage.get(eq(TEST_BUCKET), any(Storage.BucketGetOption[].class)))
+        .thenReturn(mockBucket);
+    GcsClientOptions options =
+        GcsClientOptions.builder().setProjectId(TEST_PROJECT).setUserProject("   ").build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, options);
+
+    client.getBucketInfo(bucketId);
+
+    ArgumentCaptor<Storage.BucketGetOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BucketGetOption[].class);
+    verify(mockStorage).get(eq(TEST_BUCKET), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .containsExactly(
+            Storage.BucketGetOption.fields(GcsClientImpl.BUCKET_METADATA_FIELDS_ARRAY));
+  }
+
+  @Test
+  void getBucketProperties_withUserProject_forwardsBucketGetUserProjectOption() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    Bucket mockBucket = mockBucketWithHns(true);
+    doReturn(mockBucket).when(mockStorage).get(eq(TEST_HNS_BUCKET), any(BucketGetOption[].class));
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("billing-project")
+            .build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, options);
+
+    BucketProperties props = client.getBucketProperties(TEST_HNS_BUCKET);
+
+    assertThat(props.isHnsEnabled()).isTrue();
+    ArgumentCaptor<BucketGetOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(BucketGetOption[].class);
+    verify(mockStorage).get(eq(TEST_HNS_BUCKET), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .containsExactly(
+            BucketGetOption.fields(
+                Storage.BucketField.HIERARCHICAL_NAMESPACE, Storage.BucketField.STORAGE_CLASS),
+            BucketGetOption.userProject("billing-project"))
+        .inOrder();
+  }
+
+  @Test
+  void getBucketProperties_withBlankUserProject_omitsUserProjectOption() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    Bucket mockBucket = mockBucketWithHns(false);
+    doReturn(mockBucket).when(mockStorage).get(eq(TEST_FLAT_BUCKET), any(BucketGetOption[].class));
+    GcsClientOptions options =
+        GcsClientOptions.builder().setProjectId(TEST_PROJECT).setUserProject("   ").build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, options);
+
+    client.getBucketProperties(TEST_FLAT_BUCKET);
+
+    ArgumentCaptor<BucketGetOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(BucketGetOption[].class);
+    verify(mockStorage).get(eq(TEST_FLAT_BUCKET), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .containsExactly(
+            BucketGetOption.fields(
+                Storage.BucketField.HIERARCHICAL_NAMESPACE, Storage.BucketField.STORAGE_CLASS));
+  }
+
+  @Test
+  void listFirstObjectWithPrefix_withUserProject_forwardsBlobListUserProjectOption()
+      throws IOException {
+    GcsItemId prefixId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
+    Blob mockBlob = createMockBlob(TEST_BUCKET, TEST_DIR + "file.txt");
+    Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET, mockBlob);
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("billing-project")
+            .build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, options);
+
+    Optional<GcsItemInfo> result = client.listFirstObjectWithPrefix(prefixId);
+
+    assertThat(result).isPresent();
+    ArgumentCaptor<Storage.BlobListOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobListOption[].class);
+    verify(mockStorage).list(eq(TEST_BUCKET), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .containsExactly(
+            Storage.BlobListOption.prefix(TEST_DIR),
+            Storage.BlobListOption.pageSize(1),
+            Storage.BlobListOption.fields(GcsClientImpl.BLOB_METADATA_FIELDS_ARRAY),
+            Storage.BlobListOption.userProject("billing-project"))
+        .inOrder();
+  }
+
+  @Test
+  void listFirstObjectWithPrefix_withBlankUserProject_omitsUserProjectOption() throws IOException {
+    GcsItemId prefixId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(TEST_DIR).build();
+    Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET);
+    GcsClientOptions options =
+        GcsClientOptions.builder().setProjectId(TEST_PROJECT).setUserProject("   ").build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, options);
+
+    Optional<GcsItemInfo> result = client.listFirstObjectWithPrefix(prefixId);
+
+    assertThat(result).isEmpty();
+    ArgumentCaptor<Storage.BlobListOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobListOption[].class);
+    verify(mockStorage).list(eq(TEST_BUCKET), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .containsExactly(
+            Storage.BlobListOption.prefix(TEST_DIR),
+            Storage.BlobListOption.pageSize(1),
+            Storage.BlobListOption.fields(GcsClientImpl.BLOB_METADATA_FIELDS_ARRAY))
+        .inOrder();
+  }
+
+  @Test
+  void createWriteChannel_withNullAndDefaultWriteOptions_inheritsClientUserProjectAndKeepsOverride()
+      throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    BlobWriteSession mockSession = mock(BlobWriteSession.class);
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    @SuppressWarnings("unchecked")
+    ApiFuture<BlobInfo> mockFuture = mock(ApiFuture.class);
+    when(mockStorage.blobWriteSession(any(BlobInfo.class), any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockSession);
+    when(mockSession.open()).thenReturn(mockChannel);
+    when(mockSession.getResult()).thenReturn(mockFuture);
+
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("billing-project")
+            .build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, clientOptions);
+
+    try (WritableByteChannel nullOptsChannel = client.createWriteChannel(TEST_ITEM_ID, null);
+        WritableByteChannel defaultOptsChannel =
+            client.createWriteChannel(TEST_ITEM_ID, GcsWriteOptions.builder().build());
+        WritableByteChannel overrideOptsChannel =
+            client.createWriteChannel(
+                TEST_ITEM_ID, GcsWriteOptions.builder().setUserProject("override-proj").build())) {
+      assertThat(nullOptsChannel).isNotNull();
+      assertThat(defaultOptsChannel).isNotNull();
+      assertThat(overrideOptsChannel).isNotNull();
+    }
+
+    ArgumentCaptor<Storage.BlobWriteOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobWriteOption[].class);
+    verify(mockStorage, times(3)).blobWriteSession(any(BlobInfo.class), optionsCaptor.capture());
+    List<Storage.BlobWriteOption[]> allCalls = optionsCaptor.getAllValues();
+    assertThat(allCalls.get(0))
+        .asList()
+        .containsExactly(
+            Storage.BlobWriteOption.disableGzipContent(),
+            Storage.BlobWriteOption.userProject("billing-project"))
+        .inOrder();
+    assertThat(allCalls.get(1))
+        .asList()
+        .containsExactly(
+            Storage.BlobWriteOption.disableGzipContent(),
+            Storage.BlobWriteOption.userProject("billing-project"))
+        .inOrder();
+    assertThat(allCalls.get(2))
+        .asList()
+        .containsExactly(
+            Storage.BlobWriteOption.disableGzipContent(),
+            Storage.BlobWriteOption.userProject("override-proj"))
+        .inOrder();
+  }
+
+  @Test
+  void createWriteChannel_bidiEnabledWithDefaultWriteOptions_inheritsClientUserProject()
+      throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    BlobAppendableUpload mockUpload = mock(BlobAppendableUpload.class);
+    AppendableUploadWriteableByteChannel mockAppendChannel =
+        mock(AppendableUploadWriteableByteChannel.class);
+    when(mockStorage.blobAppendableUpload(
+            any(BlobInfo.class),
+            any(BlobAppendableUploadConfig.class),
+            any(Storage.BlobWriteOption[].class)))
+        .thenReturn(mockUpload);
+    when(mockUpload.open()).thenReturn(mockAppendChannel);
+    when(mockAppendChannel.isOpen()).thenReturn(true);
+
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setProtocol(GcsClientOptions.Protocol.BIDI)
+            .setUserProject("billing-project")
+            .build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, clientOptions);
+
+    try (WritableByteChannel channel =
+        client.createWriteChannel(
+            TEST_ITEM_ID, GcsWriteOptions.builder().setBidiWriteEnabled(true).build())) {
+      assertThat(channel).isInstanceOf(GcsBidiWriteChannel.class);
+    }
+
+    ArgumentCaptor<Storage.BlobWriteOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobWriteOption[].class);
+    verify(mockStorage)
+        .blobAppendableUpload(
+            any(BlobInfo.class), any(BlobAppendableUploadConfig.class), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .containsExactly(
+            Storage.BlobWriteOption.disableGzipContent(),
+            Storage.BlobWriteOption.userProject("billing-project"))
+        .inOrder();
+  }
+
+  @Test
+  void createEmptyObject_withDefaultAndOverriddenWriteOptions_inheritsClientUserProject()
+      throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    Bucket mockBucket = mockBucketWithHns(false);
+    when(mockBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
+    doReturn(mockBucket).when(mockStorage).get(eq(TEST_BUCKET), any(BucketGetOption[].class));
+
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("billing-project")
+            .build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, clientOptions);
+
+    client.createEmptyObject(TEST_ITEM_ID, GcsWriteOptions.builder().build());
+    client.createEmptyObject(
+        TEST_ITEM_ID, GcsWriteOptions.builder().setUserProject("override-proj").build());
+
+    ArgumentCaptor<Storage.BlobTargetOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobTargetOption[].class);
+    verify(mockStorage, times(2)).create(any(BlobInfo.class), optionsCaptor.capture());
+    List<Storage.BlobTargetOption[]> allCalls = optionsCaptor.getAllValues();
+    assertThat(allCalls.get(0))
+        .asList()
+        .containsExactly(
+            Storage.BlobTargetOption.disableGzipContent(),
+            Storage.BlobTargetOption.userProject("billing-project"))
+        .inOrder();
+    assertThat(allCalls.get(1))
+        .asList()
+        .containsExactly(
+            Storage.BlobTargetOption.disableGzipContent(),
+            Storage.BlobTargetOption.userProject("override-proj"))
+        .inOrder();
+  }
+
+  @Test
+  void createEmptyObject_directoryLookupAfter412_inheritsClientUserProject() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    Bucket mockBucket = mockBucketWithHns(false);
+    when(mockBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
+    doReturn(mockBucket).when(mockStorage).get(eq(TEST_BUCKET_NAME), any(BucketGetOption[].class));
+    when(mockStorage.create(any(BlobInfo.class), any(Storage.BlobTargetOption[].class)))
+        .thenThrow(new StorageException(412, "Precondition Failed"));
+    Blob mockZeroByteBlob = mock(Blob.class);
+    when(mockZeroByteBlob.getSize()).thenReturn(0L);
+    BlobId expectedDirBlobId = BlobId.of(TEST_BUCKET_NAME, TEST_DIR);
+    when(mockStorage.get(eq(expectedDirBlobId), any(Storage.BlobGetOption[].class)))
+        .thenReturn(mockZeroByteBlob);
+
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("billing-project")
+            .build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, clientOptions);
+
+    client.createEmptyObject(TEST_DIR_ITEM_ID, GcsWriteOptions.builder().build());
+
+    ArgumentCaptor<Storage.BlobGetOption[]> getOptionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobGetOption[].class);
+    verify(mockStorage).get(eq(expectedDirBlobId), getOptionsCaptor.capture());
+    assertThat(getOptionsCaptor.getValue())
+        .asList()
+        .containsExactly(
+            Storage.BlobGetOption.fields(Storage.BlobField.SIZE),
+            Storage.BlobGetOption.userProject("billing-project"))
+        .inOrder();
+  }
+
+  @Test
+  void openReadChannel_httpWithDefaultAndOverriddenReadOptions_inheritsAndOverridesUserProject()
+      throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    ReadChannel mockReadChannel = mock(ReadChannel.class);
+    when(mockStorage.reader(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    when(mockReadChannel.isOpen()).thenReturn(true);
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder()
+            .setItemId(TEST_ITEM_ID)
+            .setSize(128L)
+            .setContentGeneration(1L)
+            .build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("billing-project")
+            .build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, clientOptions);
+
+    try (SeekableByteChannel byInfoDefault =
+            client.openReadChannel(itemInfo, GcsReadOptions.builder().build());
+        SeekableByteChannel byIdDefault =
+            client.openReadChannel(TEST_ITEM_ID, GcsReadOptions.builder().build());
+        SeekableByteChannel byInfoOverride =
+            client.openReadChannel(
+                itemInfo, GcsReadOptions.builder().setUserProjectId("read-override").build())) {
+      assertThat(byInfoDefault.isOpen()).isTrue();
+      assertThat(byIdDefault.isOpen()).isTrue();
+      assertThat(byInfoOverride.isOpen()).isTrue();
+    }
+
+    ArgumentCaptor<Storage.BlobSourceOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobSourceOption[].class);
+    verify(mockStorage, times(3)).reader(any(BlobId.class), optionsCaptor.capture());
+    List<Storage.BlobSourceOption[]> allCalls = optionsCaptor.getAllValues();
+    assertThat(allCalls.get(0))
+        .asList()
+        .containsExactly(Storage.BlobSourceOption.userProject("billing-project"));
+    assertThat(allCalls.get(1))
+        .asList()
+        .containsExactly(Storage.BlobSourceOption.userProject("billing-project"));
+    assertThat(allCalls.get(2))
+        .asList()
+        .containsExactly(Storage.BlobSourceOption.userProject("read-override"));
+  }
+
+  @Test
+  void openReadChannel_bidiWithDefaultAndOverriddenReadOptions_inheritsAndOverridesUserProject()
+      throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    @SuppressWarnings("unchecked")
+    ApiFuture<BlobReadSession> mockSessionFuture = mock(ApiFuture.class);
+    BlobId expectedBlobId = BlobId.of(TEST_BUCKET, TEST_OBJECT);
+    when(mockStorage.blobReadSession(eq(expectedBlobId), any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockSessionFuture);
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(TEST_ITEM_ID).setSize(128L).build();
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setProtocol(GcsClientOptions.Protocol.BIDI)
+            .setUserProject("billing-project")
+            .build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, clientOptions);
+
+    try (SeekableByteChannel byInfoDefault =
+            client.openReadChannel(itemInfo, GcsReadOptions.builder().build());
+        SeekableByteChannel byIdDefault =
+            client.openReadChannel(TEST_ITEM_ID, GcsReadOptions.builder().build());
+        SeekableByteChannel byIdOverride =
+            client.openReadChannel(
+                TEST_ITEM_ID, GcsReadOptions.builder().setUserProjectId("read-override").build())) {
+      assertThat(byInfoDefault.isOpen()).isTrue();
+      assertThat(byIdDefault.isOpen()).isTrue();
+      assertThat(byIdOverride.isOpen()).isTrue();
+    }
+
+    ArgumentCaptor<Storage.BlobSourceOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobSourceOption[].class);
+    verify(mockStorage, times(3)).blobReadSession(eq(expectedBlobId), optionsCaptor.capture());
+    List<Storage.BlobSourceOption[]> allCalls = optionsCaptor.getAllValues();
+    assertThat(allCalls.get(0))
+        .asList()
+        .containsExactly(Storage.BlobSourceOption.userProject("billing-project"));
+    assertThat(allCalls.get(1))
+        .asList()
+        .containsExactly(Storage.BlobSourceOption.userProject("billing-project"));
+    assertThat(allCalls.get(2))
+        .asList()
+        .containsExactly(Storage.BlobSourceOption.userProject("read-override"));
+  }
+
+  @Test
+  void openReadChannel_byItemIdLazySizeLookup_forwardsPerChannelUserProjectToBlobGet()
+      throws IOException {
+    BlobId expectedBlobId = BlobId.of(TEST_BUCKET, TEST_OBJECT);
+    Blob mockBlob = createMockBlob(TEST_BUCKET, TEST_OBJECT);
+    when(mockBlob.getSize()).thenReturn(256L);
+
+    Storage httpMockStorage = mock(Storage.class);
+    ReadChannel mockReadChannel = mock(ReadChannel.class);
+    when(httpMockStorage.reader(eq(expectedBlobId), any(Storage.BlobSourceOption[].class)))
+        .thenReturn(mockReadChannel);
+    when(mockReadChannel.isOpen()).thenReturn(true);
+    when(httpMockStorage.get(eq(expectedBlobId), any(Storage.BlobGetOption[].class)))
+        .thenReturn(mockBlob);
+    GcsClientOptions httpClientOptions =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("client-project")
+            .build();
+    GcsClientImpl httpClient = createClientWithMockStorage(httpMockStorage, httpClientOptions);
+
+    try (SeekableByteChannel channel =
+        httpClient.openReadChannel(
+            TEST_ITEM_ID, GcsReadOptions.builder().setUserProjectId("read-override").build())) {
+      assertThat(channel.size()).isEqualTo(256L);
+    }
+
+    ArgumentCaptor<Storage.BlobGetOption[]> httpGetCaptor =
+        ArgumentCaptor.forClass(Storage.BlobGetOption[].class);
+    verify(httpMockStorage).get(eq(expectedBlobId), httpGetCaptor.capture());
+    assertThat(httpGetCaptor.getValue())
+        .asList()
+        .containsExactly(
+            Storage.BlobGetOption.fields(GcsClientImpl.BLOB_METADATA_FIELDS_ARRAY),
+            Storage.BlobGetOption.userProject("read-override"))
+        .inOrder();
+
+    Storage bidiMockStorage = mock(Storage.class);
+    when(bidiMockStorage.blobReadSession(
+            eq(expectedBlobId), eq(Storage.BlobSourceOption.userProject("standalone-read-proj"))))
+        .thenReturn(com.google.api.core.ApiFutures.immediateFailedFuture(new IOException("boom")));
+    when(bidiMockStorage.get(eq(expectedBlobId), any(Storage.BlobGetOption[].class)))
+        .thenReturn(mockBlob);
+    GcsClientImpl bidiClient = createClientWithMockStorage(bidiMockStorage, bidiClientOptions());
+
+    try (SeekableByteChannel bidiChannel =
+        bidiClient.openReadChannel(
+            TEST_ITEM_ID,
+            GcsReadOptions.builder().setUserProjectId("standalone-read-proj").build())) {
+      assertThat(bidiChannel.size()).isEqualTo(256L);
+    }
+
+    ArgumentCaptor<Storage.BlobGetOption[]> bidiGetCaptor =
+        ArgumentCaptor.forClass(Storage.BlobGetOption[].class);
+    verify(bidiMockStorage).get(eq(expectedBlobId), bidiGetCaptor.capture());
+    assertThat(bidiGetCaptor.getValue())
+        .asList()
+        .containsExactly(
+            Storage.BlobGetOption.fields(GcsClientImpl.BLOB_METADATA_FIELDS_ARRAY),
+            Storage.BlobGetOption.userProject("standalone-read-proj"))
+        .inOrder();
+  }
+
+  @Test
+  void createBucket_withUserProject_passesUserProjectOptionAndOmitsWhenBlank() throws IOException {
+    BucketInfo expectedBucket = BucketInfo.of(TEST_BUCKET_NAME);
+
+    Storage mockStorageWithUserProject = mock(Storage.class);
+    GcsClientOptions optionsWithUserProject =
+        GcsClientOptions.builder()
+            .setProjectId(TEST_PROJECT)
+            .setUserProject("  billing-project  ")
+            .build();
+    GcsClientImpl clientWithUserProject =
+        createClientWithMockStorage(mockStorageWithUserProject, optionsWithUserProject);
+
+    clientWithUserProject.createBucket(TEST_BUCKET_NAME);
+
+    ArgumentCaptor<Storage.BucketTargetOption[]> targetCaptor =
+        ArgumentCaptor.forClass(Storage.BucketTargetOption[].class);
+    verify(mockStorageWithUserProject).create(eq(expectedBucket), targetCaptor.capture());
+    assertThat(targetCaptor.getValue())
+        .asList()
+        .containsExactly(Storage.BucketTargetOption.userProject("billing-project"));
+
+    Storage mockStorageBlankUserProject = mock(Storage.class);
+    GcsClientOptions optionsBlankUserProject =
+        GcsClientOptions.builder().setProjectId(TEST_PROJECT).setUserProject("   ").build();
+    GcsClientImpl clientBlankUserProject =
+        createClientWithMockStorage(mockStorageBlankUserProject, optionsBlankUserProject);
+
+    clientBlankUserProject.createBucket(TEST_BUCKET_NAME);
+
+    ArgumentCaptor<Storage.BucketTargetOption[]> blankCaptor =
+        ArgumentCaptor.forClass(Storage.BucketTargetOption[].class);
+    verify(mockStorageBlankUserProject).create(eq(expectedBucket), blankCaptor.capture());
+    assertThat(blankCaptor.getValue()).isEmpty();
   }
 }

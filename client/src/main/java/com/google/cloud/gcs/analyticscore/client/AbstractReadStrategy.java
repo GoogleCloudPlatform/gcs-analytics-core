@@ -101,7 +101,11 @@ abstract class AbstractReadStrategy implements ReadStrategy {
             .map(gen -> BlobId.of(bucketName, objectName, gen))
             .orElse(BlobId.of(bucketName, objectName));
     List<BlobSourceOption> sourceOptions = Lists.newArrayList();
-    options.getUserProjectId().ifPresent(id -> sourceOptions.add(BlobSourceOption.userProject(id)));
+    options
+        .getUserProjectId()
+        .map(String::trim)
+        .filter(id -> !id.isEmpty())
+        .ifPresent(id -> sourceOptions.add(BlobSourceOption.userProject(id)));
     options
         .getDecryptionKey()
         .ifPresent(key -> sourceOptions.add(BlobSourceOption.decryptionKey(key)));

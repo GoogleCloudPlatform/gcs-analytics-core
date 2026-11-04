@@ -46,6 +46,7 @@ public abstract class GcsClientOptions {
   private static final String UNIVERSE_DOMAIN_KEY = "universe-domain";
   private static final String USER_AGENT_KEY = "user-agent";
   static final String PROJECT_ID_KEY = "project-id";
+  static final String USER_PROJECT_KEY = "user-project";
   private static final String CLIENT_PROTOCOL_KEY = "client.protocol";
 
   private static final String UPLOAD_CHUNK_SIZE_KEY = "channel.write.chunk-size-bytes";
@@ -99,6 +100,20 @@ public abstract class GcsClientOptions {
   }
 
   public abstract Optional<String> getProjectId();
+
+  /**
+   * Returns the Google Cloud project ID billed for Requester Pays and quota-attributed operations.
+   *
+   * <p>During {@link Builder#build()}, a non-blank value set here is propagated to {@link
+   * GcsReadOptions#getUserProjectId()} and {@link GcsWriteOptions#getUserProject()} whenever those
+   * channel options do not already specify a non-blank override; conversely, if this field is unset
+   * or blank, it is populated from the first non-blank value in {@link GcsReadOptions} or {@link
+   * GcsWriteOptions}. Note that on {@link Protocol#HTTP}, this project is sent in the client-level
+   * {@code x-goog-user-project} header on every request, whereas per-channel overrides only set the
+   * {@code userProject} query parameter on channel RPCs (and fully override the client-level
+   * project only on {@link Protocol#GRPC} and {@link Protocol#BIDI}).
+   */
+  public abstract Optional<String> getUserProject();
 
   public abstract Optional<String> getClientLibToken();
 
@@ -183,6 +198,8 @@ public abstract class GcsClientOptions {
     if (analyticsCoreOptions.containsKey(prefix + PROJECT_ID_KEY)) {
       optionsBuilder.setProjectId(analyticsCoreOptions.get(prefix + PROJECT_ID_KEY));
     }
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + USER_PROJECT_KEY)
+        .ifPresent(optionsBuilder::setUserProject);
     if (analyticsCoreOptions.containsKey(prefix + CLIENT_LIB_TOKEN_KEY)) {
       optionsBuilder.setClientLibToken(analyticsCoreOptions.get(prefix + CLIENT_LIB_TOKEN_KEY));
     }
@@ -245,6 +262,18 @@ public abstract class GcsClientOptions {
 
     public abstract Builder setProjectId(String projectId);
 
+    /**
+     * Sets the Google Cloud project ID billed for Requester Pays and quota-attributed operations.
+     *
+     * <p>Surrounding whitespace is trimmed on {@link #build()} for non-blank values, while blank
+     * values are ignored when synchronizing channel options or configuring requests. See {@link
+     * #getUserProject()} for how {@link #build()} synchronizes this value with {@link
+     * GcsReadOptions} and {@link GcsWriteOptions}; note that updating this field via {@link
+     * #toBuilder()} will not overwrite non-blank channel-level values already present on {@link
+     * GcsReadOptions} or {@link GcsWriteOptions}.
+     */
+    public abstract Builder setUserProject(String userProject);
+
     public abstract Builder setClientLibToken(String clientLibToken);
 
     public abstract Builder setServiceHost(String serviceHost);
@@ -291,6 +320,39 @@ public abstract class GcsClientOptions {
 
     public GcsClientOptions build() {
       GcsClientOptions options = autoBuild();
+      Optional<String> rawClientUserProject = options.getUserProject();
+      if (rawClientUserProject.isPresent()) {
+        String trimmed = rawClientUserProject.get().trim();
+        if (!trimmed.isEmpty() && !trimmed.equals(rawClientUserProject.get())) {
+          options = setUserProject(trimmed).autoBuild();
+        }
+      }
+      GcsReadOptions readOptions = options.getGcsReadOptions();
+      GcsWriteOptions writeOptions = options.getGcsWriteOptions();
+      Optional<String> clientUserProject = nonBlank(options.getUserProject());
+      Optional<String> userProjectToSync =
+          clientUserProject
+              .or(() -> nonBlank(readOptions.getUserProjectId()))
+              .or(() -> nonBlank(writeOptions.getUserProject()));
+      if (userProjectToSync.isPresent()) {
+        String userProject = userProjectToSync.get();
+        boolean updated = false;
+        if (clientUserProject.isEmpty()) {
+          setUserProject(userProject);
+          updated = true;
+        }
+        if (nonBlank(readOptions.getUserProjectId()).isEmpty()) {
+          setGcsReadOptions(readOptions.toBuilder().setUserProjectId(userProject).build());
+          updated = true;
+        }
+        if (nonBlank(writeOptions.getUserProject()).isEmpty()) {
+          setGcsWriteOptions(writeOptions.toBuilder().setUserProject(userProject).build());
+          updated = true;
+        }
+        if (updated) {
+          options = autoBuild();
+        }
+      }
       checkArgument(
           !options.getGcsWriteOptions().isBidiWriteEnabled()
               || options.getProtocol() == Protocol.BIDI,
@@ -309,6 +371,10 @@ public abstract class GcsClientOptions {
           MAX_BATCH_THREADS,
           options.getBatchThreads());
       return options;
+    }
+
+    private static Optional<String> nonBlank(Optional<String> value) {
+      return value.map(String::trim).filter(v -> !v.isEmpty());
     }
   }
 

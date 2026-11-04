@@ -84,7 +84,9 @@ import org.slf4j.LoggerFactory;
 
 class GcsClientImpl implements GcsClient {
   private static final Logger LOG = LoggerFactory.getLogger(GcsClientImpl.class);
-  private static final BlobField[] BLOB_METADATA_FIELDS_ARRAY =
+
+  @VisibleForTesting
+  static final BlobField[] BLOB_METADATA_FIELDS_ARRAY =
       new BlobField[] {
         BlobField.NAME,
         BlobField.BUCKET,
@@ -99,7 +101,9 @@ class GcsClientImpl implements GcsClient {
         BlobField.CRC32C,
         BlobField.METADATA
       };
-  private static final BucketField[] BUCKET_METADATA_FIELDS_ARRAY =
+
+  @VisibleForTesting
+  static final BucketField[] BUCKET_METADATA_FIELDS_ARRAY =
       new BucketField[] {
         BucketField.NAME,
         BucketField.LOCATION,
@@ -108,6 +112,7 @@ class GcsClientImpl implements GcsClient {
         BucketField.UPDATED,
         BucketField.STORAGE_CLASS
       };
+
   private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
   private static final String RAPID_STORAGE_CLASS = "RAPID";
   private static final ImmutableSet<Integer> IGNORABLE_EMPTY_OBJECT_CREATE_ERROR_CODES =
@@ -215,14 +220,15 @@ class GcsClientImpl implements GcsClient {
         gcsItemInfo.getItemId().isGcsObject(),
         "Expected GCS object to be provided. But got: %s",
         gcsItemInfo.getItemId());
+    GcsReadOptions resolvedReadOptions = resolveReadOptions(readOptions);
 
     if (clientOptions.isBidiEnabled()) {
       return new GcsBidiReadChannel(
-          storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
+          storage, gcsItemInfo, resolvedReadOptions, executorServiceSupplier, telemetry);
     }
 
     return new GcsReadChannel(
-        storage, gcsItemInfo, readOptions, executorServiceSupplier, telemetry);
+        storage, gcsItemInfo, resolvedReadOptions, executorServiceSupplier, telemetry);
   }
 
   @Override
@@ -230,13 +236,28 @@ class GcsClientImpl implements GcsClient {
       GcsItemId gcsItemId, GcsReadOptions readOptions) throws IOException {
     checkNotNull(gcsItemId, "gcsItemId should not be null");
     checkNotNull(readOptions, "readOptions should not be null");
-    ItemInfoProvider itemInfoProvider = this::getGcsItemInfo;
+    GcsReadOptions resolvedReadOptions = resolveReadOptions(readOptions);
+    Optional<String> readUserProject = nonBlank(resolvedReadOptions.getUserProjectId());
+    ItemInfoProvider itemInfoProvider =
+        readUserProject.equals(getNonBlankUserProject())
+            ? this::getGcsItemInfo
+            : id -> getGcsItemInfo(id, readUserProject);
     if (clientOptions.isBidiEnabled()) {
       return new GcsBidiReadChannel(
-          storage, gcsItemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider);
+          storage,
+          gcsItemId,
+          resolvedReadOptions,
+          executorServiceSupplier,
+          telemetry,
+          itemInfoProvider);
     } else {
       return new GcsReadChannel(
-          storage, gcsItemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider);
+          storage,
+          gcsItemId,
+          resolvedReadOptions,
+          executorServiceSupplier,
+          telemetry,
+          itemInfoProvider);
     }
   }
 
@@ -245,8 +266,7 @@ class GcsClientImpl implements GcsClient {
       throws IOException {
     checkNotNull(itemId, "itemId should not be null");
 
-    GcsWriteOptions resolvedWriteOptions =
-        Optional.ofNullable(writeOptions).orElseGet(() -> GcsWriteOptions.builder().build());
+    GcsWriteOptions resolvedWriteOptions = resolveWriteOptions(writeOptions);
     BlobInfo blobInfo = createBlobInfo(itemId, resolvedWriteOptions);
 
     try {
@@ -271,9 +291,13 @@ class GcsClientImpl implements GcsClient {
 
   @Override
   public GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException {
+    return getGcsItemInfo(itemId, getNonBlankUserProject());
+  }
+
+  GcsItemInfo getGcsItemInfo(GcsItemId itemId, Optional<String> userProject) throws IOException {
     checkNotNull(itemId, "Item ID must not be null.");
     if (itemId.isGcsObject()) {
-      return getGcsObjectInfo(itemId);
+      return getGcsObjectInfo(itemId, userProject);
     }
     throw new UnsupportedOperationException(
         String.format("Expected gcs object but got %s", itemId));
@@ -285,9 +309,16 @@ class GcsClientImpl implements GcsClient {
     checkArgument(itemId.isBucket(), "Expected a bucket itemId");
     BucketInfo bucketInfo;
     try {
+      Storage.BucketGetOption fieldsOption =
+          Storage.BucketGetOption.fields(BUCKET_METADATA_FIELDS_ARRAY);
+      Optional<String> userProject = getNonBlankUserProject();
       bucketInfo =
-          storage.get(
-              itemId.getBucketName(), Storage.BucketGetOption.fields(BUCKET_METADATA_FIELDS_ARRAY));
+          userProject.isPresent()
+              ? storage.get(
+                  itemId.getBucketName(),
+                  fieldsOption,
+                  Storage.BucketGetOption.userProject(userProject.get()))
+              : storage.get(itemId.getBucketName(), fieldsOption);
     } catch (StorageException e) {
       if (e.getCode() == 404) {
         bucketInfo = null;
@@ -365,6 +396,7 @@ class GcsClientImpl implements GcsClient {
     StorageControlSettings.Builder builder = StorageControlSettings.newBuilder();
     builder.setHeaderProvider(
         FixedHeaderProvider.create(ImmutableMap.of("User-Agent", getUserAgent())));
+    getNonBlankUserProject().ifPresent(builder::setQuotaProjectId);
     credentials.ifPresent(c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
     universeDomain.ifPresent(builder::setUniverseDomain);
     return StorageControlClient.create(builder.build());
@@ -376,12 +408,13 @@ class GcsClientImpl implements GcsClient {
     String prefix = prefixId.getObjectName().orElse("");
 
     try {
+      List<BlobListOption> listOptions = new ArrayList<>(4);
+      listOptions.add(BlobListOption.prefix(prefix));
+      listOptions.add(BlobListOption.pageSize(1));
+      listOptions.add(BlobListOption.fields(BLOB_METADATA_FIELDS_ARRAY));
+      getNonBlankUserProject().map(BlobListOption::userProject).ifPresent(listOptions::add);
       Page<Blob> page =
-          storage.list(
-              prefixId.getBucketName(),
-              BlobListOption.prefix(prefix),
-              BlobListOption.pageSize(1),
-              BlobListOption.fields(BLOB_METADATA_FIELDS_ARRAY));
+          storage.list(prefixId.getBucketName(), listOptions.toArray(new BlobListOption[0]));
 
       Blob blob = Iterables.getFirst(page.getValues(), null);
       return Optional.ofNullable(blob).map(b -> fromBlob(b));
@@ -476,11 +509,15 @@ class GcsClientImpl implements GcsClient {
 
   private BucketProperties fetchBucketProperties(String bucketName) throws IOException {
     try {
+      Storage.BucketGetOption fieldsOption =
+          Storage.BucketGetOption.fields(
+              Storage.BucketField.HIERARCHICAL_NAMESPACE, Storage.BucketField.STORAGE_CLASS);
+      Optional<String> userProject = getNonBlankUserProject();
       BucketInfo bucketInfo =
-          storage.get(
-              bucketName,
-              Storage.BucketGetOption.fields(
-                  Storage.BucketField.HIERARCHICAL_NAMESPACE, Storage.BucketField.STORAGE_CLASS));
+          userProject.isPresent()
+              ? storage.get(
+                  bucketName, fieldsOption, Storage.BucketGetOption.userProject(userProject.get()))
+              : storage.get(bucketName, fieldsOption);
       if (bucketInfo == null) {
         throw GcsExceptionUtil.createBucketNotFoundException(bucketName);
       }
@@ -594,8 +631,14 @@ class GcsClientImpl implements GcsClient {
                                   .setAge(Math.toIntExact(ttl.toDays()))
                                   .build()))));
     }
+    BucketInfo bucketInfo = bucketInfoBuilder.build();
+    Optional<String> userProject = getNonBlankUserProject();
     try {
-      storage.create(bucketInfoBuilder.build());
+      if (userProject.isPresent()) {
+        storage.create(bucketInfo, Storage.BucketTargetOption.userProject(userProject.get()));
+      } else {
+        storage.create(bucketInfo);
+      }
     } catch (StorageException e) {
       throw GcsExceptionUtil.translateStorageException(
           e,
@@ -629,16 +672,17 @@ class GcsClientImpl implements GcsClient {
     checkNotNull(itemId, "itemId must not be null");
     checkArgument(itemId.isGcsObject(), "Expected a GCS object itemId but got: " + itemId);
     checkNotNull(options, "options must not be null");
+    GcsWriteOptions resolvedOptions = resolveWriteOptions(options);
     try {
-      createEmptyObjectInternal(itemId, options);
+      createEmptyObjectInternal(itemId, resolvedOptions);
     } catch (StorageException e) {
-      Optional<Blob> existing = lookUpAfterFailedCreate(e, itemId, options);
+      Optional<Blob> existing = lookUpAfterFailedCreate(e, itemId, resolvedOptions);
       if (existing.isPresent() && isZeroByte(existing.get())) {
         LOG.debug("Ignored exception while creating empty object {}", itemId, e);
         return;
       }
       if (e.getCode() == 412
-          && shouldNotOverwrite(itemId, options)
+          && shouldNotOverwrite(itemId, resolvedOptions)
           && (!itemId.isDirectory() || existing.isPresent())) {
         throw GcsExceptionUtil.createFileAlreadyExistsException(itemId, e);
       }
@@ -710,7 +754,9 @@ class GcsClientImpl implements GcsClient {
       BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().orElse(""));
       List<Storage.BlobGetOption> getOptions = new ArrayList<>();
       getOptions.add(Storage.BlobGetOption.fields(BlobField.SIZE));
-      options.getUserProject().map(Storage.BlobGetOption::userProject).ifPresent(getOptions::add);
+      nonBlank(options.getUserProject())
+          .map(Storage.BlobGetOption::userProject)
+          .ifPresent(getOptions::add);
       try {
         Storage client =
             isRapidBucket(itemId.getBucketName()) ? lazyGetGrpcStorage() : this.storage;
@@ -811,6 +857,7 @@ class GcsClientImpl implements GcsClient {
     String userAgent = getUserAgent();
     builder.setHeaderProvider(FixedHeaderProvider.create(ImmutableMap.of("User-Agent", userAgent)));
     clientOptions.getProjectId().ifPresent(builder::setProjectId);
+    getNonBlankUserProject().ifPresent(builder::setQuotaProjectId);
     clientOptions.getClientLibToken().ifPresent(builder::setClientLibToken);
     clientOptions.getServiceHost().ifPresent(builder::setHost);
     universeDomain.ifPresent(builder::setUniverseDomain);
@@ -845,24 +892,58 @@ class GcsClientImpl implements GcsClient {
         + clientOptions.getUserAgent().map(agent -> " " + agent).orElse("");
   }
 
-  private GcsItemInfo getGcsObjectInfo(GcsItemId itemId) throws IOException {
+  private GcsItemInfo getGcsObjectInfo(GcsItemId itemId, Optional<String> userProject)
+      throws IOException {
     checkArgument(itemId.isGcsObject(), String.format("Expected gcs object got %s", itemId));
-    Blob blob = getBlob(itemId.getBucketName(), itemId.getObjectName().get());
+    Blob blob = getBlob(itemId.getBucketName(), itemId.getObjectName().get(), userProject);
     if (blob == null) {
       throw GcsExceptionUtil.createFileNotFoundException(itemId);
     }
     return fromBlob(blob);
   }
 
-  private Blob getBlob(String bucketName, String objectName) throws IOException {
+  private Blob getBlob(String bucketName, String objectName, Optional<String> userProject)
+      throws IOException {
     checkNotNull(bucketName);
     checkNotNull(objectName);
     BlobId blobId = BlobId.of(bucketName, objectName);
     try {
-      return storage.get(blobId, Storage.BlobGetOption.fields(BLOB_METADATA_FIELDS_ARRAY));
+      Storage.BlobGetOption fieldsOption = Storage.BlobGetOption.fields(BLOB_METADATA_FIELDS_ARRAY);
+      return userProject.isPresent()
+          ? storage.get(blobId, fieldsOption, Storage.BlobGetOption.userProject(userProject.get()))
+          : storage.get(blobId, fieldsOption);
     } catch (StorageException storageException) {
       throw GcsExceptionUtil.translateException(storageException, "metadata lookup", blobId, 0L);
     }
+  }
+
+  private GcsReadOptions resolveReadOptions(GcsReadOptions readOptions) {
+    if (nonBlank(readOptions.getUserProjectId()).isEmpty()) {
+      Optional<String> clientUserProject = getNonBlankUserProject();
+      if (clientUserProject.isPresent()) {
+        return readOptions.toBuilder().setUserProjectId(clientUserProject.get()).build();
+      }
+    }
+    return readOptions;
+  }
+
+  private GcsWriteOptions resolveWriteOptions(@Nullable GcsWriteOptions writeOptions) {
+    GcsWriteOptions base = writeOptions != null ? writeOptions : GcsWriteOptions.builder().build();
+    if (nonBlank(base.getUserProject()).isEmpty()) {
+      Optional<String> clientUserProject = getNonBlankUserProject();
+      if (clientUserProject.isPresent()) {
+        return base.toBuilder().setUserProject(clientUserProject.get()).build();
+      }
+    }
+    return base;
+  }
+
+  private Optional<String> getNonBlankUserProject() {
+    return nonBlank(clientOptions.getUserProject());
+  }
+
+  private static Optional<String> nonBlank(Optional<String> value) {
+    return value.map(String::trim).filter(p -> !p.isEmpty());
   }
 
   private static BlobInfo createBlobInfo(GcsItemId itemId, GcsWriteOptions writeOptions) {

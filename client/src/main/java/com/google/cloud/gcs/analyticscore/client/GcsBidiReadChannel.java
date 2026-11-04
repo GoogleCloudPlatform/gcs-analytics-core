@@ -40,6 +40,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SeekableByteChannel;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -72,7 +73,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
     super(storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
     this.bidiClientTimeoutSeconds = readOptions.getBidiTimeout();
     this.blobId = initBlobId();
-    this.sessionFuture = storage.blobReadSession(blobId);
+    this.sessionFuture = openBlobReadSession(storage, blobId, readOptions);
   }
 
   GcsBidiReadChannel(
@@ -96,7 +97,18 @@ class GcsBidiReadChannel extends GcsReadChannel {
     super(storage, itemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider);
     this.bidiClientTimeoutSeconds = readOptions.getBidiTimeout();
     this.blobId = initBlobId();
-    this.sessionFuture = storage.blobReadSession(blobId);
+    this.sessionFuture = openBlobReadSession(storage, blobId, readOptions);
+  }
+
+  private static ApiFuture<BlobReadSession> openBlobReadSession(
+      Storage storage, BlobId blobId, GcsReadOptions readOptions) {
+    Optional<String> userProject =
+        readOptions.getUserProjectId().map(String::trim).filter(p -> !p.isEmpty());
+    if (userProject.isPresent()) {
+      return storage.blobReadSession(
+          blobId, Storage.BlobSourceOption.userProject(userProject.get()));
+    }
+    return storage.blobReadSession(blobId);
   }
 
   @Override

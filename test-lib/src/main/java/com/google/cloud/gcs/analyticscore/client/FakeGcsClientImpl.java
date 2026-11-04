@@ -66,6 +66,12 @@ public class FakeGcsClientImpl extends GcsClientImpl {
   }
 
   @Override
+  GcsItemInfo getGcsItemInfo(GcsItemId itemId, Optional<String> userProject) throws IOException {
+    // LocalStorageHelper.getOptions() rejects multiple BlobGetOptions (fields + userProject)
+    return super.getGcsItemInfo(itemId, Optional.empty());
+  }
+
+  @Override
   public VectoredSeekableByteChannel openReadChannel(
       GcsItemInfo itemInfo, GcsReadOptions readOptions) throws IOException {
     openReadChannelCount++;

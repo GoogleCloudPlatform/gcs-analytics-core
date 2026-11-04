@@ -123,9 +123,8 @@ public abstract class GcsReadOptions {
     if (analyticsCoreOptions.containsKey(prefix + DECRYPTION_KEY_KEY)) {
       optionsBuilder.setDecryptionKey(analyticsCoreOptions.get(prefix + DECRYPTION_KEY_KEY));
     }
-    if (analyticsCoreOptions.containsKey(prefix + USER_PROJECT_KEY)) {
-      optionsBuilder.setUserProjectId(analyticsCoreOptions.get(prefix + USER_PROJECT_KEY));
-    }
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + USER_PROJECT_KEY)
+        .ifPresent(optionsBuilder::setUserProjectId);
     if (analyticsCoreOptions.containsKey(prefix + FOOTER_PREFETCH_ENABLED_KEY)) {
       optionsBuilder.setFooterPrefetchEnabled(
           Boolean.parseBoolean(analyticsCoreOptions.get(prefix + FOOTER_PREFETCH_ENABLED_KEY)));
@@ -217,6 +216,18 @@ public abstract class GcsReadOptions {
 
     public abstract Builder setRandomReadMinRequestSize(int minRequestSize);
 
-    public abstract GcsReadOptions build();
+    abstract GcsReadOptions autoBuild();
+
+    public GcsReadOptions build() {
+      GcsReadOptions options = autoBuild();
+      Optional<String> userProjectId = options.getUserProjectId();
+      if (userProjectId.isPresent()) {
+        String trimmed = userProjectId.get().trim();
+        if (!trimmed.isEmpty() && !trimmed.equals(userProjectId.get())) {
+          return setUserProjectId(trimmed).autoBuild();
+        }
+      }
+      return options;
+    }
   }
 }

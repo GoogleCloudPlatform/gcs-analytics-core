@@ -250,4 +250,81 @@ class GcsWriteOptionsTest {
 
     assertThat(sdkOptions).isEmpty();
   }
+
+  @Test
+  void createFromOptions_withPaddedUserProject_trimsWhitespace() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.user-project", "  padded-project  ");
+
+    GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getUserProject()).hasValue("padded-project");
+  }
+
+  @Test
+  void createFromOptions_withBlankUserProject_ignoresBlankValue() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.user-project", "   ");
+
+    GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getUserProject()).isEmpty();
+  }
+
+  @Test
+  void generateWriteOptions_whenAllOptionsSet_returnsOptionsInExpectedOrder() {
+    String base64Key = "dGVzdC1lbmNyeXB0aW9uLWtleQ==";
+    GcsWriteOptions options =
+        GcsWriteOptions.builder()
+            .setOverwriteExisting(true)
+            .setDisableGzipContent(true)
+            .setChecksumValidationEnabled(true)
+            .setKmsKeyName("kms-key")
+            .setEncryptionKey(base64Key)
+            .setUserProject("user-proj")
+            .build();
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("bucket")
+            .setObjectName("object")
+            .setContentGeneration(12345L)
+            .build();
+
+    BlobWriteOption[] sdkOptions = options.generateWriteOptions(itemId);
+
+    assertThat(Arrays.asList(sdkOptions))
+        .containsExactly(
+            BlobWriteOption.generationMatch(12345L),
+            BlobWriteOption.disableGzipContent(),
+            BlobWriteOption.crc32cMatch(),
+            BlobWriteOption.kmsKeyName("kms-key"),
+            BlobWriteOption.encryptionKey(base64Key),
+            BlobWriteOption.userProject("user-proj"))
+        .inOrder();
+  }
+
+  @Test
+  void builder_withPaddedUserProject_trimsWhitespaceAndEmitsTrimmedSdkOptions() {
+    GcsWriteOptions options =
+        GcsWriteOptions.builder()
+            .setDisableGzipContent(false)
+            .setUserProject("  padded-proj  ")
+            .build();
+    GcsItemId itemId = GcsItemId.builder().setBucketName("bucket").setObjectName("object").build();
+
+    assertThat(options.getUserProject()).hasValue("padded-proj");
+    assertThat(Arrays.asList(options.generateWriteOptions(itemId)))
+        .containsExactly(BlobWriteOption.userProject("padded-proj"));
+    assertThat(Arrays.asList(options.generateTargetOptions(itemId)))
+        .containsExactly(BlobTargetOption.userProject("padded-proj"));
+    assertThat(options.toBuilder().build()).isEqualTo(options);
+  }
+
+  @Test
+  void generateWriteAndTargetOptions_withBlankUserProject_omitsUserProjectOption() {
+    GcsWriteOptions options =
+        GcsWriteOptions.builder().setDisableGzipContent(false).setUserProject("   ").build();
+    GcsItemId itemId = GcsItemId.builder().setBucketName("bucket").setObjectName("object").build();
+
+    assertThat(options.generateWriteOptions(itemId)).isEmpty();
+    assertThat(options.generateTargetOptions(itemId)).isEmpty();
+  }
 }
