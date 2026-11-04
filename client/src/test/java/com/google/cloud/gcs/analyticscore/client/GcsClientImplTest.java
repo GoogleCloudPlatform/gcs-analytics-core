@@ -31,6 +31,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.api.core.ApiFuture;
+import com.google.api.gax.longrunning.OperationFuture;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.AlreadyExistsException;
 import com.google.api.gax.rpc.NotFoundException;
@@ -82,11 +83,14 @@ import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
+import com.google.storage.control.v2.RenameFolderMetadata;
+import com.google.storage.control.v2.RenameFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
 import com.google.storage.control.v2.StorageControlSettings;
 import com.sun.net.httpserver.HttpServer;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
@@ -106,9 +110,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -125,6 +131,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
@@ -1969,6 +1976,321 @@ class GcsClientImplTest {
         assertThrows(IOException.class, () -> clientWithMockControl.getFolderInfo(TEST_ITEM_ID));
 
     assertThat(e).hasMessageThat().contains("Failed to get folder info for: " + TEST_ITEM_ID);
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "src/, dst/, src, dst",
+    "src, dst, src, dst",
+    "parent/src/, parent/dst, parent/src, parent/dst"
+  })
+  void renameFolder_idsWithOrWithoutTrailingSlash_sendsFolderNamesWithoutTrailingSlash(
+      String srcObjectName,
+      String dstObjectName,
+      String expectedSrcFolder,
+      String expectedDstFolder)
+      throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderMockFuture(mockControlClient);
+    when(future.get()).thenReturn(Folder.getDefaultInstance());
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    RenameFolderRequest expectedRequest =
+        RenameFolderRequest.newBuilder()
+            .setName("projects/_/buckets/" + TEST_BUCKET + "/folders/" + expectedSrcFolder)
+            .setDestinationFolderId(expectedDstFolder)
+            .build();
+
+    clientWithMockControl.renameFolder(
+        renameFolderTestId(srcObjectName), renameFolderTestId(dstObjectName));
+
+    verify(mockControlClient).renameFolderAsync(expectedRequest);
+  }
+
+  @Test
+  void renameFolder_folderRenamed_returnsDestinationFolderInfo() throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderMockFuture(mockControlClient);
+    when(future.get()).thenReturn(createMockFolder(TEST_BUCKET, "dst"));
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    GcsItemId dstFolderId =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET)
+            .setObjectName("dst")
+            .setContentGeneration(TEST_CONTENT_GENERATION)
+            .build();
+
+    GcsItemInfo itemInfo =
+        clientWithMockControl.renameFolder(renameFolderTestId("src/"), dstFolderId);
+
+    assertThat(itemInfo.getItemId()).isEqualTo(renameFolderTestId("dst/"));
+    assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
+    assertThat(itemInfo.getSize()).isEqualTo(0L);
+    assertThat(itemInfo.getMetaGeneration()).isEqualTo(3L);
+    assertThat(itemInfo.getCreationTime())
+        .isEqualTo(Instant.ofEpochSecond(1000, 500).toEpochMilli());
+    assertThat(itemInfo.getModificationTime())
+        .isEqualTo(Instant.ofEpochSecond(2000, 500).toEpochMilli());
+  }
+
+  @Test
+  void renameFolder_destinationExists_throwsFileAlreadyExistsExceptionForDestination()
+      throws Exception {
+    AlreadyExistsException alreadyExists = mock(AlreadyExistsException.class);
+    GcsClientImpl clientWithMockControl =
+        renameFolderClientFailingWith(new ExecutionException(alreadyExists));
+
+    FileAlreadyExistsException e =
+        assertThrows(
+            FileAlreadyExistsException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/dst/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(alreadyExists);
+  }
+
+  @Test
+  void renameFolder_sourceNotFound_throwsFileNotFoundExceptionForSource() throws Exception {
+    GcsClientImpl clientWithMockControl =
+        renameFolderClientFailingWith(new ExecutionException(mock(NotFoundException.class)));
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertFileNotFoundException(e, renameFolderTestId("src/"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(classes = {PermissionDeniedException.class, UnauthenticatedException.class})
+  void renameFolder_accessDenied_throwsAccessDeniedExceptionForSource(
+      Class<? extends Exception> exceptionClass) throws Exception {
+    GcsClientImpl clientWithMockControl =
+        renameFolderClientFailingWith(new ExecutionException(mock(exceptionClass)));
+
+    AccessDeniedException e =
+        assertThrows(
+            AccessDeniedException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/src/");
+  }
+
+  @Test
+  void renameFolder_otherFailure_throwsIOExceptionWithCause() throws Exception {
+    RuntimeException failure = new RuntimeException("RPC error");
+    GcsClientImpl clientWithMockControl =
+        renameFolderClientFailingWith(new ExecutionException(failure));
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed to rename folder gs://"
+                + TEST_BUCKET
+                + "/src/ to gs://"
+                + TEST_BUCKET
+                + "/dst/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(failure);
+  }
+
+  @Test
+  void renameFolder_nonExceptionCause_throwsIOExceptionWithCause() throws Exception {
+    Error error = new Error("fatal");
+    GcsClientImpl clientWithMockControl =
+        renameFolderClientFailingWith(new ExecutionException(error));
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed to rename folder gs://"
+                + TEST_BUCKET
+                + "/src/ to gs://"
+                + TEST_BUCKET
+                + "/dst/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(error);
+  }
+
+  @Test
+  void renameFolder_renameFolderAsyncThrows_throwsTranslatedException() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.renameFolderAsync(any(RenameFolderRequest.class)))
+        .thenThrow(mock(NotFoundException.class));
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertFileNotFoundException(e, renameFolderTestId("src/"));
+  }
+
+  @Test
+  void renameFolder_interruptedWhileWaiting_cancelsPollingAndThrowsInterruptedIOException()
+      throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderMockFuture(mockControlClient);
+    InterruptedException interrupted = new InterruptedException("interrupted");
+    when(future.get()).thenThrow(interrupted);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    InterruptedIOException e;
+    boolean interruptFlagRestored;
+    try {
+      e =
+          assertThrows(
+              InterruptedIOException.class,
+              () ->
+                  clientWithMockControl.renameFolder(
+                      renameFolderTestId("src/"), renameFolderTestId("dst/")));
+    } finally {
+      // Thread.interrupted() also clears the flag so that it cannot leak into later tests.
+      interruptFlagRestored = Thread.interrupted();
+    }
+
+    assertThat(interruptFlagRestored).isTrue();
+    assertThat(e).hasCauseThat().isSameInstanceAs(interrupted);
+    assertThat(e).hasMessageThat().contains("the rename may still complete on the server");
+    verify(future).cancel(true);
+  }
+
+  @Test
+  void renameFolder_pollingTimedOut_throwsIOException() throws Exception {
+    CancellationException timeout = new CancellationException();
+    GcsClientImpl clientWithMockControl = renameFolderClientFailingWith(timeout);
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Timed out waiting to rename folder gs://"
+                + TEST_BUCKET
+                + "/src/ to gs://"
+                + TEST_BUCKET
+                + "/dst/; the rename may still complete on the server");
+    assertThat(e).hasCauseThat().isSameInstanceAs(timeout);
+  }
+
+  @ParameterizedTest
+  @MethodSource("renameFolderInvalidArguments")
+  void renameFolder_invalidFolderIds_throwsWithoutSendingRequest(
+      GcsItemId srcFolderId,
+      GcsItemId dstFolderId,
+      Class<? extends RuntimeException> expectedType,
+      String expectedMessage) {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    RuntimeException e =
+        assertThrows(
+            expectedType, () -> clientWithMockControl.renameFolder(srcFolderId, dstFolderId));
+
+    assertThat(e).hasMessageThat().contains(expectedMessage);
+    verify(mockControlClient, never()).renameFolderAsync(any(RenameFolderRequest.class));
+  }
+
+  private static Stream<Arguments> renameFolderInvalidArguments() {
+    GcsItemId srcFolderId = renameFolderTestId("src/");
+    GcsItemId dstFolderId = renameFolderTestId("dst/");
+    return Stream.of(
+        Arguments.of(null, dstFolderId, NullPointerException.class, "srcFolderId must not be null"),
+        Arguments.of(srcFolderId, null, NullPointerException.class, "dstFolderId must not be null"),
+        Arguments.of(
+            GcsItemId.builder().setBucketName(TEST_BUCKET).build(),
+            dstFolderId,
+            IllegalArgumentException.class,
+            "Expected a folder srcFolderId"),
+        Arguments.of(
+            srcFolderId,
+            GcsItemId.ROOT,
+            IllegalArgumentException.class,
+            "Expected a folder dstFolderId"),
+        Arguments.of(
+            srcFolderId,
+            GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName("dst/").build(),
+            IllegalArgumentException.class,
+            "must be in the same bucket"),
+        Arguments.of(
+            renameFolderTestId("/"),
+            dstFolderId,
+            IllegalArgumentException.class,
+            "Source folder name cannot be empty"),
+        Arguments.of(
+            srcFolderId,
+            renameFolderTestId("/"),
+            IllegalArgumentException.class,
+            "Destination folder name cannot be empty"),
+        Arguments.of(
+            srcFolderId,
+            renameFolderTestId("src"),
+            IllegalArgumentException.class,
+            "Source and destination folders must differ"));
+  }
+
+  @Test
+  void renameFolder_defaultMethodOnUnimplementedClient_throwsUnsupportedOperationException() {
+    GcsClient minimalClient = mock(GcsClient.class, Answers.CALLS_REAL_METHODS);
+
+    UnsupportedOperationException e =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () ->
+                minimalClient.renameFolder(renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("renameFolder is not implemented by " + minimalClient.getClass().getName());
+  }
+
+  private static GcsItemId renameFolderTestId(String objectName) {
+    return GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(objectName).build();
+  }
+
+  @SuppressWarnings("unchecked")
+  private static OperationFuture<Folder, RenameFolderMetadata> renameFolderMockFuture(
+      StorageControlClient mockControlClient) {
+    OperationFuture<Folder, RenameFolderMetadata> future = mock(OperationFuture.class);
+    when(mockControlClient.renameFolderAsync(any(RenameFolderRequest.class))).thenReturn(future);
+    return future;
+  }
+
+  private GcsClientImpl renameFolderClientFailingWith(Exception failure) throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderMockFuture(mockControlClient);
+    when(future.get()).thenThrow(failure);
+    return createClientWithMockControl(mockControlClient);
   }
 
   @Test

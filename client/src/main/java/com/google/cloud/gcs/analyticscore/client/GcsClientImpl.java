@@ -19,8 +19,10 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.core.FixedCredentialsProvider;
+import com.google.api.gax.longrunning.OperationFuture;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.retrying.RetrySettings;
+import com.google.api.gax.rpc.AlreadyExistsException;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
@@ -66,9 +68,12 @@ import com.google.storage.control.v2.CreateFolderRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.FolderName;
 import com.google.storage.control.v2.GetFolderRequest;
+import com.google.storage.control.v2.RenameFolderMetadata;
+import com.google.storage.control.v2.RenameFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
 import com.google.storage.control.v2.StorageControlSettings;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
 import java.time.Instant;
@@ -77,6 +82,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
@@ -466,6 +473,83 @@ class GcsClientImpl implements GcsClient {
     return timestamp != null
         ? Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos()).toEpochMilli()
         : 0L;
+  }
+
+  @Override
+  public GcsItemInfo renameFolder(GcsItemId srcFolderId, GcsItemId dstFolderId) throws IOException {
+    checkNotNull(srcFolderId, "srcFolderId must not be null");
+    checkNotNull(dstFolderId, "dstFolderId must not be null");
+    checkArgument(
+        srcFolderId.isGcsObject(), "Expected a folder srcFolderId but got: %s", srcFolderId);
+    checkArgument(
+        dstFolderId.isGcsObject(), "Expected a folder dstFolderId but got: %s", dstFolderId);
+    String bucketName = srcFolderId.getBucketName();
+    checkArgument(
+        bucketName.equals(dstFolderId.getBucketName()),
+        "Source and destination folders must be in the same bucket: %s, %s",
+        srcFolderId,
+        dstFolderId);
+    String srcFolder = UriUtil.removeTrailingSlash(srcFolderId.getObjectName().get());
+    String dstFolder = UriUtil.removeTrailingSlash(dstFolderId.getObjectName().get());
+    checkArgument(!srcFolder.isEmpty(), "Source folder name cannot be empty");
+    checkArgument(!dstFolder.isEmpty(), "Destination folder name cannot be empty");
+    checkArgument(
+        !srcFolder.equals(dstFolder),
+        "Source and destination folders must differ: %s",
+        srcFolderId);
+
+    // request_id stays unset: the generated client populates it.
+    RenameFolderRequest request =
+        RenameFolderRequest.newBuilder()
+            .setName(FolderName.format("_", bucketName, srcFolder))
+            .setDestinationFolderId(dstFolder)
+            .build();
+    OperationFuture<Folder, RenameFolderMetadata> future;
+    try {
+      future = lazyGetStorageControlClient().renameFolderAsync(request);
+    } catch (Exception e) {
+      throw renameFolderException(e, srcFolderId, dstFolderId);
+    }
+    Folder folder;
+    try {
+      folder = future.get();
+    } catch (InterruptedException e) {
+      // Cancelling stops only the client-side polling, not the server-side rename.
+      future.cancel(true);
+      Thread.currentThread().interrupt();
+      throw (InterruptedIOException)
+          new InterruptedIOException(
+                  String.format(
+                      "Interrupted while renaming folder %s to %s; the rename may still complete"
+                          + " on the server",
+                      UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)))
+              .initCause(e);
+    } catch (ExecutionException e) {
+      throw renameFolderException(e.getCause(), srcFolderId, dstFolderId);
+    } catch (CancellationException e) {
+      // GAX cancels the polling future once its total polling timeout expires.
+      throw new IOException(
+          String.format(
+              "Timed out waiting to rename folder %s to %s; the rename may still complete on the"
+                  + " server",
+              UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)),
+          e);
+    }
+    return fromFolder(folder, dstFolderId.toDirectoryId());
+  }
+
+  private static IOException renameFolderException(
+      @Nullable Throwable cause, GcsItemId srcFolderId, GcsItemId dstFolderId) {
+    String message =
+        String.format(
+            "Failed to rename folder %s to %s",
+            UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId));
+    if (!(cause instanceof Exception)) {
+      return new IOException(message, cause);
+    }
+    // ALREADY_EXISTS refers to the destination; every other failure is reported for the source.
+    GcsItemId itemId = cause instanceof AlreadyExistsException ? dstFolderId : srcFolderId;
+    return GcsExceptionUtil.translateControlException((Exception) cause, itemId, message);
   }
 
   @Override
