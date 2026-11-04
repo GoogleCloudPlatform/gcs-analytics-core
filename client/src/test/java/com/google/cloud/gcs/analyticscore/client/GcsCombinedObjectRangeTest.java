@@ -78,6 +78,45 @@ class GcsCombinedObjectRangeTest {
     assertThat(result.getLength()).isEqualTo(200); // (100 + 200) - 100
   }
 
+  @Test
+  void union_withPrecedingRange_updatesStartOffsetAndLength() {
+    GcsObjectRange range1 = createRange(/* offset= */ 100, /* length= */ 50);
+    GcsObjectRange range2 = createRange(/* offset= */ 40, /* length= */ 40);
+    GcsObjectCombinedRange combinedRange =
+        GcsObjectCombinedRange.builder()
+            .setUnderlyingRanges(ImmutableList.of(range1))
+            .setOffset(range1.getOffset())
+            .setLength(range1.getLength())
+            .build();
+
+    GcsObjectCombinedRange result = combinedRange.union(range2);
+
+    assertThat(result.getUnderlyingRanges()).containsExactly(range1, range2);
+    assertThat(result.getOffset()).isEqualTo(40);
+    assertThat(result.getLength()).isEqualTo(110);
+  }
+
+  @Test
+  void union_withEncompassingRange_expandsBothBoundsWithoutMutatingOriginal() {
+    GcsObjectRange range1 = createRange(/* offset= */ 100, /* length= */ 50);
+    GcsObjectRange range2 = createRange(/* offset= */ 50, /* length= */ 250);
+    GcsObjectCombinedRange combinedRange =
+        GcsObjectCombinedRange.builder()
+            .setUnderlyingRanges(ImmutableList.of(range1))
+            .setOffset(range1.getOffset())
+            .setLength(range1.getLength())
+            .build();
+
+    GcsObjectCombinedRange result = combinedRange.union(range2);
+
+    assertThat(result.getUnderlyingRanges()).containsExactly(range1, range2);
+    assertThat(result.getOffset()).isEqualTo(50);
+    assertThat(result.getLength()).isEqualTo(250);
+    assertThat(combinedRange.getUnderlyingRanges()).containsExactly(range1);
+    assertThat(combinedRange.getOffset()).isEqualTo(100);
+    assertThat(combinedRange.getLength()).isEqualTo(50);
+  }
+
   private GcsObjectRange createRange(long offset, int length) {
     return GcsObjectRange.builder()
         .setOffset(offset)
