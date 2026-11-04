@@ -60,8 +60,6 @@ public abstract class GcsListOptions {
     TIME_CREATED,
     /** Object last modification timestamp. */
     UPDATED,
-    /** Object storage class. */
-    STORAGE_CLASS,
     /** Object CRC32C checksum. */
     CRC32C,
     /** Object MD5 hash. */

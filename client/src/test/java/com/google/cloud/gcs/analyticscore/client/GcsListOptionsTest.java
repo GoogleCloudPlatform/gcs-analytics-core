@@ -50,6 +50,22 @@ class GcsListOptionsTest {
     assertThat(options.getEndOffset()).isEmpty();
     assertThat(options.getMatchGlob()).isEmpty();
     assertThat(options.getFields()).isEmpty();
+    assertThat(GcsListOptions.ListField.values())
+        .asList()
+        .containsExactly(
+            GcsListOptions.ListField.NAME,
+            GcsListOptions.ListField.BUCKET,
+            GcsListOptions.ListField.GENERATION,
+            GcsListOptions.ListField.METAGENERATION,
+            GcsListOptions.ListField.SIZE,
+            GcsListOptions.ListField.CONTENT_TYPE,
+            GcsListOptions.ListField.CONTENT_ENCODING,
+            GcsListOptions.ListField.TIME_CREATED,
+            GcsListOptions.ListField.UPDATED,
+            GcsListOptions.ListField.CRC32C,
+            GcsListOptions.ListField.MD5HASH,
+            GcsListOptions.ListField.METADATA)
+        .inOrder();
   }
 
   @Test
