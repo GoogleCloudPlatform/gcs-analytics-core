@@ -59,7 +59,6 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
 import com.google.common.io.BaseEncoding;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
@@ -116,6 +115,8 @@ class GcsClientImpl implements GcsClient {
   private static final ImmutableSet<Integer> IGNORABLE_EMPTY_OBJECT_CREATE_ERROR_CODES =
       ImmutableSet.of(408, 429, 500, 502, 503, 504);
   private static final String UNIVERSE_DOMAIN_ENV_VAR = "GOOGLE_CLOUD_UNIVERSE_DOMAIN";
+  private static final GcsListOptions FIRST_OBJECT_LIST_OPTIONS =
+      GcsListOptions.LIST_RECURSIVE.toBuilder().setPageSize(1).build();
 
   @VisibleForTesting Storage storage;
   @VisibleForTesting volatile Storage grpcStorage;
@@ -375,30 +376,16 @@ class GcsClientImpl implements GcsClient {
 
   @Override
   public Optional<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) throws IOException {
-    checkNotNull(prefixId, "prefixId must not be null");
-    String prefix = prefixId.getObjectName().orElse("");
-
-    try {
-      Page<Blob> page =
-          storage.list(
-              prefixId.getBucketName(),
-              BlobListOption.prefix(prefix),
-              BlobListOption.pageSize(1),
-              BlobListOption.fields(BLOB_METADATA_FIELDS_ARRAY));
-
-      Blob blob = Iterables.getFirst(page.getValues(), null);
-      return Optional.ofNullable(blob).map(b -> fromBlob(b));
-    } catch (StorageException e) {
-      // list() returns an empty page when the prefix does not exist, so GCS returns 404 here only
-      // when the bucket itself does not exist.
-      if (e.getCode() == 404) {
-        throw GcsExceptionUtil.createBucketNotFoundException(prefixId.getBucketName(), e);
+    GcsListOptions options = FIRST_OBJECT_LIST_OPTIONS;
+    while (true) {
+      GcsListPage<GcsItemInfo> page = listObjectsPage(prefixId, options);
+      if (!page.getItems().isEmpty()) {
+        return Optional.of(page.getItems().get(0));
       }
-      if (GcsExceptionUtil.getErrorType(e) == GcsExceptionUtil.ErrorType.ACCESS_DENIED) {
-        throw GcsExceptionUtil.createAccessDeniedException(
-            UriUtil.getStringPath(prefixId), "list", e);
+      if (!page.hasNextPage()) {
+        return Optional.empty();
       }
-      throw new IOException("Failed to list the first object for prefix: " + prefixId, e);
+      options = options.toBuilder().setPageToken(page.getNextPageToken()).build();
     }
   }
 
@@ -408,10 +395,6 @@ class GcsClientImpl implements GcsClient {
     checkNotNull(prefixId, "prefixId must not be null");
     checkNotNull(options, "options must not be null");
     checkArgument(!prefixId.getBucketName().isEmpty(), "Empty bucket name: %s", prefixId);
-    checkArgument(
-        prefixId.getContentGeneration().isEmpty(),
-        "prefixId must not specify contentGeneration: %s",
-        prefixId);
 
     String bucketName = prefixId.getBucketName();
     String prefix = prefixId.getObjectName().orElse("");

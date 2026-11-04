@@ -93,10 +93,6 @@ public class FakeGcsClientImpl extends GcsClientImpl {
     checkNotNull(prefixId, "prefixId must not be null");
     checkNotNull(options, "options must not be null");
     checkArgument(!prefixId.getBucketName().isEmpty(), "Empty bucket name: %s", prefixId);
-    checkArgument(
-        prefixId.getContentGeneration().isEmpty(),
-        "prefixId must not specify contentGeneration: %s",
-        prefixId);
     int offset = parsePageToken(options.getPageToken());
     String bucketName = prefixId.getBucketName();
     String prefix = prefixId.getObjectName().orElse("");

@@ -241,11 +241,47 @@ class FakeGcsClientImplTest {
     assertThat(second.hasNextPage()).isFalse();
   }
 
+  @Test
+  void listObjectsPage_placeholderDirectoryItemIdWithGeneration_ignoresGenerationAndListsChildren()
+      throws IOException {
+    String bucket = "fake-versioned-dir-bucket";
+    StorageTestUtils.createBlobInStorage(
+        FakeGcsClientImpl.storage, BlobId.of(bucket, "dir/", 42L), "");
+    putBlob(bucket, "dir/child.txt", "abc");
+    GcsItemInfo dirInfo = fakeGcsClient.getGcsItemInfo(id(bucket, "dir/"));
+    assertThat(dirInfo.getItemId().getContentGeneration()).hasValue(42L);
+
+    GcsListPage<GcsItemInfo> page =
+        fakeGcsClient.listObjectsPage(dirInfo.getItemId(), GcsListOptions.LIST_DIRECTORY);
+
+    assertThat(page.getPrefixObject()).isPresent();
+    assertThat(itemNames(page)).containsExactly("dir/child.txt");
+  }
+
+  @Test
+  void listFirstObjectWithPrefix_nestedVsPlaceholder_returnsExpectedFirstObject()
+      throws IOException {
+    String bucket = "fake-first-object-bucket";
+    putBlob(bucket, "b/c/obj", "nested");
+    GcsItemId prefixId = id(bucket, "b/");
+
+    assertThat(
+            fakeGcsClient
+                .listFirstObjectWithPrefix(prefixId)
+                .flatMap(i -> i.getItemId().getObjectName()))
+        .hasValue("b/c/obj");
+
+    putBlob(bucket, "b/", "");
+    assertThat(
+            fakeGcsClient
+                .listFirstObjectWithPrefix(prefixId)
+                .flatMap(i -> i.getItemId().getObjectName()))
+        .hasValue("b/");
+  }
+
   @TestFactory
   Stream<DynamicTest> listObjectsPage_invalidArguments_throwsExpectedException() {
     GcsItemId valid = id("token-bucket", "p/");
-    GcsItemId versioned =
-        GcsItemId.builder().setBucketName("b").setObjectName("p/").setContentGeneration(1L).build();
     GcsListOptions dir = GcsListOptions.LIST_DIRECTORY;
     GcsListOptions badTok = dir.toBuilder().setPageToken("not-an-int").build();
     GcsListOptions negTok = dir.toBuilder().setPageToken("-1").build();
@@ -254,7 +290,6 @@ class FakeGcsClientImplTest {
         expectThrows("nullOpts", NullPointerException.class, valid, null),
         expectThrows("root", IllegalArgumentException.class, GcsItemId.ROOT, dir),
         expectThrows("emptyBucket", IllegalArgumentException.class, id("", "p/"), dir),
-        expectThrows("versioned", IllegalArgumentException.class, versioned, dir),
         expectThrows("badToken", IOException.class, valid, badTok),
         expectThrows("negToken", IOException.class, valid, negTok));
   }

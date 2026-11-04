@@ -2069,10 +2069,67 @@ class GcsClientImplTest {
   }
 
   @Test
+  void listFirstObjectWithPrefix_noPlaceholderWithDeeplyNestedObject_returnsNestedObject()
+      throws IOException {
+    String bucket = "nested-only-first-bucket";
+    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "b/c/obj"), "payload");
+    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "b/d/other"), "other");
+    GcsItemId prefixId = GcsItemId.builder().setBucketName(bucket).setObjectName("b/").build();
+
+    Optional<GcsItemInfo> result = gcsClient.listFirstObjectWithPrefix(prefixId);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getItemId().getObjectName()).hasValue("b/c/obj");
+    assertThat(result.get().getItemType()).isEqualTo(GcsItemInfo.ItemType.OBJECT);
+  }
+
+  @Test
+  void listFirstObjectWithPrefix_placeholderAndNestedObjectExist_returnsPlaceholderObject()
+      throws IOException {
+    String bucket = "placeholder-and-nested-bucket";
+    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "b/c/obj"), "payload");
+    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "b/"), "");
+    GcsItemId prefixId = GcsItemId.builder().setBucketName(bucket).setObjectName("b/").build();
+
+    Optional<GcsItemInfo> result = gcsClient.listFirstObjectWithPrefix(prefixId);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getItemId().getObjectName()).hasValue("b/");
+    assertThat(result.get().getItemType()).isEqualTo(GcsItemInfo.ItemType.PLACEHOLDER_DIRECTORY);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void listFirstObjectWithPrefix_emptyFirstPageWithNextPageToken_advancesUntilObjectFound()
+      throws IOException {
+    Page<Blob> emptyFirstPage = mock(Page.class);
+    when(emptyFirstPage.getValues()).thenReturn(ImmutableList.of());
+    when(emptyFirstPage.getNextPageToken()).thenReturn("tok-2");
+    Blob nested = createMockBlob(TEST_BUCKET, "b/c/obj");
+    Page<Blob> secondPage = mock(Page.class);
+    when(secondPage.getValues()).thenReturn(ImmutableList.of(nested));
+    when(secondPage.getNextPageToken()).thenReturn(null);
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.list(eq(TEST_BUCKET), any(BlobListOption[].class)))
+        .thenReturn(emptyFirstPage, secondPage);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+    GcsItemId prefixId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("b/").build();
+
+    Optional<GcsItemInfo> result = clientWithMock.listFirstObjectWithPrefix(prefixId);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getItemId().getObjectName()).hasValue("b/c/obj");
+    ArgumentCaptor<BlobListOption[]> captor = ArgumentCaptor.forClass(BlobListOption[].class);
+    verify(mockStorage, times(2)).list(eq(TEST_BUCKET), captor.capture());
+    assertThat(Arrays.asList(captor.getAllValues().get(1)))
+        .contains(BlobListOption.pageToken("tok-2"));
+  }
+
+  @Test
   void listFirstObjectWithPrefix_storageThrows500_throwsIOException() {
     Storage mockStorage = mock(Storage.class);
-    when(mockStorage.list(eq(TEST_BUCKET), any(Storage.BlobListOption[].class)))
-        .thenThrow(new StorageException(500, "Internal error"));
+    StorageException cause = new StorageException(500, "Internal error");
+    when(mockStorage.list(eq(TEST_BUCKET), any(Storage.BlobListOption[].class))).thenThrow(cause);
     GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
     IOException e =
@@ -2081,7 +2138,8 @@ class GcsClientImplTest {
 
     assertThat(e)
         .hasMessageThat()
-        .contains("Failed to list the first object for prefix: " + TEST_ITEM_ID);
+        .contains("Failed to list objects for prefix: " + UriUtil.getStringPath(TEST_ITEM_ID));
+    assertThat(e).hasCauseThat().isSameInstanceAs(cause);
   }
 
   @Test
@@ -3735,6 +3793,28 @@ class GcsClientImplTest {
         .contains(BlobListOption.fields(BlobField.valueOf(field.name())));
   }
 
+  @Test
+  void listObjectsPage_placeholderDirectoryItemIdWithGeneration_ignoresGenerationAndListsChildren()
+      throws IOException {
+    String bucket = "versioned-placeholder-dir-bucket";
+    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "dir/", 42L), "");
+    GcsItemInfo dirInfo =
+        gcsClient.getGcsItemInfo(
+            GcsItemId.builder().setBucketName(bucket).setObjectName("dir/").build());
+    assertThat(dirInfo.getItemId().getContentGeneration()).hasValue(42L);
+    Blob selfMarker = createMockBlob(bucket, "dir/");
+    Blob child = createMockBlob(bucket, "dir/child.parquet");
+    GcsClientImpl client =
+        createClientWithMockStorage(createMockStorageWithBlobs(bucket, selfMarker, child));
+
+    GcsListPage<GcsItemInfo> page =
+        client.listObjectsPage(dirInfo.getItemId(), GcsListOptions.LIST_DIRECTORY);
+
+    assertThat(page.getPrefixObject()).isPresent();
+    assertThat(page.getItems().stream().map(i -> i.getItemId().getObjectName().orElse("")))
+        .containsExactly("dir/child.parquet");
+  }
+
   @ParameterizedTest
   @MethodSource("invalidListObjectsPageInputs")
   void listObjectsPage_invalidArguments_throwsExpectedException(
@@ -3745,19 +3825,12 @@ class GcsClientImplTest {
   private static Stream<Arguments> invalidListObjectsPageInputs() {
     GcsItemId emptyBucketWithObject =
         GcsItemId.builder().setBucketName("").setObjectName(TEST_DIR).build();
-    GcsItemId versionedId =
-        GcsItemId.builder()
-            .setBucketName(TEST_BUCKET_NAME)
-            .setObjectName(TEST_DIR)
-            .setContentGeneration(123L)
-            .build();
     return Stream.of(
         Arguments.of(null, GcsListOptions.LIST_DIRECTORY, NullPointerException.class),
         Arguments.of(TEST_DIR_ITEM_ID, null, NullPointerException.class),
         Arguments.of(GcsItemId.ROOT, GcsListOptions.LIST_DIRECTORY, IllegalArgumentException.class),
         Arguments.of(
-            emptyBucketWithObject, GcsListOptions.LIST_DIRECTORY, IllegalArgumentException.class),
-        Arguments.of(versionedId, GcsListOptions.LIST_DIRECTORY, IllegalArgumentException.class));
+            emptyBucketWithObject, GcsListOptions.LIST_DIRECTORY, IllegalArgumentException.class));
   }
 
   @ParameterizedTest
