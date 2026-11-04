@@ -42,7 +42,6 @@ class GcsListOptionsTest {
     assertThat(options).isEqualTo(GcsListOptions.LIST_DIRECTORY);
     assertThat(options.getDelimiter()).hasValue("/");
     assertThat(options.isIncludeFoldersAsPrefixes()).isFalse();
-    assertThat(options.isIncludeTrailingDelimiter()).isTrue();
     assertThat(options.isIncludePrefixObject()).isFalse();
     assertThat(options.getPageSize()).isEmpty();
     assertThat(options.getPageToken()).isEmpty();
@@ -82,35 +81,29 @@ class GcsListOptionsTest {
 
     assertThat(hnsDir.getDelimiter()).hasValue("/");
     assertThat(hnsDir.isIncludeFoldersAsPrefixes()).isTrue();
-    assertThat(hnsDir.isIncludeTrailingDelimiter()).isTrue();
     assertThat(hnsDir.isIncludePrefixObject()).isFalse();
     assertThat(recursive.getDelimiter()).isEmpty();
     assertThat(recursive.isIncludeFoldersAsPrefixes()).isFalse();
-    assertThat(recursive.isIncludeTrailingDelimiter()).isFalse();
-    assertThat(recursive.isIncludePrefixObject()).isTrue();
+    assertThat(recursive.isIncludePrefixObject()).isFalse();
     assertThat(recursiveIds.getFields())
         .containsExactly(GcsListOptions.ListField.NAME, GcsListOptions.ListField.GENERATION);
     assertThat(emptyFlat.getPageSize()).hasValue(2);
     assertThat(emptyFlat.getFields()).containsExactly(GcsListOptions.ListField.NAME);
     assertThat(emptyFlat.isIncludeFoldersAsPrefixes()).isFalse();
-    assertThat(emptyFlat.isIncludeTrailingDelimiter()).isTrue();
     assertThat(emptyFlat.isIncludePrefixObject()).isFalse();
     assertThat(emptyHns.getPageSize()).hasValue(2);
     assertThat(emptyHns.getFields()).containsExactly(GcsListOptions.ListField.NAME);
     assertThat(emptyHns.isIncludeFoldersAsPrefixes()).isTrue();
-    assertThat(emptyHns.isIncludeTrailingDelimiter()).isTrue();
     assertThat(emptyHns.isIncludePrefixObject()).isFalse();
   }
 
   @Test
-  void builder_emptyDelimiterWithDefaultIncludeTrailingDelimiter_succeeds() {
-    GcsListOptions.Builder builder = GcsListOptions.builder().setDelimiter(Optional.empty());
+  void builder_emptyDelimiter_equalsListRecursiveAndRoundTripsToListDirectory() {
+    GcsListOptions options = GcsListOptions.builder().setDelimiter(Optional.empty()).build();
 
-    GcsListOptions options = builder.build();
-
-    assertThat(options.getDelimiter()).isEmpty();
-    assertThat(options.isIncludeTrailingDelimiter()).isTrue();
-    assertThat(options.isIncludeFoldersAsPrefixes()).isFalse();
+    assertThat(options).isEqualTo(GcsListOptions.LIST_RECURSIVE);
+    assertThat(options.toBuilder().setDelimiter("/").build())
+        .isEqualTo(GcsListOptions.LIST_DIRECTORY);
   }
 
   @Test
@@ -119,7 +112,6 @@ class GcsListOptionsTest {
         GcsListOptions.builder()
             .setDelimiter("/")
             .setIncludeFoldersAsPrefixes(true)
-            .setIncludeTrailingDelimiter(false)
             .setIncludePrefixObject(true)
             .setPageSize(250)
             .setPageToken("token-1")
@@ -268,6 +260,17 @@ class GcsListOptionsTest {
     assertThat(e).hasMessageThat().contains("pageSize must be positive");
   }
 
+  @Test
+  void build_onlyStartOffsetOrOnlyEndOffset_succeeds() {
+    GcsListOptions startOnly = GcsListOptions.builder().setStartOffset("dir/a").build();
+    GcsListOptions endOnly = GcsListOptions.builder().setEndOffset("dir/z").build();
+
+    assertThat(startOnly.getStartOffset()).hasValue("dir/a");
+    assertThat(startOnly.getEndOffset()).isEmpty();
+    assertThat(endOnly.getStartOffset()).isEmpty();
+    assertThat(endOnly.getEndOffset()).hasValue("dir/z");
+  }
+
   @ParameterizedTest
   @MethodSource("validUtf8OffsetPairs")
   void build_validUtf8OffsetOrdering_succeeds(String startOffset, String endOffset) {
@@ -338,6 +341,7 @@ class GcsListOptionsTest {
     ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(
         GcsListOptions.class,
         GcsListOptions.Builder.class,
+        GcsListOptions.ListField.class,
         GcsListOptions.LIST_DIRECTORY.getClass(),
         builder.getClass());
   }

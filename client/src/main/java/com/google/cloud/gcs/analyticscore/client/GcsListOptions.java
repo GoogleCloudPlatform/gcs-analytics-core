@@ -90,17 +90,16 @@ public abstract class GcsListOptions {
       builder().setIncludeFoldersAsPrefixes(true).build();
 
   /**
-   * Preset for recursively listing all objects under a prefix without delimiter collapsing. Delete
-   * or rename callers needing only IDs and generations can project {@code
-   * LIST_RECURSIVE.toBuilder().setFields(List.of(ListField.NAME, ListField.GENERATION)).build()}.
+   * Preset for recursively listing all objects under a prefix without delimiter collapsing
+   * (matching {@code hadoop-connectors} {@code ListObjectOptions.DEFAULT_FLAT_LIST}: {@code
+   * includePrefixObject = false}, so a real {@code "dir/"} marker matching the listed prefix is
+   * excluded from {@link GcsListPage#getItems()} and surfaced via {@link
+   * GcsListPage#getPrefixObject()}). Delete or rename callers needing only IDs and generations can
+   * project {@code LIST_RECURSIVE.toBuilder().setFields(List.of(ListField.NAME,
+   * ListField.GENERATION)).build()}.
    */
   public static final GcsListOptions LIST_RECURSIVE =
-      builder()
-          .setDelimiter(Optional.empty())
-          .setIncludeFoldersAsPrefixes(false)
-          .setIncludeTrailingDelimiter(false)
-          .setIncludePrefixObject(true)
-          .build();
+      builder().setDelimiter(Optional.empty()).build();
 
   /**
    * Preset for flat-namespace directory emptiness checks: {@code pageSize = 2} accommodates a
@@ -122,7 +121,12 @@ public abstract class GcsListOptions {
   public static final GcsListOptions EMPTINESS_CHECK_HNS =
       LIST_DIRECTORY_HNS.toBuilder().setPageSize(2).setFields(Set.of(ListField.NAME)).build();
 
-  /** Returns the delimiter used to collapse object names into prefixes, or empty for flat list. */
+  /**
+   * Returns the delimiter used to collapse object names into prefixes, or empty for flat list. When
+   * present, {@link GcsClient} enables {@code includeTrailingDelimiter} on GCS {@code objects.list}
+   * requests so child placeholder objects (for example, {@code "dir/sub/"}) are surfaced in {@link
+   * GcsListPage#getItems()} with full metadata.
+   */
   public abstract Optional<String> getDelimiter();
 
   /**
@@ -130,12 +134,6 @@ public abstract class GcsListOptions {
    * #getDelimiter()} to be {@code "/"}.
    */
   public abstract boolean isIncludeFoldersAsPrefixes();
-
-  /**
-   * Returns whether child objects ending with {@link #getDelimiter()} are also surfaced as items.
-   * Ignored when {@link #getDelimiter()} is empty.
-   */
-  public abstract boolean isIncludeTrailingDelimiter();
 
   /**
    * Returns whether a real object matching the listed directory prefix (e.g. {@code "dir/"}) is
@@ -163,7 +161,8 @@ public abstract class GcsListOptions {
 
   /**
    * Returns GCS's raw inclusive UTF-8 byte-order lower bound ({@code objectName >= startOffset}).
-   * Does not automatically disable delimiter collapsing or skip directory marker objects.
+   * Does not automatically disable delimiter collapsing or skip directory marker objects (use
+   * {@link #LIST_RECURSIVE}{@code .toBuilder().setStartOffset(...)} for flat range scans).
    */
   public abstract Optional<String> getStartOffset();
 
@@ -191,15 +190,13 @@ public abstract class GcsListOptions {
 
   /**
    * Returns a new {@link Builder} initialized with defaults matching {@link #LIST_DIRECTORY}:
-   * {@code delimiter = "/"}, {@code includeFoldersAsPrefixes = false}, {@code
-   * includeTrailingDelimiter = true}, {@code includePrefixObject = false}, empty optional filters,
-   * and an empty {@code fields} set.
+   * {@code delimiter = "/"}, {@code includeFoldersAsPrefixes = false}, {@code includePrefixObject =
+   * false}, empty optional filters, and an empty {@code fields} set.
    */
   public static Builder builder() {
     return new AutoValue_GcsListOptions.Builder()
         .setDelimiter("/")
         .setIncludeFoldersAsPrefixes(false)
-        .setIncludeTrailingDelimiter(true)
         .setIncludePrefixObject(false)
         .setFields(ImmutableSet.of());
   }
@@ -216,9 +213,6 @@ public abstract class GcsListOptions {
 
     /** Sets whether HNS folders (and managed folders) are returned in prefixes. */
     public abstract Builder setIncludeFoldersAsPrefixes(boolean includeFoldersAsPrefixes);
-
-    /** Sets whether child objects ending with the delimiter are included in items. */
-    public abstract Builder setIncludeTrailingDelimiter(boolean includeTrailingDelimiter);
 
     /** Sets whether a real object matching the listed directory prefix is included in items. */
     public abstract Builder setIncludePrefixObject(boolean includePrefixObject);
