@@ -59,6 +59,8 @@ import org.mockito.MockitoAnnotations;
 
 class GcsBidiReadChannelTest {
 
+  private static final int KB = 1024;
+
   @Mock private Storage storage;
   @Mock private BlobReadSession blobReadSession;
   @Mock private ApiFuture<BlobReadSession> sessionFuture;
@@ -990,6 +992,137 @@ class GcsBidiReadChannelTest {
     assertThat(seekableReader.getItemInfo()).isSameInstanceAs(itemInfo);
   }
 
+  @Test
+  void createReadStrategy_getReadChannel_throwsUnsupportedOperation() {
+    ReadStrategy strategy =
+        reader.createReadStrategy(storage, itemId, GcsReadOptions.builder().build(), null);
+
+    UnsupportedOperationException e =
+        assertThrows(UnsupportedOperationException.class, () -> strategy.getReadChannel(0L, 10));
+
+    assertThat(e).hasMessageThat().contains("Standard read is not supported on Bidi channel yet.");
+  }
+
+  @Test
+  void createReadStrategy_positionAndGetLimit_areNoOps() {
+    ReadStrategy strategy =
+        reader.createReadStrategy(storage, itemId, GcsReadOptions.builder().build(), null);
+
+    strategy.position(10L);
+
+    assertThat(strategy.getLimit()).isEqualTo(0L);
+  }
+
+  @Test
+  void createReadStrategy_isEof_returnsTrue() {
+    ReadStrategy strategy =
+        reader.createReadStrategy(storage, itemId, GcsReadOptions.builder().build(), null);
+
+    assertThat(strategy.isEof(0L)).isTrue();
+  }
+
+  @Test
+  void read_emptyByteStringFromSession_returnsZeroWithoutAdvancingPosition() throws Exception {
+    // TODO: Documents current behavior pending a fix in GcsBidiReadChannel.readBytesFromSession.
+    // Returning 0 on an in-bounds blocking read into a non-empty buffer violates the
+    // ReadableByteChannel contract and spins callers like SmallObjectOptimizer and
+    // GcsFooterOptimizer; update this test once empty responses return -1 or throw.
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(KB).build();
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(ByteString.EMPTY);
+
+    try (GcsBidiReadChannel seekableReader = createChannelWithItemInfo(itemInfo)) {
+      seekableReader.position(5L);
+      ByteBuffer dst = ByteBuffer.allocate(10);
+
+      int bytesRead = seekableReader.read(dst);
+
+      assertThat(bytesRead).isEqualTo(0);
+      assertThat(seekableReader.position()).isEqualTo(5L);
+      assertThat(dst.position()).isEqualTo(0);
+    }
+  }
+
+  @Test
+  void read_nonNotFoundStorageExceptionDuringRead_rethrowsStorageException() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(KB).build();
+    ApiFuture<DisposableByteString> failedFuture =
+        ApiFutures.immediateFailedFuture(new StorageException(500, "Internal Server Error"));
+    when(blobReadSession.readAs(any())).thenReturn(failedFuture);
+
+    try (GcsBidiReadChannel seekableReader = createChannelWithItemInfo(itemInfo)) {
+      ByteBuffer dst = ByteBuffer.allocate(10);
+
+      StorageException e = assertThrows(StorageException.class, () -> seekableReader.read(dst));
+
+      assertThat(e.getCode()).isEqualTo(500);
+    }
+  }
+
+  @Test
+  void readVectored_readAsThrowsRuntimeException_completesExceptionally() throws Exception {
+    GcsObjectRange range = newRange(0, 10);
+    when(blobReadSession.readAs(any())).thenThrow(new IllegalStateException("Session closed"));
+
+    reader.readVectored(Arrays.asList(range), ByteBuffer::allocate);
+
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(e).hasCauseThat().isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void readVectored_oversizedPayload_completesExceptionallyAndClosesDbs() throws Exception {
+    GcsObjectRange range = newRange(0, 10);
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(sequentialBytes(0, 15));
+
+    reader.readVectored(Arrays.asList(range), ByteBuffer::allocate);
+
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(e).hasCauseThat().isInstanceOf(IOException.class);
+    assertThat(e)
+        .hasCauseThat()
+        .hasMessageThat()
+        .contains("Received more bytes (15) than requested (10)");
+    verify(disposableByteString).close();
+  }
+
+  @Test
+  void readVectored_nullDisposableByteString_completesExceptionally() throws Exception {
+    GcsObjectRange range = newRange(0, 10);
+    when(blobReadSession.readAs(any())).thenReturn(ApiFutures.immediateFuture(null));
+
+    reader.readVectored(Arrays.asList(range), ByteBuffer::allocate);
+
+    ExecutionException e =
+        assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(e).hasCauseThat().isInstanceOf(NullPointerException.class);
+  }
+
+  @Test
+  void size_nullBlobReadSession_fallsBackToItemInfoProvider() throws Exception {
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(KB).build();
+    GcsReadChannel.ItemInfoProvider itemInfoProvider = id -> itemInfo;
+    when(sessionFuture.get(anyLong(), any())).thenReturn(null);
+
+    try (GcsBidiReadChannel seekableReader =
+        new GcsBidiReadChannel(
+            storage, itemId, readOptions, executorServiceSupplier, telemetry, itemInfoProvider)) {
+      assertThat(seekableReader.size()).isEqualTo(KB);
+    }
+  }
+
+  private GcsBidiReadChannel createChannelWithItemInfo(GcsItemInfo itemInfo) throws IOException {
+    GcsReadOptions readOptions = GcsReadOptions.builder().setBidiTimeout(10).build();
+    return new GcsBidiReadChannel(
+        storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
+  }
+
   private GcsBidiReadChannel newReaderWithMergeOptions(int maxMergeGap) throws IOException {
     GcsReadOptions readOptions =
         GcsReadOptions.builder()
@@ -997,7 +1130,7 @@ class GcsBidiReadChannelTest {
             .setGcsVectoredReadOptions(
                 GcsVectoredReadOptions.builder()
                     .setMaxMergeGap(maxMergeGap)
-                    .setMaxMergeSize(1024)
+                    .setMaxMergeSize(KB)
                     .build())
             .build();
     return new GcsBidiReadChannel(storage, itemId, readOptions, executorServiceSupplier, telemetry);
