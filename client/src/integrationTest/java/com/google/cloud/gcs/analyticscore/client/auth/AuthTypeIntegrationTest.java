@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.auth.oauth2.AccessToken;
 import com.google.auth.oauth2.GoogleCredentials;
+import com.google.cloud.gcs.analyticscore.client.FileAccessPattern;
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystem;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemImpl;
@@ -57,7 +58,7 @@ import org.junit.jupiter.api.io.TempDir;
  * URL against Google's bundled certificates. {@code GcsCredentialsFactoryTest} checks its token
  * exchange instead.
  */
-@Timeout(value = 2, unit = TimeUnit.MINUTES)
+@Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
 class AuthTypeIntegrationTest {
 
   private static final URI PRIVATE_OBJECT =
@@ -189,8 +190,12 @@ class AuthTypeIntegrationTest {
   /** Reads the Parquet header bytes of {@link #PRIVATE_OBJECT} as a UTF-8 string. */
   private static String readParquetMagic(GcsFileSystem fileSystem) throws IOException {
     GcsFileInfo fileInfo = fileSystem.getFileInfoObject(PRIVATE_OBJECT);
-    try (VectoredSeekableByteChannel channel =
-        fileSystem.open(fileInfo, GcsReadOptions.builder().build())) {
+    // RANDOM asks GCS for 128 KiB instead of the whole object. Kokoro's HTTPS proxy drops HTTP/2
+    // flow control updates from the client, so a gRPC read whose first message is larger than
+    // 1 MiB hangs until GCS resets the stream after 6 minutes.
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setFileAccessPattern(FileAccessPattern.RANDOM).build();
+    try (VectoredSeekableByteChannel channel = fileSystem.open(fileInfo, readOptions)) {
       ByteBuffer buffer = ByteBuffer.allocate(PARQUET_MAGIC.length());
       while (buffer.hasRemaining() && channel.read(buffer) >= 0) {
         // Keep reading until the buffer is full or the object ends.
