@@ -815,6 +815,106 @@ class GcsFooterOptimizerTest {
     assertThat(dataReadCount.get()).isEqualTo(0);
   }
 
+  @Test
+  void read_fileSizeUnknown_beyondEofWithResolvedMetadata_returnsMinusOne() throws IOException {
+    optimizer.onOpen(ITEM_ID, mockCacheManager);
+    VectoredSeekableByteChannel mockSource = mock(VectoredSeekableByteChannel.class);
+    AtomicBoolean readAttempted = new AtomicBoolean(false);
+    when(mockSource.read(any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              readAttempted.set(true);
+              return -1;
+            });
+    when(mockSource.getItemInfo())
+        .thenAnswer(invocation -> readAttempted.get() ? PINNED_ITEM_INFO : null);
+
+    int bytesRead = optimizer.read(1200, ByteBuffer.allocate(8), mockSource);
+
+    assertThat(bytesRead).isEqualTo(-1);
+    assertThat(readAttempted.get()).isTrue();
+  }
+
+  @Test
+  void read_fileSizeUnknown_zeroByteSpeculativeReadWithMetadata_returnsZero() throws IOException {
+    optimizer.onOpen(ITEM_ID, mockCacheManager);
+    VectoredSeekableByteChannel mockSource = mock(VectoredSeekableByteChannel.class);
+    AtomicBoolean readAttempted = new AtomicBoolean(false);
+    when(mockSource.read(any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              readAttempted.set(true);
+              return 0;
+            });
+    when(mockSource.getItemInfo())
+        .thenAnswer(invocation -> readAttempted.get() ? PINNED_ITEM_INFO : null);
+
+    int bytesRead = optimizer.read(992, ByteBuffer.allocate(8), mockSource);
+
+    assertThat(bytesRead).isEqualTo(0);
+    assertThat(readAttempted.get()).isTrue();
+  }
+
+  @Test
+  void read_fileSizeUnknown_resolvesToLargeFileWithZeroPrefetch_servesSpeculativeRead()
+      throws IOException {
+    readOptions =
+        GcsReadOptions.builder()
+            .setFooterPrefetchEnabled(true)
+            .setFooterPrefetchSizeSmallFile(100)
+            .setFooterPrefetchSizeLargeFile(0)
+            .build();
+    optimizer = new GcsFooterOptimizer(readOptions, telemetry);
+    optimizer.onOpen(ITEM_ID, mockCacheManager);
+    AtomicInteger dataReadCount = new AtomicInteger(0);
+    GcsItemInfo largeItemInfo =
+        GcsItemInfo.builder()
+            .setItemId(PINNED_ITEM_ID)
+            .setSize(2 * GB)
+            .setContentGeneration(7L)
+            .build();
+    VectoredSeekableByteChannel mockSource = fakeChannel(2 * GB, dataReadCount, largeItemInfo);
+    ByteBuffer dst = ByteBuffer.allocate(8);
+
+    int bytesRead = optimizer.read(2 * GB - 8, dst, mockSource);
+
+    assertThat(bytesRead).isEqualTo(8);
+    assertThat(dst.array()).isEqualTo(bytesAt(2 * GB - 8, 8));
+    assertThat(dataReadCount.get()).isEqualTo(1);
+    verify(mockCacheManager, never()).getFooter(any(), any());
+  }
+
+  @Test
+  void read_fileSizeUnknown_speculativeBufferShorterThanOffset_returnsZero() throws IOException {
+    optimizer.onOpen(ITEM_ID, mockCacheManager);
+    AtomicInteger dataReadCount = new AtomicInteger(0);
+    VectoredSeekableByteChannel mockSource =
+        fakeChannel(testData.length, dataReadCount, /* itemInfo= */ null);
+
+    int bytesRead = optimizer.read(1050, ByteBuffer.allocate(8), mockSource);
+
+    assertThat(bytesRead).isEqualTo(0);
+    assertThat(dataReadCount.get()).isEqualTo(1);
+  }
+
+  @Test
+  void read_fileSizeUnknown_itemInfoWithNegativeSize_keepsFileSizeUnresolved() throws IOException {
+    optimizer.onOpen(ITEM_ID, mockCacheManager);
+    AtomicInteger dataReadCount = new AtomicInteger(0);
+    GcsItemInfo negativeSizeItemInfo =
+        GcsItemInfo.builder().setItemId(ITEM_ID).setSize(-1L).build();
+    VectoredSeekableByteChannel mockSource =
+        fakeChannel(testData.length, dataReadCount, negativeSizeItemInfo);
+    ByteBuffer dst = ByteBuffer.allocate(8);
+
+    int bytesRead = optimizer.read(992, dst, mockSource);
+
+    assertThat(bytesRead).isEqualTo(8);
+    assertThat(dst.array()).isEqualTo(bytesAt(992, 8));
+    assertThat(dataReadCount.get()).isEqualTo(1);
+    verify(mockCacheManager, never()).getFooter(any(), any());
+  }
+
   private VectoredSeekableByteChannel lazyMetadataChannel(AtomicInteger dataReadCount)
       throws IOException {
     return fakeChannel(testData.length, dataReadCount, PINNED_ITEM_INFO);
