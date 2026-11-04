@@ -19,6 +19,7 @@ import com.google.common.annotations.VisibleForTesting;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 
@@ -153,6 +154,28 @@ public interface GcsClient {
    * @throws IOException if an I/O error occurs while creating the folder
    */
   void createFolder(GcsItemId itemId, boolean recursive) throws IOException;
+
+  /**
+   * Deletes a single empty native folder in a Hierarchical Namespace (HNS) enabled bucket.
+   *
+   * <p>The folder must be empty: objects and subfolders under it are not deleted. {@code folderId}
+   * may name the folder with or without a trailing slash. The default implementation throws {@link
+   * UnsupportedOperationException}.
+   *
+   * @param folderId the identity of the folder to delete
+   * @throws IllegalArgumentException if {@code folderId} is not an object path (for example the
+   *     root or a bucket) or its folder name is empty (object name {@code "/"})
+   * @throws FileNotFoundException if the folder does not exist
+   * @throws AccessDeniedException if the caller is unauthenticated or not allowed to delete the
+   *     folder
+   * @throws IOException if the folder cannot be deleted for another reason, for example when GCS
+   *     rejects a non-empty folder with {@code FAILED_PRECONDITION} (the original exception is kept
+   *     as the cause)
+   */
+  default void deleteFolder(GcsItemId folderId) throws IOException {
+    throw new UnsupportedOperationException(
+        "deleteFolder is not implemented by " + getClass().getName());
+  }
 
   /**
    * Fetches bucket capability properties (such as HNS and Rapid storage class).
