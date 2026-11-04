@@ -92,7 +92,9 @@ public interface GcsClient {
   /**
    * Lists a single page of GCS objects and collapsed prefixes under {@code prefixId} (either a
    * bucket root {@code gs://bucket} or an object/directory prefix such as {@code gs://bucket/dir/})
-   * in a single RPC (retried automatically per {@link GcsRetryOptions}).
+   * in a single RPC (retried automatically per {@link GcsRetryOptions}), requesting up to {@link
+   * GcsListOptions#DEFAULT_MAX_LIST_ITEMS_PER_CALL} ({@code 5,000}) entries when {@link
+   * GcsListOptions#getPageSize()} is empty.
    *
    * <p>Results preserve GCS unsigned UTF-8 ordering. Collapsed prefixes matching a placeholder
    * object in {@link GcsListPage#getItems()} or the listed directory prefix itself are omitted from

@@ -106,10 +106,8 @@ public class FakeGcsClientImpl extends GcsClientImpl {
 
     Map<String, Blob> emittedObjects = new HashMap<>();
     List<String> matched = collectMatchedNames(rawBlobs, prefix, options, emittedObjects);
-    int end =
-        options.getPageSize().isPresent()
-            ? (int) Math.min(matched.size(), (long) offset + options.getPageSize().getAsInt())
-            : matched.size();
+    int pageSize = options.getPageSize().orElse(GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL);
+    int end = (int) Math.min(matched.size(), (long) offset + pageSize);
     List<String> slice =
         offset >= matched.size() ? List.of() : matched.subList(offset, Math.max(offset, end));
 

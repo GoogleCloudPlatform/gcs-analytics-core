@@ -242,6 +242,31 @@ class FakeGcsClientImplTest {
   }
 
   @Test
+  void listObjectsPage_absentPageSize_capsFirstPageAtDefaultMaxListItemsPerCall()
+      throws IOException {
+    String bucket = "default-5000-cap-bucket";
+    int totalObjects = GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL + 2;
+    for (int i = 0; i < totalObjects; i++) {
+      putBlob(bucket, String.format("cap/obj-%04d", i), "");
+    }
+    GcsItemId prefixId = id(bucket, "cap/");
+
+    GcsListPage<GcsItemInfo> first =
+        fakeGcsClient.listObjectsPage(prefixId, GcsListOptions.LIST_DIRECTORY);
+    GcsListPage<GcsItemInfo> second =
+        fakeGcsClient.listObjectsPage(
+            prefixId,
+            GcsListOptions.LIST_DIRECTORY.toBuilder()
+                .setPageToken(first.getNextPageToken())
+                .build());
+
+    assertThat(first.getItems()).hasSize(GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL);
+    assertThat(first.getNextPageToken()).hasValue("5000");
+    assertThat(second.getItems()).hasSize(2);
+    assertThat(second.hasNextPage()).isFalse();
+  }
+
+  @Test
   void listObjectsPage_placeholderDirectoryItemIdWithGeneration_ignoresGenerationAndListsChildren()
       throws IOException {
     String bucket = "fake-versioned-dir-bucket";

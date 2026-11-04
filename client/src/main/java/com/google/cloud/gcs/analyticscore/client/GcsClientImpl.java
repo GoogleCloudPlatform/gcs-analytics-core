@@ -59,6 +59,7 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.common.io.BaseEncoding;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
@@ -77,6 +78,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -117,6 +119,23 @@ class GcsClientImpl implements GcsClient {
   private static final String UNIVERSE_DOMAIN_ENV_VAR = "GOOGLE_CLOUD_UNIVERSE_DOMAIN";
   private static final GcsListOptions FIRST_OBJECT_LIST_OPTIONS =
       GcsListOptions.LIST_RECURSIVE.toBuilder().setPageSize(1).build();
+  private static final Map<GcsListOptions.ListField, BlobField> LIST_FIELD_TO_BLOB_FIELD =
+      Maps.immutableEnumMap(
+          ImmutableMap.<GcsListOptions.ListField, BlobField>builder()
+              .put(GcsListOptions.ListField.NAME, BlobField.NAME)
+              .put(GcsListOptions.ListField.BUCKET, BlobField.BUCKET)
+              .put(GcsListOptions.ListField.GENERATION, BlobField.GENERATION)
+              .put(GcsListOptions.ListField.METAGENERATION, BlobField.METAGENERATION)
+              .put(GcsListOptions.ListField.SIZE, BlobField.SIZE)
+              .put(GcsListOptions.ListField.CONTENT_TYPE, BlobField.CONTENT_TYPE)
+              .put(GcsListOptions.ListField.CONTENT_ENCODING, BlobField.CONTENT_ENCODING)
+              .put(GcsListOptions.ListField.TIME_CREATED, BlobField.TIME_CREATED)
+              .put(GcsListOptions.ListField.UPDATED, BlobField.UPDATED)
+              .put(GcsListOptions.ListField.STORAGE_CLASS, BlobField.STORAGE_CLASS)
+              .put(GcsListOptions.ListField.CRC32C, BlobField.CRC32C)
+              .put(GcsListOptions.ListField.MD5HASH, BlobField.MD5HASH)
+              .put(GcsListOptions.ListField.METADATA, BlobField.METADATA)
+              .buildOrThrow());
 
   @VisibleForTesting Storage storage;
   @VisibleForTesting volatile Storage grpcStorage;
@@ -412,7 +431,9 @@ class GcsClientImpl implements GcsClient {
     if (options.isIncludeFoldersAsPrefixes()) {
       blobListOptions.add(BlobListOption.includeFolders(true));
     }
-    options.getPageSize().ifPresent(size -> blobListOptions.add(BlobListOption.pageSize(size)));
+    blobListOptions.add(
+        BlobListOption.pageSize(
+            options.getPageSize().orElse(GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL)));
     options.getPageToken().map(BlobListOption::pageToken).ifPresent(blobListOptions::add);
     options.getStartOffset().map(BlobListOption::startOffset).ifPresent(blobListOptions::add);
     options.getEndOffset().map(BlobListOption::endOffset).ifPresent(blobListOptions::add);
@@ -484,35 +505,7 @@ class GcsClientImpl implements GcsClient {
   }
 
   static BlobField toBlobField(GcsListOptions.ListField field) {
-    switch (field) {
-      case NAME:
-        return BlobField.NAME;
-      case BUCKET:
-        return BlobField.BUCKET;
-      case GENERATION:
-        return BlobField.GENERATION;
-      case METAGENERATION:
-        return BlobField.METAGENERATION;
-      case SIZE:
-        return BlobField.SIZE;
-      case CONTENT_TYPE:
-        return BlobField.CONTENT_TYPE;
-      case CONTENT_ENCODING:
-        return BlobField.CONTENT_ENCODING;
-      case TIME_CREATED:
-        return BlobField.TIME_CREATED;
-      case UPDATED:
-        return BlobField.UPDATED;
-      case STORAGE_CLASS:
-        return BlobField.STORAGE_CLASS;
-      case CRC32C:
-        return BlobField.CRC32C;
-      case MD5HASH:
-        return BlobField.MD5HASH;
-      case METADATA:
-        return BlobField.METADATA;
-    }
-    throw new AssertionError("Unsupported ListField: " + field);
+    return checkNotNull(LIST_FIELD_TO_BLOB_FIELD.get(field), "Unsupported ListField: %s", field);
   }
 
   static GcsItemInfo fromBlob(Blob blob) {

@@ -3645,8 +3645,9 @@ class GcsClientImplTest {
   }
 
   @Test
-  void listObjectsPage_emptyDelimiterAndEmptyFields_usesDefaultFieldsAndOmitsDelimiterOptions()
-      throws IOException {
+  void
+      listObjectsPage_emptyDelimiterPageSizeAndFields_usesDefaultPageSizeAndFieldsAndOmitsDelimiter()
+          throws IOException {
     Storage mockStorage = createMockStorageWithBlobs(TEST_BUCKET_NAME);
     GcsClientImpl client = createClientWithMockStorage(mockStorage);
     GcsListOptions options = GcsListOptions.builder().setDelimiter(Optional.empty()).build();
@@ -3658,7 +3659,10 @@ class GcsClientImplTest {
     BlobField[] defaultFields = GcsClientImpl.resolveBlobFields(options);
     assertThat(defaultFields).hasLength(12);
     assertThat(Arrays.asList(captor.getValue()))
-        .containsExactly(BlobListOption.prefix(""), BlobListOption.fields(defaultFields));
+        .containsExactly(
+            BlobListOption.prefix(""),
+            BlobListOption.pageSize(GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL),
+            BlobListOption.fields(defaultFields));
   }
 
   @ParameterizedTest
@@ -3756,22 +3760,26 @@ class GcsClientImplTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  void listObjectsPage_grpcEmptyTokenAndStorageClass_normalizesTokenMapsStorageClassAndSinglePage()
+  void listObjectsPage_grpcEmptyTokenNullBlobAndStorageClass_skipsNullNormalizesTokenAndMapsClass()
       throws IOException {
     Blob blob = createMockBlob(TEST_BUCKET_NAME, TEST_DIR + "cold.parquet");
     when(blob.getStorageClass()).thenReturn(StorageClass.NEARLINE);
     Page<Blob> mockPage = mock(Page.class);
-    when(mockPage.getValues()).thenReturn(ImmutableList.of(blob));
+    when(mockPage.getValues()).thenReturn(Arrays.asList(null, blob));
     when(mockPage.getNextPageToken()).thenReturn("");
     Storage mockStorage = mock(Storage.class);
     when(mockStorage.list(eq(TEST_BUCKET_NAME), any(BlobListOption[].class))).thenReturn(mockPage);
     GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    ArgumentCaptor<BlobListOption[]> captor = ArgumentCaptor.forClass(BlobListOption[].class);
 
     GcsListPage<GcsItemInfo> page =
         client.listObjectsPage(TEST_DIR_ITEM_ID, GcsListOptions.LIST_DIRECTORY);
 
+    verify(mockStorage).list(eq(TEST_BUCKET_NAME), captor.capture());
+    assertThat(Arrays.asList(captor.getValue())).contains(BlobListOption.pageSize(5000));
     assertThat(page.getNextPageToken()).isEmpty();
     assertThat(page.hasNextPage()).isFalse();
+    assertThat(page.getItems()).hasSize(1);
     assertThat(page.getItems().get(0).getStorageClass()).hasValue("NEARLINE");
     verify(mockPage, never()).iterateAll();
   }
