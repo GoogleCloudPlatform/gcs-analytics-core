@@ -63,6 +63,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.io.BaseEncoding;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
+import com.google.storage.control.v2.DeleteFolderRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.FolderName;
 import com.google.storage.control.v2.GetFolderRequest;
@@ -733,6 +734,25 @@ class GcsClientImpl implements GcsClient {
 
   private static boolean isZeroByte(Blob blob) {
     return blob.getSize() == null || blob.getSize() == 0L;
+  }
+
+  @Override
+  public void deleteFolder(GcsItemId folderId) throws IOException {
+    checkNotNull(folderId, "folderId must not be null");
+    checkArgument(folderId.isGcsObject(), "Expected a folder itemId but got: %s", folderId);
+    String objectName = folderId.getObjectName().orElse("");
+    String folderName = UriUtil.removeTrailingSlash(objectName);
+    checkArgument(!folderName.isEmpty(), "Folder name cannot be empty");
+    DeleteFolderRequest request =
+        DeleteFolderRequest.newBuilder()
+            .setName(FolderName.format("_", folderId.getBucketName(), folderName))
+            .build();
+    try {
+      lazyGetStorageControlClient().deleteFolder(request);
+    } catch (Exception e) {
+      throw GcsExceptionUtil.translateControlException(
+          e, folderId, "Failed to delete folder: " + UriUtil.getStringPath(folderId));
+    }
   }
 
   @Override
