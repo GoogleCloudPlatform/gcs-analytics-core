@@ -756,6 +756,64 @@ class GcsClientImpl implements GcsClient {
     }
   }
 
+  @Override
+  public void deleteObject(GcsItemId itemId) throws IOException {
+    checkNotNull(itemId, "itemId must not be null");
+    checkArgument(itemId.isGcsObject(), "Expected a GCS object itemId, but got: %s", itemId);
+    List<Storage.BlobSourceOption> sourceOptions = new ArrayList<>();
+    if (itemId.getContentGeneration().isPresent()) {
+      long generation = itemId.getContentGeneration().get();
+      checkArgument(
+          generation > 0L,
+          "Expected positive contentGeneration for deleteObject, but got: %s",
+          generation);
+      sourceOptions.add(Storage.BlobSourceOption.generationMatch(generation));
+    }
+    resolveUserProject().map(Storage.BlobSourceOption::userProject).ifPresent(sourceOptions::add);
+    BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get());
+    boolean deleted;
+    try {
+      deleted = storage.delete(blobId, sourceOptions.toArray(new Storage.BlobSourceOption[0]));
+    } catch (StorageException e) {
+      throw GcsExceptionUtil.translateDeleteObjectException(e, itemId);
+    }
+    if (!deleted) {
+      throw GcsExceptionUtil.createFileNotFoundException(itemId);
+    }
+  }
+
+  @Override
+  public void deleteBucket(GcsItemId itemId) throws IOException {
+    checkNotNull(itemId, "itemId must not be null");
+    checkArgument(itemId.isBucket(), "Expected a bucket itemId, but got: %s", itemId);
+    checkArgument(
+        itemId.getContentGeneration().isEmpty(),
+        "Bucket itemId must not specify contentGeneration, but got: %s",
+        itemId);
+    String bucketName = itemId.getBucketName();
+    List<Storage.BucketSourceOption> sourceOptions = new ArrayList<>();
+    resolveUserProject().map(Storage.BucketSourceOption::userProject).ifPresent(sourceOptions::add);
+    boolean deleted;
+    try {
+      deleted =
+          storage.delete(bucketName, sourceOptions.toArray(new Storage.BucketSourceOption[0]));
+    } catch (StorageException e) {
+      throw GcsExceptionUtil.translateDeleteBucketException(e, bucketName);
+    } finally {
+      bucketPropertiesCache.invalidate(bucketName);
+    }
+    if (!deleted) {
+      throw GcsExceptionUtil.createBucketNotFoundException(bucketName);
+    }
+  }
+
+  private Optional<String> resolveUserProject() {
+    return clientOptions
+        .getGcsWriteOptions()
+        .getUserProject()
+        .or(() -> clientOptions.getGcsReadOptions().getUserProjectId());
+  }
+
   @VisibleForTesting
   Storage lazyGetGrpcStorage() throws IOException {
     if (isClosed) {
