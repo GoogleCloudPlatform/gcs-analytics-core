@@ -19,6 +19,7 @@ import com.google.common.annotations.VisibleForTesting;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 
@@ -42,6 +43,33 @@ public interface GcsClient {
    */
   WritableByteChannel createWriteChannel(GcsItemId itemId, GcsWriteOptions options)
       throws IOException;
+
+  /**
+   * Moves an object to a new name in the same bucket (GCS {@code objects.move}).
+   *
+   * <p>The move is a server-side, metadata-only operation: no object bytes are copied. The content
+   * generation of {@code srcId}, if present, is sent as a source generation precondition. The
+   * content generation of {@code dstId}, if present, is sent as a destination generation
+   * precondition, where {@code 0} means the destination object must not exist. Without a
+   * destination generation, an existing destination object is replaced.
+   *
+   * @param srcId the object to move
+   * @param dstId the new name of the object, in the same bucket as {@code srcId}
+   * @return metadata of the moved object
+   * @throws IllegalArgumentException if {@code srcId} or {@code dstId} is not a GCS object, the two
+   *     IDs name different buckets or the same object, the source generation is not positive, or
+   *     the destination generation is negative
+   * @throws FileNotFoundException if the source object does not exist
+   * @throws FileAlreadyExistsException if the destination object exists, the destination generation
+   *     is {@code 0}, and no source generation is given
+   * @throws AccessDeniedException if the caller is not allowed to move the object
+   * @throws IOException if any other generation precondition fails or the move fails for another
+   *     reason
+   */
+  default GcsItemInfo moveObject(GcsItemId srcId, GcsItemId dstId) throws IOException {
+    throw new UnsupportedOperationException(
+        "moveObject is not implemented by " + getClass().getName());
+  }
 
   /**
    * Fetches metadata for the given GCS object.
