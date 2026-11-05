@@ -343,6 +343,36 @@ class BatchExecutorTest {
   }
 
   @Test
+  void awaitRequestsCompletion_whenErrorFollowsMaxSuppressedIoExceptions_retainsAndThrowsError() {
+    BatchExecutor executor = newExecutor(0); // Never blocks, and harvest counts are exact.
+    int reportable = BatchExecutor.MAX_SUPPRESSED + 1;
+    List<IOException> ioFailures = new ArrayList<>();
+    for (int i = 0; i < reportable + HARVEST_INTERVAL_PER_THREAD; i++) {
+      IOException failure = new IOException("failure " + i);
+      ioFailures.add(failure);
+      executor.queue(failWith(failure), null);
+    }
+    AssertionError error = new AssertionError("late fatal error");
+    executor.queue(
+        () -> {
+          throw error;
+        },
+        null);
+    for (int i = 0; i < HARVEST_INTERVAL_PER_THREAD; i++) {
+      executor.queue(() -> null, null);
+    }
+
+    AssertionError thrown = assertThrows(AssertionError.class, executor::awaitRequestsCompletion);
+
+    assertThat(thrown).isSameInstanceAs(error);
+    assertThat(thrown.getSuppressed()).asList().containsExactly(ioFailures.get(0));
+    assertThat(ioFailures.get(0).getSuppressed())
+        .asList()
+        .containsExactlyElementsIn(ioFailures.subList(1, reportable))
+        .inOrder();
+  }
+
+  @Test
   void awaitRequestsCompletion_whenRequestsShareOneException_throwsItWithoutSelfSuppression() {
     BatchExecutor executor = newExecutor(0); // Never blocks: requests run inside queue().
     IOException shared = new IOException("shared failure");

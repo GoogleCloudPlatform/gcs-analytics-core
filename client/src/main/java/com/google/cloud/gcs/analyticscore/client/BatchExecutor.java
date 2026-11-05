@@ -84,6 +84,8 @@ final class BatchExecutor implements AutoCloseable {
   /** Grace period for pool termination; only after an interrupt may requests still be running. */
   private static final long SHUTDOWN_GRACE_PERIOD_SECONDS = 1L;
 
+  private static final AtomicInteger POOL_COUNTER = new AtomicInteger();
+
   private final ExecutorService requestsExecutor;
   private final Queue<Future<Void>> responseFutures = new ConcurrentLinkedQueue<>();
 
@@ -113,7 +115,8 @@ final class BatchExecutor implements AutoCloseable {
             TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(numThreads * QUEUE_CAPACITY_PER_THREAD),
             new ThreadFactoryBuilder()
-                .setNameFormat("gcs-batch-executor-pool-%d")
+                .setNameFormat(
+                    "gcs-batch-executor-pool-" + POOL_COUNTER.getAndIncrement() + "-thread-%d")
                 .setDaemon(true)
                 .build());
     executor.allowCoreThreadTimeOut(true);
@@ -160,24 +163,38 @@ final class BatchExecutor implements AutoCloseable {
   /**
    * Drops completed futures whose outcome {@link #awaitRequestsCompletion()} would never report, so
    * memory and scan cost stay bounded: futures that completed normally, and failed or cancelled
-   * futures beyond the first {@code MAX_SUPPRESSED + 1} in queue order.
+   * futures beyond the first {@code MAX_SUPPRESSED + 1} in queue order (always retaining the first
+   * {@link Error} so it can be prioritized over earlier {@link IOException}s).
    */
   private void dropUnreportableFutures() {
     int failed = 0;
+    boolean hasError = false;
     for (Iterator<Future<Void>> it = responseFutures.iterator(); it.hasNext(); ) {
       Future<Void> future = it.next();
-      if (future.isDone() && (completedNormally(future) || ++failed > MAX_SUPPRESSED + 1)) {
+      if (!future.isDone()) {
+        continue;
+      }
+      Throwable failure = getFailureOrNull(future);
+      if (failure == null) {
+        it.remove();
+      } else if (failure instanceof Error && !hasError) {
+        hasError = true;
+        failed++;
+      } else if (++failed > MAX_SUPPRESSED + 1) {
         it.remove();
       }
     }
   }
 
-  private static boolean completedNormally(Future<Void> doneFuture) {
+  @Nullable
+  private static Throwable getFailureOrNull(Future<Void> doneFuture) {
     try {
       Uninterruptibles.getUninterruptibly(doneFuture);
-      return true;
-    } catch (ExecutionException | CancellationException e) {
-      return false;
+      return null;
+    } catch (ExecutionException e) {
+      return e.getCause() != null ? e.getCause() : e;
+    } catch (CancellationException e) {
+      return e;
     }
   }
 
@@ -268,8 +285,8 @@ final class BatchExecutor implements AutoCloseable {
         if (failure == null) {
           failure = e;
         } else if (e instanceof Error && !(failure instanceof Error)) {
+          e.addSuppressed(failure);
           if (suppressedCount < MAX_SUPPRESSED) {
-            e.addSuppressed(failure);
             suppressedCount++;
           }
           failure = e;
