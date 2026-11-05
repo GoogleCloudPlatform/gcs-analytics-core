@@ -19,6 +19,8 @@ These properties govern the core connections, identity, and access parameters be
 | `project-id` | The Google Cloud project ID for the GCS client. | - |
 | `user-project` | Project ID whose Google Cloud Project's billing account should be charged for the operation being executed. | - |
 | `decryption-key` | Decryption key for the object. | - |
+| `client.protocol` | Transport protocol for the GCS client. Supported values: `HTTP`, `GRPC`, `BIDI` (gRPC with bidi streaming reads; required for `channel.write.bidi.enabled`). | `HTTP` |
+| `analytics-core.read.bidi.timeout-seconds` | Timeout (in seconds) for opening a bidi read session and for each bidi range read. Applies only when `client.protocol` is `BIDI`. | `10` |
 
 ### Authentication Options
 
@@ -108,6 +110,18 @@ These parameters fine-tune the low-level data streaming behavior. They allow you
 | `analytics-core.read.file-access-pattern` | File access pattern. Supported values: `RANDOM`, `SEQUENTIAL`, `AUTO_SEQUENTIAL`, `AUTO_RANDOM`. | `AUTO_SEQUENTIAL` |
 | `analytics-core.adaptive-read.sequential-read-threshold` | Threshold for number of sequential reads to switch to sequential mode. | `3` |
 | `analytics-core.random-read.min-request-size` | Minimum request size for random reads. If the requested read size is smaller, it reads up to this size. | `131072` (128 KB) |
+
+### Retry Options
+
+These settings control how many times the underlying Cloud Storage client retries a failed request, how long it waits between attempts, and how long it keeps trying in total. Properties that are not set keep the `google-cloud-storage` SDK defaults; the default values listed below are the SDK defaults at the time of writing and may change with the SDK version. Which errors are retried is still decided by the SDK's idempotency-aware retry strategy.
+
+| Property | Description | Default Value |
+| :--- | :--- | :--- |
+| `analytics-core.retry.max-attempts` | Maximum number of attempts per operation, including the initial attempt. `1` disables retries. Must be at least `1`. | SDK default (`6`) |
+| `analytics-core.retry.initial-delay-ms` | Delay (in milliseconds) before the first retry. Must be positive and must not exceed `analytics-core.retry.max-delay-ms`. | SDK default (`1000`, 1 s) |
+| `analytics-core.retry.delay-multiplier` | Factor by which the retry delay grows after each attempt. Must be at least `1.0`. | SDK default (`2.0`) |
+| `analytics-core.retry.max-delay-ms` | Maximum delay (in milliseconds) between two attempts. Must be positive. | SDK default (`32000`, 32 s) |
+| `analytics-core.retry.total-timeout-ms` | Total time budget (in milliseconds) across all attempts of a single operation. Must be positive. | SDK default (`50000`, 50 s) |
 
 ### Directory Operations
 
