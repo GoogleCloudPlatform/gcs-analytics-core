@@ -19,6 +19,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.api.gax.rpc.UnauthenticatedException;
@@ -28,7 +29,9 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.Locale;
 import java.util.Optional;
 
 /** Centralized utility for classifying GCS transport exceptions. */
@@ -189,6 +192,57 @@ class GcsExceptionUtil {
       default:
         return new IOException(fallbackMessage, e);
     }
+  }
+
+  /** Translates a {@link StorageException} thrown during object deletion. */
+  static IOException translateDeleteObjectException(StorageException e, GcsItemId itemId) {
+    checkNotNull(e, "StorageException should not be null");
+    checkNotNull(itemId, "itemId should not be null");
+    String location = formatLocation(itemId);
+    switch (getErrorType(e)) {
+      case NOT_FOUND:
+        return createFileNotFoundException(location, e);
+      case ACCESS_DENIED:
+        return createAccessDeniedException(location, "object deletion", e);
+      case PRECONDITION_FAILED:
+        if (itemId.getContentGeneration().filter(generation -> generation > 0L).isPresent()) {
+          return new IOException(
+              String.format(
+                  "Generation mismatch for object %s. Concurrent modification detected.",
+                  UriUtil.getStringPath(itemId)),
+              e);
+        }
+        break;
+      default:
+        break;
+    }
+    return new IOException("Failed to delete object: " + location, e);
+  }
+
+  /** Translates a {@link StorageException} thrown during bucket deletion. */
+  static IOException translateDeleteBucketException(StorageException e, String bucketName) {
+    checkNotNull(e, "StorageException should not be null");
+    checkNotNull(bucketName, "bucketName should not be null");
+    String location = "gs://" + bucketName;
+    switch (getErrorType(e)) {
+      case NOT_FOUND:
+        return createBucketNotFoundException(bucketName, e);
+      case ACCESS_DENIED:
+        return createAccessDeniedException(location, "bucket deletion", e);
+      default:
+        if (isBucketNotEmptyException(e)) {
+          return (DirectoryNotEmptyException) new DirectoryNotEmptyException(location).initCause(e);
+        }
+        return new IOException("Failed to delete bucket: " + bucketName, e);
+    }
+  }
+
+  private static boolean isBucketNotEmptyException(StorageException e) {
+    return (e.getCode() == HttpURLConnection.HTTP_CONFLICT
+            || e.getCode() == HttpURLConnection.HTTP_PRECON_FAILED
+            || e.getCause() instanceof FailedPreconditionException)
+        && e.getMessage() != null
+        && e.getMessage().toLowerCase(Locale.ROOT).contains("not empty");
   }
 
   /**
