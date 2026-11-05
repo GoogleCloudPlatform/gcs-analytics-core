@@ -105,13 +105,14 @@ class GcsReadOptionsTest {
   @ParameterizedTest
   @ValueSource(
       strings = {
+        "gcs.channel.read.chunk-size-bytes",
         "gcs.analytics-core.small-file.footer.prefetch.size-bytes",
         "gcs.analytics-core.small-file.cache.threshold-bytes",
         "gcs.analytics-core.large-file.footer.prefetch.size-bytes",
         "gcs.analytics-core.read.inplace-seek-limit-bytes",
         "gcs.analytics-core.adaptive-read.sequential-read-threshold",
         "gcs.analytics-core.random-read.min-request-size",
-        "gcs.analytics-core.read.bidi.timeout-seconds",
+        "gcs.analytics-core.read.bidi.timeout-seconds"
       })
   void createFromOptions_integerValuesGreaterThanIntegerMax_throwsIllegalArgumentException(
       String propertyKey) {
