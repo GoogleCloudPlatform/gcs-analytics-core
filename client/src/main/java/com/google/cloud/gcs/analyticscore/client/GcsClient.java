@@ -18,7 +18,9 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 
@@ -67,6 +69,36 @@ public interface GcsClient {
    * @throws IOException if the metadata cannot be fetched
    */
   GcsItemInfo getBucketInfo(GcsItemId itemId) throws IOException;
+
+  /**
+   * Deletes a folder and every object and subfolder under it on the server, using the Storage
+   * Control {@code DeleteFolderRecursive} long-running operation.
+   *
+   * <p>This operation only applies to buckets with Hierarchical Namespace (HNS) enabled. It blocks
+   * until the operation finishes, polling it with jittered backoff (100 ms initial delay, 1.5x
+   * multiplier, 5 s maximum delay), and stops waiting after 60 minutes, although the server may
+   * still finish the delete after that. The delete is not atomic: if it fails, part of the folder
+   * may already be deleted.
+   *
+   * <p>If the bucket's project does not support recursive folder deletion, this method fails with
+   * an {@link IOException} whose cause is the original API exception, so callers can fall back to
+   * deleting the folder contents client-side.
+   *
+   * <p>The default implementation throws {@link UnsupportedOperationException}.
+   *
+   * @param folderId the folder to delete, with or without a trailing slash
+   * @throws IllegalArgumentException if {@code folderId} is not an object path (for example, a
+   *     bucket or the root) or its folder name is empty
+   * @throws FileNotFoundException if the folder does not exist
+   * @throws AccessDeniedException if the request is unauthenticated or not permitted
+   * @throws InterruptedIOException if the calling thread is interrupted while waiting; the delete
+   *     may still complete on the server
+   * @throws IOException if the delete fails for another reason or does not finish within 60 minutes
+   */
+  default void deleteFolderRecursive(GcsItemId folderId) throws IOException {
+    throw new UnsupportedOperationException(
+        "deleteFolderRecursive is not implemented by " + getClass().getName());
+  }
 
   /**
    * Fetches folder metadata for HNS buckets.

@@ -19,6 +19,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.core.FixedCredentialsProvider;
+import com.google.api.gax.longrunning.OperationFuture;
+import com.google.api.gax.longrunning.OperationTimedPollAlgorithm;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.api.gax.rpc.FixedHeaderProvider;
@@ -61,22 +63,29 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.io.BaseEncoding;
+import com.google.protobuf.Empty;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
+import com.google.storage.control.v2.DeleteFolderRecursiveMetadata;
+import com.google.storage.control.v2.DeleteFolderRecursiveRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.FolderName;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
 import com.google.storage.control.v2.StorageControlSettings;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
@@ -110,6 +119,24 @@ class GcsClientImpl implements GcsClient {
       };
   private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
   private static final String RAPID_STORAGE_CLASS = "RAPID";
+
+  /**
+   * Polling settings for the {@code DeleteFolderRecursive} long-running operation: poll sooner and
+   * wait longer than the client library default (5 s initial delay, 45 s maximum delay, 5 minutes
+   * in total).
+   */
+  @VisibleForTesting
+  static final RetrySettings DELETE_FOLDER_RECURSIVE_POLLING_SETTINGS =
+      RetrySettings.newBuilder()
+          .setInitialRetryDelayDuration(Duration.ofMillis(100))
+          .setRetryDelayMultiplier(1.5)
+          .setMaxRetryDelayDuration(Duration.ofSeconds(5))
+          .setTotalTimeoutDuration(Duration.ofMinutes(60))
+          .setInitialRpcTimeoutDuration(Duration.ZERO)
+          .setRpcTimeoutMultiplier(1.0)
+          .setMaxRpcTimeoutDuration(Duration.ZERO)
+          .build();
+
   private static final ImmutableSet<Integer> IGNORABLE_EMPTY_OBJECT_CREATE_ERROR_CODES =
       ImmutableSet.of(408, 429, 500, 502, 503, 504);
   private static final String UNIVERSE_DOMAIN_ENV_VAR = "GOOGLE_CLOUD_UNIVERSE_DOMAIN";
@@ -367,6 +394,10 @@ class GcsClientImpl implements GcsClient {
         FixedHeaderProvider.create(ImmutableMap.of("User-Agent", getUserAgent())));
     credentials.ifPresent(c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
     universeDomain.ifPresent(builder::setUniverseDomain);
+    builder
+        .deleteFolderRecursiveOperationSettings()
+        .setPollingAlgorithm(
+            OperationTimedPollAlgorithm.create(DELETE_FOLDER_RECURSIVE_POLLING_SETTINGS));
     return StorageControlClient.create(builder.build());
   }
 
@@ -612,6 +643,56 @@ class GcsClientImpl implements GcsClient {
         .setIamConfiguration(
             IamConfiguration.newBuilder().setIsUniformBucketLevelAccessEnabled(true).build())
         .setHierarchicalNamespace(HierarchicalNamespace.newBuilder().setEnabled(true).build());
+  }
+
+  @Override
+  public void deleteFolderRecursive(GcsItemId folderId) throws IOException {
+    checkNotNull(folderId, "folderId must not be null");
+    checkArgument(folderId.isGcsObject(), "Expected a folder itemId but got: %s", folderId);
+    String objectName = folderId.getObjectName().orElse("");
+    String folderName = UriUtil.removeTrailingSlash(objectName);
+    checkArgument(!folderName.isEmpty(), "Folder name cannot be empty");
+    DeleteFolderRecursiveRequest request =
+        DeleteFolderRecursiveRequest.newBuilder()
+            .setName(FolderName.format("_", folderId.getBucketName(), folderName))
+            .build();
+    String errorMessage = "Failed to delete folder recursively: " + folderId;
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future;
+    try {
+      future = lazyGetStorageControlClient().deleteFolderRecursiveAsync(request);
+    } catch (Exception e) {
+      throw GcsExceptionUtil.translateControlException(e, folderId, errorMessage);
+    }
+    try {
+      future.get();
+    } catch (InterruptedException e) {
+      // Stops waiting: cancels local polling, or the initial request if it is still in flight.
+      // GAX never calls CancelOperation, so a delete the server already started keeps running.
+      future.cancel(true);
+      Thread.currentThread().interrupt();
+      throw (InterruptedIOException)
+          new InterruptedIOException(
+                  "Interrupted while waiting to delete folder recursively: "
+                      + folderId
+                      + "; the delete may still complete on the server")
+              .initCause(e);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof Error) {
+        throw (Error) cause;
+      }
+      if (cause instanceof Exception) {
+        throw GcsExceptionUtil.translateControlException((Exception) cause, folderId, errorMessage);
+      }
+      throw new IOException(errorMessage, cause);
+    } catch (CancellationException e) {
+      // The client library cancels polling when DELETE_FOLDER_RECURSIVE_POLLING_SETTINGS times out.
+      throw new IOException(
+          "Timed out waiting to delete folder recursively: "
+              + folderId
+              + "; the delete may still complete on the server",
+          e);
+    }
   }
 
   @Override
