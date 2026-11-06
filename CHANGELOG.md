@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.8.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.7.0...v1.8.0) (2026-11-06)
+
+
+### Features
+
+* **client:** add BatchExecutor and batch.threads option ([#460](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/460)) ([710caa9](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/710caa95deab432a81f990955f0ba8f1606eabf3))
+* **client:** coalesce adjacent ranges in GcsBidiReadChannel.readVectored() ([#429](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/429)) ([497b11d](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/497b11d5adc80735163568e8dbbaed959f45acb8))
+* **client:** Implement mkdirs in GcsFileSystem and NamespaceStrategy ([#400](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/400)) ([64dc873](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/64dc873a57e475a8547e6a56bd28b1b64902627e))
+
 ## [1.7.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.6.0...v1.7.0) (2026-11-02)
 
 
