@@ -150,6 +150,17 @@ class BatchExecutorTest {
   }
 
   @Test
+  void queue_withNullTask_throwsNullPointerException() {
+    BatchExecutor executor = newExecutor(0);
+
+    NullPointerException thrown =
+        assertThrows(NullPointerException.class, () -> executor.queue(null, null));
+
+    assertThat(thrown).hasMessageThat().contains("task must not be null");
+    assertThat(executor.getPendingFuturesCount()).isEqualTo(0);
+  }
+
+  @Test
   void queue_whenOnSuccessThrows_neverCallsOnFailureAndAwaitThrows() {
     BatchExecutor executor = newExecutor(2);
     IllegalStateException callbackFailure = new IllegalStateException("onSuccess failed");
@@ -373,6 +384,30 @@ class BatchExecutorTest {
   }
 
   @Test
+  void awaitRequestsCompletion_withMultipleErrors_throwsFirstAndCapsSuppressed() {
+    BatchExecutor executor = newExecutor(0); // Never blocks, and harvest counts are exact.
+    int reportable = BatchExecutor.MAX_SUPPRESSED + 1;
+    List<AssertionError> errors = new ArrayList<>();
+    for (int i = 0; i < reportable + 2 * HARVEST_INTERVAL_PER_THREAD; i++) {
+      AssertionError error = new AssertionError("fatal error " + i);
+      errors.add(error);
+      executor.queue(failWithError(error), null);
+    }
+
+    assertThat(executor.getPendingFuturesCount())
+        .isLessThan(reportable + HARVEST_INTERVAL_PER_THREAD);
+
+    AssertionError thrown = assertThrows(AssertionError.class, executor::awaitRequestsCompletion);
+
+    assertThat(thrown).isSameInstanceAs(errors.get(0));
+    assertThat(thrown.getSuppressed())
+        .asList()
+        .containsExactlyElementsIn(errors.subList(1, reportable))
+        .inOrder();
+    assertThat(executor.getPendingFuturesCount()).isEqualTo(0);
+  }
+
+  @Test
   void awaitRequestsCompletion_whenRequestsShareOneException_throwsItWithoutSelfSuppression() {
     BatchExecutor executor = newExecutor(0); // Never blocks: requests run inside queue().
     IOException shared = new IOException("shared failure");
@@ -516,6 +551,34 @@ class BatchExecutorTest {
           assertThat(executor.getPendingFuturesCount()).isEqualTo(0);
           executor.shutdown();
           assertThat(queued.called.getCount()).isEqualTo(1); // Cancelled before it could run.
+        });
+  }
+
+  @Test
+  void awaitRequestsCompletion_whenOwnerInterruptedAfterError_rethrowsError() {
+    BatchExecutor executor = newExecutor(1);
+    AssertionError earlierError = new AssertionError("earlier fatal error");
+    RecordingCallback<Thread> blocked = new RecordingCallback<>();
+    assertTimeoutPreemptively(
+        TIMEOUT,
+        () -> {
+          executor.queue(failWithError(earlierError), null);
+          executor.queue(this::blockOnGate, blocked);
+          started.await();
+          Thread owner = Thread.currentThread();
+          runWhen(() -> executor.getPendingFuturesCount() == 0, owner::interrupt);
+
+          AssertionError thrown =
+              assertThrows(AssertionError.class, executor::awaitRequestsCompletion);
+
+          assertThat(Thread.interrupted()).isTrue();
+          assertThat(thrown).isSameInstanceAs(earlierError);
+          assertThat(thrown.getSuppressed()).hasLength(1);
+          Throwable suppressed = thrown.getSuppressed()[0];
+          assertThat(suppressed).isInstanceOf(InterruptedIOException.class);
+          assertThat(suppressed).hasCauseThat().isInstanceOf(InterruptedException.class);
+          blocked.called.await();
+          assertThat(blocked.failures.get(0)).isInstanceOf(InterruptedException.class);
         });
   }
 
@@ -684,6 +747,12 @@ class BatchExecutorTest {
   }
 
   private static Callable<Object> failWith(Exception failure) {
+    return () -> {
+      throw failure;
+    };
+  }
+
+  private static Callable<Object> failWithError(Error failure) {
     return () -> {
       throw failure;
     };
