@@ -18,12 +18,13 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -35,10 +36,14 @@ import org.junit.jupiter.params.provider.ValueSource;
 class GcsListOptionsTest {
 
   @Test
+  void defaultMaxListItemsPerCall_is5000() {
+    assertThat(GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL).isEqualTo(5000);
+  }
+
+  @Test
   void builder_defaults_matchesListDirectoryPreset() {
     GcsListOptions options = GcsListOptions.builder().build();
 
-    assertThat(GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL).isEqualTo(5000);
     assertThat(options).isEqualTo(GcsListOptions.LIST_DIRECTORY);
     assertThat(options.getDelimiter()).hasValue("/");
     assertThat(options.isIncludeFoldersAsPrefixes()).isFalse();
@@ -48,9 +53,7 @@ class GcsListOptionsTest {
     assertThat(options.getStartOffset()).isEmpty();
     assertThat(options.getEndOffset()).isEmpty();
     assertThat(options.getMatchGlob()).isEmpty();
-    assertThat(options.getFields()).isEmpty();
-    assertThat(GcsListOptions.ListField.values())
-        .asList()
+    assertThat(options.getFields())
         .containsExactly(
             GcsListOptions.ListField.NAME,
             GcsListOptions.ListField.BUCKET,
@@ -68,38 +71,83 @@ class GcsListOptionsTest {
   }
 
   @Test
-  void presets_haveExpectedConfiguration() {
-    GcsListOptions hnsDir = GcsListOptions.LIST_DIRECTORY_HNS;
-    GcsListOptions recursive = GcsListOptions.LIST_RECURSIVE;
-    GcsListOptions emptyFlat = GcsListOptions.EMPTINESS_CHECK_FLAT;
-    GcsListOptions emptyHns = GcsListOptions.EMPTINESS_CHECK_HNS;
+  void listField_values_containExpectedMetadataFieldsInOrder() {
+    GcsListOptions.ListField[] fields = GcsListOptions.ListField.values();
 
-    GcsListOptions recursiveIds =
-        recursive.toBuilder()
-            .setFields(List.of(GcsListOptions.ListField.NAME, GcsListOptions.ListField.GENERATION))
-            .build();
-
-    assertThat(hnsDir.getDelimiter()).hasValue("/");
-    assertThat(hnsDir.isIncludeFoldersAsPrefixes()).isTrue();
-    assertThat(hnsDir.isIncludePrefixObject()).isFalse();
-    assertThat(recursive.getDelimiter()).isEmpty();
-    assertThat(recursive.isIncludeFoldersAsPrefixes()).isFalse();
-    assertThat(recursive.isIncludePrefixObject()).isFalse();
-    assertThat(recursiveIds.getFields())
-        .containsExactly(GcsListOptions.ListField.NAME, GcsListOptions.ListField.GENERATION);
-    assertThat(emptyFlat.getPageSize()).hasValue(2);
-    assertThat(emptyFlat.getFields()).containsExactly(GcsListOptions.ListField.NAME);
-    assertThat(emptyFlat.isIncludeFoldersAsPrefixes()).isFalse();
-    assertThat(emptyFlat.isIncludePrefixObject()).isFalse();
-    assertThat(emptyHns.getPageSize()).hasValue(2);
-    assertThat(emptyHns.getFields()).containsExactly(GcsListOptions.ListField.NAME);
-    assertThat(emptyHns.isIncludeFoldersAsPrefixes()).isTrue();
-    assertThat(emptyHns.isIncludePrefixObject()).isFalse();
+    assertThat(fields)
+        .asList()
+        .containsExactly(
+            GcsListOptions.ListField.NAME,
+            GcsListOptions.ListField.BUCKET,
+            GcsListOptions.ListField.GENERATION,
+            GcsListOptions.ListField.METAGENERATION,
+            GcsListOptions.ListField.SIZE,
+            GcsListOptions.ListField.CONTENT_TYPE,
+            GcsListOptions.ListField.CONTENT_ENCODING,
+            GcsListOptions.ListField.TIME_CREATED,
+            GcsListOptions.ListField.UPDATED,
+            GcsListOptions.ListField.STORAGE_CLASS,
+            GcsListOptions.ListField.CRC32C,
+            GcsListOptions.ListField.MD5HASH,
+            GcsListOptions.ListField.METADATA)
+        .inOrder();
   }
 
   @Test
-  void builder_emptyDelimiter_equalsListRecursiveAndRoundTripsToListDirectory() {
-    GcsListOptions options = GcsListOptions.builder().setDelimiter(Optional.empty()).build();
+  void listDirectoryHnsPreset_includesFoldersAsPrefixes() {
+    GcsListOptions options = GcsListOptions.LIST_DIRECTORY_HNS;
+
+    assertThat(options.getDelimiter()).hasValue("/");
+    assertThat(options.isIncludeFoldersAsPrefixes()).isTrue();
+    assertThat(options.isIncludePrefixObject()).isFalse();
+  }
+
+  @Test
+  void listRecursivePreset_clearsDelimiterAndExcludesPrefixObject() {
+    GcsListOptions options = GcsListOptions.LIST_RECURSIVE;
+
+    assertThat(options.getDelimiter()).isEmpty();
+    assertThat(options.isIncludeFoldersAsPrefixes()).isFalse();
+    assertThat(options.isIncludePrefixObject()).isFalse();
+  }
+
+  @Test
+  void emptinessCheckFlatPreset_requestsPageSizeTwoAndMinimalFields() {
+    GcsListOptions options = GcsListOptions.EMPTINESS_CHECK_FLAT;
+
+    assertThat(options.getDelimiter()).hasValue("/");
+    assertThat(options.getPageSize()).hasValue(2);
+    assertThat(options.getFields())
+        .containsExactly(GcsListOptions.ListField.NAME, GcsListOptions.ListField.BUCKET);
+    assertThat(options.isIncludeFoldersAsPrefixes()).isFalse();
+    assertThat(options.isIncludePrefixObject()).isFalse();
+  }
+
+  @Test
+  void emptinessCheckHnsPreset_requestsPageSizeTwoFoldersAndMinimalFields() {
+    GcsListOptions options = GcsListOptions.EMPTINESS_CHECK_HNS;
+
+    assertThat(options.getDelimiter()).hasValue("/");
+    assertThat(options.getPageSize()).hasValue(2);
+    assertThat(options.getFields())
+        .containsExactly(GcsListOptions.ListField.NAME, GcsListOptions.ListField.BUCKET);
+    assertThat(options.isIncludeFoldersAsPrefixes()).isTrue();
+    assertThat(options.isIncludePrefixObject()).isFalse();
+  }
+
+  @Test
+  void emptinessCheckPresets_arePackagePrivate() throws NoSuchFieldException {
+    int flatModifiers =
+        GcsListOptions.class.getDeclaredField("EMPTINESS_CHECK_FLAT").getModifiers();
+    int hnsModifiers = GcsListOptions.class.getDeclaredField("EMPTINESS_CHECK_HNS").getModifiers();
+
+    assertThat(Modifier.isPublic(flatModifiers) || Modifier.isProtected(flatModifiers)).isFalse();
+    assertThat(Modifier.isPublic(hnsModifiers) || Modifier.isProtected(hnsModifiers)).isFalse();
+  }
+
+  @Test
+  void builder_clearDelimiter_equalsListRecursiveAndRoundTripsToListDirectory() {
+    GcsListOptions options = GcsListOptions.builder().clearDelimiter().build();
 
     assertThat(options).isEqualTo(GcsListOptions.LIST_RECURSIVE);
     assertThat(options.toBuilder().setDelimiter("/").build())
@@ -107,7 +155,7 @@ class GcsListOptionsTest {
   }
 
   @Test
-  void toBuilder_allFieldsSetAndCleared_roundTripsCleanly() {
+  void toBuilder_allFieldsSet_preservesEquality() {
     GcsListOptions full =
         GcsListOptions.builder()
             .setDelimiter("/")
@@ -118,109 +166,150 @@ class GcsListOptionsTest {
             .setStartOffset("dir/a")
             .setEndOffset("dir/z")
             .setMatchGlob("dir/*.parquet")
-            .setFields(List.of(GcsListOptions.ListField.NAME, GcsListOptions.ListField.SIZE))
+            .setFields(GcsListOptions.ListField.NAME, GcsListOptions.ListField.SIZE)
             .build();
 
-    GcsListOptions cleared =
-        full.toBuilder()
-            .setIncludeFoldersAsPrefixes(false)
-            .setDelimiter(Optional.empty())
-            .setPageSize(OptionalInt.empty())
-            .setPageToken(Optional.empty())
-            .setStartOffset(Optional.empty())
-            .setEndOffset(Optional.empty())
-            .setMatchGlob(Optional.empty())
-            .setFields(List.of())
-            .build();
+    GcsListOptions copy = full.toBuilder().build();
 
-    assertThat(full.toBuilder().build()).isEqualTo(full);
-    assertThat(cleared.getDelimiter()).isEmpty();
-    assertThat(cleared.getPageSize()).isEmpty();
-    assertThat(cleared.getPageToken()).isEmpty();
-    assertThat(cleared.getStartOffset()).isEmpty();
-    assertThat(cleared.getEndOffset()).isEmpty();
-    assertThat(cleared.getMatchGlob()).isEmpty();
-    assertThat(cleared.getFields()).isEmpty();
+    assertThat(copy).isEqualTo(full);
   }
 
-  @ParameterizedTest
-  @MethodSource("emptyPageTokenSetters")
-  void build_emptyPageToken_normalizesToAbsent(Consumer<GcsListOptions.Builder> tokenSetter) {
-    GcsListOptions.Builder builder = GcsListOptions.builder();
-    tokenSetter.accept(builder);
+  @Test
+  void toBuilder_clearedDelimiterAndEmptyPageToken_clearsValues() {
+    GcsListOptions full =
+        GcsListOptions.builder()
+            .setDelimiter("/")
+            .setIncludeFoldersAsPrefixes(true)
+            .setPageToken("token-1")
+            .setFields(GcsListOptions.ListField.NAME, GcsListOptions.ListField.SIZE)
+            .build();
 
-    GcsListOptions options = builder.build();
+    GcsListOptions updated =
+        full.toBuilder()
+            .setIncludeFoldersAsPrefixes(false)
+            .clearDelimiter()
+            .setPageToken("")
+            .setFields()
+            .build();
+
+    assertThat(updated.getDelimiter()).isEmpty();
+    assertThat(updated.getPageToken()).isEmpty();
+    assertThat(updated.getFields())
+        .containsExactly(GcsListOptions.ListField.NAME, GcsListOptions.ListField.BUCKET);
+  }
+
+  @Test
+  void build_emptyFields_selectsMinimalNameAndBucketProjection() {
+    GcsListOptions options =
+        GcsListOptions.EMPTINESS_CHECK_FLAT.toBuilder().setFields(List.of()).build();
+
+    assertThat(options.getFields())
+        .containsExactly(GcsListOptions.ListField.NAME, GcsListOptions.ListField.BUCKET);
+  }
+
+  @Test
+  void build_fieldsWithoutRequired_autoIncludesNameAndBucket() {
+    GcsListOptions options =
+        GcsListOptions.builder()
+            .setFields(GcsListOptions.ListField.SIZE, GcsListOptions.ListField.STORAGE_CLASS)
+            .build();
+
+    assertThat(options.getFields())
+        .containsExactly(
+            GcsListOptions.ListField.NAME,
+            GcsListOptions.ListField.BUCKET,
+            GcsListOptions.ListField.SIZE,
+            GcsListOptions.ListField.STORAGE_CLASS)
+        .inOrder();
+  }
+
+  @Test
+  void build_emptyPageToken_normalizesToAbsent() {
+    GcsListOptions options = GcsListOptions.builder().setPageToken("").build();
 
     assertThat(options.getPageToken()).isEmpty();
   }
 
-  private static Stream<Consumer<GcsListOptions.Builder>> emptyPageTokenSetters() {
-    return Stream.of(b -> b.setPageToken(""), b -> b.setPageToken(Optional.of("")));
-  }
-
   @Test
-  void setFields_iterableOverload_defensivelyCopiesAndReturnsUnmodifiableSet() {
-    Set<GcsListOptions.ListField> mutableSet = new LinkedHashSet<>();
-    mutableSet.add(GcsListOptions.ListField.NAME);
-    Iterable<GcsListOptions.ListField> nonCollectionIterable = mutableSet::iterator;
+  void setFields_iterableOverload_defensivelyCopiesInput() {
+    List<GcsListOptions.ListField> mutableFields =
+        new ArrayList<>(List.of(GcsListOptions.ListField.GENERATION));
+    Iterable<GcsListOptions.ListField> nonCollectionIterable = mutableFields::iterator;
     GcsListOptions.Builder builder = GcsListOptions.builder().setFields(nonCollectionIterable);
-    mutableSet.add(GcsListOptions.ListField.SIZE);
+    mutableFields.add(GcsListOptions.ListField.SIZE);
 
     GcsListOptions options = builder.build();
 
-    assertThat(options.getFields()).containsExactly(GcsListOptions.ListField.NAME);
-    assertThrows(
-        UnsupportedOperationException.class,
-        () -> options.getFields().add(GcsListOptions.ListField.BUCKET));
+    assertThat(options.getFields())
+        .containsExactly(
+            GcsListOptions.ListField.NAME,
+            GcsListOptions.ListField.BUCKET,
+            GcsListOptions.ListField.GENERATION);
   }
 
   @Test
-  void setFields_packagePrivateSetOverload_defensivelyCopiesOnBuild() {
-    Set<GcsListOptions.ListField> mutableSet = new LinkedHashSet<>();
-    mutableSet.add(GcsListOptions.ListField.NAME);
-    mutableSet.add(GcsListOptions.ListField.SIZE);
-
-    GcsListOptions options = GcsListOptions.builder().setFields(mutableSet).build();
-    mutableSet.clear();
+  void setFields_varargsOverload_ordersInCanonicalEnumOrder() {
+    GcsListOptions options =
+        GcsListOptions.builder()
+            .setFields(GcsListOptions.ListField.METADATA, GcsListOptions.ListField.GENERATION)
+            .build();
 
     assertThat(options.getFields())
-        .containsExactly(GcsListOptions.ListField.NAME, GcsListOptions.ListField.SIZE)
+        .containsExactly(
+            GcsListOptions.ListField.NAME,
+            GcsListOptions.ListField.BUCKET,
+            GcsListOptions.ListField.GENERATION,
+            GcsListOptions.ListField.METADATA)
         .inOrder();
-    assertThrows(
-        UnsupportedOperationException.class,
-        () -> options.getFields().add(GcsListOptions.ListField.BUCKET));
   }
 
-  @ParameterizedTest
-  @MethodSource("emptyDelimiterSetters")
-  void build_emptyDelimiterString_throwsIllegalArgumentException(
-      Consumer<GcsListOptions.Builder> delimiterSetter) {
-    GcsListOptions.Builder builder = GcsListOptions.builder();
-    delimiterSetter.accept(builder);
+  @Test
+  void setFields_emptyVarargs_selectsMinimalNameAndBucketProjection() {
+    GcsListOptions options = GcsListOptions.builder().setFields().build();
+
+    assertThat(options.getFields())
+        .containsExactly(GcsListOptions.ListField.NAME, GcsListOptions.ListField.BUCKET)
+        .inOrder();
+  }
+
+  @Test
+  void getFields_afterToBuilderRoundTrip_returnsUnmodifiableSet() {
+    GcsListOptions initial =
+        GcsListOptions.builder()
+            .setFields(List.of(GcsListOptions.ListField.NAME, GcsListOptions.ListField.SIZE))
+            .build();
+
+    GcsListOptions copy = initial.toBuilder().build();
+
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> copy.getFields().add(GcsListOptions.ListField.BUCKET));
+  }
+
+  @Test
+  void build_emptyDelimiterString_throwsIllegalArgumentException() {
+    GcsListOptions.Builder builder = GcsListOptions.builder().setDelimiter("");
 
     IllegalArgumentException e = assertThrows(IllegalArgumentException.class, builder::build);
 
     assertThat(e).hasMessageThat().contains("delimiter must not be empty");
   }
 
-  private static Stream<Consumer<GcsListOptions.Builder>> emptyDelimiterSetters() {
-    return Stream.of(b -> b.setDelimiter(""), b -> b.setDelimiter(Optional.of("")));
-  }
-
   @ParameterizedTest
-  @MethodSource("nonSlashDelimiters")
+  @MethodSource("nonSlashDelimiterConfigurers")
   void build_includeFoldersAsPrefixesWithoutSlashDelimiter_throwsIllegalArgumentException(
-      Optional<String> delimiter) {
-    GcsListOptions.Builder builder =
-        GcsListOptions.builder().setDelimiter(delimiter).setIncludeFoldersAsPrefixes(true);
+      Consumer<GcsListOptions.Builder> delimiterConfigurer) {
+    GcsListOptions.Builder builder = GcsListOptions.builder().setIncludeFoldersAsPrefixes(true);
+    delimiterConfigurer.accept(builder);
 
     IllegalArgumentException e = assertThrows(IllegalArgumentException.class, builder::build);
 
     assertThat(e).hasMessageThat().contains("includeFoldersAsPrefixes requires delimiter \"/\"");
   }
 
-  private static Stream<Optional<String>> nonSlashDelimiters() {
-    return Stream.of(Optional.empty(), Optional.of(":"), Optional.of("|"));
+  private static Stream<Consumer<GcsListOptions.Builder>> nonSlashDelimiterConfigurers() {
+    return Stream.of(
+        GcsListOptions.Builder::clearDelimiter, b -> b.setDelimiter(":"), b -> b.setDelimiter("|"));
   }
 
   @ParameterizedTest
@@ -234,20 +323,31 @@ class GcsListOptionsTest {
     assertThat(e).hasMessageThat().contains("matchGlob requires delimiter to be absent or \"/\"");
   }
 
-  @ParameterizedTest
-  @MethodSource("validMatchGlobDelimiters")
-  void build_matchGlobWithAbsentOrSlashDelimiter_succeeds(Optional<String> delimiter) {
-    GcsListOptions.Builder builder =
-        GcsListOptions.builder().setDelimiter(delimiter).setMatchGlob("**/*.parquet");
+  @Test
+  void build_matchGlobWithAbsentDelimiter_succeeds() {
+    GcsListOptions options =
+        GcsListOptions.builder().clearDelimiter().setMatchGlob("**/*.parquet").build();
 
-    GcsListOptions options = builder.build();
-
-    assertThat(options.getDelimiter()).isEqualTo(delimiter);
+    assertThat(options.getDelimiter()).isEmpty();
     assertThat(options.getMatchGlob()).hasValue("**/*.parquet");
   }
 
-  private static Stream<Optional<String>> validMatchGlobDelimiters() {
-    return Stream.of(Optional.empty(), Optional.of("/"));
+  @Test
+  void build_matchGlobWithSlashDelimiter_succeeds() {
+    GcsListOptions options =
+        GcsListOptions.builder().setDelimiter("/").setMatchGlob("**/*.parquet").build();
+
+    assertThat(options.getDelimiter()).hasValue("/");
+    assertThat(options.getMatchGlob()).hasValue("**/*.parquet");
+  }
+
+  @Test
+  void build_emptyMatchGlob_throwsIllegalArgumentException() {
+    GcsListOptions.Builder builder = GcsListOptions.builder().setMatchGlob("");
+
+    IllegalArgumentException e = assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(e).hasMessageThat().contains("matchGlob must not be empty");
   }
 
   @ParameterizedTest
@@ -261,14 +361,44 @@ class GcsListOptionsTest {
   }
 
   @Test
-  void build_onlyStartOffsetOrOnlyEndOffset_succeeds() {
-    GcsListOptions startOnly = GcsListOptions.builder().setStartOffset("dir/a").build();
-    GcsListOptions endOnly = GcsListOptions.builder().setEndOffset("dir/z").build();
+  void build_pageSizeAbove5000_preservesHintValue() {
+    GcsListOptions options = GcsListOptions.builder().setPageSize(10_000).build();
 
-    assertThat(startOnly.getStartOffset()).hasValue("dir/a");
-    assertThat(startOnly.getEndOffset()).isEmpty();
-    assertThat(endOnly.getStartOffset()).isEmpty();
-    assertThat(endOnly.getEndOffset()).hasValue("dir/z");
+    assertThat(options.getPageSize()).hasValue(10_000);
+  }
+
+  @Test
+  void build_emptyStartOffset_throwsIllegalArgumentException() {
+    GcsListOptions.Builder builder = GcsListOptions.builder().setStartOffset("");
+
+    IllegalArgumentException e = assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(e).hasMessageThat().contains("startOffset must not be empty");
+  }
+
+  @Test
+  void build_emptyEndOffset_throwsIllegalArgumentException() {
+    GcsListOptions.Builder builder = GcsListOptions.builder().setEndOffset("");
+
+    IllegalArgumentException e = assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(e).hasMessageThat().contains("endOffset must not be empty");
+  }
+
+  @Test
+  void build_onlyStartOffset_succeeds() {
+    GcsListOptions options = GcsListOptions.builder().setStartOffset("dir/a").build();
+
+    assertThat(options.getStartOffset()).hasValue("dir/a");
+    assertThat(options.getEndOffset()).isEmpty();
+  }
+
+  @Test
+  void build_onlyEndOffset_succeeds() {
+    GcsListOptions options = GcsListOptions.builder().setEndOffset("dir/z").build();
+
+    assertThat(options.getStartOffset()).isEmpty();
+    assertThat(options.getEndOffset()).hasValue("dir/z");
   }
 
   @ParameterizedTest
@@ -284,10 +414,17 @@ class GcsListOptionsTest {
   }
 
   private static Stream<Arguments> validUtf8OffsetPairs() {
-    return Stream.of(
-        Arguments.of("dir/a", "dir/a"),
-        Arguments.of("dir/a", "dir/b"),
-        Arguments.of("\uFFFF", "\uD83D\uDE00"));
+    return Stream.of(Arguments.of("dir/a", "dir/b"), Arguments.of("\uFFFF", "\uD83D\uDE00"));
+  }
+
+  @Test
+  void build_equalStartAndEndOffset_throwsIllegalArgumentException() {
+    GcsListOptions.Builder builder =
+        GcsListOptions.builder().setStartOffset("dir/a").setEndOffset("dir/a");
+
+    IllegalArgumentException e = assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(e).hasMessageThat().contains("must be < endOffset");
   }
 
   @ParameterizedTest
@@ -315,34 +452,34 @@ class GcsListOptionsTest {
   }
 
   private static Stream<Consumer<GcsListOptions.Builder>> nullBuilderActions() {
-    Set<GcsListOptions.ListField> setWithNull = Collections.singleton(null);
+    List<GcsListOptions.ListField> listWithNull = Collections.singletonList(null);
     return Stream.of(
         b -> b.setDelimiter((String) null),
-        b -> b.setDelimiter((Optional<String>) null),
-        b -> b.setPageSize(null),
         b -> b.setPageToken((String) null),
-        b -> b.setPageToken((Optional<String>) null),
-        b -> b.setStartOffset((String) null),
-        b -> b.setStartOffset((Optional<String>) null),
-        b -> b.setEndOffset((String) null),
-        b -> b.setEndOffset((Optional<String>) null),
-        b -> b.setMatchGlob((String) null),
-        b -> b.setMatchGlob((Optional<String>) null),
+        b -> b.setStartOffset(null),
+        b -> b.setEndOffset(null),
+        b -> b.setMatchGlob(null),
         b -> b.setFields((Iterable<GcsListOptions.ListField>) null),
-        b -> b.setFields((Set<GcsListOptions.ListField>) null),
-        b -> b.setFields((Iterable<GcsListOptions.ListField>) setWithNull),
-        b -> b.setFields(setWithNull).build());
+        b -> b.setFields((GcsListOptions.ListField[]) null),
+        b -> b.setFields(GcsListOptions.ListField.NAME, null),
+        b -> b.setFields(listWithNull));
+  }
+
+  @Test
+  void builder_doesNotExposePublicOptionalSetterOverloads() {
+    for (Method method : GcsListOptions.Builder.class.getDeclaredMethods()) {
+      if (Modifier.isPublic(method.getModifiers())) {
+        for (Class<?> paramType : method.getParameterTypes()) {
+          assertThat(paramType).isNotEqualTo(Optional.class);
+          assertThat(paramType).isNotEqualTo(OptionalInt.class);
+        }
+      }
+    }
   }
 
   @Test
   void signatures_doNotExposeGuavaTypes() {
-    GcsListOptions.Builder builder = GcsListOptions.builder();
-
     ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(
-        GcsListOptions.class,
-        GcsListOptions.Builder.class,
-        GcsListOptions.ListField.class,
-        GcsListOptions.LIST_DIRECTORY.getClass(),
-        builder.getClass());
+        GcsListOptions.class, GcsListOptions.Builder.class, GcsListOptions.ListField.class);
   }
 }

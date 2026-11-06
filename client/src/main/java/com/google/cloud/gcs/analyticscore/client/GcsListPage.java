@@ -41,6 +41,8 @@ public abstract class GcsListPage<T> {
    * Returns an unmodifiable list of object items in this page in unsigned UTF-8 byte order,
    * disjoint from {@link #getPrefixObject()}.
    */
+  // Keep JDK collection types in public signatures for Guava-excluded consumers (#456).
+  @SuppressWarnings("AutoValueImmutableFields")
   public abstract List<T> getItems();
 
   /**
@@ -48,6 +50,8 @@ public abstract class GcsListPage<T> {
    * unsigned UTF-8 byte order, excluding prefixes present as placeholder objects in {@link
    * #getItems()} and excluding the listed directory prefix itself.
    */
+  // Keep JDK collection types in public signatures for Guava-excluded consumers (#456).
+  @SuppressWarnings("AutoValueImmutableFields")
   public abstract List<GcsItemId> getPrefixes();
 
   /**
@@ -97,21 +101,21 @@ public abstract class GcsListPage<T> {
     abstract List<GcsItemId> getPrefixes();
 
     /** Sets the collapsed directory prefixes in this page from an {@link Iterable}. */
-    public Builder<T> setPrefixes(Iterable<GcsItemId> prefixes) {
+    public Builder<T> setPrefixes(Iterable<? extends GcsItemId> prefixes) {
       return setPrefixes(ImmutableList.copyOf(prefixes));
     }
 
     /** Sets the real object matching the listed directory prefix. */
     public abstract Builder<T> setPrefixObject(T prefixObject);
 
-    /** Sets or clears the optional real object matching the listed directory prefix. */
-    public abstract Builder<T> setPrefixObject(Optional<T> prefixObject);
-
-    /** Sets the continuation token for fetching the next page (empty normalizes to absent). */
+    /**
+     * Sets the continuation token for fetching the next page. An empty string normalizes to absent
+     * because gRPC proto3 {@code ListObjectsResponse.next_page_token} defaults to {@code ""} when
+     * unset.
+     */
     public abstract Builder<T> setNextPageToken(String nextPageToken);
 
-    /** Sets or clears the optional continuation token (empty normalizes to absent). */
-    public abstract Builder<T> setNextPageToken(Optional<String> nextPageToken);
+    abstract Builder<T> setNextPageToken(Optional<String> nextPageToken);
 
     abstract Optional<String> getNextPageToken();
 
@@ -123,6 +127,7 @@ public abstract class GcsListPage<T> {
     public GcsListPage<T> build() {
       setItems(ImmutableList.copyOf(getItems()));
       setPrefixes(ImmutableList.copyOf(getPrefixes()));
+      // gRPC proto3 ListObjectsResponse.next_page_token defaults to "" when absent.
       if (getNextPageToken().map(String::isEmpty).orElse(false)) {
         setNextPageToken(Optional.empty());
       }

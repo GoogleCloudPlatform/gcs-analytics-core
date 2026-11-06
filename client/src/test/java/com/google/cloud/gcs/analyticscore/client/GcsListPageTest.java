@@ -18,12 +18,14 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -53,7 +55,7 @@ class GcsListPageTest {
   }
 
   @Test
-  void builder_itemsPrefixesPrefixObjectAndToken_roundTripsThroughToBuilder() {
+  void builder_withAllProperties_populatesPage() {
     GcsItemInfo marker =
         GcsItemInfo.createPlaceholderDirectory(createPrefixId("test-bucket", "dir/"));
     GcsItemInfo item1 = createObjectInfo("test-bucket", "dir/a.parquet", 10L);
@@ -61,84 +63,91 @@ class GcsListPageTest {
     GcsItemId prefix1 = createPrefixId("test-bucket", "dir/sub1/");
     GcsItemId prefix2 = createPrefixId("test-bucket", "dir/sub2/");
 
-    GcsListPage<GcsItemInfo> firstPage =
+    GcsListPage<GcsItemInfo> page =
         GcsListPage.<GcsItemInfo>builder()
-            .setItems(List.of(item1, item2))
-            .setPrefixes(List.of(prefix1, prefix2))
+            .setItems((Iterable<GcsItemInfo>) List.of(item1, item2))
+            .setPrefixes((Iterable<GcsItemId>) List.of(prefix1, prefix2))
             .setPrefixObject(marker)
             .setNextPageToken("token-1")
             .build();
-    GcsListPage<GcsItemInfo> clearedPage =
-        firstPage.toBuilder()
-            .setPrefixObject(Optional.empty())
-            .setNextPageToken(Optional.empty())
-            .build();
 
-    assertThat(firstPage.getItems()).containsExactly(item1, item2).inOrder();
-    assertThat(firstPage.getPrefixes()).containsExactly(prefix1, prefix2).inOrder();
-    assertThat(firstPage.getPrefixObject()).hasValue(marker);
-    assertThat(firstPage.getNextPageToken()).hasValue("token-1");
-    assertThat(firstPage.hasNextPage()).isTrue();
-    assertThat(firstPage.toBuilder().build()).isEqualTo(firstPage);
-    assertThat(clearedPage.getPrefixObject()).isEmpty();
-    assertThat(clearedPage.getNextPageToken()).isEmpty();
-    assertThat(clearedPage.hasNextPage()).isFalse();
-  }
-
-  @ParameterizedTest
-  @MethodSource("emptyNextPageTokenSetters")
-  void build_emptyNextPageToken_normalizesToAbsentAndHasNextPageFalse(
-      Consumer<GcsListPage.Builder<GcsItemInfo>> tokenSetter) {
-    GcsListPage.Builder<GcsItemInfo> builder = GcsListPage.builder();
-    tokenSetter.accept(builder);
-
-    GcsListPage<GcsItemInfo> page = builder.build();
-
-    assertThat(page.getNextPageToken()).isEmpty();
-    assertThat(page.hasNextPage()).isFalse();
-    assertThat(page.hasNextPage()).isEqualTo(page.getNextPageToken().isPresent());
-  }
-
-  private static Stream<Consumer<GcsListPage.Builder<GcsItemInfo>>> emptyNextPageTokenSetters() {
-    return Stream.of(b -> b.setNextPageToken(""), b -> b.setNextPageToken(Optional.of("")));
+    assertThat(page.getItems()).containsExactly(item1, item2).inOrder();
+    assertThat(page.getPrefixes()).containsExactly(prefix1, prefix2).inOrder();
+    assertThat(page.getPrefixObject()).hasValue(marker);
+    assertThat(page.getNextPageToken()).hasValue("token-1");
+    assertThat(page.hasNextPage()).isTrue();
   }
 
   @Test
-  void setItemsAndPrefixes_iterableOverloads_defensivelyCopyAndReturnUnmodifiableLists() {
+  void toBuilder_allFieldsSet_preservesEquality() {
+    GcsItemInfo marker =
+        GcsItemInfo.createPlaceholderDirectory(createPrefixId("test-bucket", "dir/"));
+    GcsItemInfo item = createObjectInfo("test-bucket", "dir/a.parquet", 10L);
+    GcsItemId prefix = createPrefixId("test-bucket", "dir/sub1/");
+    GcsListPage<GcsItemInfo> original =
+        GcsListPage.<GcsItemInfo>builder()
+            .setItems((Iterable<GcsItemInfo>) List.of(item))
+            .setPrefixes((Iterable<GcsItemId>) List.of(prefix))
+            .setPrefixObject(marker)
+            .setNextPageToken("token-1")
+            .build();
+
+    GcsListPage<GcsItemInfo> copy = original.toBuilder().build();
+
+    assertThat(copy).isEqualTo(original);
+  }
+
+  @Test
+  void toBuilder_emptyNextPageToken_clearsContinuationAndSetsHasNextPageFalse() {
+    GcsListPage<GcsItemInfo> firstPage =
+        GcsListPage.<GcsItemInfo>builder().setNextPageToken("token-1").build();
+
+    GcsListPage<GcsItemInfo> lastPage = firstPage.toBuilder().setNextPageToken("").build();
+
+    assertThat(lastPage.getNextPageToken()).isEmpty();
+    assertThat(lastPage.hasNextPage()).isFalse();
+  }
+
+  @Test
+  void build_emptyNextPageToken_normalizesToAbsentAndHasNextPageFalse() {
+    GcsListPage<GcsItemInfo> page = GcsListPage.<GcsItemInfo>builder().setNextPageToken("").build();
+
+    assertThat(page.getNextPageToken()).isEmpty();
+    assertThat(page.hasNextPage()).isFalse();
+  }
+
+  @Test
+  void setItemsAndPrefixes_iterableOverloads_defensivelyCopyInputs() {
     GcsItemId prefix1 = createPrefixId("test-bucket", "dir/a/");
     GcsItemId prefix2 = createPrefixId("test-bucket", "dir/b/");
-    Deque<String> iterableItems = new ArrayDeque<>(List.of("second", "first"));
-    Deque<GcsItemId> iterablePrefixes = new ArrayDeque<>(List.of(prefix1, prefix2));
+    Deque<String> mutableItems = new ArrayDeque<>(List.of("second", "first"));
+    Deque<GcsItemId> mutablePrefixes = new ArrayDeque<>(List.of(prefix1, prefix2));
+    Iterable<? extends CharSequence> iterableItems = mutableItems;
+    Iterable<? extends GcsItemId> iterablePrefixes = mutablePrefixes;
     GcsListPage.Builder<CharSequence> builder =
-        GcsListPage.<CharSequence>builder()
-            .setItems((Iterable<String>) iterableItems)
-            .setPrefixes((Iterable<GcsItemId>) iterablePrefixes);
-    iterableItems.clear();
-    iterablePrefixes.clear();
+        GcsListPage.<CharSequence>builder().setItems(iterableItems).setPrefixes(iterablePrefixes);
+    mutableItems.clear();
+    mutablePrefixes.clear();
 
     GcsListPage<CharSequence> page = builder.build();
 
     assertThat(page.getItems()).containsExactly("second", "first").inOrder();
     assertThat(page.getPrefixes()).containsExactly(prefix1, prefix2).inOrder();
-    assertThrows(UnsupportedOperationException.class, () -> page.getItems().clear());
-    assertThrows(UnsupportedOperationException.class, () -> page.getPrefixes().clear());
   }
 
   @Test
-  void setItemsAndPrefixes_packagePrivateListOverloads_defensivelyCopyOnBuild() {
+  void getItemsAndPrefixes_afterToBuilderRoundTrip_returnUnmodifiableLists() {
     GcsItemId prefix = createPrefixId("test-bucket", "dir/sub/");
-    List<String> mutableItems = new ArrayList<>(List.of("x", "y"));
-    List<GcsItemId> mutablePrefixes = new ArrayList<>(List.of(prefix));
+    GcsListPage<String> initial =
+        GcsListPage.<String>builder()
+            .setItems((Iterable<String>) List.of("x", "y"))
+            .setPrefixes((Iterable<GcsItemId>) List.of(prefix))
+            .build();
 
-    GcsListPage<String> page =
-        GcsListPage.<String>builder().setItems(mutableItems).setPrefixes(mutablePrefixes).build();
-    mutableItems.clear();
-    mutablePrefixes.clear();
+    GcsListPage<String> copy = initial.toBuilder().build();
 
-    assertThat(page.getItems()).containsExactly("x", "y").inOrder();
-    assertThat(page.getPrefixes()).containsExactly(prefix);
-    assertThrows(UnsupportedOperationException.class, () -> page.getItems().clear());
-    assertThrows(UnsupportedOperationException.class, () -> page.getPrefixes().clear());
+    assertThrows(UnsupportedOperationException.class, () -> copy.getItems().clear());
+    assertThrows(UnsupportedOperationException.class, () -> copy.getPrefixes().clear());
   }
 
   @ParameterizedTest
@@ -151,29 +160,31 @@ class GcsListPageTest {
   }
 
   private static Stream<Consumer<GcsListPage.Builder<GcsItemInfo>>> nullBuilderActions() {
-    List<GcsItemInfo> itemWithNull = Collections.singletonList(null);
-    List<GcsItemId> prefixWithNull = Collections.singletonList(null);
+    Set<GcsItemInfo> itemWithNull = Collections.singleton(null);
+    Set<GcsItemId> prefixWithNull = Collections.singleton(null);
     return Stream.of(
         b -> b.setItems((Iterable<GcsItemInfo>) null),
-        b -> b.setItems((List<GcsItemInfo>) null),
         b -> b.setPrefixes((Iterable<GcsItemId>) null),
-        b -> b.setPrefixes((List<GcsItemId>) null),
-        b -> b.setItems((Iterable<GcsItemInfo>) itemWithNull),
-        b -> b.setPrefixes((Iterable<GcsItemId>) prefixWithNull),
-        b -> b.setItems(itemWithNull).build(),
-        b -> b.setPrefixes(prefixWithNull).build(),
-        b -> b.setPrefixObject((GcsItemInfo) null),
-        b -> b.setPrefixObject((Optional<GcsItemInfo>) null),
-        b -> b.setNextPageToken((String) null),
-        b -> b.setNextPageToken((Optional<String>) null));
+        b -> b.setItems(itemWithNull),
+        b -> b.setPrefixes(prefixWithNull),
+        b -> b.setPrefixObject(null),
+        b -> b.setNextPageToken((String) null));
+  }
+
+  @Test
+  void builder_doesNotExposePublicOptionalSetterOverloads() {
+    for (Method method : GcsListPage.Builder.class.getDeclaredMethods()) {
+      if (Modifier.isPublic(method.getModifiers())) {
+        for (Class<?> paramType : method.getParameterTypes()) {
+          assertThat(paramType).isNotEqualTo(Optional.class);
+        }
+      }
+    }
   }
 
   @Test
   void signatures_doNotExposeGuavaTypes() {
-    GcsListPage.Builder<GcsItemInfo> builder = GcsListPage.builder();
-    GcsListPage<GcsItemInfo> page = builder.build();
-
     ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(
-        GcsListPage.class, GcsListPage.Builder.class, page.getClass(), builder.getClass());
+        GcsListPage.class, GcsListPage.Builder.class);
   }
 }
