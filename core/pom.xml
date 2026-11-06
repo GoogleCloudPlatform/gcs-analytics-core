@@ -32,6 +32,27 @@ limitations under the License.
             <version>${project.version}</version>
         </dependency>
         <!--
+          Shaded and relocated into this jar so consumers never see Parquet's generated types or
+          internal Thrift classes on their classpath. Marked optional because the classes are
+          bundled, so consumers must not also get the artifact as a transitive dependency. This
+          replaces a dependency-reduced POM, which is written into this module's directory by
+          default, and which shifts basedir and drops core from the aggregate JaCoCo report in
+          coverage/ when moved under target/.
+        -->
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-format-structures</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!--
+          The Thrift runtime shaded into parquet-format-structures still logs through unshaded
+          slf4j, but its POM does not declare it.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <!--
           Test dependencies for unit tests only. The Parquet/Hadoop/Avro stack is NOT here on
           purpose: no test under src/test/java references it, and pulling hadoop-common into every
           `mvn test` drags in ~80 transitive jars. It lives in the integration-test and jmh
@@ -64,6 +85,76 @@ limitations under the License.
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <!--
+                  Failsafe runs the integration tests against this shaded jar, but they compile
+                  against the unrelocated classes in target/classes. A call from an integration test
+                  to a method whose signature names a Parquet format or Thrift type therefore
+                  compiles and then fails with NoSuchMethodError.
+                -->
+                <executions>
+                    <execution>
+                        <id>shade-parquet-format</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <artifactSet>
+                                <includes>
+                                    <include>org.apache.parquet:parquet-format-structures</include>
+                                </includes>
+                            </artifactSet>
+                            <filters>
+                                <filter>
+                                    <artifact>org.apache.parquet:parquet-format-structures</artifact>
+                                    <excludes>
+                                        <exclude>parquet.thrift</exclude>
+                                        <!--
+                                          This jar has its own manifest, and the copied Maven
+                                          metadata would make scanners report an unshaded
+                                          parquet-format-structures inside it.
+                                        -->
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                        <exclude>META-INF/maven/**</exclude>
+                                        <!--
+                                          Util decodes footers with the plain compact protocol,
+                                          which does not cap strings or containers, and only Util
+                                          uses the event package. Leaving both out keeps
+                                          BoundedCompactProtocol the only way to decode a footer.
+                                        -->
+                                        <exclude>org/apache/parquet/format/Util*.class</exclude>
+                                        <exclude>org/apache/parquet/format/event/**</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <relocations>
+                                <!--
+                                  Relocate under com.google.cloud.gcs.analyticscore.** so
+                                  hadoop-connectors also bundles and re-relocates these classes.
+                                -->
+                                <relocation>
+                                    <pattern>org.apache.parquet.format</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.internal.shaded.parquet.format</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>shaded.parquet.org.apache.thrift</pattern>
+                                    <shadedPattern>com.google.cloud.gcs.analyticscore.internal.shaded.parquet.thrift</shadedPattern>
+                                </relocation>
+                            </relocations>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
     <profiles>
         <!--
           The integration tests under src/integrationTest/java read and write real Parquet files,
