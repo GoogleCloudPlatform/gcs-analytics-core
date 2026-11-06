@@ -52,6 +52,7 @@ class GcsClientOptionsTest {
         .isEqualTo(GcsClientOptions.PartFileCleanupType.ALWAYS);
     assertThat(options.getPcuPartFileNamePrefix()).isEmpty();
     assertThat(options.getTemporaryPaths()).isEmpty();
+    assertThat(options.getBatchThreads()).isEqualTo(15);
   }
 
   @Test
@@ -70,6 +71,7 @@ class GcsClientOptionsTest {
             .setPcuPartFileCleanupType(GcsClientOptions.PartFileCleanupType.ON_SUCCESS)
             .setPcuPartFileNamePrefix("temp-prefix-")
             .setTemporaryPaths(ImmutableList.of("/tmp/path1", "/tmp/path2"))
+            .setBatchThreads(8)
             .build();
 
     assertThat(options.getProjectId()).hasValue("test-project");
@@ -86,6 +88,7 @@ class GcsClientOptionsTest {
         .isEqualTo(GcsClientOptions.PartFileCleanupType.ON_SUCCESS);
     assertThat(options.getPcuPartFileNamePrefix()).isEqualTo("temp-prefix-");
     assertThat(options.getTemporaryPaths()).containsExactly("/tmp/path1", "/tmp/path2").inOrder();
+    assertThat(options.getBatchThreads()).isEqualTo(8);
   }
 
   @Test
@@ -104,6 +107,7 @@ class GcsClientOptionsTest {
             .put("gcs.channel.write.pcu.part-file.cleanup-type", "on_success")
             .put("gcs.channel.write.pcu.part-file.name-prefix", "temp-prefix-")
             .put("gcs.channel.write.temporary-paths", "/tmp/path1, /tmp/path2")
+            .put("gcs.batch.threads", "8")
             .build();
 
     GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
@@ -122,6 +126,7 @@ class GcsClientOptionsTest {
         .isEqualTo(GcsClientOptions.PartFileCleanupType.ON_SUCCESS);
     assertThat(options.getPcuPartFileNamePrefix()).isEqualTo("temp-prefix-");
     assertThat(options.getTemporaryPaths()).containsExactly("/tmp/path1", "/tmp/path2").inOrder();
+    assertThat(options.getBatchThreads()).isEqualTo(8);
   }
 
   @Test
@@ -161,6 +166,109 @@ class GcsClientOptionsTest {
   @Test
   void createFromOptions_withOverflowingPcuBufferCapacity_throwsIllegalArgumentException() {
     assertOverflowThrows("gcs.channel.write.pcu.buffer.capacity-bytes");
+  }
+
+  @Test
+  void createFromOptions_withOverflowingBatchThreads_throwsIllegalArgumentException() {
+    assertOverflowThrows("gcs.batch.threads");
+  }
+
+  @Test
+  void createFromOptions_withZeroBatchThreads_allowsDirectExecutorMode() {
+    GcsClientOptions options =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.batch.threads", "0"), "gcs.");
+
+    assertThat(options.getBatchThreads()).isEqualTo(0);
+  }
+
+  @Test
+  void createFromOptions_withWhitespaceBatchThreads_parsesCorrectly() {
+    GcsClientOptions options =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.batch.threads", "  12  "), "gcs.");
+
+    assertThat(options.getBatchThreads()).isEqualTo(12);
+  }
+
+  @Test
+  void createFromOptions_withEmptyOrBlankBatchThreads_retainsDefault() {
+    GcsClientOptions emptyOptions =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.batch.threads", ""), "gcs.");
+    GcsClientOptions blankOptions =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.batch.threads", "   "), "gcs.");
+
+    assertThat(emptyOptions.getBatchThreads()).isEqualTo(15);
+    assertThat(blankOptions.getBatchThreads()).isEqualTo(15);
+  }
+
+  @Test
+  void createFromOptions_withExcessiveBatchThreads_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.batch.threads", String.valueOf(GcsClientOptions.MAX_BATCH_THREADS + 1));
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsClientOptions.createFromOptions(rawOptions, "gcs."));
+
+    assertThat(exception).hasMessageThat().contains("batch.threads must be at most");
+  }
+
+  @Test
+  void builder_withZeroBatchThreads_buildsSuccessfully() {
+    GcsClientOptions options = GcsClientOptions.builder().setBatchThreads(0).build();
+
+    assertThat(options.getBatchThreads()).isEqualTo(0);
+  }
+
+  @Test
+  void builder_withMaxBatchThreads_buildsSuccessfully() {
+    GcsClientOptions options =
+        GcsClientOptions.builder().setBatchThreads(GcsClientOptions.MAX_BATCH_THREADS).build();
+
+    assertThat(options.getBatchThreads()).isEqualTo(GcsClientOptions.MAX_BATCH_THREADS);
+  }
+
+  @Test
+  void builder_withNegativeBatchThreads_throwsIllegalArgumentException() {
+    GcsClientOptions.Builder builder = GcsClientOptions.builder().setBatchThreads(-1);
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception).hasMessageThat().contains("batch.threads must be non-negative");
+  }
+
+  @Test
+  void createFromOptions_withNegativeBatchThreads_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.batch.threads", "-1");
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsClientOptions.createFromOptions(rawOptions, "gcs."));
+
+    assertThat(exception).hasMessageThat().contains("batch.threads must be non-negative");
+  }
+
+  @Test
+  void builder_withExcessiveBatchThreads_throwsIllegalArgumentException() {
+    GcsClientOptions.Builder builder =
+        GcsClientOptions.builder().setBatchThreads(GcsClientOptions.MAX_BATCH_THREADS + 1);
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception).hasMessageThat().contains("batch.threads must be at most");
+  }
+
+  @Test
+  void createFromOptions_withNonNumericBatchThreads_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.batch.threads", "not-a-number");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> GcsClientOptions.createFromOptions(rawOptions, "gcs."));
   }
 
   private void assertOverflowThrows(String key) {
