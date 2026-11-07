@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
 import com.google.cloud.storage.Storage.BlobTargetOption;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.common.collect.ImmutableMap;
@@ -94,25 +95,25 @@ public abstract class GcsWriteOptions {
   public static GcsWriteOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
     Builder optionsBuilder = builder();
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + CHECKSUM_VALIDATION_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + CHECKSUM_VALIDATION_KEY)
         .map(Boolean::parseBoolean)
         .ifPresent(optionsBuilder::setChecksumValidationEnabled);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + DISABLE_GZIP_CONTENT_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + DISABLE_GZIP_CONTENT_KEY)
         .map(Boolean::parseBoolean)
         .ifPresent(optionsBuilder::setDisableGzipContent);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + OVERWRITE_EXISTING_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + OVERWRITE_EXISTING_KEY)
         .map(Boolean::parseBoolean)
         .ifPresent(optionsBuilder::setOverwriteExisting);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + KMS_KEY_NAME_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + KMS_KEY_NAME_KEY)
         .ifPresent(optionsBuilder::setKmsKeyName);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + USER_PROJECT_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + USER_PROJECT_KEY)
         .ifPresent(optionsBuilder::setUserProject);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + ENCRYPTION_KEY_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + ENCRYPTION_KEY_KEY)
         .ifPresent(optionsBuilder::setEncryptionKey);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + BIDI_WRITE_ENABLED_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + BIDI_WRITE_ENABLED_KEY)
         .map(Boolean::parseBoolean)
         .ifPresent(optionsBuilder::setBidiWriteEnabled);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + BIDI_FINALIZE_ON_CLOSE_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + BIDI_FINALIZE_ON_CLOSE_KEY)
         .map(Boolean::parseBoolean)
         .ifPresent(optionsBuilder::setBidiFinalizeOnClose);
     return optionsBuilder.build();
