@@ -19,6 +19,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
 import java.util.Map;
 
 /** Configuration options for the GCS caching layer. */
@@ -71,22 +72,20 @@ public abstract class GcsCacheOptions {
   public static GcsCacheOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
     GcsCacheOptions.Builder optionsBuilder = builder();
-    if (analyticsCoreOptions.containsKey(prefix + FOOTER_CACHE_ENABLED_KEY)) {
-      optionsBuilder.setFooterCacheEnabled(
-          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + FOOTER_CACHE_ENABLED_KEY)));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + FOOTER_CACHE_MAX_SIZE_BYTES_KEY)) {
-      optionsBuilder.setFooterCacheMaxSizeBytes(
-          Long.parseLong(analyticsCoreOptions.get(prefix + FOOTER_CACHE_MAX_SIZE_BYTES_KEY)));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_CACHE_ENABLED_KEY)) {
-      optionsBuilder.setSmallObjectCacheEnabled(
-          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + SMALL_FILE_CACHE_ENABLED_KEY)));
-    }
-    if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY)) {
-      optionsBuilder.setSmallObjectCacheMaxSizeBytes(
-          Long.parseLong(analyticsCoreOptions.get(prefix + SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY)));
-    }
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + FOOTER_CACHE_ENABLED_KEY)
+        .map(Boolean::parseBoolean)
+        .ifPresent(optionsBuilder::setFooterCacheEnabled);
+    ConfigurationUtil.getTrimmedValue(
+            analyticsCoreOptions, prefix + FOOTER_CACHE_MAX_SIZE_BYTES_KEY)
+        .map(Long::parseLong)
+        .ifPresent(optionsBuilder::setFooterCacheMaxSizeBytes);
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + SMALL_FILE_CACHE_ENABLED_KEY)
+        .map(Boolean::parseBoolean)
+        .ifPresent(optionsBuilder::setSmallObjectCacheEnabled);
+    ConfigurationUtil.getTrimmedValue(
+            analyticsCoreOptions, prefix + SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY)
+        .map(Long::parseLong)
+        .ifPresent(optionsBuilder::setSmallObjectCacheMaxSizeBytes);
 
     return optionsBuilder.build();
   }
