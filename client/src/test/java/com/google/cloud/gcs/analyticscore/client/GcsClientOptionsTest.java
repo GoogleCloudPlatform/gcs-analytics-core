@@ -22,8 +22,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class GcsClientOptionsTest {
 
@@ -386,6 +391,111 @@ class GcsClientOptionsTest {
                 .setMaxAttempts(11)
                 .setTotalTimeout(Duration.ofMinutes(1))
                 .build());
+  }
+
+  @Test
+  void createFromOptions_withWhitespaceAndMixedCaseEnums_parsesCorrectly() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.channel.write.upload-type", "  Parallel-Composite-Upload  ",
+            "gcs.channel.write.pcu.part-file.cleanup-type", "\tOn-Success\n");
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getUploadType())
+        .isEqualTo(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD);
+    assertThat(options.getPcuPartFileCleanupType())
+        .isEqualTo(GcsClientOptions.PartFileCleanupType.ON_SUCCESS);
+  }
+
+  @Test
+  void createFromOptions_withUnknownUploadType_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of("gcs.channel.write.upload-type", "invalid-upload");
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsClientOptions.createFromOptions(rawOptions, "gcs."));
+
+    assertThat(exception).hasMessageThat().contains("INVALID_UPLOAD");
+  }
+
+  @Test
+  void createFromOptions_withBlankCleanupType_retainsDefault() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of("gcs.channel.write.pcu.part-file.cleanup-type", "   ");
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getPcuPartFileCleanupType())
+        .isEqualTo(GcsClientOptions.PartFileCleanupType.ALWAYS);
+  }
+
+  @Test
+  void createFromOptions_withBlankUploadType_retainsDefault() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.channel.write.upload-type", "   ");
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getUploadType()).isEqualTo(GcsClientOptions.UploadType.CHUNK_UPLOAD);
+  }
+
+  @Test
+  @ResourceLock(Resources.LOCALE)
+  void createFromOptions_withTurkishDefaultLocale_parsesEnumsCorrectly() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.client.protocol", "bidi",
+            "gcs.channel.write.upload-type", "parallel-composite-upload",
+            "gcs.channel.write.pcu.part-file.cleanup-type", "on-success");
+    Locale previousLocale = Locale.getDefault();
+    GcsClientOptions options;
+    try {
+      Locale.setDefault(new Locale("tr", "TR"));
+      options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+    } finally {
+      Locale.setDefault(previousLocale);
+    }
+
+    assertThat(options.getProtocol()).isEqualTo(GcsClientOptions.Protocol.BIDI);
+    assertThat(options.getUploadType())
+        .isEqualTo(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD);
+    assertThat(options.getPcuPartFileCleanupType())
+        .isEqualTo(GcsClientOptions.PartFileCleanupType.ON_SUCCESS);
+  }
+
+  @Test
+  void createFromOptions_withWhitespaceNumericWriteOptions_parsesCorrectly() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.channel.write.chunk-size-bytes", "  " + MB + "  ",
+            "gcs.channel.write.pcu.buffer.count", "\t4\n",
+            "gcs.channel.write.pcu.buffer.capacity-bytes", "  " + (64 * MB) + "  ");
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getUploadChunkSize()).isEqualTo(MB);
+    assertThat(options.getPcuBufferCount()).isEqualTo(4);
+    assertThat(options.getPcuBufferCapacity()).isEqualTo(64 * MB);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", "   "})
+  void createFromOptions_withEmptyOrBlankOptions_retainsDefaults(String blankValue) {
+    Map<String, String> rawOptions =
+        ImmutableMap.<String, String>builder()
+            .put("gcs.client.protocol", blankValue)
+            .put("gcs.channel.write.chunk-size-bytes", blankValue)
+            .put("gcs.channel.write.upload-type", blankValue)
+            .put("gcs.channel.write.pcu.buffer.count", blankValue)
+            .put("gcs.channel.write.pcu.buffer.capacity-bytes", blankValue)
+            .put("gcs.channel.write.pcu.part-file.cleanup-type", blankValue)
+            .build();
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options).isEqualTo(GcsClientOptions.builder().build());
   }
 
   private static GcsClientOptions.Protocol protocolFor(String value) {
