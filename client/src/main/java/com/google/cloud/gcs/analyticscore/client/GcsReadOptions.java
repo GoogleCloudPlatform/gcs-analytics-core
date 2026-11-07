@@ -17,6 +17,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
 import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -115,63 +116,93 @@ public abstract class GcsReadOptions {
   public static GcsReadOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
     GcsReadOptions.Builder optionsBuilder = builder();
-    if (analyticsCoreOptions.containsKey(prefix + GCS_CHANNEL_READ_CHUNK_SIZE_KEY)) {
+    String chunkSizeKey = prefix + GCS_CHANNEL_READ_CHUNK_SIZE_KEY;
+    Optional<String> chunkSize =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, chunkSizeKey);
+    if (chunkSize.isPresent()) {
       optionsBuilder.setChunkSize(
-          ConfigurationUtil.safeParseInteger(
-              analyticsCoreOptions, prefix + GCS_CHANNEL_READ_CHUNK_SIZE_KEY));
+          ConfigurationUtil.safeParseInteger(chunkSizeKey, chunkSize.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + DECRYPTION_KEY_KEY)) {
-      optionsBuilder.setDecryptionKey(analyticsCoreOptions.get(prefix + DECRYPTION_KEY_KEY));
+    Optional<String> decryptionKey =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + DECRYPTION_KEY_KEY);
+    if (decryptionKey.isPresent()) {
+      optionsBuilder.setDecryptionKey(decryptionKey.get());
     }
-    if (analyticsCoreOptions.containsKey(prefix + USER_PROJECT_KEY)) {
-      optionsBuilder.setUserProjectId(analyticsCoreOptions.get(prefix + USER_PROJECT_KEY));
+    Optional<String> userProject =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + USER_PROJECT_KEY);
+    if (userProject.isPresent()) {
+      optionsBuilder.setUserProjectId(userProject.get());
     }
-    if (analyticsCoreOptions.containsKey(prefix + FOOTER_PREFETCH_ENABLED_KEY)) {
-      optionsBuilder.setFooterPrefetchEnabled(
-          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + FOOTER_PREFETCH_ENABLED_KEY)));
+    Optional<String> footerPrefetchEnabled =
+        ConfigurationUtil.getTrimmedValue(
+            analyticsCoreOptions, prefix + FOOTER_PREFETCH_ENABLED_KEY);
+    if (footerPrefetchEnabled.isPresent()) {
+      optionsBuilder.setFooterPrefetchEnabled(Boolean.parseBoolean(footerPrefetchEnabled.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_FOOTER_PREFETCH_SIZE_KEY)) {
+    String smallFileFooterPrefetchSizeKey = prefix + SMALL_FILE_FOOTER_PREFETCH_SIZE_KEY;
+    Optional<String> smallFileFooterPrefetchSize =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, smallFileFooterPrefetchSizeKey);
+    if (smallFileFooterPrefetchSize.isPresent()) {
       optionsBuilder.setFooterPrefetchSizeSmallFile(
           ConfigurationUtil.safeParseInteger(
-              analyticsCoreOptions, prefix + SMALL_FILE_FOOTER_PREFETCH_SIZE_KEY));
+              smallFileFooterPrefetchSizeKey, smallFileFooterPrefetchSize.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + LARGE_FILE_FOOTER_PREFETCH_SIZE_KEY)) {
+    String largeFileFooterPrefetchSizeKey = prefix + LARGE_FILE_FOOTER_PREFETCH_SIZE_KEY;
+    Optional<String> largeFileFooterPrefetchSize =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, largeFileFooterPrefetchSizeKey);
+    if (largeFileFooterPrefetchSize.isPresent()) {
       optionsBuilder.setFooterPrefetchSizeLargeFile(
           ConfigurationUtil.safeParseInteger(
-              analyticsCoreOptions, prefix + LARGE_FILE_FOOTER_PREFETCH_SIZE_KEY));
+              largeFileFooterPrefetchSizeKey, largeFileFooterPrefetchSize.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + SMALL_FILE_CACHE_THRESHOLD_KEY)) {
+    String smallFileCacheThresholdKey = prefix + SMALL_FILE_CACHE_THRESHOLD_KEY;
+    Optional<String> smallFileCacheThreshold =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, smallFileCacheThresholdKey);
+    if (smallFileCacheThreshold.isPresent()) {
       optionsBuilder.setSmallObjectCacheThresholdBytes(
           ConfigurationUtil.safeParseInteger(
-              analyticsCoreOptions, prefix + SMALL_FILE_CACHE_THRESHOLD_KEY));
+              smallFileCacheThresholdKey, smallFileCacheThreshold.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + BIDI_READ_ENABLED_KEY)) {
-      optionsBuilder.setBidiReadEnabled(
-          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + BIDI_READ_ENABLED_KEY)));
+    Optional<String> bidiReadEnabled =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + BIDI_READ_ENABLED_KEY);
+    if (bidiReadEnabled.isPresent()) {
+      optionsBuilder.setBidiReadEnabled(Boolean.parseBoolean(bidiReadEnabled.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + BIDI_TIMEOUT_SECONDS)) {
+    String bidiTimeoutKey = prefix + BIDI_TIMEOUT_SECONDS;
+    Optional<String> bidiTimeout =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, bidiTimeoutKey);
+    if (bidiTimeout.isPresent()) {
       optionsBuilder.setBidiTimeout(
-          ConfigurationUtil.safeParseInteger(analyticsCoreOptions, prefix + BIDI_TIMEOUT_SECONDS));
+          ConfigurationUtil.safeParseInteger(bidiTimeoutKey, bidiTimeout.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + INPLACE_SEEK_LIMIT_KEY)) {
+    String inplaceSeekLimitKey = prefix + INPLACE_SEEK_LIMIT_KEY;
+    Optional<String> inplaceSeekLimit =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, inplaceSeekLimitKey);
+    if (inplaceSeekLimit.isPresent()) {
       optionsBuilder.setInplaceSeekLimit(
-          ConfigurationUtil.safeParseInteger(
-              analyticsCoreOptions, prefix + INPLACE_SEEK_LIMIT_KEY));
+          ConfigurationUtil.safeParseInteger(inplaceSeekLimitKey, inplaceSeekLimit.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + FILE_ACCESS_PATTERN_KEY)) {
+    Optional<String> fileAccessPattern =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + FILE_ACCESS_PATTERN_KEY);
+    if (fileAccessPattern.isPresent()) {
       optionsBuilder.setFileAccessPattern(
-          FileAccessPattern.valueOf(
-              analyticsCoreOptions.get(prefix + FILE_ACCESS_PATTERN_KEY).toUpperCase()));
+          FileAccessPattern.valueOf(fileAccessPattern.get().toUpperCase(Locale.ROOT)));
     }
-    if (analyticsCoreOptions.containsKey(prefix + ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY)) {
+    String adaptiveReadThresholdKey = prefix + ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY;
+    Optional<String> adaptiveReadThreshold =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, adaptiveReadThresholdKey);
+    if (adaptiveReadThreshold.isPresent()) {
       optionsBuilder.setAdaptiveReadSequentialReadThreshold(
           ConfigurationUtil.safeParseInteger(
-              analyticsCoreOptions, prefix + ADAPTIVE_READ_SEQUENTIAL_READ_THRESHOLD_KEY));
+              adaptiveReadThresholdKey, adaptiveReadThreshold.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + RANDOM_READ_MIN_REQUEST_SIZE_KEY)) {
+    String randomReadMinRequestSizeKey = prefix + RANDOM_READ_MIN_REQUEST_SIZE_KEY;
+    Optional<String> randomReadMinRequestSize =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, randomReadMinRequestSizeKey);
+    if (randomReadMinRequestSize.isPresent()) {
       optionsBuilder.setRandomReadMinRequestSize(
           ConfigurationUtil.safeParseInteger(
-              analyticsCoreOptions, prefix + RANDOM_READ_MIN_REQUEST_SIZE_KEY));
+              randomReadMinRequestSizeKey, randomReadMinRequestSize.get()));
     }
 
     optionsBuilder.setGcsVectoredReadOptions(

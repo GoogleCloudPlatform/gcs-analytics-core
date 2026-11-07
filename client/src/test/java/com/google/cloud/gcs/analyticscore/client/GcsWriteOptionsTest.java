@@ -29,6 +29,8 @@ import org.junit.jupiter.api.Test;
 
 class GcsWriteOptionsTest {
 
+  private static final String TEST_ENCRYPTION_KEY = "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=";
+
   @Test
   void builder_withDefaultValues_returnsExpectedDefaults() {
     GcsWriteOptions options = GcsWriteOptions.builder().build();
@@ -108,6 +110,58 @@ class GcsWriteOptionsTest {
     assertThat(options.getEncryptionKey()).hasValue("enc-key");
     assertThat(options.isBidiWriteEnabled()).isTrue();
     assertThat(options.isBidiFinalizeOnClose()).isTrue();
+  }
+
+  @Test
+  void createFromOptions_withWhitespacePaddedValues_trimsAndParsesCorrectly() {
+    Map<String, String> rawOptions =
+        ImmutableMap.<String, String>builder()
+            .put("gcs.channel.write.checksum-validation.enabled", "  true  ")
+            .put("gcs.channel.write.disable-gzip-content", " TRUE\n")
+            .put("gcs.channel.write.overwrite-existing", "  true  ")
+            .put("gcs.kms-key-name", "  kms-key  ")
+            .put("gcs.user-project", "  project-123  ")
+            .put("gcs.encryption-key", "  " + TEST_ENCRYPTION_KEY + "\n")
+            .put("gcs.channel.write.bidi.enabled", "  true  ")
+            .put("gcs.channel.write.bidi.finalize-on-close", " TRUE\n")
+            .build();
+
+    GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.isChecksumValidationEnabled()).isTrue();
+    assertThat(options.isDisableGzipContent()).isTrue();
+    assertThat(options.isOverwriteExisting()).isTrue();
+    assertThat(options.isBidiWriteEnabled()).isTrue();
+    assertThat(options.isBidiFinalizeOnClose()).isTrue();
+    assertThat(options.getKmsKeyName()).hasValue("kms-key");
+    assertThat(options.getUserProject()).hasValue("project-123");
+    assertThat(options.getEncryptionKey()).hasValue(TEST_ENCRYPTION_KEY);
+  }
+
+  @Test
+  void createFromOptions_withBlankValues_retainsDefaults() {
+    Map<String, String> rawOptions =
+        ImmutableMap.<String, String>builder()
+            .put("gcs.channel.write.checksum-validation.enabled", "")
+            .put("gcs.channel.write.disable-gzip-content", "   ")
+            .put("gcs.channel.write.overwrite-existing", "\t\n")
+            .put("gcs.kms-key-name", "")
+            .put("gcs.user-project", "   ")
+            .put("gcs.encryption-key", "\t\n")
+            .put("gcs.channel.write.bidi.enabled", "")
+            .put("gcs.channel.write.bidi.finalize-on-close", "   ")
+            .build();
+
+    GcsWriteOptions options = GcsWriteOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.isChecksumValidationEnabled()).isFalse();
+    assertThat(options.isDisableGzipContent()).isTrue();
+    assertThat(options.isOverwriteExisting()).isTrue();
+    assertThat(options.isBidiWriteEnabled()).isFalse();
+    assertThat(options.isBidiFinalizeOnClose()).isFalse();
+    assertThat(options.getKmsKeyName()).isEmpty();
+    assertThat(options.getUserProject()).isEmpty();
+    assertThat(options.getEncryptionKey()).isEmpty();
   }
 
   @Test
