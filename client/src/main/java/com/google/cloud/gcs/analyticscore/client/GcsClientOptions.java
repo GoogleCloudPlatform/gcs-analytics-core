@@ -202,8 +202,8 @@ public abstract class GcsClientOptions {
     Optional.ofNullable(analyticsCoreOptions.get(prefix + UPLOAD_CHUNK_SIZE_KEY))
         .map(val -> ConfigurationUtil.safeParseInteger(prefix + UPLOAD_CHUNK_SIZE_KEY, val))
         .ifPresent(optionsBuilder::setUploadChunkSize);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + UPLOAD_TYPE_KEY))
-        .map(s -> UploadType.valueOf(s.replace('-', '_').toUpperCase()))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + UPLOAD_TYPE_KEY)
+        .map(s -> UploadType.valueOf(s.replace('-', '_').toUpperCase(Locale.ROOT)))
         .ifPresent(optionsBuilder::setUploadType);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_BUFFER_COUNT_KEY))
         .map(val -> ConfigurationUtil.safeParseInteger(prefix + PCU_BUFFER_COUNT_KEY, val))
@@ -211,8 +211,8 @@ public abstract class GcsClientOptions {
     Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_BUFFER_CAPACITY_KEY))
         .map(val -> ConfigurationUtil.safeParseInteger(prefix + PCU_BUFFER_CAPACITY_KEY, val))
         .ifPresent(optionsBuilder::setPcuBufferCapacity);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_PART_FILE_CLEANUP_TYPE_KEY))
-        .map(s -> PartFileCleanupType.valueOf(s.replace('-', '_').toUpperCase()))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + PCU_PART_FILE_CLEANUP_TYPE_KEY)
+        .map(s -> PartFileCleanupType.valueOf(s.replace('-', '_').toUpperCase(Locale.ROOT)))
         .ifPresent(optionsBuilder::setPcuPartFileCleanupType);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_PART_FILE_NAME_PREFIX_KEY))
         .ifPresent(optionsBuilder::setPcuPartFileNamePrefix);

@@ -388,6 +388,54 @@ class GcsClientOptionsTest {
                 .build());
   }
 
+  @Test
+  void createFromOptions_withWhitespaceAndMixedCaseEnums_parsesCorrectly() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.channel.write.upload-type", "  Parallel-Composite-Upload  ",
+            "gcs.channel.write.pcu.part-file.cleanup-type", "\tOn-Success\n");
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getUploadType())
+        .isEqualTo(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD);
+    assertThat(options.getPcuPartFileCleanupType())
+        .isEqualTo(GcsClientOptions.PartFileCleanupType.ON_SUCCESS);
+  }
+
+  @Test
+  void createFromOptions_withUnknownUploadType_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of("gcs.channel.write.upload-type", "invalid-upload");
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsClientOptions.createFromOptions(rawOptions, "gcs."));
+
+    assertThat(exception).hasMessageThat().contains("INVALID_UPLOAD");
+  }
+
+  @Test
+  void createFromOptions_withBlankCleanupType_retainsDefault() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of("gcs.channel.write.pcu.part-file.cleanup-type", "   ");
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getPcuPartFileCleanupType())
+        .isEqualTo(GcsClientOptions.PartFileCleanupType.ALWAYS);
+  }
+
+  @Test
+  void createFromOptions_withBlankUploadType_retainsDefault() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.channel.write.upload-type", "   ");
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getUploadType()).isEqualTo(GcsClientOptions.UploadType.CHUNK_UPLOAD);
+  }
+
   private static GcsClientOptions.Protocol protocolFor(String value) {
     return GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.client.protocol", value), "gcs.")
         .getProtocol();
