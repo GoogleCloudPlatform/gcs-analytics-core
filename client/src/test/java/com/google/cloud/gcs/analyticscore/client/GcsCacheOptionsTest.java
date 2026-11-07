@@ -148,4 +148,54 @@ class GcsCacheOptionsTest {
 
     assertThrows(NumberFormatException.class, () -> GcsCacheOptions.createFromOptions(map, "gcs."));
   }
+
+  @Test
+  void createFromOptions_withWhitespaceValues_trimsAndParsesCorrectly() {
+    Map<String, String> map = new HashMap<>();
+    map.put("gcs." + GcsCacheOptions.FOOTER_CACHE_ENABLED_KEY, "  true  ");
+    map.put("gcs." + GcsCacheOptions.FOOTER_CACHE_MAX_SIZE_BYTES_KEY, "  " + (50 * MB) + "  ");
+    map.put("gcs." + GcsCacheOptions.SMALL_FILE_CACHE_ENABLED_KEY, "\ttrue\n");
+    map.put("gcs." + GcsCacheOptions.SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY, " " + (100 * MB) + "\t");
+
+    GcsCacheOptions options = GcsCacheOptions.createFromOptions(map, "gcs.");
+
+    assertThat(options.isFooterCacheEnabled()).isTrue();
+    assertThat(options.getFooterCacheMaxSizeBytes()).isEqualTo(50 * MB);
+    assertThat(options.isSmallObjectCacheEnabled()).isTrue();
+    assertThat(options.getSmallObjectCacheMaxSizeBytes()).isEqualTo(100 * MB);
+  }
+
+  @Test
+  void createFromOptions_withEmptyOrBlankValues_retainsDefaults() {
+    Map<String, String> map = new HashMap<>();
+    map.put("gcs." + GcsCacheOptions.FOOTER_CACHE_ENABLED_KEY, "");
+    map.put("gcs." + GcsCacheOptions.FOOTER_CACHE_MAX_SIZE_BYTES_KEY, "   ");
+    map.put("gcs." + GcsCacheOptions.SMALL_FILE_CACHE_ENABLED_KEY, "");
+    map.put("gcs." + GcsCacheOptions.SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY, " \t ");
+
+    GcsCacheOptions options = GcsCacheOptions.createFromOptions(map, "gcs.");
+
+    assertThat(options).isEqualTo(GcsCacheOptions.builder().build());
+  }
+
+  @Test
+  void createFromOptions_withNullValues_retainsDefaults() {
+    Map<String, String> map = new HashMap<>();
+    map.put("gcs." + GcsCacheOptions.FOOTER_CACHE_ENABLED_KEY, null);
+    map.put("gcs." + GcsCacheOptions.FOOTER_CACHE_MAX_SIZE_BYTES_KEY, null);
+    map.put("gcs." + GcsCacheOptions.SMALL_FILE_CACHE_ENABLED_KEY, null);
+    map.put("gcs." + GcsCacheOptions.SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY, null);
+
+    GcsCacheOptions options = GcsCacheOptions.createFromOptions(map, "gcs.");
+
+    assertThat(options).isEqualTo(GcsCacheOptions.builder().build());
+  }
+
+  @Test
+  void createFromOptions_malformedSmallFileMaxSize_throwsNumberFormatException() {
+    Map<String, String> map = new HashMap<>();
+    map.put("gcs." + GcsCacheOptions.SMALL_FILE_CACHE_MAX_SIZE_BYTES_KEY, "not-a-number");
+
+    assertThrows(NumberFormatException.class, () -> GcsCacheOptions.createFromOptions(map, "gcs."));
+  }
 }
