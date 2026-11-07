@@ -17,9 +17,12 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class GcsVectoredReadOptionsTest {
 
@@ -85,5 +88,30 @@ class GcsVectoredReadOptionsTest {
 
     assertThat(modified.getMaxMergeGap()).isEqualTo(4 * KB);
     assertThat(modified.getMaxMergeSize()).isEqualTo(4 * MB);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "gcs.analytics-core.read.vectored.range.merge-gap.max-bytes",
+        "gcs.analytics-core.read.vectored.range.merged-size.max-bytes"
+      })
+  void createFromOptions_integerValuesGreaterThanIntegerMax_throwsIllegalArgumentException(
+      String propertyKey) {
+    String outOfBoundValue = "2147483648";
+    ImmutableMap<String, String> properties = ImmutableMap.of(propertyKey, outOfBoundValue);
+    String prefix = "gcs.";
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsVectoredReadOptions.createFromOptions(properties, prefix));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            String.format(
+                "%s=%s cannot be greater than Integer.MAX_VALUE (%d)",
+                propertyKey, outOfBoundValue, Integer.MAX_VALUE));
   }
 }

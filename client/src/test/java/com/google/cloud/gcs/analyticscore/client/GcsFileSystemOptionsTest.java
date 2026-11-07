@@ -128,4 +128,21 @@ class GcsFileSystemOptionsTest {
         IllegalArgumentException.class,
         () -> GcsFileSystemOptions.createFromOptions(properties, "fs.gs."));
   }
+
+  @Test
+  void createFromOptions_readThreadCountOverflowsInt_throwsIllegalArgumentException() {
+    ImmutableMap<String, String> properties =
+        ImmutableMap.of("fs.gs.analytics-core.read.thread.count", "2147483648");
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsFileSystemOptions.createFromOptions(properties, "fs.gs."));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "fs.gs.analytics-core.read.thread.count=2147483648 cannot be greater than"
+                + " Integer.MAX_VALUE (2147483647)");
+  }
 }
