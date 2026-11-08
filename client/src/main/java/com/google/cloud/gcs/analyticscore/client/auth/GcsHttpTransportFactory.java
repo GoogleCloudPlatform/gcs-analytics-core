@@ -171,17 +171,17 @@ final class GcsHttpTransportFactory {
     checkNotNull(timeout, "%s cannot be null", timeoutName);
     checkArgument(
         !timeout.isNegative(), "%s must not be negative, but was %s", timeoutName, timeout);
+    checkArgument(
+        timeout.compareTo(GcsAuthOptions.MAX_HTTP_TIMEOUT) <= 0,
+        "%s must not exceed %s milliseconds, but was %s",
+        timeoutName,
+        Integer.MAX_VALUE,
+        timeout);
     long timeoutMillis = timeout.toMillis();
     checkArgument(
         timeout.isZero() || timeoutMillis > 0,
         "%s must be zero or at least 1 millisecond, but was %s",
         timeoutName,
-        timeout);
-    checkArgument(
-        timeoutMillis <= Integer.MAX_VALUE,
-        "%s must not exceed %s milliseconds, but was %s",
-        timeoutName,
-        Integer.MAX_VALUE,
         timeout);
     return (int) timeoutMillis;
   }
