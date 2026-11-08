@@ -243,6 +243,51 @@ class GcsHttpTransportFactoryTest {
   }
 
   @Test
+  void toTimeoutMillis_exactlyIntegerMaxValueMillis_returnsIntegerMaxValue() {
+    Duration maxTimeout = Duration.ofMillis(Integer.MAX_VALUE);
+
+    int timeoutMillis = GcsHttpTransportFactory.toTimeoutMillis(maxTimeout, "connectTimeout");
+
+    assertThat(timeoutMillis).isEqualTo(Integer.MAX_VALUE);
+  }
+
+  @Test
+  void toTimeoutMillis_nanosAboveIntegerMaxValueMillis_throwsIllegalArgumentException() {
+    Duration timeout = Duration.ofMillis(Integer.MAX_VALUE).plusNanos(1);
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsHttpTransportFactory.toTimeoutMillis(timeout, "connectTimeout"));
+
+    assertThat(thrown)
+        .hasMessageThat()
+        .isEqualTo(
+            "connectTimeout must not exceed "
+                + Integer.MAX_VALUE
+                + " milliseconds, but was "
+                + timeout);
+  }
+
+  @Test
+  void toTimeoutMillis_durationBeyondLongMillis_throwsIllegalArgumentException() {
+    Duration timeout = Duration.ofSeconds(Long.MAX_VALUE);
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsHttpTransportFactory.toTimeoutMillis(timeout, "connectTimeout"));
+
+    assertThat(thrown)
+        .hasMessageThat()
+        .isEqualTo(
+            "connectTimeout must not exceed "
+                + Integer.MAX_VALUE
+                + " milliseconds, but was "
+                + timeout);
+  }
+
+  @Test
   void keepAliveSslSocketFactory_negativeTimeout_throwsIllegalArgumentException() {
     assertThrows(
         IllegalArgumentException.class,
