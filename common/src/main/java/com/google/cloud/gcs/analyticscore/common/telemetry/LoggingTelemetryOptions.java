@@ -16,6 +16,8 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -49,22 +51,27 @@ public abstract class LoggingTelemetryOptions {
 
   public static Optional<LoggingTelemetryOptions> createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
-    String enabled = analyticsCoreOptions.get(prefix + LOGGING_TELEMETRY_ENABLED_KEY);
-    String level = analyticsCoreOptions.get(prefix + LOGGING_TELEMETRY_LEVEL_KEY);
+    Optional<String> enabled =
+        ConfigurationUtil.getTrimmedValue(
+            analyticsCoreOptions, prefix + LOGGING_TELEMETRY_ENABLED_KEY);
+    Optional<String> level =
+        ConfigurationUtil.getTrimmedValue(
+            analyticsCoreOptions, prefix + LOGGING_TELEMETRY_LEVEL_KEY);
 
-    if (enabled == null && level == null) {
+    if (enabled.isEmpty() && level.isEmpty()) {
       return Optional.empty();
     }
 
     Builder builder = builder();
-    if (enabled != null) {
-      builder.setEnabled(Boolean.parseBoolean(enabled));
+    if (enabled.isPresent()) {
+      builder.setEnabled(Boolean.parseBoolean(enabled.get()));
     }
-    if (level != null) {
+    if (level.isPresent()) {
+      String levelValue = level.get();
       try {
-        builder.setLogLevel(LogLevel.valueOf(level.toUpperCase()));
+        builder.setLogLevel(LogLevel.valueOf(levelValue.toUpperCase(Locale.ROOT)));
       } catch (IllegalArgumentException e) {
-        LOG.warn("Invalid log level provided: {}. Using default.", level);
+        LOG.warn("Invalid log level provided: {}. Using default.", levelValue);
       }
     }
     return Optional.of(builder.build());
