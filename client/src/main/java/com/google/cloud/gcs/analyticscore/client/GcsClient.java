@@ -19,6 +19,7 @@ import com.google.common.annotations.VisibleForTesting;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 
@@ -80,10 +81,43 @@ public interface GcsClient {
   GcsItemInfo getFolderInfo(GcsItemId itemId) throws IOException;
 
   /**
-   * Fetches metadata for at most one object matching the given prefix without pagination. Optimized
-   * for fast directory emptiness checks.
+   * Fetches metadata for the first object in unsigned UTF-8 byte order matching {@code prefixId}:
+   * returns the placeholder directory object itself (for example, {@code "b/"}) if it exists,
+   * otherwise the first nested object under that prefix (for example, {@code "b/c/obj"}), or {@link
+   * Optional#empty()} if no object matches. Any {@link GcsItemId#getContentGeneration()} on {@code
+   * prefixId} is ignored.
    */
   Optional<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) throws IOException;
+
+  /**
+   * Lists a single page of GCS objects and collapsed prefixes under {@code prefixId} (either a
+   * bucket root {@code gs://bucket} or an object/directory prefix such as {@code gs://bucket/dir/})
+   * in a single RPC (retried automatically per {@link GcsRetryOptions}), requesting up to {@link
+   * GcsListOptions#DEFAULT_MAX_LIST_ITEMS_PER_CALL} ({@code 5,000}) entries when {@link
+   * GcsListOptions#getPageSize()} is empty.
+   *
+   * <p>Results preserve GCS unsigned UTF-8 ordering. Collapsed prefixes matching a placeholder
+   * object in {@link GcsListPage#getItems()} or the listed directory prefix itself are omitted from
+   * {@link GcsListPage#getPrefixes()}. No synthetic self-directory is fabricated: when {@link
+   * GcsListOptions#isIncludePrefixObject()} is {@code false}, a real self-marker object is surfaced
+   * via {@link GcsListPage#getPrefixObject()} rather than {@link GcsListPage#getItems()}. A missing
+   * prefix returns an empty page. Any {@link GcsItemId#getContentGeneration()} on {@code prefixId}
+   * is ignored.
+   *
+   * @param prefixId bucket or object/directory prefix to list (must have a non-empty bucket name;
+   *     any content generation is ignored)
+   * @param options listing options controlling delimiter, projection, filters, and pagination
+   * @return a single {@link GcsListPage} of object metadata and deduplicated prefix IDs
+   * @throws IllegalArgumentException if {@code prefixId} has an empty bucket name (including root)
+   * @throws FileNotFoundException if the target bucket does not exist ({@code 404})
+   * @throws AccessDeniedException if listing is denied ({@code 401}/{@code 403})
+   * @throws IOException if an I/O error occurs while listing
+   */
+  default GcsListPage<GcsItemInfo> listObjectsPage(GcsItemId prefixId, GcsListOptions options)
+      throws IOException {
+    throw new UnsupportedOperationException(
+        "listObjectsPage is not implemented by " + getClass().getName());
+  }
 
   /**
    * Creates a GCS bucket with {@link GcsCreateBucketOptions#DEFAULT}.
