@@ -142,14 +142,33 @@ class GcsTransportOptionsFactoryTest {
     }
   }
 
+  @Test
+  void createHttpTransportOptions_withProxyAndBlankEndpoint_usesBundledTrustStore() {
+    GcsAuthOptions options = GcsAuthOptions.builder().setProxyAddress(PROXY_ADDRESS).build();
+    try (MockedStatic<GoogleUtils> mockedGoogleUtils = mockStatic(GoogleUtils.class)) {
+      HttpTransportFactory transportFactory =
+          GcsTransportOptionsFactory.createHttpTransportOptions(
+                  options, /* storageEndpoint= */ "   ", /* universeDomain= */ "   ")
+              .getHttpTransportFactory();
+
+      assertThat(transportFactory.create()).isNotNull();
+      mockedGoogleUtils.verify(GoogleUtils::getCertificateTrustStore);
+    }
+  }
+
   @ParameterizedTest
   @CsvSource(
       value = {
         "null, null, false",
+        "'', '', false",
+        "'   ', null, false",
+        "null, '   ', false",
+        "'   ', '   ', false",
         "null, googleapis.com, false",
         "null, ' GoogleAPIs.com ', false",
         "https://localhost:8443, null, true",
         "https://storage.googleapis.com, null, false",
+        "' https://storage.googleapis.com ', null, false",
         "https://storage.googleapis.com/, null, false",
         "https://restricted.googleapis.com, null, true",
         "null, apis-tpclp.goog, true",

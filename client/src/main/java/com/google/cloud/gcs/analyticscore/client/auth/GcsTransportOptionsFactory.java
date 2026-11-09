@@ -17,7 +17,6 @@
 package com.google.cloud.gcs.analyticscore.client.auth;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Strings.isNullOrEmpty;
 
 import com.google.api.client.http.HttpTransport;
 import com.google.auth.http.HttpTransportFactory;
@@ -58,8 +57,10 @@ public final class GcsTransportOptionsFactory {
    * first, because this method does not set the proxy username and password.
    *
    * @param options The authentication options supplying the proxy and timeouts.
-   * @param storageEndpoint The configured storage endpoint, or {@code null} for the default one.
-   * @param universeDomain The configured universe domain, or {@code null} for the default one.
+   * @param storageEndpoint The configured storage endpoint, or {@code null} or blank for the
+   *     default one.
+   * @param universeDomain The configured universe domain, or {@code null} or blank for the default
+   *     one.
    * @return The transport options for the storage client.
    */
   public static HttpTransportOptions createHttpTransportOptions(
@@ -84,17 +85,19 @@ public final class GcsTransportOptionsFactory {
 
   /**
    * Returns whether requests go to a custom endpoint or a non-default universe domain, whose
-   * certificates may not be in Google's bundled trust store. The default GCS host is not a custom
-   * endpoint.
+   * certificates may not be in Google's bundled trust store. A {@code null} or blank string
+   * represents the default. The default GCS host is not a custom endpoint.
    */
   @VisibleForTesting
   static boolean usesNonGoogleEndpoint(
       @Nullable String storageEndpoint, @Nullable String universeDomain) {
-    if (!isNullOrEmpty(storageEndpoint)
+    if (storageEndpoint != null
+        && !storageEndpoint.isBlank()
         && !GOOGLE_DEFAULT_STORAGE_HOSTS.contains(storageEndpoint.trim())) {
       return true;
     }
-    return !isNullOrEmpty(universeDomain)
+    return universeDomain != null
+        && !universeDomain.isBlank()
         && !GOOGLE_DEFAULT_UNIVERSE_DOMAIN.equalsIgnoreCase(universeDomain.trim());
   }
 
