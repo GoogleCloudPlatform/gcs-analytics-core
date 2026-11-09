@@ -17,6 +17,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
 import com.google.cloud.gcs.analyticscore.client.auth.GcsAuthOptions;
+import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import java.util.Map;
 
@@ -97,7 +98,7 @@ public abstract class GcsFileSystemOptions {
     GcsFileSystemOptions.Builder optionsBuilder = GcsFileSystemOptions.builder();
     if (analyticsCoreOptions.containsKey(prefix + READ_THREAD_COUNT_KEY)) {
       optionsBuilder.setReadThreadCount(
-          Integer.parseInt(analyticsCoreOptions.get(prefix + READ_THREAD_COUNT_KEY)));
+          ConfigurationUtil.safeParseInteger(analyticsCoreOptions, prefix + READ_THREAD_COUNT_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + CLIENT_TYPE_KEY)) {
       optionsBuilder.setClientType(

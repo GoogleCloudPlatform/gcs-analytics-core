@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
 import java.util.Map;
 
 /** Configuration options for Gcs vectored read. */
@@ -46,11 +47,11 @@ public abstract class GcsVectoredReadOptions {
     Builder optionsBuilder = builder();
     if (analyticsCoreOptions.containsKey(prefix + MAX_MERGE_GAP_KEY)) {
       optionsBuilder.setMaxMergeGap(
-          Integer.parseInt(analyticsCoreOptions.get(prefix + MAX_MERGE_GAP_KEY)));
+          ConfigurationUtil.safeParseInteger(analyticsCoreOptions, prefix + MAX_MERGE_GAP_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + MAX_MERGE_SIZE_KEY)) {
       optionsBuilder.setMaxMergeSize(
-          Integer.parseInt(analyticsCoreOptions.get(prefix + MAX_MERGE_SIZE_KEY)));
+          ConfigurationUtil.safeParseInteger(analyticsCoreOptions, prefix + MAX_MERGE_SIZE_KEY));
     }
 
     return optionsBuilder.build();
