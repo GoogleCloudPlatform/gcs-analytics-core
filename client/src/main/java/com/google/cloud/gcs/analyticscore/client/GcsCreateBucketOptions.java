@@ -25,6 +25,9 @@ import java.util.Optional;
 @AutoValue
 public abstract class GcsCreateBucketOptions {
 
+  private static final Duration MIN_TTL = Duration.ofDays(1);
+  private static final Duration MAX_TTL = Duration.ofDays(Integer.MAX_VALUE);
+
   /** Create bucket with all default settings. */
   public static final GcsCreateBucketOptions DEFAULT = builder().build();
 
@@ -68,7 +71,7 @@ public abstract class GcsCreateBucketOptions {
 
     /**
      * Sets the object time-to-live (TTL) duration used to configure a bucket lifecycle {@code
-     * Delete} rule (minimum 1 day).
+     * Delete} rule (between 1 and {@link Integer#MAX_VALUE} days, inclusive).
      */
     public abstract Builder setTtl(Duration ttl);
 
@@ -85,8 +88,15 @@ public abstract class GcsCreateBucketOptions {
       options
           .getTtl()
           .ifPresent(
-              ttl ->
-                  checkArgument(ttl.toDays() >= 1, "TTL must be at least 1 day, but got: %s", ttl));
+              ttl -> {
+                checkArgument(
+                    ttl.compareTo(MIN_TTL) >= 0, "TTL must be at least 1 day, but got: %s", ttl);
+                checkArgument(
+                    ttl.compareTo(MAX_TTL) <= 0,
+                    "TTL must not exceed %s days, but got: %s",
+                    Integer.MAX_VALUE,
+                    ttl);
+              });
       return options;
     }
   }

@@ -79,4 +79,68 @@ class GcsCreateBucketOptionsTest {
         IllegalArgumentException.class,
         () -> GcsCreateBucketOptions.builder().setTtl(Duration.ofDays(-1)).build());
   }
+
+  @Test
+  void build_withOneDayTtl_succeeds() {
+    GcsCreateBucketOptions options =
+        GcsCreateBucketOptions.builder().setTtl(Duration.ofDays(1)).build();
+
+    assertThat(options.getTtl()).hasValue(Duration.ofDays(1));
+  }
+
+  @Test
+  void build_withMaxIntDaysTtl_succeeds() {
+    GcsCreateBucketOptions options =
+        GcsCreateBucketOptions.builder().setTtl(Duration.ofDays(Integer.MAX_VALUE)).build();
+
+    assertThat(options.getTtl()).hasValue(Duration.ofDays(Integer.MAX_VALUE));
+  }
+
+  @Test
+  void build_withTtlExceedingMaxDaysByNanos_throwsIllegalArgumentException() {
+    Duration ttl = Duration.ofDays(Integer.MAX_VALUE).plusNanos(1);
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsCreateBucketOptions.builder().setTtl(ttl).build());
+
+    assertThat(thrown).hasMessageThat().contains("TTL must not exceed");
+  }
+
+  @Test
+  void build_withTtlExceedingMaxDaysByHours_throwsIllegalArgumentException() {
+    Duration ttl = Duration.ofDays(Integer.MAX_VALUE).plusHours(23);
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsCreateBucketOptions.builder().setTtl(ttl).build());
+
+    assertThat(thrown).hasMessageThat().contains("TTL must not exceed");
+  }
+
+  @Test
+  void build_withTtlExceedingMaxDaysByOneDay_throwsIllegalArgumentException() {
+    Duration ttl = Duration.ofDays((long) Integer.MAX_VALUE + 1);
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsCreateBucketOptions.builder().setTtl(ttl).build());
+
+    assertThat(thrown).hasMessageThat().contains("TTL must not exceed");
+  }
+
+  @Test
+  void build_withMaxLongSecondsTtl_throwsIllegalArgumentException() {
+    Duration ttl = Duration.ofSeconds(Long.MAX_VALUE);
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsCreateBucketOptions.builder().setTtl(ttl).build());
+
+    assertThat(thrown).hasMessageThat().contains("TTL must not exceed");
+  }
 }
