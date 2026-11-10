@@ -17,6 +17,7 @@
 package com.google.cloud.gcs.analyticscore.core.prefetch;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Range;
@@ -45,7 +46,15 @@ class ParquetFooterParserTest {
   private static final long CRAFTED_DICTIONARY_PAGE_OFFSET = 4;
   private static final long CRAFTED_DATA_PAGE_OFFSET = 24;
   private static final long CRAFTED_CHUNK_SIZE = 100;
+  private static final int MAGIC_LENGTH = 4;
+  private static final int TRAILER_LENGTH = 8;
   private static final byte[] PARQUET_MAGIC = "PAR1".getBytes(StandardCharsets.US_ASCII);
+
+  /** The bytes of leading magic and pages that precede the footer of every crafted object. */
+  private static final int CRAFTED_PAGES_LENGTH = 1024;
+
+  /** Plaintext footers of encrypted objects end with a 12-byte nonce and a 16-byte tag. */
+  private static final int FOOTER_SIGNATURE_LENGTH = 28;
 
   /**
    * Metadata whose schema field declares a list of {@code Integer.MAX_VALUE} structs: field 2 as a
@@ -191,7 +200,8 @@ class ParquetFooterParserTest {
     byte[] fileBytes = ParquetGoldenFiles.read(ParquetGoldenFiles.SINGLE_ROW_GROUP);
     int tailLength = fileBytes.length - footerStartOffsetOf(fileBytes);
 
-    Optional<ParquetFileLayout> layout = ParquetFooterParser.parse(tailOf(fileBytes, tailLength));
+    Optional<ParquetFileLayout> layout =
+        ParquetFooterParser.parse(tailOf(fileBytes, tailLength), fileBytes.length);
 
     assertThat(layout).isPresent();
   }
@@ -202,9 +212,18 @@ class ParquetFooterParserTest {
     int tooShortLength = fileBytes.length - footerStartOffsetOf(fileBytes) - 1;
 
     Optional<ParquetFileLayout> layout =
-        ParquetFooterParser.parse(tailOf(fileBytes, tooShortLength));
+        ParquetFooterParser.parse(tailOf(fileBytes, tooShortLength), fileBytes.length);
 
     assertThat(layout).isEmpty();
+  }
+
+  @Test
+  void parse_tailLongerThanObject_throws() throws IOException {
+    byte[] fileBytes = ParquetGoldenFiles.read(ParquetGoldenFiles.SINGLE_ROW_GROUP);
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> ParquetFooterParser.parse(ByteBuffer.wrap(fileBytes), fileBytes.length - 1));
   }
 
   @Test
@@ -215,7 +234,7 @@ class ParquetFooterParserTest {
     System.arraycopy(fileBytes, 0, paddedBytes, padding, fileBytes.length);
     ByteBuffer slice = ByteBuffer.wrap(paddedBytes, padding, fileBytes.length).slice();
 
-    Optional<ParquetFileLayout> layout = ParquetFooterParser.parse(slice);
+    Optional<ParquetFileLayout> layout = ParquetFooterParser.parse(slice, fileBytes.length);
 
     assertThat(layout).hasValue(parseWholeFile(fileBytes).get());
   }
@@ -226,7 +245,18 @@ class ParquetFooterParserTest {
     ByteBuffer directBuffer = ByteBuffer.allocateDirect(fileBytes.length);
     directBuffer.put(fileBytes).flip();
 
-    Optional<ParquetFileLayout> layout = ParquetFooterParser.parse(directBuffer);
+    Optional<ParquetFileLayout> layout = ParquetFooterParser.parse(directBuffer, fileBytes.length);
+
+    assertThat(layout).hasValue(parseWholeFile(fileBytes).get());
+  }
+
+  @Test
+  void parse_readOnlyBuffer_returnsSameLayout() throws IOException {
+    byte[] fileBytes = ParquetGoldenFiles.read(ParquetGoldenFiles.SINGLE_ROW_GROUP);
+    ByteBuffer readOnlyBuffer = ByteBuffer.wrap(fileBytes).asReadOnlyBuffer();
+
+    Optional<ParquetFileLayout> layout =
+        ParquetFooterParser.parse(readOnlyBuffer, fileBytes.length);
 
     assertThat(layout).hasValue(parseWholeFile(fileBytes).get());
   }
@@ -235,7 +265,7 @@ class ParquetFooterParserTest {
   void parse_bytesWithoutParquetMagic_returnsEmpty() {
     byte[] notParquet = "this is definitely not a parquet file".getBytes(StandardCharsets.UTF_8);
 
-    Optional<ParquetFileLayout> layout = ParquetFooterParser.parse(ByteBuffer.wrap(notParquet));
+    Optional<ParquetFileLayout> layout = parseWholeFile(notParquet);
 
     assertThat(layout).isEmpty();
   }
@@ -252,10 +282,23 @@ class ParquetFooterParserTest {
   }
 
   @Test
+  void parse_signedPlaintextFooter_returnsLayout() throws IOException {
+    // Under plaintext footer encryption, the metadata length also covers the signature that
+    // follows the metadata.
+    byte[] metadata = metadataBytesOf(craftedFileMetaData(craftedRowGroup(craftedColumnChunk())));
+    byte[] signedMetadata = new byte[metadata.length + FOOTER_SIGNATURE_LENGTH];
+    System.arraycopy(metadata, 0, signedMetadata, 0, metadata.length);
+
+    Optional<ParquetFileLayout> layout = parseCraftedTail(withTrailer(signedMetadata));
+
+    assertThat(layout).isPresent();
+  }
+
+  @Test
   void parse_bufferShorterThanTrailer_returnsEmpty() {
     byte[] tooShort = {'P', 'A', 'R', '1'};
 
-    Optional<ParquetFileLayout> layout = ParquetFooterParser.parse(ByteBuffer.wrap(tooShort));
+    Optional<ParquetFileLayout> layout = parseWholeFile(tooShort);
 
     assertThat(layout).isEmpty();
   }
@@ -274,7 +317,7 @@ class ParquetFooterParserTest {
   void parse_metadataDeclaringHugeList_returnsEmpty() {
     ByteBuffer tail = withTrailer(HUGE_LIST_METADATA);
 
-    Optional<ParquetFileLayout> layout = ParquetFooterParser.parse(tail);
+    Optional<ParquetFileLayout> layout = parseCraftedTail(tail);
 
     assertThat(layout).isEmpty();
   }
@@ -283,17 +326,17 @@ class ParquetFooterParserTest {
   void parse_metadataNestedDeeperThanStackAllows_returnsEmpty() {
     ByteBuffer tail = withTrailer(deeplyNestedMetadata(STACK_OVERFLOWING_DEPTH));
 
-    Optional<ParquetFileLayout> layout = ParquetFooterParser.parse(tail);
+    Optional<ParquetFileLayout> layout = parseCraftedTail(tail);
 
     assertThat(layout).isEmpty();
   }
 
   @Test
   void parse_doesNotConsumeCallerBuffer() throws IOException {
-    ByteBuffer buffer =
-        ByteBuffer.wrap(ParquetGoldenFiles.read(ParquetGoldenFiles.SINGLE_ROW_GROUP));
+    byte[] fileBytes = ParquetGoldenFiles.read(ParquetGoldenFiles.SINGLE_ROW_GROUP);
+    ByteBuffer buffer = ByteBuffer.wrap(fileBytes);
 
-    Optional<ParquetFileLayout> unused = ParquetFooterParser.parse(buffer);
+    Optional<ParquetFileLayout> unused = ParquetFooterParser.parse(buffer, fileBytes.length);
 
     assertThat(buffer.position()).isEqualTo(0);
   }
@@ -302,7 +345,44 @@ class ParquetFooterParserTest {
   void parse_negativeMetadataLength_returnsEmpty() {
     ByteBuffer tail = withTrailer(new byte[1], /* declaredMetadataLength= */ -1);
 
-    Optional<ParquetFileLayout> layout = ParquetFooterParser.parse(tail);
+    Optional<ParquetFileLayout> layout = parseCraftedTail(tail);
+
+    assertThat(layout).isEmpty();
+  }
+
+  @Test
+  void parse_zeroMetadataLength_returnsEmpty() {
+    ByteBuffer tail = withTrailer(new byte[1], /* declaredMetadataLength= */ 0);
+
+    Optional<ParquetFileLayout> layout = parseCraftedTail(tail);
+
+    assertThat(layout).isEmpty();
+  }
+
+  @Test
+  void parse_metadataLongerThanLimit_returnsEmpty() {
+    ByteBuffer tail = withTrailer(new byte[ParquetFooterParser.MAX_METADATA_LENGTH + 1]);
+
+    Optional<ParquetFileLayout> layout = parseCraftedTail(tail);
+
+    assertThat(layout).isEmpty();
+  }
+
+  @Test
+  void parse_noRowGroups_returnsLayoutWithoutRowGroups() throws IOException {
+    ByteBuffer tail = withTrailer(metadataBytesOf(craftedFileMetaData()));
+
+    Optional<ParquetFileLayout> layout =
+        ParquetFooterParser.parse(tail, MAGIC_LENGTH + tail.remaining());
+
+    assertThat(layout.get().getRowGroups()).isEmpty();
+  }
+
+  @Test
+  void parse_footerLeavingNoRoomForLeadingMagic_returnsEmpty() throws IOException {
+    ByteBuffer tail = withTrailer(metadataBytesOf(craftedFileMetaData()));
+
+    Optional<ParquetFileLayout> layout = ParquetFooterParser.parse(tail, tail.remaining());
 
     assertThat(layout).isEmpty();
   }
@@ -311,8 +391,7 @@ class ParquetFooterParserTest {
   void parse_columnChunkWithoutMetaData_returnsEmpty() throws IOException {
     ColumnChunk withoutMetaData = new ColumnChunk(/* file_offset= */ 0);
 
-    Optional<ParquetFileLayout> layout =
-        parseCrafted(withoutMetaData, columnChunkOf(craftedMetaData()));
+    Optional<ParquetFileLayout> layout = parseCrafted(withoutMetaData, craftedColumnChunk());
 
     assertThat(layout).isEmpty();
   }
@@ -320,7 +399,7 @@ class ParquetFooterParserTest {
   @Test
   void parse_overlappingColumnChunks_returnsEmpty() throws IOException {
     // Both chunks span [24, 124).
-    ColumnChunk first = columnChunkOf(craftedMetaData());
+    ColumnChunk first = craftedColumnChunk();
     ColumnChunk second =
         columnChunkOf(craftedMetaData().setPath_in_schema(ImmutableList.of("other")));
 
@@ -331,11 +410,30 @@ class ParquetFooterParserTest {
 
   @Test
   void parse_columnChunkStoredInAnotherFile_returnsEmpty() throws IOException {
-    ColumnChunk external = columnChunkOf(craftedMetaData()).setFile_path("part-00000.parquet");
+    ColumnChunk external = craftedColumnChunk().setFile_path("part-00000.parquet");
 
     Optional<ParquetFileLayout> layout = parseCrafted(external);
 
     assertThat(layout).isEmpty();
+  }
+
+  @Test
+  void parse_columnChunkWithEmptyPath_returnsEmpty() throws IOException {
+    ColumnMetaData metaData = craftedMetaData().setPath_in_schema(ImmutableList.of());
+
+    Optional<ParquetFileLayout> layout = parseCrafted(columnChunkOf(metaData));
+
+    assertThat(layout).isEmpty();
+  }
+
+  @Test
+  void parse_nestedColumnPath_joinsSegmentsWithDots() throws IOException {
+    ColumnMetaData metaData =
+        craftedMetaData().setPath_in_schema(ImmutableList.of("address", "city"));
+
+    ParquetRowGroup rowGroup = parseCraftedRowGroup(columnChunkOf(metaData));
+
+    assertThat(rowGroup.getColumnChunks().keySet()).containsExactly("address.city");
   }
 
   @Test
@@ -396,6 +494,26 @@ class ParquetFooterParserTest {
   }
 
   @Test
+  void parse_chunkEndingAfterFooterStarts_returnsEmpty() throws IOException {
+    ColumnMetaData metaData =
+        craftedMetaData().setData_page_offset(CRAFTED_PAGES_LENGTH - CRAFTED_CHUNK_SIZE + 1);
+
+    Optional<ParquetFileLayout> layout = parseCrafted(columnChunkOf(metaData));
+
+    assertThat(layout).isEmpty();
+  }
+
+  @Test
+  void parse_chunkEndingWhereFooterStarts_returnsLayout() throws IOException {
+    ColumnMetaData metaData =
+        craftedMetaData().setData_page_offset(CRAFTED_PAGES_LENGTH - CRAFTED_CHUNK_SIZE);
+
+    Optional<ParquetFileLayout> layout = parseCrafted(columnChunkOf(metaData));
+
+    assertThat(layout).isPresent();
+  }
+
+  @Test
   void parse_chunkStartingInsideLeadingMagic_returnsEmpty() throws IOException {
     ColumnMetaData metaData = craftedMetaData().setData_page_offset(2);
 
@@ -440,17 +558,23 @@ class ParquetFooterParserTest {
   }
 
   private static Optional<ParquetFileLayout> parseWholeFile(byte[] fileBytes) {
-    return ParquetFooterParser.parse(ByteBuffer.wrap(fileBytes));
+    return ParquetFooterParser.parse(ByteBuffer.wrap(fileBytes), fileBytes.length);
+  }
+
+  /**
+   * Parses {@code tail} as the footer of an object with {@link #CRAFTED_PAGES_LENGTH} before it.
+   */
+  private static Optional<ParquetFileLayout> parseCraftedTail(ByteBuffer tail) {
+    return ParquetFooterParser.parse(tail, CRAFTED_PAGES_LENGTH + tail.remaining());
   }
 
   /** Returns the offset of the footer metadata, read from the 4-byte length before the magic. */
   private static int footerStartOffsetOf(byte[] fileBytes) {
-    int trailerLength = 8;
     int metadataLength =
         ByteBuffer.wrap(fileBytes)
             .order(ByteOrder.LITTLE_ENDIAN)
-            .getInt(fileBytes.length - trailerLength);
-    return fileBytes.length - trailerLength - metadataLength;
+            .getInt(fileBytes.length - TRAILER_LENGTH);
+    return fileBytes.length - TRAILER_LENGTH - metadataLength;
   }
 
   private static ByteBuffer tailOf(byte[] fileBytes, int tailLength) {
@@ -537,6 +661,10 @@ class ParquetFooterParserTest {
         .setDictionary_page_offset(CRAFTED_DICTIONARY_PAGE_OFFSET);
   }
 
+  private static ColumnChunk craftedColumnChunk() {
+    return columnChunkOf(craftedMetaData());
+  }
+
   private static ColumnChunk columnChunkOf(ColumnMetaData metaData) {
     return new ColumnChunk(/* file_offset= */ 0).setMeta_data(metaData);
   }
@@ -555,20 +683,29 @@ class ParquetFooterParserTest {
    */
   private static Optional<ParquetFileLayout> parseCrafted(ColumnChunk... columns)
       throws IOException {
-    RowGroup rowGroup =
-        new RowGroup(
-            ImmutableList.copyOf(columns),
-            /* total_byte_size= */ CRAFTED_CHUNK_SIZE,
-            /* num_rows= */ 10);
-    FileMetaData fileMetaData =
-        new FileMetaData(
-            /* version= */ 1,
-            ImmutableList.of(new SchemaElement("schema")),
-            /* num_rows= */ 10,
-            ImmutableList.of(rowGroup));
+    FileMetaData fileMetaData = craftedFileMetaData(craftedRowGroup(columns));
+    return parseCraftedTail(withTrailer(metadataBytesOf(fileMetaData)));
+  }
+
+  private static RowGroup craftedRowGroup(ColumnChunk... columns) {
+    return new RowGroup(
+        ImmutableList.copyOf(columns),
+        /* total_byte_size= */ CRAFTED_CHUNK_SIZE,
+        /* num_rows= */ 10);
+  }
+
+  private static FileMetaData craftedFileMetaData(RowGroup... rowGroups) {
+    return new FileMetaData(
+        /* version= */ 1,
+        ImmutableList.of(new SchemaElement("schema")),
+        /* num_rows= */ 10,
+        ImmutableList.copyOf(rowGroups));
+  }
+
+  private static byte[] metadataBytesOf(FileMetaData fileMetaData) throws IOException {
     ByteArrayOutputStream metadata = new ByteArrayOutputStream();
     Util.writeFileMetaData(fileMetaData, metadata);
-    return ParquetFooterParser.parse(withTrailer(metadata.toByteArray()));
+    return metadata.toByteArray();
   }
 
   private static ByteBuffer withTrailer(byte[] metadata) {

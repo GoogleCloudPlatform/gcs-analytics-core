@@ -48,20 +48,38 @@ final class ParquetFooterParser {
   private static final int TRAILER_LENGTH = MAGIC_LENGTH + FOOTER_LENGTH_BYTES;
   private static final byte[] PARQUET_MAGIC = {'P', 'A', 'R', '1'};
 
+  /**
+   * The longest metadata block that is decoded. Decoding allocates a small multiple of the block
+   * length, so this keeps a hostile footer in an oversized tail from exhausting the heap. Footers
+   * of real objects are far smaller than this, as is the default tail that callers cache.
+   */
+  static final int MAX_METADATA_LENGTH = 16 * 1024 * 1024;
+
   private ParquetFooterParser() {}
 
   /**
    * Parses the trailing bytes of a Parquet object.
    *
    * <p>Returns empty when the bytes are not a readable Parquet footer, which includes a non-Parquet
-   * object, an encrypted footer, a tail too short to contain the whole metadata block, and metadata
-   * whose column chunks cannot be mapped onto the bytes of this object. Callers are expected to
-   * treat this as "prefetching unavailable" rather than an error.
+   * object, an encrypted footer, a tail too short to contain the whole metadata block, a metadata
+   * block longer than {@link #MAX_METADATA_LENGTH}, and metadata whose column chunks cannot be
+   * mapped onto the bytes of this object, such as chunks that end after the footer starts. Callers
+   * are expected to treat this as "prefetching unavailable" rather than an error.
+   *
+   * <p>Decoding allocates a small multiple of the metadata length in transient heap, bounded by the
+   * length of {@code tail}.
    *
    * @param tail the last {@code tail.remaining()} bytes of the object
+   * @param objectSize the size of the whole object in bytes
+   * @throws IllegalArgumentException if {@code tail} is longer than {@code objectSize}
    */
-  static Optional<ParquetFileLayout> parse(ByteBuffer tail) {
+  static Optional<ParquetFileLayout> parse(ByteBuffer tail, long objectSize) {
     checkNotNull(tail, "tail cannot be null");
+    checkArgument(
+        objectSize >= tail.remaining(),
+        "Tail of %s bytes is longer than the object of %s bytes",
+        tail.remaining(),
+        objectSize);
 
     ByteBuffer buffer = tail.duplicate().order(ByteOrder.LITTLE_ENDIAN);
     int tailLength = buffer.remaining();
@@ -76,7 +94,12 @@ final class ParquetFooterParser {
     int metadataLengthIndex = tailStart + tailLength - TRAILER_LENGTH;
     int metadataLength = buffer.getInt(metadataLengthIndex);
     int metadataIndex = metadataLengthIndex - metadataLength;
-    if (metadataLength <= 0 || metadataIndex < tailStart) {
+    if (metadataLength <= 0 || metadataLength > MAX_METADATA_LENGTH || metadataIndex < tailStart) {
+      return Optional.empty();
+    }
+    // The footer follows the leading magic and the pages of every row group.
+    long footerStartOffset = objectSize - TRAILER_LENGTH - metadataLength;
+    if (footerStartOffset < MAGIC_LENGTH) {
       return Optional.empty();
     }
 
@@ -89,7 +112,7 @@ final class ParquetFooterParser {
       return Optional.empty();
     }
     try {
-      return Optional.of(toFileLayout(fileMetaData));
+      return Optional.of(toFileLayout(fileMetaData, footerStartOffset));
     } catch (IllegalArgumentException e) {
       // Metadata that cannot be mapped onto the bytes of this object, which the layout model and
       // the checks below reject. Again, only prefetching is lost.
@@ -129,15 +152,35 @@ final class ParquetFooterParser {
     return new ByteArrayInputStream(metadataBytes);
   }
 
-  private static ParquetFileLayout toFileLayout(FileMetaData fileMetaData) {
+  /**
+   * Builds the layout of an object whose footer starts at {@code footerStartOffset}.
+   *
+   * @throws IllegalArgumentException if a row group extends into the footer
+   */
+  private static ParquetFileLayout toFileLayout(FileMetaData fileMetaData, long footerStartOffset) {
     List<RowGroup> rowGroups = fileMetaData.getRow_groups();
     ImmutableList.Builder<ParquetRowGroup> parsedRowGroups =
         ImmutableList.builderWithExpectedSize(rowGroups.size());
     for (int rowGroupIndex = 0; rowGroupIndex < rowGroups.size(); rowGroupIndex++) {
       parsedRowGroups.add(toRowGroup(rowGroups.get(rowGroupIndex), rowGroupIndex));
     }
-    return ParquetFileLayout.create(
-        ParquetSchemaFingerprint.of(fileMetaData.getSchema()), parsedRowGroups.build());
+    ParquetFileLayout layout =
+        ParquetFileLayout.create(
+            ParquetSchemaFingerprint.of(fileMetaData.getSchema()), parsedRowGroups.build());
+    checkArgument(
+        endOffsetOf(layout) <= footerStartOffset,
+        "Row groups end at %s, after the footer starts at %s",
+        endOffsetOf(layout),
+        footerStartOffset);
+    return layout;
+  }
+
+  /**
+   * Returns the end of the last row group, which ends the layout because row groups are ordered.
+   */
+  private static long endOffsetOf(ParquetFileLayout layout) {
+    ImmutableList<ParquetRowGroup> rowGroups = layout.getRowGroups();
+    return rowGroups.isEmpty() ? MAGIC_LENGTH : rowGroups.get(rowGroups.size() - 1).getEndOffset();
   }
 
   private static ParquetRowGroup toRowGroup(RowGroup rowGroup, int rowGroupIndex) {
@@ -154,7 +197,8 @@ final class ParquetFooterParser {
    * Maps a column chunk onto the bytes of this object.
    *
    * @throws IllegalArgumentException if the chunk has no metadata, its pages are stored in another
-   *     file, or its offsets do not describe a consistent range of this object
+   *     file, its column path is empty, or its offsets do not describe a consistent range of this
+   *     object
    */
   private static ParquetColumnChunk toColumnChunk(ColumnChunk columnChunk) {
     // Summary files such as _metadata describe column chunks stored in other files.
@@ -166,6 +210,9 @@ final class ParquetFooterParser {
     // Writers keep at least a redacted copy of the metadata of every column under a plaintext
     // footer, so a chunk without it is unusual; reject it rather than guess where its bytes are.
     checkArgument(metaData != null, "Column chunk has no metadata");
+    // Every column sits at least one level below the schema root. Blank segments stay allowed,
+    // because parquet-mr writes columns named "".
+    checkArgument(!metaData.getPath_in_schema().isEmpty(), "Column chunk has an empty path");
     long dataPageOffset = metaData.getData_page_offset();
     long dictionaryPageOffset = metaData.getDictionary_page_offset();
     // Like parquet-mr, treat 0 as unset and ignore a dictionary offset that does not precede the

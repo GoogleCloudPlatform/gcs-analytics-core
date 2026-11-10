@@ -35,8 +35,8 @@ import org.apache.parquet.io.LocalOutputFile;
  * parquet-mr reports for each of them.
  *
  * <p>{@code ParquetGoldenFiles} in the unit test sources hard-codes that layout, so the unit tests
- * need neither Hadoop nor Avro. To regenerate the files, for example after upgrading parquet-mr, run from the repository
- * root:
+ * need neither Hadoop nor Avro. To regenerate the files, for example after upgrading parquet-mr,
+ * run from the repository root:
  *
  * <pre>{@code
  * mvn -q -Pintegration-test -pl core -am test-compile dependency:build-classpath \
@@ -126,7 +126,8 @@ public final class ParquetGoldenFileWriter {
       }
     }
 
-    for (File file : new File[] {singleRowGroup, multiRowGroup, dictionaryFallback, alternateSchema}) {
+    for (File file :
+        new File[] {singleRowGroup, multiRowGroup, dictionaryFallback, alternateSchema}) {
       printLayout(file);
     }
   }
