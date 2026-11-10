@@ -31,8 +31,10 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.WritableByteChannel;
 import java.util.Collections;
+import javax.annotation.Nullable;
 
 /**
  * A unified OutputStream for writing objects to Google Cloud Storage.
@@ -54,6 +56,8 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
   // Used for single-byte writes to avoid repeated allocation.
   private final ByteBuffer singleByteBuffer = ByteBuffer.allocate(1);
   private long totalBytesWritten = 0;
+  private boolean closed;
+  @Nullable private Exception closeException;
 
   /**
    * Creates a new instance of {@link GoogleCloudStorageOutputStream} for the given file info.
@@ -144,6 +148,7 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
 
   @Override
   public void write(int b) throws IOException {
+    checkOpen();
     gcsFileSystem
         .getTelemetry()
         .measure(
@@ -171,6 +176,7 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
     if (off < 0 || len < 0 || len > b.length - off) {
       throw new IndexOutOfBoundsException();
     }
+    checkOpen();
     if (len == 0) {
       return;
     }
@@ -194,18 +200,40 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
             });
   }
 
+  /**
+   * Closes this output stream and releases any system resources associated with this stream.
+   *
+   * <p>Subsequent calls after a successful close are no-ops. If an error occurs during close, the
+   * stream is marked closed (subsequent writes throw {@link ClosedChannelException}) and subsequent
+   * calls to {@code close()} re-throw an {@link IOException} referencing the failure. This method
+   * is not thread-safe.
+   *
+   * @throws IOException if an I/O error occurs
+   */
   @Override
   public void close() throws IOException {
-    gcsFileSystem
-        .getTelemetry()
-        .measure(
-            Operation.WRITE_CLOSE.name(),
-            Metric.WRITE_CLOSE_DURATION,
-            COMMON_ATTRIBUTES,
-            recorder -> {
-              channel.close();
-              return null;
-            });
+    if (closeException != null) {
+      throw new IOException("Stream close failed", closeException);
+    }
+    if (closed) {
+      return;
+    }
+    closed = true;
+    try {
+      gcsFileSystem
+          .getTelemetry()
+          .measure(
+              Operation.WRITE_CLOSE.name(),
+              Metric.WRITE_CLOSE_DURATION,
+              COMMON_ATTRIBUTES,
+              recorder -> {
+                channel.close();
+                return null;
+              });
+    } catch (IOException | RuntimeException e) {
+      closeException = e;
+      throw e;
+    }
   }
 
   /**
@@ -216,5 +244,11 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
    */
   public long getBytesWritten() {
     return totalBytesWritten;
+  }
+
+  private void checkOpen() throws ClosedChannelException {
+    if (closed) {
+      throw new ClosedChannelException();
+    }
   }
 }
