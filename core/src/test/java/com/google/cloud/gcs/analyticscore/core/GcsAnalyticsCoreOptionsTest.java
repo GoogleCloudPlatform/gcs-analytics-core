@@ -17,10 +17,13 @@
 package com.google.cloud.gcs.analyticscore.core;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.cloud.gcs.analyticscore.client.GcsClientOptions;
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.common.collect.ImmutableMap;
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class GcsAnalyticsCoreOptionsTest {
@@ -104,5 +107,55 @@ class GcsAnalyticsCoreOptionsTest {
     assertThat(clientOptions.getProtocol())
         .isEqualTo(defaultOptions.getGcsClientOptions().getProtocol());
     assertThat(clientOptions.getProjectId().isPresent()).isFalse();
+  }
+
+  @Test
+  void constructor_withNullPrefix_throwsNullPointerException() {
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class, () -> new GcsAnalyticsCoreOptions(null, ImmutableMap.of()));
+    assertThat(exception).hasMessageThat().isEqualTo("prefix cannot be null");
+  }
+
+  @Test
+  void constructor_withNullOptionsMap_throwsNullPointerException() {
+    NullPointerException exception =
+        assertThrows(NullPointerException.class, () -> new GcsAnalyticsCoreOptions("gcs.", null));
+    assertThat(exception).hasMessageThat().isEqualTo("analyticsCoreOptions cannot be null");
+  }
+
+  @Test
+  void constructor_withNullKeyInOptionsMap_throwsNullPointerException() {
+    // Arrange
+    Map<String, String> options = new HashMap<>();
+    options.put(null, "value");
+
+    // Act & Assert
+    assertThrows(NullPointerException.class, () -> new GcsAnalyticsCoreOptions("gcs.", options));
+  }
+
+  @Test
+  void constructor_withNullValueInOptionsMap_throwsNullPointerException() {
+    // Arrange
+    Map<String, String> options = new HashMap<>();
+    options.put("key", null);
+
+    // Act & Assert
+    assertThrows(NullPointerException.class, () -> new GcsAnalyticsCoreOptions("gcs.", options));
+  }
+
+  @Test
+  void getFileSystemOptions_whenInputMapMutated_retainsOriginalOptions() {
+    // Arrange
+    Map<String, String> options = new HashMap<>();
+    options.put("analytics-core.read.thread.count", "8");
+    GcsAnalyticsCoreOptions coreOptions = new GcsAnalyticsCoreOptions("", options);
+
+    // Act
+    options.put("analytics-core.read.thread.count", "64");
+    GcsFileSystemOptions fileSystemOptions = coreOptions.getGcsFileSystemOptions();
+
+    // Assert
+    assertThat(fileSystemOptions.getReadThreadCount()).isEqualTo(8);
   }
 }
