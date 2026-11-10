@@ -20,6 +20,8 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.collect.ImmutableMap;
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -113,5 +115,97 @@ class GcsVectoredReadOptionsTest {
             String.format(
                 "%s=%s cannot be greater than Integer.MAX_VALUE (%d)",
                 propertyKey, outOfBoundValue, Integer.MAX_VALUE));
+  }
+
+  @Test
+  void createFromOptions_withWhitespacePaddedValues_trimsAndParses() {
+    ImmutableMap<String, String> properties =
+        ImmutableMap.of(
+            "gcs.analytics-core.read.vectored.range.merge-gap.max-bytes",
+            "  8192  ",
+            "gcs.analytics-core.read.vectored.range.merged-size.max-bytes",
+            "\t16777216\n");
+
+    GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "gcs.");
+
+    assertThat(options.getMaxMergeGap()).isEqualTo(8 * KB);
+    assertThat(options.getMaxMergeSize()).isEqualTo(16 * MB);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", "   ", "\t\n"})
+  void createFromOptions_withBlankValues_retainsDefaults(String blankValue) {
+    ImmutableMap<String, String> properties =
+        ImmutableMap.of(
+            "gcs.analytics-core.read.vectored.range.merge-gap.max-bytes",
+            blankValue,
+            "gcs.analytics-core.read.vectored.range.merged-size.max-bytes",
+            blankValue);
+
+    GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "gcs.");
+
+    assertThat(options.getMaxMergeGap()).isEqualTo(4 * KB);
+    assertThat(options.getMaxMergeSize()).isEqualTo(8 * MB);
+  }
+
+  @Test
+  void createFromOptions_withNullMapValues_retainsDefaults() {
+    Map<String, String> properties = new HashMap<>();
+    properties.put("gcs.analytics-core.read.vectored.range.merge-gap.max-bytes", null);
+    properties.put("gcs.analytics-core.read.vectored.range.merged-size.max-bytes", null);
+
+    GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "gcs.");
+
+    assertThat(options.getMaxMergeGap()).isEqualTo(4 * KB);
+    assertThat(options.getMaxMergeSize()).isEqualTo(8 * MB);
+  }
+
+  @Test
+  void createFromOptions_withNullOptions_throwsNullPointerException() {
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class,
+            () -> GcsVectoredReadOptions.createFromOptions(null, "gcs."));
+
+    assertThat(exception).hasMessageThat().contains("analyticsCoreOptions cannot be null");
+  }
+
+  @Test
+  void createFromOptions_withNullPrefix_throwsNullPointerException() {
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class,
+            () -> GcsVectoredReadOptions.createFromOptions(ImmutableMap.of(), null));
+
+    assertThat(exception).hasMessageThat().contains("prefix cannot be null");
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "gcs.analytics-core.read.vectored.range.merge-gap.max-bytes",
+        "gcs.analytics-core.read.vectored.range.merged-size.max-bytes"
+      })
+  void createFromOptions_withMalformedInteger_throws(String propertyKey) {
+    ImmutableMap<String, String> properties = ImmutableMap.of(propertyKey, "not-an-int");
+
+    assertThrows(
+        NumberFormatException.class,
+        () -> GcsVectoredReadOptions.createFromOptions(properties, "gcs."));
+  }
+
+  @Test
+  void createFromOptions_withNegativeValues_preservesNegativeValuesToDisableMerge() {
+    ImmutableMap<String, String> properties =
+        ImmutableMap.of(
+            "gcs.analytics-core.read.vectored.range.merge-gap.max-bytes",
+            "-1",
+            "gcs.analytics-core.read.vectored.range.merged-size.max-bytes",
+            "-1");
+
+    GcsVectoredReadOptions options = GcsVectoredReadOptions.createFromOptions(properties, "gcs.");
+
+    assertThat(options.getMaxMergeGap()).isEqualTo(-1);
+    assertThat(options.getMaxMergeSize()).isEqualTo(-1);
   }
 }
