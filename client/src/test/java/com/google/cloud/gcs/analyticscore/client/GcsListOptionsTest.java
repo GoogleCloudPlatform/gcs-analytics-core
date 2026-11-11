@@ -230,6 +230,29 @@ class GcsListOptionsTest {
     assertThat(options.getPageToken()).isEmpty();
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"   ", "\t\n", "\u2003"})
+  void build_withWhitespaceOnlyPageToken_normalizesToEmpty(String token) {
+    GcsListOptions options = GcsListOptions.builder().setPageToken(token).build();
+
+    assertThat(options.getPageToken()).isEmpty();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"   ", "\t\n", "\u2003"})
+  void build_withWhitespaceOnlyOptionalPageToken_normalizesToEmpty(String token) {
+    GcsListOptions options = GcsListOptions.builder().setPageToken(Optional.of(token)).build();
+
+    assertThat(options.getPageToken()).isEmpty();
+  }
+
+  @Test
+  void build_withPaddedPageToken_preservesToken() {
+    GcsListOptions options = GcsListOptions.builder().setPageToken(" token-1 ").build();
+
+    assertThat(options.getPageToken()).hasValue(" token-1 ");
+  }
+
   @Test
   void setFields_iterableOverload_defensivelyCopiesInput() {
     List<GcsListOptions.ListField> mutableFields =
