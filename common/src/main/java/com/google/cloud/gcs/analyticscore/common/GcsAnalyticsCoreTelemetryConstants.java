@@ -36,6 +36,7 @@ public class GcsAnalyticsCoreTelemetryConstants {
         "gcs.analytics-core.client.small.object.cache.misses", MetricType.COUNTER),
     PREFETCH_CACHE_HIT("gcs.analytics-core.client.prefetch.cache.hits", MetricType.COUNTER),
     PREFETCH_CACHE_MISS("gcs.analytics-core.client.prefetch.cache.misses", MetricType.COUNTER),
+    PREFETCH_BYTES_LOADED("gcs.analytics-core.client.prefetch.bytes.loaded", MetricType.COUNTER),
     PREFETCH_BYTES_CONSUMED(
         "gcs.analytics-core.client.prefetch.bytes.consumed", MetricType.COUNTER),
     READ_CLOSE_DURATION("gcs.analytics-core.client.read.close.duration", MetricType.DURATION),

@@ -115,6 +115,25 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
+  void prefetchVectored_success_readsThroughBidiSession() throws Exception {
+    GcsObjectRange range =
+        GcsObjectRange.builder()
+            .setOffset(0)
+            .setLength(10)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+    byte[] data = new byte[10];
+    Arrays.fill(data, (byte) 1);
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(ByteString.copyFrom(data));
+
+    reader.prefetchVectored(Arrays.asList(range), ByteBuffer::allocate);
+
+    assertThat(range.getByteBufferFuture().get().get(0)).isEqualTo((byte) 1);
+  }
+
+  @Test
   void readVectored_failure_completesExceptionally() throws Exception {
     GcsObjectRange range =
         GcsObjectRange.builder()
