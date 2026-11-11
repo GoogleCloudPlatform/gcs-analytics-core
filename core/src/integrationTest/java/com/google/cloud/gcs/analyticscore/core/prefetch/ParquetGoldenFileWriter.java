@@ -46,9 +46,7 @@ import org.apache.parquet.io.LocalOutputFile;
  *     core/src/test/resources/parquet
  * }</pre>
  *
- * <p>Then update the constants in {@code ParquetGoldenFiles} from the printed layout. This class
- * cannot refer to them directly: the benchmarks module compiles these sources without the unit test
- * sources.
+ * <p>Then update the constants in {@code ParquetGoldenFiles} from the printed layout.
  */
 public final class ParquetGoldenFileWriter {
 

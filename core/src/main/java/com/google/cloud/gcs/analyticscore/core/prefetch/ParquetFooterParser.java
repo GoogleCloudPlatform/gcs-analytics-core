@@ -21,7 +21,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -93,10 +92,12 @@ final class ParquetFooterParser {
 
     int metadataLengthIndex = tailStart + tailLength - TRAILER_LENGTH;
     int metadataLength = buffer.getInt(metadataLengthIndex);
-    int metadataIndex = metadataLengthIndex - metadataLength;
-    if (metadataLength <= 0 || metadataLength > MAX_METADATA_LENGTH || metadataIndex < tailStart) {
+    if (metadataLength <= 0
+        || metadataLength > MAX_METADATA_LENGTH
+        || metadataLength > tailLength - TRAILER_LENGTH) {
       return Optional.empty();
     }
+    int metadataIndex = metadataLengthIndex - metadataLength;
     // The footer follows the leading magic and the pages of every row group.
     long footerStartOffset = objectSize - TRAILER_LENGTH - metadataLength;
     if (footerStartOffset < MAGIC_LENGTH) {
@@ -139,17 +140,12 @@ final class ParquetFooterParser {
     }
   }
 
-  /** Returns the metadata bytes as a stream, reading the backing array in place when possible. */
+  /** Returns the metadata bytes as a stream that reads {@code buffer} in place. */
   private static InputStream metadataStream(
       ByteBuffer buffer, int metadataIndex, int metadataLength) {
-    if (buffer.hasArray()) {
-      return new ByteArrayInputStream(
-          buffer.array(), buffer.arrayOffset() + metadataIndex, metadataLength);
-    }
-    byte[] metadataBytes = new byte[metadataLength];
-    buffer.position(metadataIndex);
-    buffer.get(metadataBytes);
-    return new ByteArrayInputStream(metadataBytes);
+    ByteBuffer metadata = buffer.duplicate();
+    metadata.limit(metadataIndex + metadataLength).position(metadataIndex);
+    return new ByteBufferInputStream(metadata);
   }
 
   /**

@@ -332,6 +332,15 @@ class ParquetFooterParserTest {
   }
 
   @Test
+  void parse_metadataWithUnknownFields_returnsSameLayout() throws IOException {
+    byte[] metadata = metadataBytesOf(craftedFileMetaData(craftedRowGroup(craftedColumnChunk())));
+
+    Optional<ParquetFileLayout> layout = parseCraftedTail(withTrailer(withUnknownFields(metadata)));
+
+    assertThat(layout).hasValue(parseCraftedTail(withTrailer(metadata)).get());
+  }
+
+  @Test
   void parse_doesNotConsumeCallerBuffer() throws IOException {
     byte[] fileBytes = ParquetGoldenFiles.read(ParquetGoldenFiles.SINGLE_ROW_GROUP);
     ByteBuffer buffer = ByteBuffer.wrap(fileBytes);
@@ -640,6 +649,24 @@ class ParquetFooterParserTest {
       metadata.write(0x1C);
     }
     return metadata.toByteArray();
+  }
+
+  /**
+   * Returns {@code metadata} followed by fields that {@code FileMetaData} does not define, as a
+   * footer from a newer version of the format would carry: a binary, a struct, and a list.
+   */
+  private static byte[] withUnknownFields(byte[] metadata) {
+    ByteArrayOutputStream extended = new ByteArrayOutputStream();
+    // Drops the stop byte that ends the struct, so that more fields can follow.
+    extended.write(metadata, 0, metadata.length - 1);
+    // A binary field whose id follows as a varint: 100, zigzag encoded. It holds two bytes.
+    extended.write(new byte[] {0x08, (byte) 0xC8, 0x01, 0x02, 0x7F, 0x7F}, 0, 6);
+    // A struct field with the next id, holding an i32 field 1 of value 1 and its stop byte.
+    extended.write(new byte[] {0x1C, 0x15, 0x02, 0x00}, 0, 4);
+    // A list field with the next id, holding the i32 values 1 and 2.
+    extended.write(new byte[] {0x19, 0x25, 0x02, 0x04}, 0, 4);
+    extended.write(0x00);
+    return extended.toByteArray();
   }
 
   private static ColumnMetaData craftedMetaData() {
