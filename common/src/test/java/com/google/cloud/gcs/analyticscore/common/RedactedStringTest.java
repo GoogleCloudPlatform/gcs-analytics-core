@@ -20,6 +20,8 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class RedactedStringTest {
 
@@ -69,8 +71,19 @@ class RedactedStringTest {
     assertThrows(IllegalArgumentException.class, () -> RedactedString.create(""));
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {" ", "   ", "\t\n\r", "\u000B\f", "\u2003", "\u3000"})
+  void create_blankValue_throwsIllegalArgumentException(String blankValue) {
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, () -> RedactedString.create(blankValue));
+
+    assertThat(exception).hasMessageThat().isEqualTo("value cannot be blank");
+  }
+
   @Test
-  void create_blankValue_throwsIllegalArgumentException() {
-    assertThrows(IllegalArgumentException.class, () -> RedactedString.create("   "));
+  void create_valueWithSurroundingWhitespace_preservesWrappedValue() {
+    RedactedString redactedString = RedactedString.create("  super-secret-value\n");
+
+    assertThat(redactedString.value()).isEqualTo("  super-secret-value\n");
   }
 }

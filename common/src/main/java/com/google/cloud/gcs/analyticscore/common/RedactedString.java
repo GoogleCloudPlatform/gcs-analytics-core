@@ -52,7 +52,7 @@ public abstract class RedactedString {
    */
   public static RedactedString create(String value) {
     checkNotNull(value, "value cannot be null");
-    checkArgument(!value.trim().isEmpty(), "value cannot be blank");
+    checkArgument(!value.isBlank(), "value cannot be blank");
     return new AutoValue_RedactedString(value);
   }
 
