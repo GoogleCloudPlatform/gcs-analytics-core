@@ -31,11 +31,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.api.core.ApiFuture;
+import com.google.api.gax.longrunning.OperationFuture;
+import com.google.api.gax.longrunning.OperationTimedPollAlgorithm;
 import com.google.api.gax.paging.Page;
+import com.google.api.gax.retrying.RetrySettings;
+import com.google.api.gax.retrying.TimedRetryAlgorithm;
 import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.api.gax.rpc.UnauthenticatedException;
+import com.google.api.gax.rpc.UnimplementedException;
 import com.google.auth.Credentials;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.ReadChannel;
@@ -78,8 +84,11 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.BaseEncoding;
+import com.google.protobuf.Empty;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
+import com.google.storage.control.v2.DeleteFolderRecursiveMetadata;
+import com.google.storage.control.v2.DeleteFolderRecursiveRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
@@ -87,6 +96,7 @@ import com.google.storage.control.v2.StorageControlSettings;
 import com.sun.net.httpserver.HttpServer;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
@@ -106,9 +116,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -125,6 +137,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
@@ -1855,6 +1868,327 @@ class GcsClientImplTest {
           .containsEntry(
               "User-Agent", "gcs-analytics-core/" + VersionHelper.VERSION + " custom-app/1.0");
     }
+  }
+
+  @Test
+  void createStorageControlClient_realClient_installsDeleteFolderRecursivePollingSettings()
+      throws Exception {
+    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class));
+
+    TimedRetryAlgorithm pollingAlgorithm;
+    try (StorageControlClient controlClient =
+        localClient.createStorageControlClient(Optional.of(NoCredentials.getInstance()))) {
+      pollingAlgorithm =
+          controlClient
+              .getSettings()
+              .deleteFolderRecursiveOperationSettings()
+              .getPollingAlgorithm();
+    }
+
+    assertThat(pollingAlgorithm).isInstanceOf(OperationTimedPollAlgorithm.class);
+    assertThat(
+            ((OperationTimedPollAlgorithm) pollingAlgorithm)
+                .createFirstAttempt()
+                .getGlobalSettings())
+        .isEqualTo(GcsClientImpl.DELETE_FOLDER_RECURSIVE_POLLING_SETTINGS);
+    RetrySettings settings = GcsClientImpl.DELETE_FOLDER_RECURSIVE_POLLING_SETTINGS;
+    assertThat(settings.getInitialRetryDelayDuration()).isEqualTo(Duration.ofMillis(100));
+    assertThat(settings.getRetryDelayMultiplier()).isEqualTo(1.5);
+    assertThat(settings.getMaxRetryDelayDuration()).isEqualTo(Duration.ofSeconds(5));
+    assertThat(settings.getTotalTimeoutDuration()).isEqualTo(Duration.ofMinutes(60));
+    assertThat(settings.getInitialRpcTimeoutDuration()).isEqualTo(Duration.ZERO);
+    assertThat(settings.getRpcTimeoutMultiplier()).isEqualTo(1.0);
+    assertThat(settings.getMaxRpcTimeoutDuration()).isEqualTo(Duration.ZERO);
+  }
+
+  @ParameterizedTest
+  @CsvSource({"dir, dir", "dir/, dir", "a/b/, a/b"})
+  void deleteFolderRecursive_folderIdWithOrWithoutTrailingSlash_sendsFolderResourceName(
+      String objectName, String expectedFolderName) throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future =
+        stubDeleteFolderRecursiveAsync(mockControlClient);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(objectName).build();
+    DeleteFolderRecursiveRequest expectedRequest =
+        DeleteFolderRecursiveRequest.newBuilder()
+            .setName("projects/_/buckets/" + TEST_BUCKET_NAME + "/folders/" + expectedFolderName)
+            .build();
+
+    clientWithMockControl.deleteFolderRecursive(folderId);
+
+    verify(mockControlClient).deleteFolderRecursiveAsync(expectedRequest);
+    verify(future).get();
+  }
+
+  @Test
+  void deleteFolderRecursive_operationSucceeds_waitsForOperation() throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future =
+        stubDeleteFolderRecursiveAsync(mockControlClient);
+    when(future.get()).thenReturn(Empty.getDefaultInstance());
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    clientWithMockControl.deleteFolderRecursive(TEST_DIR_ITEM_ID);
+
+    verify(future).get();
+    verify(future, never()).cancel(true);
+  }
+
+  @Test
+  void deleteFolderRecursive_notFound_throwsFileNotFoundException() throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future =
+        stubDeleteFolderRecursiveAsync(mockControlClient);
+    NotFoundException notFound = mock(NotFoundException.class);
+    ExecutionException executionException = new ExecutionException(notFound);
+    when(future.get()).thenThrow(executionException);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> clientWithMockControl.deleteFolderRecursive(TEST_DIR_ITEM_ID));
+
+    assertFileNotFoundException(e, TEST_DIR_ITEM_ID);
+    assertThat(e).hasCauseThat().hasCauseThat().isSameInstanceAs(notFound);
+  }
+
+  @ParameterizedTest
+  @ValueSource(classes = {PermissionDeniedException.class, UnauthenticatedException.class})
+  void deleteFolderRecursive_accessDenied_throwsAccessDeniedException(
+      Class<? extends Exception> exceptionClass) throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future =
+        stubDeleteFolderRecursiveAsync(mockControlClient);
+    Exception apiException = mock(exceptionClass);
+    ExecutionException executionException = new ExecutionException(apiException);
+    when(future.get()).thenThrow(executionException);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    AccessDeniedException e =
+        assertThrows(
+            AccessDeniedException.class,
+            () -> clientWithMockControl.deleteFolderRecursive(TEST_DIR_ITEM_ID));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasCauseThat().isSameInstanceAs(apiException);
+  }
+
+  @ParameterizedTest
+  @MethodSource("deleteFolderRecursiveOtherFailures")
+  void deleteFolderRecursive_otherFailure_throwsIOExceptionWithCause(Exception failure)
+      throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future =
+        stubDeleteFolderRecursiveAsync(mockControlClient);
+    ExecutionException executionException = new ExecutionException(failure);
+    when(future.get()).thenThrow(executionException);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e =
+        assertThrows(
+            IOException.class, () -> clientWithMockControl.deleteFolderRecursive(TEST_DIR_ITEM_ID));
+
+    assertThat(e.getClass()).isEqualTo(IOException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Failed to delete folder recursively: " + TEST_DIR_ITEM_ID);
+    assertThat(e).hasCauseThat().isSameInstanceAs(failure);
+  }
+
+  @Test
+  void deleteFolderRecursive_operationFailsWithError_rethrowsError() throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future =
+        stubDeleteFolderRecursiveAsync(mockControlClient);
+    NoSuchMethodError error = new NoSuchMethodError("linkage failure");
+    ExecutionException executionException = new ExecutionException(error);
+    when(future.get()).thenThrow(executionException);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    NoSuchMethodError e =
+        assertThrows(
+            NoSuchMethodError.class,
+            () -> clientWithMockControl.deleteFolderRecursive(TEST_DIR_ITEM_ID));
+
+    assertThat(e).isSameInstanceAs(error);
+  }
+
+  @Test
+  void deleteFolderRecursive_operationFailsWithNonExceptionThrowable_throwsIOException()
+      throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future =
+        stubDeleteFolderRecursiveAsync(mockControlClient);
+    Throwable throwable = new Throwable("non-exception failure");
+    ExecutionException executionException = new ExecutionException(throwable);
+    when(future.get()).thenThrow(executionException);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e =
+        assertThrows(
+            IOException.class, () -> clientWithMockControl.deleteFolderRecursive(TEST_DIR_ITEM_ID));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Failed to delete folder recursively: " + TEST_DIR_ITEM_ID);
+    assertThat(e).hasCauseThat().isSameInstanceAs(throwable);
+  }
+
+  @Test
+  void deleteFolderRecursive_asyncCallThrows_throwsIOExceptionWithCause() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    RuntimeException failure = new RuntimeException("request rejected");
+    when(mockControlClient.deleteFolderRecursiveAsync(any(DeleteFolderRecursiveRequest.class)))
+        .thenThrow(failure);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e =
+        assertThrows(
+            IOException.class, () -> clientWithMockControl.deleteFolderRecursive(TEST_DIR_ITEM_ID));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Failed to delete folder recursively: " + TEST_DIR_ITEM_ID);
+    assertThat(e).hasCauseThat().isSameInstanceAs(failure);
+  }
+
+  @Test
+  void deleteFolderRecursive_afterClose_propagatesIOExceptionDirectly() {
+    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class));
+    localClient.close();
+
+    IOException e =
+        assertThrows(IOException.class, () -> localClient.deleteFolderRecursive(TEST_DIR_ITEM_ID));
+
+    assertThat(e).hasMessageThat().isEqualTo("StorageControlClient is closed");
+    assertThat(e).hasCauseThat().isNull();
+  }
+
+  @Test
+  void deleteFolderRecursive_interruptedWhileWaiting_cancelsPollingAndThrowsInterruptedIOException()
+      throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future =
+        stubDeleteFolderRecursiveAsync(mockControlClient);
+    InterruptedException interrupted = new InterruptedException("interrupted");
+    when(future.get()).thenThrow(interrupted);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    InterruptedIOException e;
+    boolean interruptFlagRestored;
+    try {
+      e =
+          assertThrows(
+              InterruptedIOException.class,
+              () -> clientWithMockControl.deleteFolderRecursive(TEST_DIR_ITEM_ID));
+    } finally {
+      // Reads and clears the flag so that it does not leak into other tests.
+      interruptFlagRestored = Thread.interrupted();
+    }
+
+    assertThat(interruptFlagRestored).isTrue();
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Interrupted while waiting to delete folder recursively: "
+                + TEST_DIR_ITEM_ID
+                + "; the delete may still complete on the server");
+    assertThat(e).hasCauseThat().isSameInstanceAs(interrupted);
+    verify(future).cancel(true);
+  }
+
+  @Test
+  void deleteFolderRecursive_pollingTimesOut_throwsIOException() throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future =
+        stubDeleteFolderRecursiveAsync(mockControlClient);
+    CancellationException timeout = new CancellationException("polling timed out");
+    when(future.get()).thenThrow(timeout);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e =
+        assertThrows(
+            IOException.class, () -> clientWithMockControl.deleteFolderRecursive(TEST_DIR_ITEM_ID));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Timed out waiting to delete folder recursively: "
+                + TEST_DIR_ITEM_ID
+                + "; the delete may still complete on the server");
+    assertThat(e).hasCauseThat().isSameInstanceAs(timeout);
+  }
+
+  @ParameterizedTest
+  @MethodSource("deleteFolderRecursiveInvalidFolderIds")
+  void deleteFolderRecursive_invalidFolderId_throwsIllegalArgumentException(
+      GcsItemId folderId, String expectedMessage) {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> clientWithMockControl.deleteFolderRecursive(folderId));
+
+    assertThat(e).hasMessageThat().isEqualTo(expectedMessage);
+    verify(mockControlClient, never())
+        .deleteFolderRecursiveAsync(any(DeleteFolderRecursiveRequest.class));
+  }
+
+  @Test
+  void deleteFolderRecursive_nullFolderId_throwsNullPointerException() {
+    GcsClientImpl clientWithMockControl =
+        createClientWithMockControl(mock(StorageControlClient.class));
+
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class, () -> clientWithMockControl.deleteFolderRecursive(null));
+
+    assertThat(e).hasMessageThat().isEqualTo("folderId must not be null");
+  }
+
+  @Test
+  void deleteFolderRecursive_defaultInterfaceMethod_throwsUnsupportedOperationException() {
+    GcsClient client = mock(GcsClient.class, Answers.CALLS_REAL_METHODS);
+
+    UnsupportedOperationException e =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> client.deleteFolderRecursive(TEST_DIR_ITEM_ID));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("deleteFolderRecursive is not implemented by " + client.getClass().getName());
+  }
+
+  @SuppressWarnings("unchecked")
+  private static OperationFuture<Empty, DeleteFolderRecursiveMetadata>
+      stubDeleteFolderRecursiveAsync(StorageControlClient mockControlClient) {
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future = mock(OperationFuture.class);
+    when(mockControlClient.deleteFolderRecursiveAsync(any(DeleteFolderRecursiveRequest.class)))
+        .thenReturn(future);
+    return future;
+  }
+
+  private static Stream<Exception> deleteFolderRecursiveOtherFailures() {
+    return Stream.of(
+        mock(FailedPreconditionException.class),
+        mock(UnimplementedException.class),
+        new RuntimeException("other failure"));
+  }
+
+  private static Stream<Arguments> deleteFolderRecursiveInvalidFolderIds() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build();
+    return Stream.of(
+        Arguments.of(GcsItemId.ROOT, "Expected a folder itemId but got: " + GcsItemId.ROOT),
+        Arguments.of(bucketId, "Expected a folder itemId but got: " + bucketId),
+        Arguments.of(
+            GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName("/").build(),
+            "Folder name cannot be empty"));
   }
 
   @Test
