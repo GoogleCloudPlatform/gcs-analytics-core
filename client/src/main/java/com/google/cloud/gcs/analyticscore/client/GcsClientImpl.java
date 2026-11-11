@@ -446,7 +446,8 @@ class GcsClientImpl implements GcsClient {
 
     try {
       Page<Blob> page = storage.list(bucketName, blobListOptions.toArray(new BlobListOption[0]));
-      String dirSuffix = options.getDelimiter().orElse("/");
+      Optional<String> delimiter = options.getDelimiter();
+      String dirSuffix = delimiter.orElse("/");
       boolean isDirectoryPrefix = !prefix.isEmpty() && prefix.endsWith(dirSuffix);
       List<GcsItemInfo> items = new ArrayList<>();
       Set<String> rawPrefixes = new LinkedHashSet<>();
@@ -459,7 +460,9 @@ class GcsClientImpl implements GcsClient {
         if (blob.isDirectory()) {
           rawPrefixes.add(blob.getName());
         } else {
-          seenObjectNames.add(blob.getName());
+          if (delimiter.isPresent() && blob.getName().endsWith(dirSuffix)) {
+            seenObjectNames.add(blob.getName());
+          }
           GcsItemInfo info = fromBlob(blob);
           if (isDirectoryPrefix
               && blob.getName().equals(prefix)

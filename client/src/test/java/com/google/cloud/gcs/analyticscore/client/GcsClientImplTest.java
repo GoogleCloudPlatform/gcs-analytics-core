@@ -2070,13 +2070,21 @@ class GcsClientImplTest {
   @Test
   void listFirstObjectWithPrefix_noPlaceholderWithDeeplyNestedObject_returnsNestedObject()
       throws IOException {
-    String bucket = "nested-only-first-bucket";
-    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "b/c/obj"), "payload");
-    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "b/d/other"), "other");
-    GcsItemId prefixId = GcsItemId.builder().setBucketName(bucket).setObjectName("b/").build();
+    GcsItemId prefixId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("b/").build();
+    Storage mockStorage =
+        createMockStorageWithBlobs(
+            TEST_BUCKET,
+            createMockBlob(TEST_BUCKET, "b/c/obj"),
+            createMockBlob(TEST_BUCKET, "b/d/other"));
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+    ArgumentCaptor<BlobListOption[]> captor = ArgumentCaptor.forClass(BlobListOption[].class);
 
-    Optional<GcsItemInfo> result = gcsClient.listFirstObjectWithPrefix(prefixId);
+    Optional<GcsItemInfo> result = clientWithMock.listFirstObjectWithPrefix(prefixId);
 
+    verify(mockStorage).list(eq(TEST_BUCKET), captor.capture());
+    assertThat(Arrays.asList(captor.getValue()))
+        .containsAtLeast(BlobListOption.prefix("b/"), BlobListOption.pageSize(1));
+    assertThat(Arrays.asList(captor.getValue())).doesNotContain(BlobListOption.delimiter("/"));
     assertThat(result).isPresent();
     assertThat(result.get().getItemId().getObjectName()).hasValue("b/c/obj");
     assertThat(result.get().getItemType()).isEqualTo(GcsItemInfo.ItemType.OBJECT);
@@ -2099,12 +2107,13 @@ class GcsClientImplTest {
   @Test
   void listFirstObjectWithPrefix_placeholderAndNestedObjectExist_returnsPlaceholderObject()
       throws IOException {
-    String bucket = "placeholder-and-nested-bucket";
-    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "b/c/obj"), "payload");
-    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "b/"), "");
-    GcsItemId prefixId = GcsItemId.builder().setBucketName(bucket).setObjectName("b/").build();
+    GcsItemId prefixId = GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("b/").build();
+    Storage mockStorage =
+        createMockStorageWithBlobs(
+            TEST_BUCKET, createMockBlob(TEST_BUCKET, "b/"), createMockBlob(TEST_BUCKET, "b/c/obj"));
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
 
-    Optional<GcsItemInfo> result = gcsClient.listFirstObjectWithPrefix(prefixId);
+    Optional<GcsItemInfo> result = clientWithMock.listFirstObjectWithPrefix(prefixId);
 
     assertThat(result).isPresent();
     assertThat(result.get().getItemId().getObjectName()).hasValue("b/");
@@ -3694,10 +3703,8 @@ class GcsClientImplTest {
         Arguments.of(null, "write-proj", "write-proj"));
   }
 
-  @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void listObjectsPage_selfDirectoryMarker_routesToPrefixObjectOrItems(boolean includePrefixObj)
-      throws IOException {
+  @Test
+  void listObjectsPage_selfDirectoryMarkerExcluded_surfacesInPrefixObject() throws IOException {
     Blob selfMarker = createMockBlob(TEST_BUCKET_NAME, TEST_DIR);
     Blob syntheticSelf = createMockDirectoryPrefixBlob(TEST_BUCKET_NAME, TEST_DIR);
     Blob child = createMockBlob(TEST_BUCKET_NAME, TEST_DIR + "file.parquet");
@@ -3705,22 +3712,35 @@ class GcsClientImplTest {
         createMockStorageWithBlobs(TEST_BUCKET_NAME, selfMarker, syntheticSelf, child);
     GcsClientImpl client = createClientWithMockStorage(mockStorage);
     GcsListOptions options =
-        GcsListOptions.LIST_DIRECTORY.toBuilder().setIncludePrefixObject(includePrefixObj).build();
+        GcsListOptions.LIST_DIRECTORY.toBuilder().setIncludePrefixObject(false).build();
 
     GcsListPage<GcsItemInfo> page = client.listObjectsPage(TEST_DIR_ITEM_ID, options);
 
     assertThat(page.getPrefixes()).isEmpty();
-    if (includePrefixObj) {
-      assertThat(page.getPrefixObject()).isEmpty();
-      assertThat(page.getItems().stream().map(i -> i.getItemId().getObjectName().orElse("")))
-          .containsExactly(TEST_DIR, TEST_DIR + "file.parquet")
-          .inOrder();
-    } else {
-      assertThat(page.getPrefixObject()).isPresent();
-      assertThat(page.getPrefixObject().get().getItemId().getObjectName()).hasValue(TEST_DIR);
-      assertThat(page.getItems().stream().map(i -> i.getItemId().getObjectName().orElse("")))
-          .containsExactly(TEST_DIR + "file.parquet");
-    }
+    assertThat(page.getPrefixObject()).isPresent();
+    assertThat(page.getPrefixObject().get().getItemId().getObjectName()).hasValue(TEST_DIR);
+    assertThat(page.getItems().stream().map(i -> i.getItemId().getObjectName().orElse("")))
+        .containsExactly(TEST_DIR + "file.parquet");
+  }
+
+  @Test
+  void listObjectsPage_selfDirectoryMarkerIncluded_surfacesInItems() throws IOException {
+    Blob selfMarker = createMockBlob(TEST_BUCKET_NAME, TEST_DIR);
+    Blob syntheticSelf = createMockDirectoryPrefixBlob(TEST_BUCKET_NAME, TEST_DIR);
+    Blob child = createMockBlob(TEST_BUCKET_NAME, TEST_DIR + "file.parquet");
+    Storage mockStorage =
+        createMockStorageWithBlobs(TEST_BUCKET_NAME, selfMarker, syntheticSelf, child);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsListOptions options =
+        GcsListOptions.LIST_DIRECTORY.toBuilder().setIncludePrefixObject(true).build();
+
+    GcsListPage<GcsItemInfo> page = client.listObjectsPage(TEST_DIR_ITEM_ID, options);
+
+    assertThat(page.getPrefixes()).isEmpty();
+    assertThat(page.getPrefixObject()).isEmpty();
+    assertThat(page.getItems().stream().map(i -> i.getItemId().getObjectName().orElse("")))
+        .containsExactly(TEST_DIR, TEST_DIR + "file.parquet")
+        .inOrder();
   }
 
   @ParameterizedTest
@@ -3755,18 +3775,53 @@ class GcsClientImplTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  void listObjectsPage_grpcEmptyTokenAndNullBlob_skipsNullAndNormalizesToken() throws IOException {
+  void listObjectsPage_nullBlobEntry_skipsNullEntry() throws IOException {
     Blob blob = createMockBlob(TEST_BUCKET_NAME, TEST_DIR + "cold.parquet");
     Page<Blob> mockPage = mock(Page.class);
     when(mockPage.getValues()).thenReturn(Arrays.asList(null, blob));
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.list(eq(TEST_BUCKET_NAME), any(BlobListOption[].class))).thenReturn(mockPage);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+
+    GcsListPage<GcsItemInfo> page =
+        client.listObjectsPage(TEST_DIR_ITEM_ID, GcsListOptions.LIST_DIRECTORY);
+
+    assertThat(page.getItems()).hasSize(1);
+    assertThat(page.getItems().get(0).getItemId().getObjectName())
+        .hasValue(TEST_DIR + "cold.parquet");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void listObjectsPage_grpcEmptyNextPageToken_normalizesToAbsentNextPage() throws IOException {
+    Blob blob = createMockBlob(TEST_BUCKET_NAME, TEST_DIR + "cold.parquet");
+    Page<Blob> mockPage = mock(Page.class);
+    when(mockPage.getValues()).thenReturn(ImmutableList.of(blob));
     when(mockPage.getNextPageToken()).thenReturn("");
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.list(eq(TEST_BUCKET_NAME), any(BlobListOption[].class))).thenReturn(mockPage);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+
+    GcsListPage<GcsItemInfo> page =
+        client.listObjectsPage(TEST_DIR_ITEM_ID, GcsListOptions.LIST_DIRECTORY);
+
+    assertThat(page.getNextPageToken()).isEmpty();
+    assertThat(page.hasNextPage()).isFalse();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void listObjectsPage_singleRpcDefaultOptions_requestsDefaultPageSizeAndDoesNotIterateAll()
+      throws IOException {
+    Blob blob = createMockBlob(TEST_BUCKET_NAME, TEST_DIR + "cold.parquet");
+    Page<Blob> mockPage = mock(Page.class);
+    when(mockPage.getValues()).thenReturn(ImmutableList.of(blob));
     Storage mockStorage = mock(Storage.class);
     when(mockStorage.list(eq(TEST_BUCKET_NAME), any(BlobListOption[].class))).thenReturn(mockPage);
     GcsClientImpl client = createClientWithMockStorage(mockStorage);
     ArgumentCaptor<BlobListOption[]> captor = ArgumentCaptor.forClass(BlobListOption[].class);
 
-    GcsListPage<GcsItemInfo> page =
-        client.listObjectsPage(TEST_DIR_ITEM_ID, GcsListOptions.LIST_DIRECTORY);
+    client.listObjectsPage(TEST_DIR_ITEM_ID, GcsListOptions.LIST_DIRECTORY);
 
     verify(mockStorage).list(eq(TEST_BUCKET_NAME), captor.capture());
     assertThat(Arrays.asList(captor.getValue())).contains(BlobListOption.pageSize(5000));
@@ -3778,11 +3833,6 @@ class GcsClientImplTest {
                     .filter(f -> f != GcsListOptions.ListField.STORAGE_CLASS)
                     .map(GcsClientImpl::toBlobField)
                     .toArray(BlobField[]::new)));
-    assertThat(page.getNextPageToken()).isEmpty();
-    assertThat(page.hasNextPage()).isFalse();
-    assertThat(page.getItems()).hasSize(1);
-    assertThat(page.getItems().get(0).getItemId().getObjectName())
-        .hasValue(TEST_DIR + "cold.parquet");
     verify(mockPage, never()).iterateAll();
   }
 

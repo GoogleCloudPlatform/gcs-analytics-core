@@ -48,7 +48,11 @@ public abstract class GcsListOptions {
     GENERATION,
     /** Object metadata generation number. */
     METAGENERATION,
-    /** Object size in bytes. */
+    /**
+     * Object size in bytes. Omitting this field causes listed items to report {@link
+     * GcsItemInfo#getSize()} {@code == 0L} (with {@link GcsItemInfo#exists()} {@code true}); do not
+     * pass items listed without {@code SIZE} to read channels or file-sizing paths.
+     */
     SIZE,
     /** Object MIME content type. */
     CONTENT_TYPE,

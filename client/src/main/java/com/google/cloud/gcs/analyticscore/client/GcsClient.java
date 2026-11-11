@@ -104,6 +104,13 @@ public interface GcsClient {
    * prefix returns an empty page. Any {@link GcsItemId#getContentGeneration()} on {@code prefixId}
    * is ignored.
    *
+   * <p>When {@link GcsListOptions#getFields()} omits optional metadata fields, unprojected fields
+   * are reported as absent or {@code 0} on returned items. In particular, omitting {@link
+   * GcsListOptions.ListField#SIZE} yields items with {@link GcsItemInfo#getSize()} equal to {@code
+   * 0L} (with {@link GcsItemInfo#exists()} {@code true}); callers must not pass such partial {@link
+   * GcsItemInfo} instances to {@link #openReadChannel(GcsItemInfo, GcsReadOptions)} or file-sizing
+   * paths.
+   *
    * @param prefixId bucket or object/directory prefix to list (must have a non-empty bucket name;
    *     any content generation is ignored)
    * @param options listing options controlling delimiter, projection, filters, and pagination

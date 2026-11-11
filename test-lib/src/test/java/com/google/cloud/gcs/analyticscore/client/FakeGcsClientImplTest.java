@@ -24,10 +24,14 @@ import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.StorageClass;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -241,20 +245,41 @@ class FakeGcsClientImplTest {
   }
 
   @Test
-  void listObjectsPage_absentOrOversizedPageSize_capsFirstPageAtDefaultMaxListItemsPerCall()
+  void listObjectsPage_absentPageSize_capsFirstPageAtDefaultMaxListItemsPerCall()
       throws IOException {
     String bucket = "default-5000-cap-bucket";
-    int totalObjects = GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL + 2;
-    for (int i = 0; i < totalObjects; i++) {
-      putBlob(bucket, String.format("cap/obj-%04d", i), "");
-    }
+    createNumberedBlobs(bucket, "cap/", GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL + 2);
     GcsItemId prefixId = id(bucket, "cap/");
 
     GcsListPage<GcsItemInfo> first =
         fakeGcsClient.listObjectsPage(prefixId, GcsListOptions.LIST_DIRECTORY);
-    GcsListPage<GcsItemInfo> oversized =
-        fakeGcsClient.listObjectsPage(
-            prefixId, GcsListOptions.LIST_DIRECTORY.toBuilder().setPageSize(10_000).build());
+
+    assertThat(first.getItems()).hasSize(GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL);
+    assertThat(first.hasNextPage()).isTrue();
+  }
+
+  @Test
+  void listObjectsPage_oversizedPageSize_capsPageAtDefaultMaxListItemsPerCall() throws IOException {
+    String bucket = "oversized-5000-cap-bucket";
+    createNumberedBlobs(bucket, "cap/", GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL + 2);
+    GcsListOptions oversizedOptions =
+        GcsListOptions.LIST_DIRECTORY.toBuilder().setPageSize(10_000).build();
+
+    GcsListPage<GcsItemInfo> page =
+        fakeGcsClient.listObjectsPage(id(bucket, "cap/"), oversizedOptions);
+
+    assertThat(page.getItems()).hasSize(GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL);
+    assertThat(page.hasNextPage()).isTrue();
+  }
+
+  @Test
+  void listObjectsPage_secondPageAfterDefaultCap_returnsRemainingItems() throws IOException {
+    String bucket = "second-page-5000-cap-bucket";
+    createNumberedBlobs(bucket, "cap/", GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL + 2);
+    GcsItemId prefixId = id(bucket, "cap/");
+    GcsListPage<GcsItemInfo> first =
+        fakeGcsClient.listObjectsPage(prefixId, GcsListOptions.LIST_DIRECTORY);
+
     GcsListPage<GcsItemInfo> second =
         fakeGcsClient.listObjectsPage(
             prefixId,
@@ -262,11 +287,202 @@ class FakeGcsClientImplTest {
                 .setPageToken(first.getNextPageToken().orElseThrow())
                 .build());
 
-    assertThat(first.getItems()).hasSize(GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL);
-    assertThat(oversized.getItems()).hasSize(GcsListOptions.DEFAULT_MAX_LIST_ITEMS_PER_CALL);
-    assertThat(first.getNextPageToken()).hasValue("5000");
-    assertThat(second.getItems()).hasSize(2);
+    assertThat(itemNames(second)).containsExactly("cap/obj-5000", "cap/obj-5001").inOrder();
     assertThat(second.hasNextPage()).isFalse();
+  }
+
+  @Test
+  void listObjectsPage_deleteFirstPageAndContinue_doesNotSkipRemainingObjects() throws IOException {
+    String bucket = "delete-between-pages-bucket";
+    for (String name : new String[] {"p/a", "p/b", "p/c", "p/d", "p/e"}) {
+      putBlob(bucket, name, "x");
+    }
+    GcsItemId dirId = id(bucket, "p/");
+    GcsListOptions opts = GcsListOptions.LIST_DIRECTORY.toBuilder().setPageSize(2).build();
+    GcsListPage<GcsItemInfo> first = fakeGcsClient.listObjectsPage(dirId, opts);
+    for (GcsItemInfo item : first.getItems()) {
+      FakeGcsClientImpl.storage.delete(
+          BlobId.of(bucket, item.getItemId().getObjectName().orElseThrow()));
+    }
+
+    GcsListPage<GcsItemInfo> second =
+        fakeGcsClient.listObjectsPage(
+            dirId, opts.toBuilder().setPageToken(first.getNextPageToken().orElseThrow()).build());
+    GcsListPage<GcsItemInfo> third =
+        fakeGcsClient.listObjectsPage(
+            dirId, opts.toBuilder().setPageToken(second.getNextPageToken().orElseThrow()).build());
+
+    assertThat(itemNames(first)).containsExactly("p/a", "p/b").inOrder();
+    assertThat(itemNames(second)).containsExactly("p/c", "p/d").inOrder();
+    assertThat(itemNames(third)).containsExactly("p/e");
+    assertThat(third.hasNextPage()).isFalse();
+  }
+
+  @Test
+  void listObjectsPage_minimalFieldProjection_masksUnprojectedMetadata() throws IOException {
+    String bucket = "fake-minimal-fields-bucket";
+    BlobInfo blobInfo =
+        BlobInfo.newBuilder(BlobId.of(bucket, "f/data.bin", 99L))
+            .setContentType("application/octet-stream")
+            .setContentEncoding("gzip")
+            .setStorageClass(StorageClass.NEARLINE)
+            .setMetadata(ImmutableMap.of("k", "dmFs"))
+            .build();
+    FakeGcsClientImpl.storage.create(blobInfo, "1234567".getBytes(StandardCharsets.UTF_8));
+
+    GcsListPage<GcsItemInfo> page =
+        fakeGcsClient.listObjectsPage(id(bucket, "f/"), GcsListOptions.EMPTINESS_CHECK_FLAT);
+
+    assertThat(page.getItems()).hasSize(1);
+    GcsItemInfo item = page.getItems().get(0);
+    assertThat(item.getItemId().getObjectName()).hasValue("f/data.bin");
+    assertThat(item.getItemId().getContentGeneration()).isEmpty();
+    assertThat(item.getContentGeneration()).isEmpty();
+    assertThat(item.getSize()).isEqualTo(0L);
+    assertThat(item.getCreationTime()).isEqualTo(0L);
+    assertThat(item.getModificationTime()).isEqualTo(0L);
+    assertThat(item.getMetaGeneration()).isEqualTo(0L);
+    assertThat(item.getContentType()).isEmpty();
+    assertThat(item.getContentEncoding()).isEmpty();
+    assertThat(item.getStorageClass()).isEmpty();
+    assertThat(item.getVerificationAttributes()).isEmpty();
+    assertThat(item.getExtendedAttributes()).isEmpty();
+  }
+
+  @Test
+  void listObjectsPage_allFieldsProjected_preservesObjectMetadata() throws IOException {
+    String bucket = "fake-all-fields-bucket";
+    BlobInfo blobInfo =
+        BlobInfo.newBuilder(BlobId.of(bucket, "f/data.bin", 99L))
+            .setContentType("application/parquet")
+            .setContentEncoding("zstd")
+            .setStorageClass(StorageClass.STANDARD)
+            .setMetadata(ImmutableMap.of("k", "dmFs"))
+            .build();
+    FakeGcsClientImpl.storage.create(blobInfo, "1234567".getBytes(StandardCharsets.UTF_8));
+    GcsListOptions allFields =
+        GcsListOptions.LIST_DIRECTORY.toBuilder()
+            .setFields(GcsListOptions.ListField.values())
+            .build();
+
+    GcsListPage<GcsItemInfo> page = fakeGcsClient.listObjectsPage(id(bucket, "f/"), allFields);
+
+    assertThat(page.getItems()).hasSize(1);
+    GcsItemInfo item = page.getItems().get(0);
+    assertThat(item.getSize()).isEqualTo(7L);
+    assertThat(item.getContentType()).hasValue("application/parquet");
+    assertThat(item.getContentEncoding()).hasValue("zstd");
+    assertThat(item.getStorageClass()).hasValue("STANDARD");
+    assertThat(item.getVerificationAttributes()).isPresent();
+    assertThat(item.getVerificationAttributes().get().getCrc32c()).isNotNull();
+    assertThat(item.getExtendedAttributes()).containsKey("k");
+  }
+
+  @Test
+  void listObjectsPage_leadingSlashPrefix_returnsMatchingObjects() throws IOException {
+    String bucket = "leading-slash-bucket";
+    putBlob(bucket, "/lead/x", "x");
+    putBlob(bucket, "lead/y", "y");
+
+    GcsListPage<GcsItemInfo> page =
+        fakeGcsClient.listObjectsPage(id(bucket, "/lead/"), GcsListOptions.LIST_DIRECTORY);
+
+    assertThat(itemNames(page)).containsExactly("/lead/x");
+  }
+
+  @TestFactory
+  Stream<DynamicTest> listObjectsPage_advancedGlobSyntax_matchesPerGcsRules() {
+    String bucket = "adv-glob-bucket";
+    return Stream.of(
+        globCase(
+            bucket + "-charclass",
+            "g/part-[0-9].parquet",
+            new String[] {"g/part-1.parquet", "g/part-x.parquet", "g/part-/.parquet"},
+            "g/part-1.parquet"),
+        globCase(
+            bucket + "-negclass",
+            "g/part-[!0-9].parquet",
+            new String[] {"g/part-1.parquet", "g/part-x.parquet", "g/part-/.parquet"},
+            "g/part-x.parquet"),
+        globCase(
+            bucket + "-range-excludes-slash",
+            "g/[.-0]",
+            new String[] {"g/.", "g//", "g/0"},
+            "g/.",
+            "g/0"),
+        globCase(
+            bucket + "-braces",
+            "g/*.{parquet,orc}",
+            new String[] {"g/part-1.parquet", "g/part-2.orc", "g/part-3.csv"},
+            "g/part-1.parquet",
+            "g/part-2.orc"),
+        globCase(
+            bucket + "-escaped-comma-in-braces",
+            "g/{a\\,b,c\\*}.parquet",
+            new String[] {"g/a,b.parquet", "g/a.parquet", "g/c*.parquet", "g/cx.parquet"},
+            "g/a,b.parquet",
+            "g/c*.parquet"),
+        globCase(
+            bucket + "-escaped-literals",
+            "g/file\\?\\[1\\]\\*\\{a\\,b\\}.parquet",
+            new String[] {"g/file?[1]*{a,b}.parquet", "g/fileA[1]B{a,b}.parquet"},
+            "g/file?[1]*{a,b}.parquet"),
+        globCase(
+            bucket + "-escaped-double-star",
+            "g/\\**/file.txt",
+            new String[] {"g/*/file.txt", "g/**/file.txt", "g/a/b/file.txt"},
+            "g/**/file.txt",
+            "g/*/file.txt"));
+  }
+
+  private DynamicTest globCase(
+      String bucket, String globPattern, String[] objects, String... expected) {
+    return dynamicTest(
+        globPattern,
+        () -> {
+          for (String obj : objects) {
+            putBlob(bucket, obj, "x");
+          }
+          GcsListOptions opts =
+              GcsListOptions.LIST_RECURSIVE.toBuilder().setMatchGlob(globPattern).build();
+
+          GcsListPage<GcsItemInfo> page = fakeGcsClient.listObjectsPage(id(bucket, ""), opts);
+
+          assertThat(itemNames(page)).containsExactly((Object[]) expected).inOrder();
+        });
+  }
+
+  @TestFactory
+  Stream<DynamicTest> listObjectsPage_invalidGlobSyntax_throwsIOException() {
+    String bucket = "invalid-glob-bucket";
+    putBlob(bucket, "a", "1");
+    return Stream.of(
+            "g/[]",
+            "g/[!]",
+            "g/[unclosed",
+            "g/[a\\",
+            "g/[a[b]",
+            "g/unmatched]",
+            "g/{a,b",
+            "g/a}",
+            "g/{a/b,c}",
+            "g/{a\\/b,c}",
+            "g/{a/**/b,c}",
+            "g/{a**b,c}",
+            "g/[z-a]")
+        .map(
+            badGlob ->
+                dynamicTest(
+                    badGlob,
+                    () ->
+                        assertThrows(
+                            IOException.class,
+                            () ->
+                                fakeGcsClient.listObjectsPage(
+                                    id(bucket, ""),
+                                    GcsListOptions.LIST_RECURSIVE.toBuilder()
+                                        .setMatchGlob(badGlob)
+                                        .build()))));
   }
 
   @Test
@@ -287,10 +503,11 @@ class FakeGcsClientImplTest {
   }
 
   @Test
-  void listFirstObjectWithPrefix_nestedVsPlaceholder_returnsExpectedFirstObject()
+  void listFirstObjectWithPrefix_nestedObjectWithoutPlaceholder_returnsFirstNestedObject()
       throws IOException {
-    String bucket = "fake-first-object-bucket";
+    String bucket = "fake-first-nested-bucket";
     putBlob(bucket, "b/c/obj", "nested");
+    putBlob(bucket, "b/d/other", "other");
     GcsItemId prefixId = id(bucket, "b/");
 
     assertThat(
@@ -298,8 +515,16 @@ class FakeGcsClientImplTest {
                 .listFirstObjectWithPrefix(prefixId)
                 .flatMap(i -> i.getItemId().getObjectName()))
         .hasValue("b/c/obj");
+  }
 
+  @Test
+  void listFirstObjectWithPrefix_placeholderAndNestedObjectExist_returnsPlaceholderObject()
+      throws IOException {
+    String bucket = "fake-first-placeholder-bucket";
+    putBlob(bucket, "b/c/obj", "nested");
     putBlob(bucket, "b/", "");
+    GcsItemId prefixId = id(bucket, "b/");
+
     assertThat(
             fakeGcsClient
                 .listFirstObjectWithPrefix(prefixId)
@@ -311,15 +536,25 @@ class FakeGcsClientImplTest {
   Stream<DynamicTest> listObjectsPage_invalidArguments_throwsExpectedException() {
     GcsItemId valid = id("token-bucket", "p/");
     GcsListOptions dir = GcsListOptions.LIST_DIRECTORY;
-    GcsListOptions badTok = dir.toBuilder().setPageToken("not-an-int").build();
-    GcsListOptions negTok = dir.toBuilder().setPageToken("-1").build();
+    GcsListOptions badPrefixTok = dir.toBuilder().setPageToken("not-a-cursor").build();
+    GcsListOptions badBase64Tok = dir.toBuilder().setPageToken("name:!!!").build();
+    GcsListOptions emptyCursorTok = dir.toBuilder().setPageToken("name:").build();
+    GcsListOptions badUtf8Tok = dir.toBuilder().setPageToken("name:_w").build();
     return Stream.of(
         expectThrows("nullId", NullPointerException.class, null, dir),
         expectThrows("nullOpts", NullPointerException.class, valid, null),
         expectThrows("root", IllegalArgumentException.class, GcsItemId.ROOT, dir),
         expectThrows("emptyBucket", IllegalArgumentException.class, id("", "p/"), dir),
-        expectThrows("badToken", IOException.class, valid, badTok),
-        expectThrows("negToken", IOException.class, valid, negTok));
+        expectThrows("badPrefixToken", IOException.class, valid, badPrefixTok),
+        expectThrows("badBase64Token", IOException.class, valid, badBase64Tok),
+        expectThrows("emptyCursorToken", IOException.class, valid, emptyCursorTok),
+        expectThrows("badUtf8Token", IOException.class, valid, badUtf8Tok));
+  }
+
+  private static void createNumberedBlobs(String bucket, String prefix, int count) {
+    for (int i = 0; i < count; i++) {
+      putBlob(bucket, String.format("%sobj-%04d", prefix, i), "");
+    }
   }
 
   private DynamicTest expectThrows(
