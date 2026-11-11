@@ -167,6 +167,7 @@
                         <configuration>
                             <excludes>
                                 <exclude>**/*IntegrationTest.java</exclude>
+                                <exclude>**/ParquetGoldenFileWriter.java</exclude>
                             </excludes>
                         </configuration>
                     </plugin>

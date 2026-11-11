@@ -34,6 +34,8 @@ abstract class ParquetFileLayout {
   /**
    * Returns a 64-bit fingerprint of the columns the schema defines, equal across files whose
    * schemas define the same columns.
+   *
+   * @see ParquetSchemaFingerprint
    */
   abstract long getSchemaFingerprint();
 
