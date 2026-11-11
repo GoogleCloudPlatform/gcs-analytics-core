@@ -170,7 +170,7 @@ public final class CachedRange {
   /**
    * Returns a future that copies {@code [offset, offset + length)} from this range's buffer into a
    * buffer allocated via {@code allocate}. The future fails if this range's buffer does not hold
-   * the whole range.
+   * the whole range or if {@code allocate} returns {@code null}.
    */
   CompletableFuture<ByteBuffer> copyIntoAsync(
       long offset, int length, IntFunction<ByteBuffer> allocate) {
@@ -235,13 +235,10 @@ public final class CachedRange {
     return view.slice();
   }
 
-  @Nullable
   private static ByteBuffer copyToAllocated(
       ByteBuffer source, int length, IntFunction<ByteBuffer> allocate) {
     ByteBuffer target = allocate.apply(length);
-    if (target == null) {
-      return null;
-    }
+    checkArgument(target != null, "Buffer allocation returned null for %s bytes", length);
     target.put(source);
     target.flip();
     return target;

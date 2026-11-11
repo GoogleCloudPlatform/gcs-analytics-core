@@ -77,6 +77,34 @@ class CachedRangeTest {
   }
 
   @Test
+  void getStartOffset_returnsStartOfRange() {
+    CachedRange range = rangeOf(new CompletableFuture<>());
+
+    long startOffset = range.getStartOffset();
+
+    assertThat(startOffset).isEqualTo(RANGE_OFFSET);
+  }
+
+  @Test
+  void getEndOffset_returnsEndOfRange() {
+    CachedRange range = rangeOf(new CompletableFuture<>());
+
+    long endOffset = range.getEndOffset();
+
+    assertThat(endOffset).isEqualTo(RANGE_OFFSET + BYTES.length);
+  }
+
+  @Test
+  void getFuture_returnsFutureGivenAtCreation() {
+    CompletableFuture<ByteBuffer> future = new CompletableFuture<>();
+    CachedRange range = rangeOf(future);
+
+    CompletableFuture<ByteBuffer> result = range.getFuture();
+
+    assertThat(result).isSameInstanceAs(future);
+  }
+
+  @Test
   void getLength_returnsByteCountOfRange() {
     CachedRange range = rangeOf(new CompletableFuture<>());
 
@@ -372,12 +400,16 @@ class CachedRangeTest {
   }
 
   @Test
-  void copyIntoAsync_allocatorReturnsNull_completesWithNull() {
+  void copyIntoAsync_allocatorReturnsNull_failsWithIllegalArgumentException() {
     CachedRange range = rangeOf(CompletableFuture.completedFuture(bufferOf(BYTES)));
+    CompletableFuture<ByteBuffer> result = range.copyIntoAsync(RANGE_OFFSET + 1, 2, length -> null);
 
-    ByteBuffer result = range.copyIntoAsync(RANGE_OFFSET + 1, 2, length -> null).join();
+    CompletionException exception = assertThrows(CompletionException.class, result::join);
 
-    assertThat(result).isNull();
+    assertThat(exception)
+        .hasCauseThat()
+        .hasMessageThat()
+        .isEqualTo("Buffer allocation returned null for 2 bytes");
   }
 
   @Test
