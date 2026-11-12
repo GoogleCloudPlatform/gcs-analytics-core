@@ -18,7 +18,9 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 
@@ -140,6 +142,36 @@ public interface GcsClient {
    * @throws IOException if an I/O error occurs while creating the object
    */
   void createEmptyObject(GcsItemId itemId, GcsWriteOptions options) throws IOException;
+
+  /**
+   * Renames a native folder in a Hierarchical Namespace (HNS) enabled bucket.
+   *
+   * <p>This operation only applies to buckets with Hierarchical Namespace enabled. The server
+   * renames the folder and everything under it atomically. Both IDs must be in the same bucket and
+   * may name the folder with or without a trailing slash.
+   *
+   * <p>This method blocks until the long-running rename operation finishes, polling with the client
+   * library's default settings: the first poll within 5 seconds, then up to 45 seconds between
+   * polls, for 5 minutes in total. If waiting stops early, the rename may still complete on the
+   * server.
+   *
+   * @param srcFolderId the folder to rename
+   * @param dstFolderId the new name of the folder
+   * @return metadata of the renamed folder, a {@link GcsItemInfo.ItemType#NATIVE_FOLDER} whose ID
+   *     is {@code dstFolderId} in directory form (ending in {@code /}) without a content generation
+   * @throws IllegalArgumentException if either ID is not an object path or has an empty folder
+   *     name, if the IDs are in different buckets, or if both name the same folder
+   * @throws FileNotFoundException if the source folder does not exist
+   * @throws FileAlreadyExistsException if the destination already exists
+   * @throws AccessDeniedException if the request is unauthenticated or not permitted
+   * @throws InterruptedIOException if the thread is interrupted while waiting for the rename
+   * @throws IOException if waiting for the rename times out or the rename fails for another reason
+   */
+  default GcsItemInfo renameFolder(GcsItemId srcFolderId, GcsItemId dstFolderId)
+      throws IOException {
+    throw new UnsupportedOperationException(
+        "renameFolder is not implemented by " + getClass().getName());
+  }
 
   /**
    * Creates a native folder resource in a Hierarchical Namespace (HNS) enabled bucket.
