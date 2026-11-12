@@ -22,6 +22,7 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
+import com.google.storage.control.v2.StorageControlClient;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -57,6 +58,11 @@ public class FakeGcsClientImpl extends GcsClientImpl {
   @Override
   protected Storage createGrpcStorage(Optional<Credentials> credentials) {
     return storage;
+  }
+
+  @Override
+  protected StorageControlClient createStorageControlClient(Optional<Credentials> credentials) {
+    return StorageControlClient.create(new FakeStorageControlStub(storage));
   }
 
   @Override

@@ -743,6 +743,14 @@ class GcsClientImpl implements GcsClient {
     String objectName = folderId.getObjectName().orElse("");
     String folderName = UriUtil.removeTrailingSlash(objectName);
     checkArgument(!folderName.isEmpty(), "Folder name cannot be empty");
+    // Errors name the folder without contentGeneration, which HNS folders do not have.
+    GcsItemId errorId =
+        folderId.getContentGeneration().isPresent()
+            ? GcsItemId.builder()
+                .setBucketName(folderId.getBucketName())
+                .setObjectName(objectName)
+                .build()
+            : folderId;
     DeleteFolderRequest request =
         DeleteFolderRequest.newBuilder()
             .setName(FolderName.format("_", folderId.getBucketName(), folderName))
@@ -750,8 +758,7 @@ class GcsClientImpl implements GcsClient {
     try {
       lazyGetStorageControlClient().deleteFolder(request);
     } catch (Exception e) {
-      throw GcsExceptionUtil.translateControlException(
-          e, folderId, "Failed to delete folder: " + UriUtil.getStringPath(folderId));
+      throw GcsExceptionUtil.translateDeleteFolderException(e, errorId);
     }
   }
 

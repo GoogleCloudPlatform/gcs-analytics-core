@@ -98,6 +98,7 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.time.Duration;
 import java.time.Instant;
@@ -3234,24 +3235,74 @@ class GcsClientImplTest {
   }
 
   @Test
-  void deleteFolder_failedPrecondition_throwsIOExceptionWithCause() {
+  void deleteFolder_folderIdWithContentGeneration_ignoresGenerationAndStripsFromErrors()
+      throws IOException {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    GcsItemId folderIdWithGeneration =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET_NAME)
+            .setObjectName(TEST_DIR)
+            .setContentGeneration(42L)
+            .build();
+    DeleteFolderRequest expectedRequest =
+        DeleteFolderRequest.newBuilder()
+            .setName("projects/_/buckets/" + TEST_BUCKET_NAME + "/folders/dir")
+            .build();
+
+    clientWithMockControl.deleteFolder(folderIdWithGeneration);
+
+    verify(mockControlClient).deleteFolder(expectedRequest);
+
+    doThrow(mock(NotFoundException.class))
+        .when(mockControlClient)
+        .deleteFolder(any(DeleteFolderRequest.class));
+    FileNotFoundException notFound =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> clientWithMockControl.deleteFolder(folderIdWithGeneration));
+    assertFileNotFoundException(notFound, TEST_DIR_ITEM_ID);
+  }
+
+  @Test
+  void deleteFolder_nonEmptyFailedPrecondition_throwsDirectoryNotEmptyExceptionWithCause() {
     StorageControlClient mockControlClient = mock(StorageControlClient.class);
     GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
     FailedPreconditionException folderNotEmptyException = mock(FailedPreconditionException.class);
+    when(folderNotEmptyException.getMessage())
+        .thenReturn("FAILED_PRECONDITION: The folder you tried to delete is not empty.");
     doThrow(folderNotEmptyException)
         .when(mockControlClient)
         .deleteFolder(any(DeleteFolderRequest.class));
 
+    DirectoryNotEmptyException e =
+        assertThrows(
+            DirectoryNotEmptyException.class,
+            () -> clientWithMockControl.deleteFolder(TEST_DIR_ITEM_ID));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasCauseThat().isSameInstanceAs(folderNotEmptyException);
+    // Exactly one RPC: FAILED_PRECONDITION is not retried.
+    verify(mockControlClient, times(1)).deleteFolder(any(DeleteFolderRequest.class));
+  }
+
+  @Test
+  void deleteFolder_otherFailedPrecondition_throwsIOExceptionWithCause() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    FailedPreconditionException otherPrecondition = mock(FailedPreconditionException.class);
+    when(otherPrecondition.getMessage())
+        .thenReturn("FAILED_PRECONDITION: Bucket does not have hierarchical namespace enabled.");
+    doThrow(otherPrecondition).when(mockControlClient).deleteFolder(any(DeleteFolderRequest.class));
+
     IOException e =
         assertThrows(IOException.class, () -> clientWithMockControl.deleteFolder(TEST_DIR_ITEM_ID));
 
-    // A plain IOException, not a DirectoryNotEmptyException or any other IOException subtype.
-    assertThat(e.getClass()).isEqualTo(IOException.class);
+    assertThat(e).isNotInstanceOf(DirectoryNotEmptyException.class);
     assertThat(e)
         .hasMessageThat()
         .isEqualTo("Failed to delete folder: gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
-    assertThat(e).hasCauseThat().isSameInstanceAs(folderNotEmptyException);
-    // Exactly one RPC: FAILED_PRECONDITION is not retried.
+    assertThat(e).hasCauseThat().isSameInstanceAs(otherPrecondition);
     verify(mockControlClient, times(1)).deleteFolder(any(DeleteFolderRequest.class));
   }
 

@@ -19,11 +19,14 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.DirectoryNotEmptyException;
+import java.nio.file.FileAlreadyExistsException;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -101,5 +104,100 @@ class FakeGcsClientImplTest {
   @Test
   void lazyGetGrpcStorage_returnsLocalStorageInstance() throws IOException {
     assertThat(fakeGcsClient.lazyGetGrpcStorage()).isSameInstanceAs(FakeGcsClientImpl.storage);
+  }
+
+  @Test
+  void createGetAndDeleteFolder_roundTripsHermeticallyInMemory() throws IOException {
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName("hns-fake-bucket").setObjectName("a/b/c").build();
+
+    fakeGcsClient.createFolder(folderId, true);
+
+    GcsItemInfo folderInfo = fakeGcsClient.getFolderInfo(folderId);
+    assertThat(folderInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
+    assertThat(folderInfo.getItemId())
+        .isEqualTo(
+            GcsItemId.builder().setBucketName("hns-fake-bucket").setObjectName("a/b/c/").build());
+    assertThat(folderInfo.getMetaGeneration()).isEqualTo(1L);
+
+    fakeGcsClient.deleteFolder(folderId);
+
+    assertThrows(FileNotFoundException.class, () -> fakeGcsClient.getFolderInfo(folderId));
+  }
+
+  @Test
+  void createFolder_duplicateFolder_throwsFileAlreadyExistsException() throws IOException {
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName("hns-fake-bucket").setObjectName("dup/").build();
+    fakeGcsClient.createFolder(folderId, false);
+
+    assertThrows(
+        FileAlreadyExistsException.class, () -> fakeGcsClient.createFolder(folderId, false));
+  }
+
+  @Test
+  void createFolder_nonRecursiveWithoutParent_throwsIOExceptionWithFailedPrecondition() {
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName("hns-fake-bucket").setObjectName("missing/child").build();
+
+    IOException e =
+        assertThrows(IOException.class, () -> fakeGcsClient.createFolder(folderId, false));
+
+    assertThat(e).hasCauseThat().isInstanceOf(FailedPreconditionException.class);
+  }
+
+  @Test
+  void deleteFolder_missingFolder_throwsFileNotFoundException() {
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName("hns-fake-bucket").setObjectName("missing/").build();
+
+    assertThrows(FileNotFoundException.class, () -> fakeGcsClient.deleteFolder(folderId));
+  }
+
+  @Test
+  void deleteFolder_nonEmptyChildFolder_throwsDirectoryNotEmptyExceptionWithFailedPrecondition()
+      throws IOException {
+    GcsItemId parentId =
+        GcsItemId.builder().setBucketName("hns-fake-bucket").setObjectName("parent/").build();
+    GcsItemId childId =
+        GcsItemId.builder().setBucketName("hns-fake-bucket").setObjectName("parent/child/").build();
+    fakeGcsClient.createFolder(childId, true);
+
+    DirectoryNotEmptyException e =
+        assertThrows(DirectoryNotEmptyException.class, () -> fakeGcsClient.deleteFolder(parentId));
+
+    assertThat(e.getFile()).isEqualTo("gs://hns-fake-bucket/parent/");
+    assertThat(e).hasCauseThat().isInstanceOf(FailedPreconditionException.class);
+  }
+
+  @Test
+  void deleteFolder_nonEmptyChildObject_throwsDirectoryNotEmptyExceptionWithFailedPrecondition()
+      throws IOException {
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName("hns-object-bucket").setObjectName("dir/").build();
+    GcsItemId objectId =
+        GcsItemId.builder()
+            .setBucketName("hns-object-bucket")
+            .setObjectName("dir/child.parquet")
+            .build();
+    fakeGcsClient.createFolder(folderId, false);
+    TestDataGenerator.createGcsData(objectId, 16);
+
+    DirectoryNotEmptyException e =
+        assertThrows(DirectoryNotEmptyException.class, () -> fakeGcsClient.deleteFolder(folderId));
+
+    assertThat(e.getFile()).isEqualTo("gs://hns-object-bucket/dir/");
+    assertThat(e).hasCauseThat().isInstanceOf(FailedPreconditionException.class);
+  }
+
+  @Test
+  void deleteFolder_afterClose_throwsStorageControlClientClosedException() {
+    fakeGcsClient.close();
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName("hns-fake-bucket").setObjectName("dir/").build();
+
+    IOException e = assertThrows(IOException.class, () -> fakeGcsClient.deleteFolder(folderId));
+
+    assertThat(e).hasMessageThat().isEqualTo("StorageControlClient is closed");
   }
 }
