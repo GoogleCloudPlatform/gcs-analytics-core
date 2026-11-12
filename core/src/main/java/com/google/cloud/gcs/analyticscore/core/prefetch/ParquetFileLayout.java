@@ -48,6 +48,7 @@ abstract class ParquetFileLayout {
   /**
    * Creates a layout from the row groups described by the file footer.
    *
+   * @throws NullPointerException if {@code rowGroups} is null
    * @throws IllegalArgumentException if the index of a row group differs from its position in
    *     {@code rowGroups}, or a row group starts before the previous one ends
    */
