@@ -102,8 +102,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
 
   private static ApiFuture<BlobReadSession> openBlobReadSession(
       Storage storage, BlobId blobId, GcsReadOptions readOptions) {
-    Optional<String> userProject =
-        readOptions.getUserProjectId().map(String::trim).filter(p -> !p.isEmpty());
+    Optional<String> userProject = readOptions.getUserProjectId();
     if (userProject.isPresent()) {
       return storage.blobReadSession(
           blobId, Storage.BlobSourceOption.userProject(userProject.get()));

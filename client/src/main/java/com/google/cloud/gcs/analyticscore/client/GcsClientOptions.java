@@ -104,14 +104,15 @@ public abstract class GcsClientOptions {
   /**
    * Returns the Google Cloud project ID billed for Requester Pays and quota-attributed operations.
    *
-   * <p>During {@link Builder#build()}, a non-blank value set here is propagated to {@link
-   * GcsReadOptions#getUserProjectId()} and {@link GcsWriteOptions#getUserProject()} whenever those
-   * channel options do not already specify a non-blank override; conversely, if this field is unset
-   * or blank, it is populated from the first non-blank value in {@link GcsReadOptions} or {@link
-   * GcsWriteOptions}. Note that on {@link Protocol#HTTP}, this project is sent in the client-level
-   * {@code x-goog-user-project} header on every request, whereas per-channel overrides only set the
-   * {@code userProject} query parameter on channel RPCs (and fully override the client-level
-   * project only on {@link Protocol#GRPC} and {@link Protocol#BIDI}).
+   * <p>This is the client-level default. {@link #getGcsReadOptions()} and {@link
+   * #getGcsWriteOptions()} inherit it unless they carry an explicit per-channel override. A user
+   * project set only on the read or write options applies only to that channel.
+   *
+   * <p>The client sends this project as the quota project of every request ({@code
+   * x-goog-user-project}) and as the {@code userProject} parameter of object, bucket, and listing
+   * requests. A per-channel override is sent with that channel's requests in addition to the
+   * client-level quota project, on every protocol, so set per-channel overrides only when you have
+   * verified which project Cloud Storage bills for your bucket.
    */
   public abstract Optional<String> getUserProject();
 
@@ -140,9 +141,47 @@ public abstract class GcsClientOptions {
     return getProtocol() == Protocol.GRPC || getProtocol() == Protocol.BIDI;
   }
 
-  public abstract GcsReadOptions getGcsReadOptions();
+  /**
+   * Returns the default read options, inheriting {@link #getUserProject()} unless they carry an
+   * explicit per-channel {@link GcsReadOptions#getUserProjectId()} override.
+   *
+   * <p>The returned options carry the inherited project. Passing them to the builder of options
+   * with a different user project makes that project an explicit read override.
+   */
+  public GcsReadOptions getGcsReadOptions() {
+    GcsReadOptions readOptions = getRawGcsReadOptions();
+    if (readOptions.getUserProjectId().isPresent() || getUserProject().isEmpty()) {
+      return readOptions;
+    }
+    return readOptions.toBuilder().setUserProjectId(getUserProject().get()).build();
+  }
 
-  public abstract GcsWriteOptions getGcsWriteOptions();
+  /**
+   * Returns the default write options, inheriting {@link #getUserProject()} unless they carry an
+   * explicit per-channel {@link GcsWriteOptions#getUserProject()} override.
+   *
+   * <p>The returned options carry the inherited project. Passing them to the builder of options
+   * with a different user project makes that project an explicit write override.
+   */
+  public GcsWriteOptions getGcsWriteOptions() {
+    GcsWriteOptions writeOptions = getRawGcsWriteOptions();
+    if (writeOptions.getUserProject().isPresent() || getUserProject().isEmpty()) {
+      return writeOptions;
+    }
+    return writeOptions.toBuilder().setUserProject(getUserProject().get()).build();
+  }
+
+  /**
+   * Read options as stored, holding a user project only when it overrides {@link
+   * #getUserProject()}.
+   */
+  abstract GcsReadOptions getRawGcsReadOptions();
+
+  /**
+   * Write options as stored, holding a user project only when it overrides {@link
+   * #getUserProject()}.
+   */
+  abstract GcsWriteOptions getRawGcsWriteOptions();
 
   /** Returns the retry settings applied to the underlying Cloud Storage client. */
   public abstract GcsRetryOptions getGcsRetryOptions();
@@ -173,7 +212,19 @@ public abstract class GcsClientOptions {
    */
   public abstract int getBatchThreads();
 
-  public abstract Builder toBuilder();
+  /**
+   * Returns a builder initialized with these options. Read or write options set on the returned
+   * builder whose user project equals this instance's {@link #getUserProject()}, including options
+   * copied from {@link #getGcsReadOptions()}, are treated as inheriting, so a new {@link
+   * Builder#setUserProject(String)} also applies to them.
+   */
+  public Builder toBuilder() {
+    Builder builder = autoToBuilder();
+    builder.inheritedUserProject = getUserProject();
+    return builder;
+  }
+
+  abstract Builder autoToBuilder();
 
   // TODO: Benchmark and determine the optimal default values for write options.
   public static Builder builder() {
@@ -260,19 +311,21 @@ public abstract class GcsClientOptions {
   @AutoValue.Builder
   public abstract static class Builder {
 
+    /** Client-level user project of the options this builder was created from, if any. */
+    private Optional<String> inheritedUserProject = Optional.empty();
+
     public abstract Builder setProjectId(String projectId);
 
     /**
      * Sets the Google Cloud project ID billed for Requester Pays and quota-attributed operations.
      *
-     * <p>Surrounding whitespace is trimmed on {@link #build()} for non-blank values, while blank
-     * values are ignored when synchronizing channel options or configuring requests. See {@link
-     * #getUserProject()} for how {@link #build()} synchronizes this value with {@link
-     * GcsReadOptions} and {@link GcsWriteOptions}; note that updating this field via {@link
-     * #toBuilder()} will not overwrite non-blank channel-level values already present on {@link
-     * GcsReadOptions} or {@link GcsWriteOptions}.
+     * <p>Surrounding whitespace is trimmed and a blank value is treated as unset by {@link
+     * #build()}. Read and write options without their own override inherit this value, including
+     * after {@link GcsClientOptions#toBuilder()}. See {@link GcsClientOptions#getUserProject()}.
      */
     public abstract Builder setUserProject(String userProject);
+
+    abstract Builder setUserProject(Optional<String> userProject);
 
     public abstract Builder setClientLibToken(String clientLibToken);
 
@@ -284,9 +337,27 @@ public abstract class GcsClientOptions {
 
     public abstract Builder setProtocol(Protocol protocol);
 
-    public abstract Builder setGcsReadOptions(GcsReadOptions readOptions);
+    /**
+     * Sets the default read options. A user project set on them that equals the client-level {@link
+     * #setUserProject(String) user project}, or the one of the options this builder was created
+     * from, is treated as inherited.
+     */
+    public Builder setGcsReadOptions(GcsReadOptions readOptions) {
+      return setRawGcsReadOptions(readOptions);
+    }
 
-    public abstract Builder setGcsWriteOptions(GcsWriteOptions writeOptions);
+    /**
+     * Sets the default write options. A user project set on them that equals the client-level
+     * {@link #setUserProject(String) user project}, or the one of the options this builder was
+     * created from, is treated as inherited.
+     */
+    public Builder setGcsWriteOptions(GcsWriteOptions writeOptions) {
+      return setRawGcsWriteOptions(writeOptions);
+    }
+
+    abstract Builder setRawGcsReadOptions(GcsReadOptions readOptions);
+
+    abstract Builder setRawGcsWriteOptions(GcsWriteOptions writeOptions);
 
     public abstract Builder setGcsRetryOptions(GcsRetryOptions retryOptions);
 
@@ -319,40 +390,7 @@ public abstract class GcsClientOptions {
     abstract GcsClientOptions autoBuild();
 
     public GcsClientOptions build() {
-      GcsClientOptions options = autoBuild();
-      Optional<String> rawClientUserProject = options.getUserProject();
-      if (rawClientUserProject.isPresent()) {
-        String trimmed = rawClientUserProject.get().trim();
-        if (!trimmed.isEmpty() && !trimmed.equals(rawClientUserProject.get())) {
-          options = setUserProject(trimmed).autoBuild();
-        }
-      }
-      GcsReadOptions readOptions = options.getGcsReadOptions();
-      GcsWriteOptions writeOptions = options.getGcsWriteOptions();
-      Optional<String> clientUserProject = nonBlank(options.getUserProject());
-      Optional<String> userProjectToSync =
-          clientUserProject
-              .or(() -> nonBlank(readOptions.getUserProjectId()))
-              .or(() -> nonBlank(writeOptions.getUserProject()));
-      if (userProjectToSync.isPresent()) {
-        String userProject = userProjectToSync.get();
-        boolean updated = false;
-        if (clientUserProject.isEmpty()) {
-          setUserProject(userProject);
-          updated = true;
-        }
-        if (nonBlank(readOptions.getUserProjectId()).isEmpty()) {
-          setGcsReadOptions(readOptions.toBuilder().setUserProjectId(userProject).build());
-          updated = true;
-        }
-        if (nonBlank(writeOptions.getUserProject()).isEmpty()) {
-          setGcsWriteOptions(writeOptions.toBuilder().setUserProject(userProject).build());
-          updated = true;
-        }
-        if (updated) {
-          options = autoBuild();
-        }
-      }
+      GcsClientOptions options = normalizeUserProject(autoBuild());
       checkArgument(
           !options.getGcsWriteOptions().isBidiWriteEnabled()
               || options.getProtocol() == Protocol.BIDI,
@@ -373,8 +411,38 @@ public abstract class GcsClientOptions {
       return options;
     }
 
-    private static Optional<String> nonBlank(Optional<String> value) {
-      return value.map(String::trim).filter(v -> !v.isEmpty());
+    /**
+     * Returns options whose client-level user project is trimmed and whose read and write options
+     * keep a user project only when it overrides the inherited one. Works on a copy so this builder
+     * is never modified.
+     */
+    private GcsClientOptions normalizeUserProject(GcsClientOptions options) {
+      Optional<String> userProject =
+          ConfigurationUtil.trimToOptional(options.getUserProject().orElse(null));
+      GcsReadOptions readOptions = options.getRawGcsReadOptions();
+      GcsWriteOptions writeOptions = options.getRawGcsWriteOptions();
+      Optional<String> readOverride = overrideOf(readOptions.getUserProjectId(), userProject);
+      Optional<String> writeOverride = overrideOf(writeOptions.getUserProject(), userProject);
+      if (userProject.equals(options.getUserProject())
+          && readOverride.equals(readOptions.getUserProjectId())
+          && writeOverride.equals(writeOptions.getUserProject())) {
+        return options;
+      }
+      return options
+          .autoToBuilder()
+          .setUserProject(userProject)
+          .setRawGcsReadOptions(readOptions.toBuilder().setUserProjectId(readOverride).build())
+          .setRawGcsWriteOptions(writeOptions.toBuilder().setUserProject(writeOverride).build())
+          .autoBuild();
+    }
+
+    /** Returns the channel user project unless it equals the current or inherited client one. */
+    private Optional<String> overrideOf(
+        Optional<String> channelUserProject, Optional<String> userProject) {
+      return channelUserProject.equals(userProject)
+              || channelUserProject.equals(inheritedUserProject)
+          ? Optional.empty()
+          : channelUserProject;
     }
   }
 

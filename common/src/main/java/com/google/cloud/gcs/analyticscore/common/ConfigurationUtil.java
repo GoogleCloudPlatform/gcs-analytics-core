@@ -70,8 +70,16 @@ public final class ConfigurationUtil {
   public static Optional<String> getTrimmedValue(Map<String, String> options, String key) {
     checkNotNull(options, "options cannot be null");
     checkNotNull(key, "key cannot be null");
-    return Optional.ofNullable(options.get(key))
-        .map(String::trim)
-        .filter(value -> !value.isEmpty());
+    return trimToOptional(options.get(key));
+  }
+
+  /**
+   * Trims surrounding whitespace from a value, treating {@code null} and blank values as absent.
+   *
+   * @param value The value to normalize, or {@code null}.
+   * @return An {@link Optional} containing the trimmed value, or empty if null or blank.
+   */
+  public static Optional<String> trimToOptional(String value) {
+    return Optional.ofNullable(value).map(String::trim).filter(trimmed -> !trimmed.isEmpty());
   }
 }

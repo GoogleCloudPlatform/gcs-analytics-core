@@ -142,7 +142,15 @@ public abstract class GcsWriteOptions {
 
     public abstract Builder setKmsKeyName(String key);
 
+    /**
+     * Sets the project billed for Requester Pays writes on this channel.
+     *
+     * <p>Surrounding whitespace is trimmed and a blank value is treated as unset by {@link
+     * #build()}.
+     */
     public abstract Builder setUserProject(String project);
+
+    abstract Builder setUserProject(Optional<String> project);
 
     public abstract Builder setEncryptionKey(String key);
 
@@ -164,12 +172,10 @@ public abstract class GcsWriteOptions {
 
     public GcsWriteOptions build() {
       GcsWriteOptions options = autoBuild();
-      Optional<String> userProject = options.getUserProject();
-      if (userProject.isPresent()) {
-        String trimmed = userProject.get().trim();
-        if (!trimmed.isEmpty() && !trimmed.equals(userProject.get())) {
-          options = setUserProject(trimmed).autoBuild();
-        }
+      Optional<String> userProject =
+          ConfigurationUtil.trimToOptional(options.getUserProject().orElse(null));
+      if (!userProject.equals(options.getUserProject())) {
+        options = options.toBuilder().setUserProject(userProject).autoBuild();
       }
       if (!options.getMetadata().isEmpty()) {
         boolean hasContentEncoding =
@@ -208,11 +214,7 @@ public abstract class GcsWriteOptions {
     }
     this.getKmsKeyName().map(BlobWriteOption::kmsKeyName).ifPresent(sdkWriteOptions::add);
     this.getEncryptionKey().map(BlobWriteOption::encryptionKey).ifPresent(sdkWriteOptions::add);
-    this.getUserProject()
-        .map(String::trim)
-        .filter(p -> !p.isEmpty())
-        .map(BlobWriteOption::userProject)
-        .ifPresent(sdkWriteOptions::add);
+    this.getUserProject().map(BlobWriteOption::userProject).ifPresent(sdkWriteOptions::add);
 
     return sdkWriteOptions.toArray(new BlobWriteOption[0]);
   }
@@ -234,11 +236,7 @@ public abstract class GcsWriteOptions {
 
     this.getKmsKeyName().map(BlobTargetOption::kmsKeyName).ifPresent(sdkTargetOptions::add);
     this.getEncryptionKey().map(BlobTargetOption::encryptionKey).ifPresent(sdkTargetOptions::add);
-    this.getUserProject()
-        .map(String::trim)
-        .filter(p -> !p.isEmpty())
-        .map(BlobTargetOption::userProject)
-        .ifPresent(sdkTargetOptions::add);
+    this.getUserProject().map(BlobTargetOption::userProject).ifPresent(sdkTargetOptions::add);
 
     return sdkTargetOptions.toArray(new BlobTargetOption[0]);
   }

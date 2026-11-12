@@ -17,7 +17,7 @@ These properties govern the core connections, identity, and access parameters be
 | `universe-domain` | The Google Cloud universe domain to send GCS requests to, such as a Trusted Partner Cloud domain. When unset, the `GOOGLE_CLOUD_UNIVERSE_DOMAIN` environment variable is used. Credentials must belong to the same universe. | `googleapis.com` |
 | `user-agent` | The user agent string. | - |
 | `project-id` | The Google Cloud project ID for the GCS client. | - |
-| `user-project` | Project ID whose Google Cloud Project's billing account should be charged for the operation being executed. | - |
+| `user-project` | Project ID whose Google Cloud Project's billing account should be charged for the operation being executed. The client sends it as the quota project (`x-goog-user-project`) of every request and as the `userProject` parameter of object, bucket, and listing requests. When you build `GcsClientOptions` in code, read and write options without their own user project inherit the client-level one, and a user project set only on the read or write options applies only to that channel. A request whose channel overrides the user project carries both the override and the client-level quota project, so verify which project Cloud Storage bills before you use per-channel overrides. If the caller can't use this project (for example, it lacks `serviceusage.services.use`), bucket metadata lookups fail with 403 and the library logs a warning and treats the bucket as a flat bucket that isn't Rapid. | - |
 | `decryption-key` | Decryption key for the object. | - |
 
 ### Authentication Options

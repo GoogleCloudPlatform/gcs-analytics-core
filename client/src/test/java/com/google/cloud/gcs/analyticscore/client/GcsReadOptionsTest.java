@@ -194,6 +194,20 @@ class GcsReadOptionsTest {
         GcsReadOptions.builder().setUserProjectId("  padded-project  ").build();
 
     assertThat(readOptions.getUserProjectId()).hasValue("padded-project");
+  }
+
+  @Test
+  void builder_withBlankUserProject_normalizesToEmpty() {
+    GcsReadOptions readOptions = GcsReadOptions.builder().setUserProjectId("   ").build();
+
+    assertThat(readOptions.getUserProjectId()).isEmpty();
+  }
+
+  @Test
+  void toBuilder_withPaddedUserProject_buildsEqualOptions() {
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setUserProjectId("  padded-project  ").build();
+
     assertThat(readOptions.toBuilder().build()).isEqualTo(readOptions);
   }
 }

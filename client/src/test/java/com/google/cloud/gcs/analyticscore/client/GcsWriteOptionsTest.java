@@ -302,7 +302,21 @@ class GcsWriteOptionsTest {
   }
 
   @Test
-  void builder_withPaddedUserProject_trimsWhitespaceAndEmitsTrimmedSdkOptions() {
+  void builder_withPaddedUserProject_trimsWhitespace() {
+    GcsWriteOptions options = GcsWriteOptions.builder().setUserProject("  padded-proj  ").build();
+
+    assertThat(options.getUserProject()).hasValue("padded-proj");
+  }
+
+  @Test
+  void builder_withBlankUserProject_normalizesToEmpty() {
+    GcsWriteOptions options = GcsWriteOptions.builder().setUserProject("   ").build();
+
+    assertThat(options.getUserProject()).isEmpty();
+  }
+
+  @Test
+  void generateWriteAndTargetOptions_withPaddedUserProject_emitTrimmedUserProject() {
     GcsWriteOptions options =
         GcsWriteOptions.builder()
             .setDisableGzipContent(false)
@@ -310,11 +324,16 @@ class GcsWriteOptionsTest {
             .build();
     GcsItemId itemId = GcsItemId.builder().setBucketName("bucket").setObjectName("object").build();
 
-    assertThat(options.getUserProject()).hasValue("padded-proj");
     assertThat(Arrays.asList(options.generateWriteOptions(itemId)))
         .containsExactly(BlobWriteOption.userProject("padded-proj"));
     assertThat(Arrays.asList(options.generateTargetOptions(itemId)))
         .containsExactly(BlobTargetOption.userProject("padded-proj"));
+  }
+
+  @Test
+  void toBuilder_withPaddedUserProject_buildsEqualOptions() {
+    GcsWriteOptions options = GcsWriteOptions.builder().setUserProject("  padded-proj  ").build();
+
     assertThat(options.toBuilder().build()).isEqualTo(options);
   }
 

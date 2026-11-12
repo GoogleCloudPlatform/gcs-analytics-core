@@ -187,7 +187,15 @@ public abstract class GcsReadOptions {
 
     public abstract Builder setDecryptionKey(String decryptionKey);
 
+    /**
+     * Sets the project billed for Requester Pays reads on this channel.
+     *
+     * <p>Surrounding whitespace is trimmed and a blank value is treated as unset by {@link
+     * #build()}.
+     */
     public abstract Builder setUserProjectId(String userProjectId);
+
+    abstract Builder setUserProjectId(Optional<String> userProjectId);
 
     public abstract Builder setGcsVectoredReadOptions(GcsVectoredReadOptions vectoredReadOptions);
 
@@ -220,12 +228,10 @@ public abstract class GcsReadOptions {
 
     public GcsReadOptions build() {
       GcsReadOptions options = autoBuild();
-      Optional<String> userProjectId = options.getUserProjectId();
-      if (userProjectId.isPresent()) {
-        String trimmed = userProjectId.get().trim();
-        if (!trimmed.isEmpty() && !trimmed.equals(userProjectId.get())) {
-          return setUserProjectId(trimmed).autoBuild();
-        }
+      Optional<String> userProjectId =
+          ConfigurationUtil.trimToOptional(options.getUserProjectId().orElse(null));
+      if (!userProjectId.equals(options.getUserProjectId())) {
+        options = options.toBuilder().setUserProjectId(userProjectId).autoBuild();
       }
       return options;
     }
