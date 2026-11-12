@@ -786,10 +786,6 @@ class GcsClientImpl implements GcsClient {
   public void deleteBucket(GcsItemId itemId) throws IOException {
     checkNotNull(itemId, "itemId must not be null");
     checkArgument(itemId.isBucket(), "Expected a bucket itemId, but got: %s", itemId);
-    checkArgument(
-        itemId.getContentGeneration().isEmpty(),
-        "Bucket itemId must not specify contentGeneration, but got: %s",
-        itemId);
     String bucketName = itemId.getBucketName();
     List<Storage.BucketSourceOption> sourceOptions = new ArrayList<>();
     resolveUserProject().map(Storage.BucketSourceOption::userProject).ifPresent(sourceOptions::add);
@@ -798,10 +794,15 @@ class GcsClientImpl implements GcsClient {
       deleted =
           storage.delete(bucketName, sourceOptions.toArray(new Storage.BucketSourceOption[0]));
     } catch (StorageException e) {
+      // Keep the cached properties when the failure shows the bucket may still exist (for example
+      // 403 or 409), as createBucket does; drop them only once the bucket is known to be gone.
+      if (GcsExceptionUtil.getErrorType(e) == GcsExceptionUtil.ErrorType.NOT_FOUND) {
+        bucketPropertiesCache.invalidate(bucketName);
+      }
       throw GcsExceptionUtil.translateDeleteBucketException(e, bucketName);
-    } finally {
-      bucketPropertiesCache.invalidate(bucketName);
     }
+    // The bucket was deleted, or did not exist (false), so its cached properties are stale.
+    bucketPropertiesCache.invalidate(bucketName);
     if (!deleted) {
       throw GcsExceptionUtil.createBucketNotFoundException(bucketName);
     }
