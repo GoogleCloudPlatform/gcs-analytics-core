@@ -350,6 +350,26 @@ class GcsExceptionUtil {
   }
 
   /**
+   * Creates a {@link FileNotFoundException} for a bucket that does not exist, wrapping a Storage
+   * Control {@link NotFoundException} inside a synthetic 404 {@link StorageException} as its cause.
+   *
+   * @param bucketName the name of the bucket that was not found
+   * @param cause the Storage Control NotFoundException returned by GCS
+   * @return a FileNotFoundException whose cause is a 404 StorageException chaining to {@code cause}
+   */
+  static FileNotFoundException createBucketNotFoundException(
+      String bucketName, NotFoundException cause) {
+    checkNotNull(bucketName, "bucketName should not be null");
+    checkNotNull(cause, "cause should not be null");
+    return createBucketNotFoundException(
+        bucketName,
+        new StorageException(
+            HttpURLConnection.HTTP_NOT_FOUND,
+            String.format(BUCKET_NOT_FOUND_MESSAGE_FORMAT, bucketName),
+            cause));
+  }
+
+  /**
    * Creates an {@link AccessDeniedException} for a 401 or 403 returned by GCS, keeping the original
    * error as its cause.
    *

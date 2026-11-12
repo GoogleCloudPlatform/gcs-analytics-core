@@ -390,6 +390,9 @@ class GcsClientImpl implements GcsClient {
                 .build();
         folders.add(fromFolder(folder, folderId));
       }
+    } catch (NotFoundException e) {
+      // ListFolders returns NOT_FOUND only when the bucket itself does not exist.
+      throw GcsExceptionUtil.createBucketNotFoundException(bucketName, e);
     } catch (Exception e) {
       throw GcsExceptionUtil.translateControlException(
           e, listedId, "Failed to list folders under: " + UriUtil.getStringPath(listedId));
