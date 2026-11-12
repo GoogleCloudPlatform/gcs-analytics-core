@@ -16,10 +16,16 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCache;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import java.io.IOException;
@@ -63,6 +69,44 @@ public class FakeGcsClientImpl extends GcsClientImpl {
   public BucketProperties getBucketProperties(String bucketName) {
     // LocalStorageHelper does not support bucket operations
     return BucketProperties.create(false, false);
+  }
+
+  /**
+   * Deletes the object, enforcing {@link GcsItemId#getContentGeneration()} as a generation-match
+   * precondition, which {@link LocalStorageHelper} ignores.
+   */
+  @Override
+  public void deleteObject(GcsItemId itemId) throws IOException {
+    if (itemId != null && itemId.isGcsObject()) {
+      Optional<Long> generation = itemId.getContentGeneration().filter(gen -> gen > 0L);
+      if (generation.isPresent()) {
+        Blob blob = storage.get(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()));
+        if (blob != null && !generation.get().equals(blob.getGeneration())) {
+          throw GcsExceptionUtil.translateDeleteObjectException(
+              new StorageException(412, "Precondition Failed"), itemId);
+        }
+      }
+    }
+    super.deleteObject(itemId);
+  }
+
+  /**
+   * Deletes an empty bucket.
+   *
+   * <p>{@link LocalStorageHelper} does not model buckets, so every bucket is treated as existing:
+   * deletion succeeds when the bucket holds no objects and fails with {@link
+   * java.nio.file.DirectoryNotEmptyException} otherwise. Deleting a bucket never removes it from
+   * later lookups.
+   */
+  @Override
+  public void deleteBucket(GcsItemId itemId) throws IOException {
+    checkNotNull(itemId, "itemId must not be null");
+    checkArgument(itemId.isBucket(), "Expected a bucket itemId, but got: %s", itemId);
+    String bucketName = itemId.getBucketName();
+    if (storage.list(bucketName).getValues().iterator().hasNext()) {
+      throw GcsExceptionUtil.translateDeleteBucketException(
+          new StorageException(409, "The bucket you tried to delete is not empty"), bucketName);
+    }
   }
 
   @Override

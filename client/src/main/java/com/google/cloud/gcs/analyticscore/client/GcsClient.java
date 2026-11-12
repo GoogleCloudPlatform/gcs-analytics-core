@@ -193,12 +193,13 @@ public interface GcsClient {
   /**
    * Deletes the empty GCS bucket identified by {@code itemId}.
    *
-   * <p>The default implementation throws {@link UnsupportedOperationException}, so that
-   * implementations written against earlier versions of this interface keep compiling.
+   * <p>Any {@link GcsItemId#getContentGeneration()} on {@code itemId} is ignored, as GCS buckets do
+   * not support content generations. The default implementation throws {@link
+   * UnsupportedOperationException}, so that implementations written against earlier versions of
+   * this interface keep compiling.
    *
    * @param itemId the identity of the GCS bucket to delete
-   * @throws IllegalArgumentException if {@code itemId} does not denote a bucket or specifies a
-   *     content generation
+   * @throws IllegalArgumentException if {@code itemId} does not denote a bucket
    * @throws FileNotFoundException if the target bucket does not exist
    * @throws AccessDeniedException if the caller lacks permission to delete the bucket
    * @throws java.nio.file.DirectoryNotEmptyException if the target bucket is not empty
