@@ -121,9 +121,12 @@ public abstract class GcsRetryOptions {
    * @param prefix The prefix prepended to every configuration key.
    * @return The parsed retry options.
    * @throws IllegalArgumentException If a value cannot be parsed or is out of range.
+   * @throws NullPointerException If {@code analyticsCoreOptions} or {@code prefix} is null.
    */
   public static GcsRetryOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
+    checkNotNull(analyticsCoreOptions, "analyticsCoreOptions cannot be null");
+    checkNotNull(prefix, "prefix cannot be null");
     Builder builder = builder();
     ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + MAX_ATTEMPTS_KEY)
         .map(value -> parseInt(prefix + MAX_ATTEMPTS_KEY, value))
