@@ -2127,20 +2127,23 @@ class GcsClientImplTest {
 
   @Test
   void listFolders_bucketNotFound_throwsFileNotFoundException() {
+    NotFoundException notFound = mock(NotFoundException.class);
     StorageControlClient mockControlClient = mock(StorageControlClient.class);
-    when(mockControlClient.listFolders(any(ListFoldersRequest.class)))
-        .thenThrow(mock(NotFoundException.class));
+    when(mockControlClient.listFolders(any(ListFoldersRequest.class))).thenThrow(notFound);
     GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
 
     FileNotFoundException e =
         assertThrows(
             FileNotFoundException.class, () -> clientWithMockControl.listFolders(TEST_DIR_ITEM_ID));
 
-    assertFileNotFoundException(e, TEST_DIR_ITEM_ID);
+    assertThat(e).hasMessageThat().isEqualTo("Bucket not found: " + TEST_BUCKET_NAME);
+    assertThat(e.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
+    assertThat(e.getCause().getCause()).isSameInstanceAs(notFound);
   }
 
   @Test
-  void listFolders_bucketNotFoundForPrefixIdWithGeneration_reportsLocationWithoutGeneration() {
+  void listFolders_bucketNotFoundForPrefixIdWithGeneration_reportsBucketWithoutGeneration() {
     StorageControlClient mockControlClient = mock(StorageControlClient.class);
     when(mockControlClient.listFolders(any(ListFoldersRequest.class)))
         .thenThrow(mock(NotFoundException.class));
@@ -2151,8 +2154,8 @@ class GcsClientImplTest {
         assertThrows(
             FileNotFoundException.class, () -> clientWithMockControl.listFolders(prefixId));
 
-    // Listing ignores the content generation, so the location has no "#123" suffix.
-    assertFileNotFoundException(e, TEST_DIR_ITEM_ID);
+    // Listing ignores the content generation, and ListFolders 404 means the bucket is missing.
+    assertThat(e).hasMessageThat().isEqualTo("Bucket not found: " + TEST_BUCKET_NAME);
   }
 
   @ParameterizedTest

@@ -660,6 +660,29 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void createBucketNotFoundException_fromNotFoundException_returnsBucketNotFoundMessage() {
+    NotFoundException cause = Mockito.mock(NotFoundException.class);
+
+    FileNotFoundException exception = GcsExceptionUtil.createBucketNotFoundException(BUCKET, cause);
+
+    assertThat(exception).hasMessageThat().isEqualTo("Bucket not found: " + BUCKET);
+    assertThat(exception.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) exception.getCause()).getCode()).isEqualTo(404);
+    assertThat(exception.getCause().getCause()).isSameInstanceAs(cause);
+  }
+
+  @Test
+  void createBucketNotFoundException_fromNotFoundException_isClassifiedAsNotFound() {
+    NotFoundException cause = Mockito.mock(NotFoundException.class);
+
+    FileNotFoundException exception = GcsExceptionUtil.createBucketNotFoundException(BUCKET, cause);
+    ErrorType errorType =
+        GcsExceptionUtil.getErrorType(GcsExceptionUtil.getStorageException(exception).get());
+
+    assertThat(errorType).isEqualTo(ErrorType.NOT_FOUND);
+  }
+
+  @Test
   void createAccessDeniedException_keepsGivenErrorAsCause() {
     StorageException cause = new StorageException(403, "Forbidden");
 
