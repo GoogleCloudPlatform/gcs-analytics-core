@@ -25,9 +25,28 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Range;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 class ParquetRowGroupTest {
+
+  @Test
+  void create_nullColumnChunks_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> ParquetRowGroup.create(-1, null));
+
+    assertThat(e).hasMessageThat().isEqualTo("columnChunks cannot be null");
+  }
+
+  @Test
+  void create_nullColumnChunkElement_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class,
+            () -> ParquetRowGroup.create(0, Arrays.asList(columnChunk("id", 100, 50), null)));
+
+    assertThat(e).isNotNull();
+  }
 
   @Test
   void create_keysEachChunkByItsColumnPath() {
@@ -280,5 +299,25 @@ class ParquetRowGroupTest {
     ParquetRowGroup group = rowGroup(0, dictionaryEncodedColumnChunk("category", 150, 50, 170));
 
     assertThat(group.getDictionaryPageRanges(ImmutableSet.of())).isEmpty();
+  }
+
+  @Test
+  void getColumnChunkRanges_nullColumns_throwsNullPointerException() {
+    ParquetRowGroup group = rowGroup(0, columnChunk("id", 100, 50));
+
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> group.getColumnChunkRanges(null));
+
+    assertThat(e).hasMessageThat().isEqualTo("columns cannot be null");
+  }
+
+  @Test
+  void getDictionaryPageRanges_nullColumns_throwsNullPointerException() {
+    ParquetRowGroup group = rowGroup(0, columnChunk("id", 100, 50));
+
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> group.getDictionaryPageRanges(null));
+
+    assertThat(e).hasMessageThat().isEqualTo("columns cannot be null");
   }
 }
