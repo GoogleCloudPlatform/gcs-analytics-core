@@ -733,6 +733,26 @@ class BatchExecutorTest {
         });
   }
 
+  @Test
+  void close_whenTaskFails_throwsOnceShutsDownPoolAndIsIdempotent() {
+    BatchExecutor executor = newExecutor(1);
+    IOException taskFailure = new IOException("queued task failed");
+    RecordingCallback<Thread> callback = new RecordingCallback<>();
+    assertTimeoutPreemptively(
+        TIMEOUT,
+        () -> {
+          executor.queue(Thread::currentThread, callback);
+          executor.queue(failWith(taskFailure), null);
+
+          IOException thrown = assertThrows(IOException.class, executor::close);
+
+          assertThat(thrown).isSameInstanceAs(taskFailure);
+          assertTerminates(callback.thread);
+          executor.close();
+          assertThrows(IllegalStateException.class, () -> executor.queue(() -> null, null));
+        });
+  }
+
   private BatchExecutor newExecutor(int numThreads) {
     BatchExecutor executor = new BatchExecutor(numThreads);
     executors.add(executor);
