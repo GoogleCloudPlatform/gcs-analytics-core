@@ -19,6 +19,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.api.gax.rpc.UnauthenticatedException;
@@ -28,7 +29,9 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.Locale;
 import java.util.Optional;
 
 /** Centralized utility for classifying GCS transport exceptions. */
@@ -189,6 +192,25 @@ class GcsExceptionUtil {
       default:
         return new IOException(fallbackMessage, e);
     }
+  }
+
+  /**
+   * Translates an exception thrown by the Storage Control API during folder deletion, mapping
+   * non-empty {@link FailedPreconditionException} failures to {@link DirectoryNotEmptyException}
+   * with the original exception preserved as its cause.
+   */
+  static IOException translateDeleteFolderException(Exception e, GcsItemId itemId) {
+    checkNotNull(e, "Exception should not be null");
+    checkNotNull(itemId, "itemId should not be null");
+    String location = formatLocation(itemId);
+    if (e instanceof FailedPreconditionException && isFolderNotEmptyException(e)) {
+      return (DirectoryNotEmptyException) new DirectoryNotEmptyException(location).initCause(e);
+    }
+    return translateControlException(e, itemId, "Failed to delete folder: " + location);
+  }
+
+  private static boolean isFolderNotEmptyException(Exception e) {
+    return e.getMessage() != null && e.getMessage().toLowerCase(Locale.ROOT).contains("not empty");
   }
 
   /**

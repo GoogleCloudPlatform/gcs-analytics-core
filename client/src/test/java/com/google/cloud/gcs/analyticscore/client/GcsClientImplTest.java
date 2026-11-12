@@ -33,6 +33,7 @@ import static org.mockito.Mockito.when;
 import com.google.api.core.ApiFuture;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.api.gax.rpc.UnauthenticatedException;
@@ -80,6 +81,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.io.BaseEncoding;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
+import com.google.storage.control.v2.DeleteFolderRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
@@ -96,6 +98,7 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.time.Duration;
 import java.time.Instant;
@@ -125,6 +128,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
@@ -3155,6 +3159,227 @@ class GcsClientImplTest {
         .thenThrow(new RuntimeException("RPC failure"));
 
     assertThrows(IOException.class, () -> clientWithMockControl.createFolder(itemId, true));
+  }
+
+  @ParameterizedTest
+  @CsvSource({"dir, dir", "dir/, dir", "a/b/, a/b"})
+  void deleteFolder_folderIdWithOrWithoutTrailingSlash_sendsDeleteFolderRequest(
+      String objectName, String expectedFolderName) throws IOException {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(objectName).build();
+    DeleteFolderRequest expectedRequest =
+        DeleteFolderRequest.newBuilder()
+            .setName("projects/_/buckets/" + TEST_BUCKET_NAME + "/folders/" + expectedFolderName)
+            .build();
+
+    clientWithMockControl.deleteFolder(folderId);
+
+    verify(mockControlClient).deleteFolder(expectedRequest);
+  }
+
+  @Test
+  void deleteFolder_notFound_throwsFileNotFoundException() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    NotFoundException notFoundException = mock(NotFoundException.class);
+    doThrow(notFoundException).when(mockControlClient).deleteFolder(any(DeleteFolderRequest.class));
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> clientWithMockControl.deleteFolder(TEST_DIR_ITEM_ID));
+
+    assertFileNotFoundException(e, TEST_DIR_ITEM_ID);
+    assertThat(e).hasCauseThat().hasCauseThat().isSameInstanceAs(notFoundException);
+    verify(mockControlClient, times(1)).deleteFolder(any(DeleteFolderRequest.class));
+  }
+
+  @Test
+  void deleteFolder_permissionDenied_throwsAccessDeniedException() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    PermissionDeniedException permissionDeniedException = mock(PermissionDeniedException.class);
+    doThrow(permissionDeniedException)
+        .when(mockControlClient)
+        .deleteFolder(any(DeleteFolderRequest.class));
+
+    AccessDeniedException e =
+        assertThrows(
+            AccessDeniedException.class,
+            () -> clientWithMockControl.deleteFolder(TEST_DIR_ITEM_ID));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasCauseThat().isSameInstanceAs(permissionDeniedException);
+    verify(mockControlClient, times(1)).deleteFolder(any(DeleteFolderRequest.class));
+  }
+
+  @Test
+  void deleteFolder_unauthenticated_throwsAccessDeniedException() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    UnauthenticatedException unauthenticatedException = mock(UnauthenticatedException.class);
+    doThrow(unauthenticatedException)
+        .when(mockControlClient)
+        .deleteFolder(any(DeleteFolderRequest.class));
+
+    AccessDeniedException e =
+        assertThrows(
+            AccessDeniedException.class,
+            () -> clientWithMockControl.deleteFolder(TEST_DIR_ITEM_ID));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasCauseThat().isSameInstanceAs(unauthenticatedException);
+    verify(mockControlClient, times(1)).deleteFolder(any(DeleteFolderRequest.class));
+  }
+
+  @Test
+  void deleteFolder_folderIdWithContentGeneration_ignoresGenerationAndStripsFromErrors()
+      throws IOException {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    GcsItemId folderIdWithGeneration =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET_NAME)
+            .setObjectName(TEST_DIR)
+            .setContentGeneration(42L)
+            .build();
+    DeleteFolderRequest expectedRequest =
+        DeleteFolderRequest.newBuilder()
+            .setName("projects/_/buckets/" + TEST_BUCKET_NAME + "/folders/dir")
+            .build();
+
+    clientWithMockControl.deleteFolder(folderIdWithGeneration);
+
+    verify(mockControlClient).deleteFolder(expectedRequest);
+
+    doThrow(mock(NotFoundException.class))
+        .when(mockControlClient)
+        .deleteFolder(any(DeleteFolderRequest.class));
+    FileNotFoundException notFound =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> clientWithMockControl.deleteFolder(folderIdWithGeneration));
+    assertFileNotFoundException(notFound, TEST_DIR_ITEM_ID);
+  }
+
+  @Test
+  void deleteFolder_nonEmptyFailedPrecondition_throwsDirectoryNotEmptyExceptionWithCause() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    FailedPreconditionException folderNotEmptyException = mock(FailedPreconditionException.class);
+    when(folderNotEmptyException.getMessage())
+        .thenReturn("FAILED_PRECONDITION: The folder you tried to delete is not empty.");
+    doThrow(folderNotEmptyException)
+        .when(mockControlClient)
+        .deleteFolder(any(DeleteFolderRequest.class));
+
+    DirectoryNotEmptyException e =
+        assertThrows(
+            DirectoryNotEmptyException.class,
+            () -> clientWithMockControl.deleteFolder(TEST_DIR_ITEM_ID));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasCauseThat().isSameInstanceAs(folderNotEmptyException);
+    // Exactly one RPC: FAILED_PRECONDITION is not retried.
+    verify(mockControlClient, times(1)).deleteFolder(any(DeleteFolderRequest.class));
+  }
+
+  @Test
+  void deleteFolder_otherFailedPrecondition_throwsIOExceptionWithCause() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    FailedPreconditionException otherPrecondition = mock(FailedPreconditionException.class);
+    when(otherPrecondition.getMessage())
+        .thenReturn("FAILED_PRECONDITION: Bucket does not have hierarchical namespace enabled.");
+    doThrow(otherPrecondition).when(mockControlClient).deleteFolder(any(DeleteFolderRequest.class));
+
+    IOException e =
+        assertThrows(IOException.class, () -> clientWithMockControl.deleteFolder(TEST_DIR_ITEM_ID));
+
+    assertThat(e).isNotInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Failed to delete folder: gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasCauseThat().isSameInstanceAs(otherPrecondition);
+    verify(mockControlClient, times(1)).deleteFolder(any(DeleteFolderRequest.class));
+  }
+
+  @Test
+  void deleteFolder_runtimeException_throwsIOExceptionWithCause() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    RuntimeException rpcFailure = new RuntimeException("RPC failure");
+    doThrow(rpcFailure).when(mockControlClient).deleteFolder(any(DeleteFolderRequest.class));
+
+    IOException e =
+        assertThrows(IOException.class, () -> clientWithMockControl.deleteFolder(TEST_DIR_ITEM_ID));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Failed to delete folder: gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasCauseThat().isSameInstanceAs(rpcFailure);
+    verify(mockControlClient, times(1)).deleteFolder(any(DeleteFolderRequest.class));
+  }
+
+  @Test
+  void deleteFolder_nullFolderId_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> gcsClient.deleteFolder(null));
+
+    assertThat(e).hasMessageThat().isEqualTo("folderId must not be null");
+  }
+
+  @ParameterizedTest
+  @MethodSource("deleteFolderInvalidFolderIdCases")
+  void deleteFolder_invalidFolderId_throwsIllegalArgumentExceptionWithoutRpc(
+      GcsItemId folderId, String expectedMessage) {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class, () -> clientWithMockControl.deleteFolder(folderId));
+
+    assertThat(e).hasMessageThat().isEqualTo(expectedMessage);
+    verify(mockControlClient, never()).deleteFolder(any(DeleteFolderRequest.class));
+  }
+
+  private static Stream<Arguments> deleteFolderInvalidFolderIdCases() {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build();
+    return Stream.of(
+        Arguments.of(bucketId, "Expected a folder itemId but got: " + bucketId),
+        Arguments.of(GcsItemId.ROOT, "Expected a folder itemId but got: " + GcsItemId.ROOT),
+        Arguments.of(
+            GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName("/").build(),
+            "Folder name cannot be empty"));
+  }
+
+  @Test
+  void deleteFolder_afterClose_propagatesIOExceptionDirectly() {
+    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class));
+    localClient.close();
+
+    IOException e =
+        assertThrows(IOException.class, () -> localClient.deleteFolder(TEST_DIR_ITEM_ID));
+
+    assertThat(e).hasMessageThat().isEqualTo("StorageControlClient is closed");
+    assertThat(e).hasCauseThat().isNull();
+  }
+
+  @Test
+  void deleteFolder_defaultMethodOnUnimplementedClient_throwsUnsupportedOperationException() {
+    GcsClient minimalClient = mock(GcsClient.class, Answers.CALLS_REAL_METHODS);
+
+    UnsupportedOperationException e =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> minimalClient.deleteFolder(TEST_DIR_ITEM_ID));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("deleteFolder is not implemented by " + minimalClient.getClass().getName());
   }
 
   @Test
