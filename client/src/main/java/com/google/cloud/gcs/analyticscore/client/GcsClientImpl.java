@@ -291,11 +291,11 @@ class GcsClientImpl implements GcsClient {
 
   @Override
   public GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException {
+    checkNotNull(itemId, "Item ID must not be null.");
     return getGcsItemInfo(itemId, getUserProject());
   }
 
   GcsItemInfo getGcsItemInfo(GcsItemId itemId, Optional<String> userProject) throws IOException {
-    checkNotNull(itemId, "Item ID must not be null.");
     if (itemId.isGcsObject()) {
       return getGcsObjectInfo(itemId, userProject);
     }

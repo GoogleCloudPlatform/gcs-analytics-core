@@ -1520,6 +1520,14 @@ class GcsClientImplTest {
   }
 
   @Test
+  void getGcsItemInfo_nullItemId_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> gcsClient.getGcsItemInfo(null));
+
+    assertThat(e).hasMessageThat().contains("Item ID must not be null");
+  }
+
+  @Test
   void getBucketInfo_nullItemId_throwsNullPointerException() {
     NullPointerException e =
         assertThrows(NullPointerException.class, () -> gcsClient.getBucketInfo(null));
