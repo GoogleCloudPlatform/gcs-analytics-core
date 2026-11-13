@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.8.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.7.0...v1.8.0) (2026-11-13)
+
+
+### Features
+
+* **client:** add BatchExecutor and batch.threads option ([#460](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/460)) ([710caa9](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/710caa95deab432a81f990955f0ba8f1606eabf3))
+* **client:** add GcsListOptions and GcsListPage for GCS listing ([#464](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/464)) ([e40aea4](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/e40aea4a05beee170661ae08614d87136a6f2b18))
+* **client:** coalesce adjacent ranges in GcsBidiReadChannel.readVectored() ([#429](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/429)) ([497b11d](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/497b11d5adc80735163568e8dbbaed959f45acb8))
+* **client:** Implement mkdirs in GcsFileSystem and NamespaceStrategy ([#400](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/400)) ([64dc873](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/64dc873a57e475a8547e6a56bd28b1b64902627e))
+* **core:** add safe decoding helpers for Parquet footers ([#423](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/423)) ([f9f422d](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/f9f422de1557086a220cf718031ae11ffd9aafc0))
+* **core:** parse Parquet footers into a byte-range layout bounded by the object ([#424](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/424)) ([44fae07](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/44fae07fb5a378473198dcae5f97dcf7850ef496))
+
+
+### Bug Fixes
+
+* **client:** normalize cache option parsing via getTrimmedValue ([#482](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/482)) ([0acf259](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/0acf259aafe99097a97ddab595d993341525cde9))
+* **client:** normalize GcsFileSystemOptions parsing via getTrimmedValue ([#489](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/489)) ([1adcf80](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/1adcf8069587140d297c4de440a2463e4e502086))
+* **client:** normalize GcsVectoredReadOptions parsing via getTrimmedValue ([#491](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/491)) ([d283323](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d283323b4e3c5b83ec3f8570351fe9785985933b))
+* **client:** parse chunk-size, thread-count, and merge options via safeParseInteger ([#471](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/471)) ([c9561a2](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/c9561a229a1b749238e9b222c7f20d7cdfb9d449))
+* **client:** validate timeout does not overflow int in GcsAuthOptions ([#485](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/485)) ([218ee96](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/218ee96c68a5ec5280afc945cf9e4bea251c5cbe))
+* **common:** normalize telemetry options via getTrimmedValue and Locale.ROOT ([#484](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/484)) ([ac184ad](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/ac184ad74e664b85a7e40f8db2e3911c4c0e2310))
+* **core:** make GcsAnalyticsCoreOptions immutable and null-safe ([#492](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/492)) ([d7f26ce](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/d7f26cebb20c1d03c0ca364740d0fd5e01d44d3b))
+
+
+### Documentation
+
+* document client.protocol and retry options in CONFIGURATION.md ([#470](https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/470)) ([980a326](https://github.com/GoogleCloudPlatform/gcs-analytics-core/commit/980a32636d109877fdd70821964ab8262f1c28bc))
+
 ## [1.7.0](https://github.com/GoogleCloudPlatform/gcs-analytics-core/compare/v1.6.0...v1.7.0) (2026-11-02)
 
 
