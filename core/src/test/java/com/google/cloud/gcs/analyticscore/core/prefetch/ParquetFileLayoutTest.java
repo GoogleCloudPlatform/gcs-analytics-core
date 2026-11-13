@@ -28,6 +28,13 @@ import org.junit.jupiter.api.Test;
 class ParquetFileLayoutTest {
 
   @Test
+  void create_nullRowGroups_throwsNullPointerException() {
+    assertThrows(
+        NullPointerException.class,
+        () -> ParquetFileLayout.create(/* schemaFingerprint= */ 7L, null));
+  }
+
+  @Test
   void create_rowGroupIndexDifferentFromPosition_throwsIllegalArgumentException() {
     ImmutableList<ParquetRowGroup> rowGroups =
         ImmutableList.of(rowGroup(1, columnChunk("price", 100, 50)));

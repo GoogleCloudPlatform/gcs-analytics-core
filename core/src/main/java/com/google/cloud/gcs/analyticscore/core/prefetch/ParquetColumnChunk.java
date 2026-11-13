@@ -17,6 +17,7 @@
 package com.google.cloud.gcs.analyticscore.core.prefetch;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.Range;
@@ -63,6 +64,7 @@ abstract class ParquetColumnChunk {
    * @param dataPageOffset the offset of the first data page, as recorded in the footer
    * @param everyDataPageDictionaryEncoded whether every data page of the chunk is dictionary
    *     encoded
+   * @throws NullPointerException if {@code columnPath} is null
    * @throws IllegalArgumentException if the offsets do not describe one contiguous chunk whose data
    *     pages start inside it
    */
@@ -72,6 +74,7 @@ abstract class ParquetColumnChunk {
       long compressedSize,
       long dataPageOffset,
       boolean everyDataPageDictionaryEncoded) {
+    checkNotNull(columnPath, "columnPath cannot be null");
     // Checks the recorded data page offset even when the dictionary page is counted as data, so a
     // corrupt offset is never hidden.
     checkArgument(

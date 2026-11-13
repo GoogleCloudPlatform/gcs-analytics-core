@@ -27,6 +27,22 @@ import org.junit.jupiter.api.Test;
 class ParquetColumnChunkTest {
 
   @Test
+  void create_nullColumnPath_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class,
+            () ->
+                ParquetColumnChunk.create(
+                    null,
+                    /* startOffset= */ -1,
+                    /* compressedSize= */ 50,
+                    /* dataPageOffset= */ -1,
+                    /* everyDataPageDictionaryEncoded= */ false));
+
+    assertThat(e).hasMessageThat().isEqualTo("columnPath cannot be null");
+  }
+
+  @Test
   void create_notEveryDataPageDictionaryEncoded_countsDictionaryPageAsDataPages() {
     ParquetColumnChunk chunk =
         ParquetColumnChunk.create(
