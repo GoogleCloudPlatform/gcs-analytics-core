@@ -82,6 +82,7 @@ import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
+import com.google.storage.control.v2.ListFoldersRequest;
 import com.google.storage.control.v2.StorageControlClient;
 import com.google.storage.control.v2.StorageControlSettings;
 import com.sun.net.httpserver.HttpServer;
@@ -102,6 +103,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -125,6 +127,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
@@ -1981,6 +1984,344 @@ class GcsClientImplTest {
 
     assertThat(e).hasMessageThat().isEqualTo("StorageControlClient is closed");
     assertThat(e).hasCauseThat().isNull();
+  }
+
+  private static Stream<Arguments> listFoldersRequestCases() {
+    ListFoldersRequest bucketRequest =
+        ListFoldersRequest.newBuilder()
+            .setParent("projects/_/buckets/" + TEST_BUCKET_NAME)
+            .setPageSize(5000)
+            .build();
+    ListFoldersRequest dirRequest = bucketRequest.toBuilder().setPrefix("dir/").build();
+    return Stream.of(
+        // A bucket lists all of its folders, so no prefix is sent.
+        Arguments.of(GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build(), bucketRequest),
+        Arguments.of(
+            GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName("").build(),
+            bucketRequest),
+        // The prefix is always sent in directory form.
+        Arguments.of(
+            GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName("dir").build(),
+            dirRequest),
+        Arguments.of(TEST_DIR_ITEM_ID, dirRequest),
+        // The content generation is ignored.
+        Arguments.of(
+            GcsItemId.builder()
+                .setBucketName(TEST_BUCKET_NAME)
+                .setObjectName("dir")
+                .setContentGeneration(TEST_CONTENT_GENERATION)
+                .build(),
+            dirRequest));
+  }
+
+  @ParameterizedTest
+  @MethodSource("listFoldersRequestCases")
+  void listFolders_bucketOrFolderPrefixId_sendsExpectedRequest(
+      GcsItemId prefixId, ListFoldersRequest expectedRequest) throws IOException {
+    StorageControlClient mockControlClient = mockControlClientListingFolders(ImmutableList.of());
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    clientWithMockControl.listFolders(prefixId);
+
+    verify(mockControlClient).listFolders(expectedRequest);
+  }
+
+  @Test
+  void listFolders_multipleFolders_returnsDirectoryFormNativeFoldersInResponseOrder()
+      throws IOException {
+    Folder subFolder =
+        Folder.newBuilder()
+            .setName("projects/_/buckets/" + TEST_BUCKET_NAME + "/folders/dir/sub/")
+            .setMetageneration(7L)
+            .setCreateTime(Timestamp.newBuilder().setSeconds(3000).build())
+            .setUpdateTime(Timestamp.newBuilder().setSeconds(4000).build())
+            .build();
+    // The response is deliberately unsorted ("dir/a" sorts before "dir/sub/"), so a sorted
+    // result fails. "dir/a" also has no trailing slash but must map to a directory-form ID.
+    GcsClientImpl clientWithMockControl =
+        createClientWithMockControl(
+            mockControlClientListingFolders(
+                ImmutableList.of(
+                    createMockFolder(TEST_BUCKET_NAME, TEST_DIR),
+                    subFolder,
+                    createMockFolder(TEST_BUCKET_NAME, "dir/a"))));
+    long createTime = Instant.ofEpochSecond(1000, 500).toEpochMilli();
+    long updateTime = Instant.ofEpochSecond(2000, 500).toEpochMilli();
+
+    List<GcsItemInfo> folders = clientWithMockControl.listFolders(TEST_DIR_ITEM_ID);
+
+    assertThat(folders)
+        .containsExactly(
+            GcsItemInfo.createFolder(TEST_DIR_ITEM_ID, createTime, updateTime, 3L),
+            GcsItemInfo.createFolder(
+                GcsItemId.builder()
+                    .setBucketName(TEST_BUCKET_NAME)
+                    .setObjectName("dir/sub/")
+                    .build(),
+                Instant.ofEpochSecond(3000).toEpochMilli(),
+                Instant.ofEpochSecond(4000).toEpochMilli(),
+                7L),
+            GcsItemInfo.createFolder(
+                GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName("dir/a/").build(),
+                createTime,
+                updateTime,
+                3L))
+        .inOrder();
+  }
+
+  private static Stream<Arguments> listFoldersWhitespaceFolderPathCases() {
+    return Stream.of(
+        // Whitespace next to '/' is part of the folder path; FolderName.parse would trim it.
+        Arguments.of("dir/ sub /", "dir/ sub /"),
+        Arguments.of(" lead/sub/", " lead/sub/"),
+        Arguments.of("trail /", "trail /"),
+        Arguments.of("tab\t/", "tab\t/"),
+        Arguments.of("nbsp\u00a0/", "nbsp\u00a0/"),
+        Arguments.of("ideographic\u3000/", "ideographic\u3000/"),
+        // A folder path without a trailing slash keeps its whitespace in directory form.
+        Arguments.of("dir/no-slash ", "dir/no-slash /"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("listFoldersWhitespaceFolderPathCases")
+  void listFolders_whitespaceAroundSlashInFolderPath_keepsFolderPathExactly(
+      String folderPath, String expectedObjectName) throws IOException {
+    GcsClientImpl clientWithMockControl =
+        createClientWithMockControl(
+            mockControlClientListingFolders(
+                ImmutableList.of(createMockFolder(TEST_BUCKET_NAME, folderPath))));
+
+    List<GcsItemInfo> folders =
+        clientWithMockControl.listFolders(
+            GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build());
+
+    assertThat(folders).hasSize(1);
+    assertThat(folders.get(0).getItemId())
+        .isEqualTo(
+            GcsItemId.builder()
+                .setBucketName(TEST_BUCKET_NAME)
+                .setObjectName(expectedObjectName)
+                .build());
+  }
+
+  @Test
+  void listFolders_noMatchingFolders_returnsEmptyList() throws IOException {
+    GcsClientImpl clientWithMockControl =
+        createClientWithMockControl(mockControlClientListingFolders(ImmutableList.of()));
+
+    List<GcsItemInfo> folders = clientWithMockControl.listFolders(TEST_DIR_ITEM_ID);
+
+    assertThat(folders).isEmpty();
+  }
+
+  @Test
+  void listFolders_modifyResult_throwsUnsupportedOperationException() throws IOException {
+    GcsClientImpl clientWithMockControl =
+        createClientWithMockControl(
+            mockControlClientListingFolders(
+                ImmutableList.of(createMockFolder(TEST_BUCKET_NAME, TEST_DIR))));
+    List<GcsItemInfo> folders = clientWithMockControl.listFolders(TEST_DIR_ITEM_ID);
+
+    assertThrows(UnsupportedOperationException.class, folders::clear);
+  }
+
+  @Test
+  void listFolders_bucketNotFound_throwsFileNotFoundException() {
+    NotFoundException notFound = mock(NotFoundException.class);
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.listFolders(any(ListFoldersRequest.class))).thenThrow(notFound);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class, () -> clientWithMockControl.listFolders(TEST_DIR_ITEM_ID));
+
+    assertThat(e).hasMessageThat().isEqualTo("Bucket not found: " + TEST_BUCKET_NAME);
+    assertThat(e.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
+    assertThat(e.getCause().getCause()).isSameInstanceAs(notFound);
+  }
+
+  @Test
+  void listFolders_bucketNotFoundForPrefixIdWithGeneration_reportsBucketWithoutGeneration() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.listFolders(any(ListFoldersRequest.class)))
+        .thenThrow(mock(NotFoundException.class));
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    GcsItemId prefixId = listFoldersDirIdWithGeneration();
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class, () -> clientWithMockControl.listFolders(prefixId));
+
+    // Listing ignores the content generation, and ListFolders 404 means the bucket is missing.
+    assertThat(e).hasMessageThat().isEqualTo("Bucket not found: " + TEST_BUCKET_NAME);
+  }
+
+  @ParameterizedTest
+  @ValueSource(classes = {PermissionDeniedException.class, UnauthenticatedException.class})
+  void listFolders_accessDenied_throwsAccessDeniedException(
+      Class<? extends RuntimeException> exceptionType) {
+    RuntimeException accessError = mock(exceptionType);
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.listFolders(any(ListFoldersRequest.class))).thenThrow(accessError);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    AccessDeniedException e =
+        assertThrows(
+            AccessDeniedException.class, () -> clientWithMockControl.listFolders(TEST_DIR_ITEM_ID));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasCauseThat().isSameInstanceAs(accessError);
+  }
+
+  @ParameterizedTest
+  @ValueSource(classes = {PermissionDeniedException.class, UnauthenticatedException.class})
+  void listFolders_accessDeniedForPrefixIdWithGeneration_reportsLocationWithoutGeneration(
+      Class<? extends RuntimeException> exceptionType) {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.listFolders(any(ListFoldersRequest.class)))
+        .thenThrow(mock(exceptionType));
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    GcsItemId prefixId = listFoldersDirIdWithGeneration();
+
+    AccessDeniedException e =
+        assertThrows(
+            AccessDeniedException.class, () -> clientWithMockControl.listFolders(prefixId));
+
+    // Listing ignores the content generation, so the location has no "#123" suffix.
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasMessageThat().doesNotContain("#" + TEST_CONTENT_GENERATION);
+  }
+
+  @Test
+  void listFolders_otherRpcException_throwsIOExceptionWithCause() {
+    RuntimeException rpcError = new RuntimeException("RPC error");
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.listFolders(any(ListFoldersRequest.class))).thenThrow(rpcError);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e =
+        assertThrows(IOException.class, () -> clientWithMockControl.listFolders(TEST_DIR_ITEM_ID));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Failed to list folders under: gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasCauseThat().isSameInstanceAs(rpcError);
+  }
+
+  @Test
+  void listFolders_nextPageFetchFails_throwsIOExceptionWithCause() {
+    RuntimeException nextPageError = new RuntimeException("next page error");
+    @SuppressWarnings("unchecked")
+    Iterator<Folder> folderIterator = mock(Iterator.class);
+    when(folderIterator.hasNext()).thenReturn(true).thenThrow(nextPageError);
+    when(folderIterator.next()).thenReturn(createMockFolder(TEST_BUCKET_NAME, TEST_DIR));
+    GcsClientImpl clientWithMockControl =
+        createClientWithMockControl(mockControlClientListingFolders(() -> folderIterator));
+
+    IOException e =
+        assertThrows(IOException.class, () -> clientWithMockControl.listFolders(TEST_DIR_ITEM_ID));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Failed to list folders under: gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasCauseThat().isSameInstanceAs(nextPageError);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        // Another bucket, including one whose name starts with the listed bucket's name.
+        "projects/_/buckets/other-bucket/folders/dir/",
+        "projects/_/buckets/" + TEST_BUCKET_NAME + "-2/folders/dir/",
+        // Another project, or no "/folders/" segment.
+        "projects/123/buckets/" + TEST_BUCKET_NAME + "/folders/dir/",
+        "projects/_/buckets/" + TEST_BUCKET_NAME + "/dir/",
+        // An empty folder path.
+        "projects/_/buckets/" + TEST_BUCKET_NAME + "/folders/"
+      })
+  void listFolders_unexpectedFolderResourceName_throwsIOException(String resourceName) {
+    GcsClientImpl clientWithMockControl =
+        createClientWithMockControl(
+            mockControlClientListingFolders(
+                ImmutableList.of(Folder.newBuilder().setName(resourceName).build())));
+
+    IOException e =
+        assertThrows(IOException.class, () -> clientWithMockControl.listFolders(TEST_DIR_ITEM_ID));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Unexpected folder resource name '"
+                + resourceName
+                + "' when listing folders under: gs://"
+                + TEST_BUCKET_NAME
+                + "/"
+                + TEST_DIR);
+    assertThat(e).hasCauseThat().isNull();
+  }
+
+  @Test
+  void listFolders_nullPrefixId_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(NullPointerException.class, () -> gcsClient.listFolders(null));
+
+    assertThat(e).hasMessageThat().contains("prefixId must not be null");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", TEST_DIR})
+  void listFolders_rootOrEmptyBucketName_throwsIllegalArgumentException(String objectName) {
+    // An empty object name makes prefixId equal to GcsItemId.ROOT.
+    GcsItemId prefixId = GcsItemId.builder().setBucketName("").setObjectName(objectName).build();
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> gcsClient.listFolders(prefixId));
+
+    assertThat(e).hasMessageThat().contains("prefixId must have a non-empty bucket name");
+  }
+
+  @Test
+  void listFolders_afterClose_propagatesIOExceptionDirectly() {
+    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class));
+    localClient.close();
+
+    IOException e =
+        assertThrows(IOException.class, () -> localClient.listFolders(TEST_DIR_ITEM_ID));
+
+    assertThat(e).hasMessageThat().isEqualTo("StorageControlClient is closed");
+    assertThat(e).hasCauseThat().isNull();
+  }
+
+  @Test
+  void listFolders_defaultMethodOnUnimplementedClient_throwsUnsupportedOperationException() {
+    GcsClient minimalClient = mock(GcsClient.class, Answers.CALLS_REAL_METHODS);
+
+    UnsupportedOperationException e =
+        assertThrows(
+            UnsupportedOperationException.class, () -> minimalClient.listFolders(TEST_DIR_ITEM_ID));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("listFolders is not implemented by " + minimalClient.getClass().getName());
+  }
+
+  private static StorageControlClient mockControlClientListingFolders(Iterable<Folder> folders) {
+    StorageControlClient.ListFoldersPagedResponse response =
+        mock(StorageControlClient.ListFoldersPagedResponse.class);
+    when(response.iterateAll()).thenReturn(folders);
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.listFolders(any(ListFoldersRequest.class))).thenReturn(response);
+    return mockControlClient;
+  }
+
+  private static GcsItemId listFoldersDirIdWithGeneration() {
+    return GcsItemId.builder()
+        .setBucketName(TEST_BUCKET_NAME)
+        .setObjectName(TEST_DIR)
+        .setContentGeneration(TEST_CONTENT_GENERATION)
+        .build();
   }
 
   private GcsClientImpl createClientWithMockControl(StorageControlClient mockControlClient) {
