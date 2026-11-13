@@ -72,7 +72,8 @@ public abstract class GcsListOptions {
     METADATA
   }
 
-  private static final Set<ListField> DEFAULT_FIELDS =
+  /** Fields selected by {@link #builder()}; also requested by single-object metadata lookups. */
+  static final Set<ListField> DEFAULT_FIELDS =
       Sets.immutableEnumSet(
           ListField.NAME,
           ListField.BUCKET,

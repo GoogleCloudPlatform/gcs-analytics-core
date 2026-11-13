@@ -201,7 +201,7 @@ class GcsClientImplTest {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET_ID).setObjectName(TEST_OBJECT_ID).build();
     StorageTestUtils.createBlobInStorage(
-        storage, BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L), objectData);
+        storage, BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 1L), objectData);
 
     GcsItemInfo itemInfo = gcsClient.getGcsItemInfo(itemId);
 
@@ -213,7 +213,7 @@ class GcsClientImplTest {
             .build();
     assertThat(itemInfo.getItemId()).isEqualTo(expectedItemId);
     assertThat(itemInfo.getSize()).isEqualTo(objectData.length());
-    assertThat(itemInfo.getContentGeneration().get()).isEqualTo(0L);
+    assertThat(itemInfo.getContentGeneration().get()).isEqualTo(1L);
     assertThat(itemInfo.getVerificationAttributes().get().getMd5hash()).isNull();
     assertThat(itemInfo.getVerificationAttributes().get().getCrc32c()).isNotNull();
   }
@@ -3856,7 +3856,57 @@ class GcsClientImplTest {
             .toArray(BlobField[]::new);
     assertThat(Arrays.asList(captor.getValue())).contains(BlobListOption.fields(expectedFields));
     assertThat(page.getItems()).hasSize(1);
-    assertThat(page.getItems().get(0).getStorageClass()).hasValue("NEARLINE");
+    if (field == GcsListOptions.ListField.STORAGE_CLASS) {
+      assertThat(page.getItems().get(0).getStorageClass()).hasValue("NEARLINE");
+    } else {
+      assertThat(page.getItems().get(0).getStorageClass()).isEmpty();
+    }
+  }
+
+  @Test
+  void listObjectsPage_grpcProtoDefaults_reportsGenerationAndContentHeadersAsAbsent()
+      throws IOException {
+    Blob blob = createMockBlob(TEST_BUCKET_NAME, TEST_DIR + "obj.parquet");
+    when(blob.getGeneration()).thenReturn(0L);
+    when(blob.getContentType()).thenReturn("");
+    when(blob.getContentEncoding()).thenReturn("");
+    when(blob.getMd5()).thenReturn("");
+    when(blob.getCrc32c()).thenReturn("");
+    GcsClientImpl client =
+        createClientWithMockStorage(createMockStorageWithBlobs(TEST_BUCKET_NAME, blob));
+
+    GcsListPage<GcsItemInfo> page =
+        client.listObjectsPage(TEST_DIR_ITEM_ID, GcsListOptions.LIST_DIRECTORY);
+
+    GcsItemInfo item = page.getItems().get(0);
+    assertThat(item.getItemId().getContentGeneration()).isEmpty();
+    assertThat(item.getContentGeneration()).isEmpty();
+    assertThat(item.getContentType()).isEmpty();
+    assertThat(item.getContentEncoding()).isEmpty();
+    assertThat(item.getVerificationAttributes()).isEmpty();
+  }
+
+  @Test
+  void listObjectsPage_generationNotRequested_omitsGenerationReturnedByStorage()
+      throws IOException {
+    Blob blob = createMockBlob(TEST_BUCKET_NAME, TEST_DIR + "obj.parquet");
+    when(blob.getGeneration()).thenReturn(TEST_CONTENT_GENERATION);
+    when(blob.getSize()).thenReturn(10L);
+    when(blob.getContentType()).thenReturn("application/octet-stream");
+    GcsClientImpl client =
+        createClientWithMockStorage(createMockStorageWithBlobs(TEST_BUCKET_NAME, blob));
+    GcsListOptions options =
+        GcsListOptions.LIST_DIRECTORY.toBuilder()
+            .setFields(GcsListOptions.ListField.NAME, GcsListOptions.ListField.SIZE)
+            .build();
+
+    GcsListPage<GcsItemInfo> page = client.listObjectsPage(TEST_DIR_ITEM_ID, options);
+
+    GcsItemInfo item = page.getItems().get(0);
+    assertThat(item.getSize()).isEqualTo(10L);
+    assertThat(item.getItemId().getContentGeneration()).isEmpty();
+    assertThat(item.getContentGeneration()).isEmpty();
+    assertThat(item.getContentType()).isEmpty();
   }
 
   @Test
@@ -3881,22 +3931,35 @@ class GcsClientImplTest {
   }
 
   @Test
-  void listObjectsPage_placeholderDirectoryItemIdWithGeneration_ignoresGenerationAndListsChildren()
+  void listObjectsPage_prefixIdWithGeneration_sendsSameRequestAsUnversionedPrefix()
       throws IOException {
     String bucket = "versioned-placeholder-dir-bucket";
-    StorageTestUtils.createBlobInStorage(storage, BlobId.of(bucket, "dir/", 42L), "");
-    GcsItemInfo dirInfo =
-        gcsClient.getGcsItemInfo(
-            GcsItemId.builder().setBucketName(bucket).setObjectName("dir/").build());
-    assertThat(dirInfo.getItemId().getContentGeneration()).hasValue(42L);
-    Blob selfMarker = createMockBlob(bucket, "dir/");
-    Blob child = createMockBlob(bucket, "dir/child.parquet");
-    GcsClientImpl client =
-        createClientWithMockStorage(createMockStorageWithBlobs(bucket, selfMarker, child));
+    Storage versionedStorage =
+        createMockStorageWithBlobs(
+            bucket, createMockBlob(bucket, "dir/"), createMockBlob(bucket, "dir/child.parquet"));
+    Storage unversionedStorage = createMockStorageWithBlobs(bucket);
+    GcsItemId unversionedDirId =
+        GcsItemId.builder().setBucketName(bucket).setObjectName("dir/").build();
+    GcsItemId versionedDirId =
+        GcsItemId.builder()
+            .setBucketName(bucket)
+            .setObjectName("dir/")
+            .setContentGeneration(42L)
+            .build();
+    createClientWithMockStorage(unversionedStorage)
+        .listObjectsPage(unversionedDirId, GcsListOptions.LIST_DIRECTORY);
+    ArgumentCaptor<BlobListOption[]> expected = ArgumentCaptor.forClass(BlobListOption[].class);
+    verify(unversionedStorage).list(eq(bucket), expected.capture());
+    ArgumentCaptor<BlobListOption[]> actual = ArgumentCaptor.forClass(BlobListOption[].class);
 
     GcsListPage<GcsItemInfo> page =
-        client.listObjectsPage(dirInfo.getItemId(), GcsListOptions.LIST_DIRECTORY);
+        createClientWithMockStorage(versionedStorage)
+            .listObjectsPage(versionedDirId, GcsListOptions.LIST_DIRECTORY);
 
+    verify(versionedStorage).list(eq(bucket), actual.capture());
+    assertThat(Arrays.asList(actual.getValue())).contains(BlobListOption.prefix("dir/"));
+    assertThat(Arrays.asList(actual.getValue()))
+        .containsExactlyElementsIn(Arrays.asList(expected.getValue()));
     assertThat(page.getPrefixObject()).isPresent();
     assertThat(page.getItems().stream().map(i -> i.getItemId().getObjectName().orElse("")))
         .containsExactly("dir/child.parquet");
