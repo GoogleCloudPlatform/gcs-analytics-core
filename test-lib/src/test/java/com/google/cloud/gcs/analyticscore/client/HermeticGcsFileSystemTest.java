@@ -75,6 +75,16 @@ class HermeticGcsFileSystemTest {
   }
 
   @Test
+  void open_withUserProjectLazySizeBeforeRead_returnsSizeFromMap() throws Exception {
+    GcsReadOptions readOptionsWithUserProject =
+        GcsReadOptions.builder().setUserProjectId("billing-project").build();
+
+    try (VectoredSeekableByteChannel channel = fs.open(ITEM, readOptionsWithUserProject)) {
+      assertThat(channel.size()).isEqualTo(CONTENT.length);
+    }
+  }
+
+  @Test
   void close_isIdempotent() {
     fs.close();
     assertDoesNotThrow(fs::close);

@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
 import com.google.cloud.storage.Storage.BlobTargetOption;
 import com.google.cloud.storage.Storage.BlobWriteOption;
 import com.google.common.collect.ImmutableMap;
@@ -105,7 +106,7 @@ public abstract class GcsWriteOptions {
         .ifPresent(optionsBuilder::setOverwriteExisting);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + KMS_KEY_NAME_KEY))
         .ifPresent(optionsBuilder::setKmsKeyName);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + USER_PROJECT_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + USER_PROJECT_KEY)
         .ifPresent(optionsBuilder::setUserProject);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + ENCRYPTION_KEY_KEY))
         .ifPresent(optionsBuilder::setEncryptionKey);
@@ -141,7 +142,15 @@ public abstract class GcsWriteOptions {
 
     public abstract Builder setKmsKeyName(String key);
 
+    /**
+     * Sets the project billed for Requester Pays writes on this channel.
+     *
+     * <p>Surrounding whitespace is trimmed and a blank value is treated as unset by {@link
+     * #build()}.
+     */
     public abstract Builder setUserProject(String project);
+
+    abstract Builder setUserProject(Optional<String> project);
 
     public abstract Builder setEncryptionKey(String key);
 
@@ -163,6 +172,11 @@ public abstract class GcsWriteOptions {
 
     public GcsWriteOptions build() {
       GcsWriteOptions options = autoBuild();
+      Optional<String> userProject =
+          ConfigurationUtil.trimToOptional(options.getUserProject().orElse(null));
+      if (!userProject.equals(options.getUserProject())) {
+        options = options.toBuilder().setUserProject(userProject).autoBuild();
+      }
       if (!options.getMetadata().isEmpty()) {
         boolean hasContentEncoding =
             options.getMetadata().keySet().stream()

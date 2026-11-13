@@ -21,9 +21,18 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Type;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 class GcsClientOptionsTest {
 
@@ -34,6 +43,7 @@ class GcsClientOptionsTest {
     GcsClientOptions options = GcsClientOptions.builder().build();
 
     assertThat(options.getProjectId().isPresent()).isFalse();
+    assertThat(options.getUserProject()).isEmpty();
     assertThat(options.getClientLibToken().isPresent()).isFalse();
     assertThat(options.getServiceHost().isPresent()).isFalse();
     assertThat(options.getUniverseDomain()).isEmpty();
@@ -391,5 +401,369 @@ class GcsClientOptionsTest {
   private static GcsClientOptions.Protocol protocolFor(String value) {
     return GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.client.protocol", value), "gcs.")
         .getProtocol();
+  }
+
+  @Test
+  void builder_withUserProject_readOptionsInheritUserProject() {
+    GcsClientOptions options = GcsClientOptions.builder().setUserProject("billing-proj").build();
+
+    assertThat(options.getGcsReadOptions().getUserProjectId()).hasValue("billing-proj");
+  }
+
+  @Test
+  void builder_withUserProject_writeOptionsInheritUserProject() {
+    GcsClientOptions options = GcsClientOptions.builder().setUserProject("billing-proj").build();
+
+    assertThat(options.getGcsWriteOptions().getUserProject()).hasValue("billing-proj");
+  }
+
+  @Test
+  void builder_withReadUserProjectOverride_keepsReadOverride() {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setUserProject("client-proj")
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("read-proj").build())
+            .build();
+
+    assertThat(options.getGcsReadOptions().getUserProjectId()).hasValue("read-proj");
+  }
+
+  @Test
+  void builder_withWriteUserProjectOverride_keepsWriteOverride() {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setUserProject("client-proj")
+            .setGcsWriteOptions(GcsWriteOptions.builder().setUserProject("write-proj").build())
+            .build();
+
+    assertThat(options.getGcsWriteOptions().getUserProject()).hasValue("write-proj");
+  }
+
+  @Test
+  void builder_withOnlyReadUserProject_leavesClientUserProjectEmpty() {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("read-proj").build())
+            .build();
+
+    assertThat(options.getUserProject()).isEmpty();
+  }
+
+  @Test
+  void builder_withOnlyReadUserProject_leavesWriteUserProjectEmpty() {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("read-proj").build())
+            .build();
+
+    assertThat(options.getGcsWriteOptions().getUserProject()).isEmpty();
+  }
+
+  @Test
+  void builder_withOnlyWriteUserProject_leavesReadUserProjectEmpty() {
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setGcsWriteOptions(GcsWriteOptions.builder().setUserProject("write-proj").build())
+            .build();
+
+    assertThat(options.getGcsReadOptions().getUserProjectId()).isEmpty();
+  }
+
+  @Test
+  void builder_withPaddedUserProject_trimsUserProject() {
+    GcsClientOptions options =
+        GcsClientOptions.builder().setUserProject("  billing-proj  ").build();
+
+    assertThat(options.getUserProject()).hasValue("billing-proj");
+  }
+
+  @Test
+  void builder_withPaddedUserProject_equalsCreateFromOptions() {
+    GcsClientOptions fromBuilder =
+        GcsClientOptions.builder().setUserProject("  billing-proj  ").build();
+
+    GcsClientOptions fromMap =
+        GcsClientOptions.createFromOptions(
+            ImmutableMap.of("gcs.user-project", "  billing-proj  "), "gcs.");
+
+    assertThat(fromBuilder).isEqualTo(fromMap);
+  }
+
+  @Test
+  void builder_withBlankUserProject_normalizesUserProjectToEmpty() {
+    GcsClientOptions options = GcsClientOptions.builder().setUserProject("   ").build();
+
+    assertThat(options.getUserProject()).isEmpty();
+  }
+
+  @Test
+  void builder_withBlankUserProject_equalsCreateFromOptions() {
+    GcsClientOptions fromBuilder = GcsClientOptions.builder().setUserProject("   ").build();
+
+    GcsClientOptions fromMap =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.user-project", "   "), "gcs.");
+
+    assertThat(fromBuilder).isEqualTo(fromMap);
+  }
+
+  @Test
+  void builder_withChannelUserProjectsEqualToClient_equalsClientOnlyOptions() {
+    GcsClientOptions withChannelCopies =
+        GcsClientOptions.builder()
+            .setUserProject("billing-proj")
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("billing-proj").build())
+            .setGcsWriteOptions(GcsWriteOptions.builder().setUserProject("billing-proj").build())
+            .build();
+
+    GcsClientOptions clientOnly = GcsClientOptions.builder().setUserProject("billing-proj").build();
+
+    assertThat(withChannelCopies).isEqualTo(clientOnly);
+  }
+
+  @Test
+  void toBuilder_withNewUserProject_updatesInheritedReadUserProject() {
+    GcsClientOptions original = GcsClientOptions.builder().setUserProject("proj-a").build();
+
+    GcsClientOptions updated = original.toBuilder().setUserProject("proj-b").build();
+
+    assertThat(updated.getGcsReadOptions().getUserProjectId()).hasValue("proj-b");
+  }
+
+  @Test
+  void toBuilder_withNewUserProject_updatesInheritedWriteUserProject() {
+    GcsClientOptions original = GcsClientOptions.builder().setUserProject("proj-a").build();
+
+    GcsClientOptions updated = original.toBuilder().setUserProject("proj-b").build();
+
+    assertThat(updated.getGcsWriteOptions().getUserProject()).hasValue("proj-b");
+  }
+
+  @Test
+  void toBuilder_withNewUserProjectOnMapOptions_updatesInheritedReadUserProject() {
+    GcsClientOptions original =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.user-project", "proj-a"), "gcs.");
+
+    GcsClientOptions updated = original.toBuilder().setUserProject("proj-b").build();
+
+    assertThat(updated.getGcsReadOptions().getUserProjectId()).hasValue("proj-b");
+  }
+
+  @Test
+  void toBuilder_withNewUserProject_keepsReadOverride() {
+    GcsClientOptions original =
+        GcsClientOptions.builder()
+            .setUserProject("proj-a")
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("read-proj").build())
+            .build();
+
+    GcsClientOptions updated = original.toBuilder().setUserProject("proj-b").build();
+
+    assertThat(updated.getGcsReadOptions().getUserProjectId()).hasValue("read-proj");
+  }
+
+  @Test
+  void toBuilder_withNewUserProject_keepsWriteOverride() {
+    GcsClientOptions original =
+        GcsClientOptions.builder()
+            .setUserProject("proj-a")
+            .setGcsWriteOptions(GcsWriteOptions.builder().setUserProject("write-proj").build())
+            .build();
+
+    GcsClientOptions updated = original.toBuilder().setUserProject("proj-b").build();
+
+    assertThat(updated.getGcsWriteOptions().getUserProject()).hasValue("write-proj");
+  }
+
+  @Test
+  void toBuilder_withReadUserProjectEqualToPreviousClientProject_treatsItAsInherited() {
+    GcsClientOptions original = GcsClientOptions.builder().setUserProject("proj-a").build();
+
+    GcsClientOptions updated =
+        original.toBuilder()
+            .setUserProject("proj-b")
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("proj-a").build())
+            .build();
+
+    assertThat(updated.getGcsReadOptions().getUserProjectId()).hasValue("proj-b");
+  }
+
+  @Test
+  void builder_withReadOptionsCopiedFromOtherOptions_keepsCopiedProjectAsOverride() {
+    GcsClientOptions other = GcsClientOptions.builder().setUserProject("proj-a").build();
+
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setUserProject("proj-b")
+            .setGcsReadOptions(other.getGcsReadOptions())
+            .build();
+
+    assertThat(options.getGcsReadOptions().getUserProjectId()).hasValue("proj-a");
+  }
+
+  @Test
+  void toBuilder_withBlankUserProject_clearsInheritedReadUserProject() {
+    GcsClientOptions original = GcsClientOptions.builder().setUserProject("proj-a").build();
+
+    GcsClientOptions updated = original.toBuilder().setUserProject("   ").build();
+
+    assertThat(updated.getGcsReadOptions().getUserProjectId()).isEmpty();
+  }
+
+  @Test
+  void toBuilder_withBlankUserProjectAndReadOverride_keepsReadOverrideOnly() {
+    GcsClientOptions original =
+        GcsClientOptions.builder()
+            .setUserProject("proj-a")
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("read-proj").build())
+            .build();
+
+    GcsClientOptions updated = original.toBuilder().setUserProject("   ").build();
+
+    assertThat(updated.getUserProject()).isEmpty();
+    assertThat(updated.getGcsReadOptions().getUserProjectId()).hasValue("read-proj");
+    assertThat(updated.getGcsWriteOptions().getUserProject()).isEmpty();
+  }
+
+  @Test
+  void toBuilder_withReadOptionsCopiedFromViewAndNewUserProject_inheritsNewUserProject() {
+    GcsClientOptions original = GcsClientOptions.builder().setUserProject("proj-a").build();
+    GcsReadOptions copiedReadOptions =
+        original.getGcsReadOptions().toBuilder().setFooterPrefetchEnabled(false).build();
+
+    GcsClientOptions updated =
+        original.toBuilder().setGcsReadOptions(copiedReadOptions).setUserProject("proj-b").build();
+
+    assertThat(updated.getGcsReadOptions().getUserProjectId()).hasValue("proj-b");
+  }
+
+  @Test
+  void build_calledTwiceOnSameBuilder_appliesLatestUserProjectToReadOptions() {
+    GcsClientOptions.Builder builder = GcsClientOptions.builder().setUserProject("proj-a");
+    GcsClientOptions unused = builder.build();
+
+    GcsClientOptions rebuilt = builder.setUserProject("proj-b").build();
+
+    assertThat(rebuilt.getGcsReadOptions().getUserProjectId()).hasValue("proj-b");
+  }
+
+  @ParameterizedTest
+  @MethodSource("userProjectConfigurations")
+  void toBuilder_build_returnsEqualOptions(GcsClientOptions options) {
+    assertThat(options.toBuilder().build()).isEqualTo(options);
+  }
+
+  private static Stream<GcsClientOptions> userProjectConfigurations() {
+    return Stream.of(
+        GcsClientOptions.builder().setUserProject("billing-proj").build(),
+        GcsClientOptions.builder().setUserProject("   ").build(),
+        GcsClientOptions.builder()
+            .setUserProject("client-proj")
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("read-proj").build())
+            .setGcsWriteOptions(GcsWriteOptions.builder().setUserProject("write-proj").build())
+            .build(),
+        GcsClientOptions.builder()
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("read-proj").build())
+            .build(),
+        GcsClientOptions.createFromOptions(
+            ImmutableMap.of("gcs.user-project", "billing-proj"), "gcs."));
+  }
+
+  @Test
+  void createFromOptions_withPaddedUserProject_trimsConsistentlyAcrossAllOptions() {
+    GcsClientOptions options =
+        GcsClientOptions.createFromOptions(
+            ImmutableMap.of("gcs.user-project", "  billing-proj  "), "gcs.");
+
+    assertThat(options.getUserProject()).hasValue("billing-proj");
+    assertThat(options.getGcsReadOptions().getUserProjectId()).hasValue("billing-proj");
+    assertThat(options.getGcsWriteOptions().getUserProject()).hasValue("billing-proj");
+  }
+
+  @Test
+  void createFromOptions_withBlankUserProject_ignoresBlankConsistentlyAcrossAllOptions() {
+    GcsClientOptions options =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.user-project", "   "), "gcs.");
+
+    assertThat(options.getUserProject()).isEmpty();
+    assertThat(options.getGcsReadOptions().getUserProjectId()).isEmpty();
+    assertThat(options.getGcsWriteOptions().getUserProject()).isEmpty();
+  }
+
+  @Test
+  void signatures_exceptPreExistingTemporaryPaths_useJdkTypesOnly() {
+    // TODO: drop the temporaryPaths exclusion once getTemporaryPaths() returns a JDK Set (#456).
+    Class<?>[] classes = {
+      GcsClientOptions.class,
+      GcsClientOptions.Builder.class,
+      GcsClientOptions.builder().getClass(),
+      GcsClientOptions.builder().build().getClass()
+    };
+    for (Class<?> clazz : classes) {
+      for (Field field : clazz.getDeclaredFields()) {
+        if (!isTemporaryPathsMember(field.getName())) {
+          ApiSignatureTestUtils.assertNoGuavaType(clazz, field.toString(), field.getGenericType());
+        }
+      }
+      for (Method method : clazz.getDeclaredMethods()) {
+        if (!isTemporaryPathsMember(method.getName())) {
+          ApiSignatureTestUtils.assertNoGuavaType(
+              clazz, method.toString(), method.getGenericReturnType());
+          for (Type parameterType : method.getGenericParameterTypes()) {
+            ApiSignatureTestUtils.assertNoGuavaType(clazz, method.toString(), parameterType);
+          }
+        }
+      }
+    }
+  }
+
+  private static boolean isTemporaryPathsMember(String name) {
+    return name.toLowerCase(Locale.ROOT).contains("temporarypaths");
+  }
+
+  @Test
+  void apiSignatureTestUtils_detectsNestedGuavaAndHandlesRecursiveTypeBounds() {
+    ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(
+        CleanRecursiveSignatureFixture.class,
+        GcsReadOptions.class,
+        GcsReadOptions.Builder.class,
+        GcsReadOptions.builder().getClass(),
+        GcsReadOptions.builder().build().getClass());
+
+    assertThrows(
+        AssertionError.class,
+        () ->
+            ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(
+                ParameterizedGuavaLeakFixture.class));
+    assertThrows(
+        AssertionError.class,
+        () -> ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(WildcardGuavaLeakFixture.class));
+    assertThrows(
+        AssertionError.class,
+        () -> ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(ArrayGuavaLeakFixture.class));
+    assertThrows(
+        AssertionError.class,
+        () -> ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(TypeVarGuavaLeakFixture.class));
+  }
+
+  private static final class CleanRecursiveSignatureFixture<T extends Comparable<T>> {
+    <U extends Comparable<? super U>> Optional<U[]> echo(Optional<? extends T> input) {
+      return Optional.empty();
+    }
+  }
+
+  private interface ParameterizedGuavaLeakFixture {
+    Optional<ImmutableSet<String>> leak();
+  }
+
+  private interface WildcardGuavaLeakFixture {
+    Optional<? extends com.google.common.base.Supplier<String>> leak();
+  }
+
+  private interface ArrayGuavaLeakFixture {
+    Optional<ImmutableSet<String>[]> leak();
+  }
+
+  private interface TypeVarGuavaLeakFixture {
+    <T extends com.google.common.base.Predicate<String>> void leak(T value);
   }
 }

@@ -60,8 +60,10 @@ class GcsAnalyticsCoreOptionsTest {
     assertThat(clientOptions.getClientLibToken().get()).isEqualTo("test-token");
     assertThat(clientOptions.getServiceHost().get()).isEqualTo("test-host");
     assertThat(clientOptions.getUserAgent().get()).isEqualTo("test-agent");
+    assertThat(clientOptions.getUserProject()).hasValue("user-project");
     assertThat(clientOptions.getGcsReadOptions().getUserProjectId().get())
         .isEqualTo("user-project");
+    assertThat(clientOptions.getGcsWriteOptions().getUserProject()).hasValue("user-project");
   }
 
   @Test
