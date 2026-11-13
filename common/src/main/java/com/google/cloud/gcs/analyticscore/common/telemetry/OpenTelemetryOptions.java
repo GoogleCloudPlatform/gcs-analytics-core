@@ -16,7 +16,9 @@
 package com.google.cloud.gcs.analyticscore.common.telemetry;
 
 import com.google.auto.value.AutoValue;
+import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
 import io.opentelemetry.api.OpenTelemetry;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -68,36 +70,44 @@ public abstract class OpenTelemetryOptions {
 
   public static Optional<OpenTelemetryOptions> createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
-    String enabled = analyticsCoreOptions.get(prefix + OPENTELEMETRY_ENABLED_KEY);
-    String provider = analyticsCoreOptions.get(prefix + OPENTELEMETRY_PROVIDER_TYPE_KEY);
-    String exportIntervalSeconds =
-        analyticsCoreOptions.get(prefix + OPENTELEMETRY_EXPORT_INTERVAL_SECONDS_KEY);
-    String projectId = analyticsCoreOptions.get(prefix + PROJECT_ID_KEY);
+    Optional<String> enabled =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + OPENTELEMETRY_ENABLED_KEY);
+    Optional<String> provider =
+        ConfigurationUtil.getTrimmedValue(
+            analyticsCoreOptions, prefix + OPENTELEMETRY_PROVIDER_TYPE_KEY);
+    Optional<String> exportIntervalSeconds =
+        ConfigurationUtil.getTrimmedValue(
+            analyticsCoreOptions, prefix + OPENTELEMETRY_EXPORT_INTERVAL_SECONDS_KEY);
 
-    if (enabled == null && provider == null && exportIntervalSeconds == null) {
+    if (enabled.isEmpty() && provider.isEmpty() && exportIntervalSeconds.isEmpty()) {
       return Optional.empty();
     }
 
     Builder builder = builder();
-    if (enabled != null) {
-      builder.setEnabled(Boolean.parseBoolean(enabled));
+    if (enabled.isPresent()) {
+      builder.setEnabled(Boolean.parseBoolean(enabled.get()));
     }
-    if (provider != null) {
+    if (provider.isPresent()) {
+      String providerValue = provider.get();
       try {
-        builder.setProviderType(ProviderType.valueOf(provider.toUpperCase()));
+        builder.setProviderType(
+            ProviderType.valueOf(providerValue.replace('-', '_').toUpperCase(Locale.ROOT)));
       } catch (IllegalArgumentException e) {
-        LOG.warn("Invalid provider type provided: {}. Using default.", provider);
+        LOG.warn("Invalid provider type provided: {}. Using default.", providerValue);
       }
     }
-    if (exportIntervalSeconds != null) {
+    if (exportIntervalSeconds.isPresent()) {
+      String intervalValue = exportIntervalSeconds.get();
       try {
-        builder.setExportIntervalSeconds(Integer.parseInt(exportIntervalSeconds));
+        builder.setExportIntervalSeconds(Integer.parseInt(intervalValue));
       } catch (NumberFormatException e) {
-        LOG.warn("Invalid export interval provided: '{}'. Using default.", exportIntervalSeconds);
+        LOG.warn("Invalid export interval provided: '{}'. Using default.", intervalValue);
       }
     }
-    if (projectId != null && !projectId.isEmpty()) {
-      builder.setProjectId(projectId);
+    Optional<String> projectId =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + PROJECT_ID_KEY);
+    if (projectId.isPresent()) {
+      builder.setProjectId(projectId.get());
     }
     return Optional.of(builder.build());
   }

@@ -63,6 +63,8 @@ public abstract class GcsAuthOptions {
 
   private static final Duration DEFAULT_HTTP_CONNECT_TIMEOUT = Duration.ofSeconds(5);
   private static final Duration DEFAULT_HTTP_READ_TIMEOUT = Duration.ofSeconds(5);
+  private static final long MAX_HTTP_TIMEOUT_MILLIS = Integer.MAX_VALUE;
+  static final Duration MAX_HTTP_TIMEOUT = Duration.ofMillis(MAX_HTTP_TIMEOUT_MILLIS);
 
   /**
    * Returns the configured authentication type, or empty if not explicitly set (in which case
@@ -217,6 +219,12 @@ public abstract class GcsAuthOptions {
           String.format("%s=%s is not a valid number of milliseconds", key, value), e);
     }
     checkArgument(timeoutMillis >= 0, "%s=%s must not be negative", key, value);
+    checkArgument(
+        timeoutMillis <= MAX_HTTP_TIMEOUT_MILLIS,
+        "%s=%s must not exceed %s milliseconds",
+        key,
+        value,
+        MAX_HTTP_TIMEOUT_MILLIS);
     return Duration.ofMillis(timeoutMillis);
   }
 
@@ -451,16 +459,23 @@ public abstract class GcsAuthOptions {
     }
 
     private static void validateTimeouts(GcsAuthOptions options, String prefix) {
+      validateTimeout(options.getHttpConnectTimeout(), prefix + HTTP_CONNECT_TIMEOUT_KEY);
+      validateTimeout(options.getHttpReadTimeout(), prefix + HTTP_READ_TIMEOUT_KEY);
+    }
+
+    private static void validateTimeout(Duration timeout, String key) {
+      checkArgument(!timeout.isNegative(), "%s must not be negative, got: %s", key, timeout);
       checkArgument(
-          !options.getHttpConnectTimeout().isNegative(),
-          "%s must not be negative, got: %s",
-          prefix + HTTP_CONNECT_TIMEOUT_KEY,
-          options.getHttpConnectTimeout());
+          timeout.compareTo(MAX_HTTP_TIMEOUT) <= 0,
+          "%s must not exceed %s milliseconds, got: %s",
+          key,
+          MAX_HTTP_TIMEOUT_MILLIS,
+          timeout);
       checkArgument(
-          !options.getHttpReadTimeout().isNegative(),
-          "%s must not be negative, got: %s",
-          prefix + HTTP_READ_TIMEOUT_KEY,
-          options.getHttpReadTimeout());
+          timeout.isZero() || timeout.toMillis() > 0,
+          "%s must be zero or at least 1 millisecond, got: %s",
+          key,
+          timeout);
     }
 
     private static void checkRequiredField(

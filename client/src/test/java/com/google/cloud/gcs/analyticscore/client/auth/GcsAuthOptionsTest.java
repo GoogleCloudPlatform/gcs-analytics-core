@@ -289,7 +289,8 @@ class GcsAuthOptionsTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"not-a-number", "10s", "2500ms", "-5"})
+  @ValueSource(
+      strings = {"not-a-number", "10s", "2500ms", "-5", "2147483648", "9223372036854775807"})
   void createFromOptions_invalidConnectTimeout_throwsIllegalArgumentException(String timeout) {
     Map<String, String> map =
         ImmutableMap.of("analytics-core.auth.http.connect-timeout-ms", timeout);
@@ -298,11 +299,59 @@ class GcsAuthOptionsTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"not-a-number", "10s", "2500ms", "-5"})
+  @ValueSource(
+      strings = {"not-a-number", "10s", "2500ms", "-5", "2147483648", "9223372036854775807"})
   void createFromOptions_invalidReadTimeout_throwsIllegalArgumentException(String timeout) {
     Map<String, String> map = ImmutableMap.of("analytics-core.auth.http.read-timeout-ms", timeout);
 
     assertThrows(IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, ""));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"2147483648", "9223372036854775807"})
+  void createFromOptions_withPrefix_connectTimeoutOverflowReportsPrefixedKey(String timeout) {
+    Map<String, String> map =
+        ImmutableMap.of("gcs.analytics-core.auth.http.connect-timeout-ms", timeout);
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, "gcs."));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .contains("gcs.analytics-core.auth.http.connect-timeout-ms=" + timeout);
+    assertThat(exception).hasMessageThat().contains("must not exceed 2147483647 milliseconds");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"2147483648", "9223372036854775807"})
+  void createFromOptions_withPrefix_readTimeoutOverflowReportsPrefixedKey(String timeout) {
+    Map<String, String> map =
+        ImmutableMap.of("gcs.analytics-core.auth.http.read-timeout-ms", timeout);
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, "gcs."));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .contains("gcs.analytics-core.auth.http.read-timeout-ms=" + timeout);
+    assertThat(exception).hasMessageThat().contains("must not exceed 2147483647 milliseconds");
+  }
+
+  @Test
+  void createFromOptions_maxIntTimeouts_returnsMaxIntTimeouts() {
+    Map<String, String> map =
+        ImmutableMap.of(
+            "analytics-core.auth.http.connect-timeout-ms",
+            String.valueOf(Integer.MAX_VALUE),
+            "analytics-core.auth.http.read-timeout-ms",
+            String.valueOf(Integer.MAX_VALUE));
+
+    GcsAuthOptions options = GcsAuthOptions.createFromOptions(map, "");
+
+    assertThat(options.getHttpConnectTimeout()).isEqualTo(Duration.ofMillis(Integer.MAX_VALUE));
+    assertThat(options.getHttpReadTimeout()).isEqualTo(Duration.ofMillis(Integer.MAX_VALUE));
   }
 
   @Test
@@ -630,6 +679,126 @@ class GcsAuthOptionsTest {
         GcsAuthOptions.builder().setHttpReadTimeout(Duration.ofSeconds(-5));
 
     assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  @Test
+  void build_subMillisecondConnectTimeout_throwsIllegalArgumentException() {
+    GcsAuthOptions.Builder builder =
+        GcsAuthOptions.builder().setHttpConnectTimeout(Duration.ofNanos(500));
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.http.connect-timeout-ms");
+    assertThat(exception).hasMessageThat().contains("must be zero or at least 1 millisecond");
+  }
+
+  @Test
+  void build_subMillisecondReadTimeout_throwsIllegalArgumentException() {
+    GcsAuthOptions.Builder builder =
+        GcsAuthOptions.builder().setHttpReadTimeout(Duration.ofNanos(500));
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.http.read-timeout-ms");
+    assertThat(exception).hasMessageThat().contains("must be zero or at least 1 millisecond");
+  }
+
+  @Test
+  void build_oneMillisecondTimeouts_succeeds() {
+    GcsAuthOptions options =
+        GcsAuthOptions.builder()
+            .setHttpConnectTimeout(Duration.ofMillis(1))
+            .setHttpReadTimeout(Duration.ofMillis(1))
+            .build();
+
+    assertThat(options.getHttpConnectTimeout()).isEqualTo(Duration.ofMillis(1));
+    assertThat(options.getHttpReadTimeout()).isEqualTo(Duration.ofMillis(1));
+  }
+
+  @Test
+  void build_zeroTimeouts_succeeds() {
+    GcsAuthOptions options =
+        GcsAuthOptions.builder()
+            .setHttpConnectTimeout(Duration.ZERO)
+            .setHttpReadTimeout(Duration.ZERO)
+            .build();
+
+    assertThat(options.getHttpConnectTimeout()).isEqualTo(Duration.ZERO);
+    assertThat(options.getHttpReadTimeout()).isEqualTo(Duration.ZERO);
+  }
+
+  @Test
+  void build_maxIntTimeouts_succeeds() {
+    GcsAuthOptions options =
+        GcsAuthOptions.builder()
+            .setHttpConnectTimeout(Duration.ofMillis(Integer.MAX_VALUE))
+            .setHttpReadTimeout(Duration.ofMillis(Integer.MAX_VALUE))
+            .build();
+
+    assertThat(options.getHttpConnectTimeout()).isEqualTo(Duration.ofMillis(Integer.MAX_VALUE));
+    assertThat(options.getHttpReadTimeout()).isEqualTo(Duration.ofMillis(Integer.MAX_VALUE));
+  }
+
+  @Test
+  void build_connectTimeoutExceedingMaxInt_throws() {
+    GcsAuthOptions.Builder builder =
+        GcsAuthOptions.builder().setHttpConnectTimeout(Duration.ofMillis(Integer.MAX_VALUE + 1L));
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.http.connect-timeout-ms");
+    assertThat(exception).hasMessageThat().contains("must not exceed 2147483647 milliseconds");
+  }
+
+  @Test
+  void build_readTimeoutExceedingMaxInt_throws() {
+    GcsAuthOptions.Builder builder =
+        GcsAuthOptions.builder().setHttpReadTimeout(Duration.ofMillis(Integer.MAX_VALUE + 1L));
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.http.read-timeout-ms");
+    assertThat(exception).hasMessageThat().contains("must not exceed 2147483647 milliseconds");
+  }
+
+  @Test
+  void build_timeoutWithDurationMax_throws() {
+    GcsAuthOptions.Builder builder =
+        GcsAuthOptions.builder().setHttpConnectTimeout(Duration.ofSeconds(Long.MAX_VALUE));
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.http.connect-timeout-ms");
+  }
+
+  @Test
+  void build_connectTimeoutExceedingMaxHttpTimeoutByNanos_throwsIllegalArgumentException() {
+    GcsAuthOptions.Builder builder =
+        GcsAuthOptions.builder()
+            .setHttpConnectTimeout(GcsAuthOptions.MAX_HTTP_TIMEOUT.plusNanos(1));
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.http.connect-timeout-ms");
+    assertThat(exception).hasMessageThat().contains("must not exceed 2147483647 milliseconds");
+  }
+
+  @Test
+  void build_readTimeoutExceedingMaxHttpTimeoutByNanos_throwsIllegalArgumentException() {
+    GcsAuthOptions.Builder builder =
+        GcsAuthOptions.builder().setHttpReadTimeout(GcsAuthOptions.MAX_HTTP_TIMEOUT.plusNanos(1));
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception).hasMessageThat().contains("analytics-core.auth.http.read-timeout-ms");
+    assertThat(exception).hasMessageThat().contains("must not exceed 2147483647 milliseconds");
   }
 
   @ParameterizedTest

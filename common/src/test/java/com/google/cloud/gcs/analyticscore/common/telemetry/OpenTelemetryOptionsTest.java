@@ -20,9 +20,12 @@ import static com.google.common.truth.Truth.assertThat;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 class OpenTelemetryOptionsTest {
 
@@ -161,5 +164,100 @@ class OpenTelemetryOptionsTest {
 
     assertThat(telemetryOptions).isPresent();
     assertThat(telemetryOptions.get().getProjectId()).isEmpty();
+  }
+
+  @Test
+  void createFromOptions_withBlankOptions_returnsEmpty() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.opentelemetry.enabled", "   ");
+    options.put("prefix.telemetry.opentelemetry.provider-type", " \t ");
+    options.put("prefix.telemetry.opentelemetry.export-interval-seconds", "  ");
+
+    Optional<OpenTelemetryOptions> telemetryOptions =
+        OpenTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isEmpty();
+  }
+
+  @Test
+  void createFromOptions_withProjectIdOnly_returnsEmpty() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.project-id", "test-gcp-project");
+
+    Optional<OpenTelemetryOptions> telemetryOptions =
+        OpenTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isEmpty();
+  }
+
+  @Test
+  void createFromOptions_withWhitespaceAndKebabCase_normalizesValues() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.opentelemetry.enabled", " true ");
+    options.put("prefix.telemetry.opentelemetry.provider-type", " cloud-monitoring ");
+    options.put("prefix.telemetry.opentelemetry.export-interval-seconds", " 120 ");
+    options.put("prefix.project-id", " test-gcp-project ");
+
+    Optional<OpenTelemetryOptions> telemetryOptions =
+        OpenTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isPresent();
+    assertThat(telemetryOptions.get().isEnabled()).isTrue();
+    assertThat(telemetryOptions.get().getProviderType())
+        .isEqualTo(OpenTelemetryOptions.ProviderType.CLOUD_MONITORING);
+    assertThat(telemetryOptions.get().getExportIntervalSeconds()).isEqualTo(120);
+    assertThat(telemetryOptions.get().getProjectId()).hasValue("test-gcp-project");
+  }
+
+  @Test
+  void createFromOptions_withBlankOptionalFields_retainsDefaults() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.opentelemetry.enabled", "true");
+    options.put("prefix.telemetry.opentelemetry.provider-type", "   ");
+    options.put("prefix.telemetry.opentelemetry.export-interval-seconds", "   ");
+    options.put("prefix.project-id", "   ");
+
+    Optional<OpenTelemetryOptions> telemetryOptions =
+        OpenTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isPresent();
+    assertThat(telemetryOptions.get().isEnabled()).isTrue();
+    assertThat(telemetryOptions.get().getProviderType())
+        .isEqualTo(OpenTelemetryOptions.ProviderType.GLOBAL);
+    assertThat(telemetryOptions.get().getExportIntervalSeconds()).isEqualTo(60);
+    assertThat(telemetryOptions.get().getProjectId()).isEmpty();
+  }
+
+  @Test
+  void createFromOptions_withOverflowExportInterval_fallsBackToDefault() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.opentelemetry.enabled", "true");
+    options.put("prefix.telemetry.opentelemetry.export-interval-seconds", "3000000000");
+
+    Optional<OpenTelemetryOptions> telemetryOptions =
+        OpenTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isPresent();
+    assertThat(telemetryOptions.get().getExportIntervalSeconds()).isEqualTo(60);
+  }
+
+  @Test
+  @ResourceLock(Resources.LOCALE)
+  void createFromOptions_underTurkishLocale_parsesProviderTypeCorrectly() {
+    Locale previousLocale = Locale.getDefault();
+    try {
+      Locale.setDefault(new Locale("tr", "TR"));
+      Map<String, String> options = new HashMap<>();
+      options.put("prefix.telemetry.opentelemetry.provider-type", "logging");
+
+      Optional<OpenTelemetryOptions> telemetryOptions =
+          OpenTelemetryOptions.createFromOptions(options, "prefix.");
+
+      assertThat(telemetryOptions).isPresent();
+      assertThat(telemetryOptions.get().getProviderType())
+          .isEqualTo(OpenTelemetryOptions.ProviderType.LOGGING);
+    } finally {
+      Locale.setDefault(previousLocale);
+    }
   }
 }
