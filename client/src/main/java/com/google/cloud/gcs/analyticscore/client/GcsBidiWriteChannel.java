@@ -30,7 +30,6 @@ import com.google.cloud.storage.StorageException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * A write channel that supports bidirectional/appendable upload to Google Cloud Storage.
@@ -43,10 +42,10 @@ class GcsBidiWriteChannel extends GcsWriteChannel {
   private volatile AppendableUploadWriteableByteChannel gcsAppendChannel;
 
   GcsBidiWriteChannel(
-      @NonNull Storage storage,
-      @NonNull BlobInfo blobInfo,
-      @NonNull GcsWriteOptions writeOptions,
-      @NonNull BlobWriteOption[] sdkWriteOptions)
+      Storage storage,
+      BlobInfo blobInfo,
+      GcsWriteOptions writeOptions,
+      BlobWriteOption[] sdkWriteOptions)
       throws IOException {
     super(
         null,
@@ -74,7 +73,7 @@ class GcsBidiWriteChannel extends GcsWriteChannel {
   }
 
   @Override
-  public int write(@NonNull ByteBuffer src) throws IOException {
+  public int write(ByteBuffer src) throws IOException {
     checkNotNull(src, "src cannot be null");
     // Read the delegate exactly once. A concurrent close() nulls the field, and re-reading it
     // after the open check would surface an untranslated NullPointerException instead of the
