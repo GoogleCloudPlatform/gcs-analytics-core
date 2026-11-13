@@ -68,7 +68,7 @@ public abstract class GcsCreateBucketOptions {
 
     /**
      * Sets the object time-to-live (TTL) duration used to configure a bucket lifecycle {@code
-     * Delete} rule (minimum 1 day).
+     * Delete} rule (must be a whole number of days, minimum 1 day).
      */
     public abstract Builder setTtl(Duration ttl);
 
@@ -85,8 +85,14 @@ public abstract class GcsCreateBucketOptions {
       options
           .getTtl()
           .ifPresent(
-              ttl ->
-                  checkArgument(ttl.toDays() >= 1, "TTL must be at least 1 day, but got: %s", ttl));
+              ttl -> {
+                long days = ttl.toDays();
+                checkArgument(days >= 1, "TTL must be at least 1 day, but got: %s", ttl);
+                checkArgument(
+                    Duration.ofDays(days).equals(ttl),
+                    "TTL must be a whole number of days, but got: %s",
+                    ttl);
+              });
       return options;
     }
   }

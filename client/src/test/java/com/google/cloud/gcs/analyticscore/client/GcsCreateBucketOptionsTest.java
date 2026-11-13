@@ -19,6 +19,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.Duration;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class GcsCreateBucketOptionsTest {
@@ -78,5 +79,35 @@ class GcsCreateBucketOptionsTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> GcsCreateBucketOptions.builder().setTtl(Duration.ofDays(-1)).build());
+  }
+
+  @Test
+  void build_withNonWholeDayTtl_throwsIllegalArgumentException() {
+    List<Duration> nonWholeDayTtls =
+        List.of(
+            Duration.ofHours(36),
+            Duration.ofDays(1).plusSeconds(1),
+            Duration.ofDays(1).plusNanos(1),
+            Duration.ofDays(2).minusNanos(1),
+            Duration.ofSeconds(Long.MAX_VALUE));
+
+    for (Duration ttl : nonWholeDayTtls) {
+      IllegalArgumentException thrown =
+          assertThrows(
+              IllegalArgumentException.class,
+              () -> GcsCreateBucketOptions.builder().setTtl(ttl).build());
+      assertThat(thrown)
+          .hasMessageThat()
+          .contains("TTL must be a whole number of days, but got: " + ttl);
+    }
+  }
+
+  @Test
+  void build_withWholeDayTtlInHours_succeeds() {
+    long hours = 48;
+    GcsCreateBucketOptions options =
+        GcsCreateBucketOptions.builder().setTtl(Duration.ofHours(hours)).build();
+
+    assertThat(options.getTtl()).hasValue(Duration.ofDays(2));
   }
 }
