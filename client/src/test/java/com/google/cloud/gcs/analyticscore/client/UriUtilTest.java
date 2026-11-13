@@ -16,7 +16,6 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.net.URI;
@@ -203,7 +202,7 @@ class UriUtilTest {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(objectName).build();
 
-    assertDoesNotThrow(() -> UriUtil.validateDirectoryItemId(itemId));
+    UriUtil.validateDirectoryItemId(itemId);
   }
 
   @ParameterizedTest
