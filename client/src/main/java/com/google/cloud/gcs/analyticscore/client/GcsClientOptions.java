@@ -195,24 +195,24 @@ public abstract class GcsClientOptions {
       optionsBuilder.setUserAgent(analyticsCoreOptions.get(prefix + USER_AGENT_KEY));
     }
 
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + CLIENT_PROTOCOL_KEY))
-        .map(s -> Protocol.valueOf(s.trim().toUpperCase(Locale.ROOT)))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + CLIENT_PROTOCOL_KEY)
+        .map(s -> Protocol.valueOf(s.toUpperCase(Locale.ROOT)))
         .ifPresent(optionsBuilder::setProtocol);
 
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + UPLOAD_CHUNK_SIZE_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + UPLOAD_CHUNK_SIZE_KEY)
         .map(val -> ConfigurationUtil.safeParseInteger(prefix + UPLOAD_CHUNK_SIZE_KEY, val))
         .ifPresent(optionsBuilder::setUploadChunkSize);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + UPLOAD_TYPE_KEY))
-        .map(s -> UploadType.valueOf(s.replace('-', '_').toUpperCase()))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + UPLOAD_TYPE_KEY)
+        .map(s -> UploadType.valueOf(s.replace('-', '_').toUpperCase(Locale.ROOT)))
         .ifPresent(optionsBuilder::setUploadType);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_BUFFER_COUNT_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + PCU_BUFFER_COUNT_KEY)
         .map(val -> ConfigurationUtil.safeParseInteger(prefix + PCU_BUFFER_COUNT_KEY, val))
         .ifPresent(optionsBuilder::setPcuBufferCount);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_BUFFER_CAPACITY_KEY))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + PCU_BUFFER_CAPACITY_KEY)
         .map(val -> ConfigurationUtil.safeParseInteger(prefix + PCU_BUFFER_CAPACITY_KEY, val))
         .ifPresent(optionsBuilder::setPcuBufferCapacity);
-    Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_PART_FILE_CLEANUP_TYPE_KEY))
-        .map(s -> PartFileCleanupType.valueOf(s.replace('-', '_').toUpperCase()))
+    ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + PCU_PART_FILE_CLEANUP_TYPE_KEY)
+        .map(s -> PartFileCleanupType.valueOf(s.replace('-', '_').toUpperCase(Locale.ROOT)))
         .ifPresent(optionsBuilder::setPcuPartFileCleanupType);
     Optional.ofNullable(analyticsCoreOptions.get(prefix + PCU_PART_FILE_NAME_PREFIX_KEY))
         .ifPresent(optionsBuilder::setPcuPartFileNamePrefix);
