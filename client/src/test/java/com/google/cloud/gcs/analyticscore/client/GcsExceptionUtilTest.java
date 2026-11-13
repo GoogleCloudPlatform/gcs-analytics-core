@@ -20,6 +20,7 @@ import static com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.ErrorTy
 import static com.google.common.truth.Truth.assertThat;
 
 import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.api.gax.rpc.UnauthenticatedException;
@@ -30,9 +31,14 @@ import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mockito;
 
 class GcsExceptionUtilTest {
@@ -708,5 +714,131 @@ class GcsExceptionUtilTest {
     Constructor<GcsExceptionUtil> constructor = GcsExceptionUtil.class.getDeclaredConstructor();
 
     assertThat(Modifier.isPrivate(constructor.getModifiers())).isTrue();
+  }
+
+  private static GcsItemId objectId(Long generation) {
+    GcsItemId.Builder b = GcsItemId.builder().setBucketName(BUCKET).setObjectName(NAME);
+    return (generation == null ? b : b.setContentGeneration(generation)).build();
+  }
+
+  @Test
+  void translateDeleteObjectException_notFound_returnsFileNotFoundExceptionWithGeneration() {
+    StorageException notFoundCause = new StorageException(404, "Not Found");
+
+    IOException e = GcsExceptionUtil.translateDeleteObjectException(notFoundCause, objectId(1234L));
+
+    assertThat(e).isInstanceOf(FileNotFoundException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Location does not exist or generation not found: gs://test-bucket/test-object#1234");
+    assertThat(e).hasCauseThat().isSameInstanceAs(notFoundCause);
+  }
+
+  @Test
+  void translateDeleteObjectException_unauthorized_returnsAccessDeniedException() {
+    StorageException deniedCause = new StorageException(401, "Unauthorized");
+
+    IOException e = GcsExceptionUtil.translateDeleteObjectException(deniedCause, objectId(null));
+
+    assertThat(e).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) e).getFile()).isEqualTo("gs://test-bucket/test-object");
+    assertThat(e).hasMessageThat().contains("Access denied during object deletion");
+    assertThat(e).hasCauseThat().isSameInstanceAs(deniedCause);
+  }
+
+  @Test
+  void translateDeleteObjectException_preconditionFailedWithGeneration_reportsMismatch() {
+    IOException e =
+        GcsExceptionUtil.translateDeleteObjectException(
+            new StorageException(412, "Precondition Failed"), objectId(1234L));
+
+    assertThat(e).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Generation mismatch for object gs://test-bucket/test-object."
+                + " Concurrent modification detected.");
+  }
+
+  private static Stream<Arguments> deleteObjectGenericFailures() {
+    return Stream.of(
+        Arguments.of(new StorageException(409, "Retention hold"), null),
+        Arguments.of(new StorageException(412, "Precondition Failed"), null),
+        Arguments.of(new StorageException(412, "Precondition Failed"), 0L),
+        Arguments.of(new StorageException(500, "Internal Error"), null));
+  }
+
+  @ParameterizedTest
+  @MethodSource("deleteObjectGenericFailures")
+  void translateDeleteObjectException_otherFailure_returnsGenericIOException(
+      StorageException cause, Long generation) {
+    IOException e = GcsExceptionUtil.translateDeleteObjectException(cause, objectId(generation));
+
+    assertThat(e).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(e).hasMessageThat().startsWith("Failed to delete object: gs://test-bucket/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  @Test
+  void translateDeleteBucketException_notFound_returnsBucketNotFoundException() {
+    StorageException notFoundCause = new StorageException(404, "Bucket not found");
+
+    IOException e = GcsExceptionUtil.translateDeleteBucketException(notFoundCause, BUCKET);
+
+    assertThat(e).isInstanceOf(FileNotFoundException.class);
+    assertThat(e).hasMessageThat().isEqualTo("Bucket not found: " + BUCKET);
+    assertThat(e).hasCauseThat().isSameInstanceAs(notFoundCause);
+  }
+
+  @Test
+  void translateDeleteBucketException_forbidden_returnsAccessDeniedException() {
+    StorageException deniedCause = new StorageException(403, "Forbidden");
+
+    IOException e = GcsExceptionUtil.translateDeleteBucketException(deniedCause, BUCKET);
+
+    assertThat(e).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) e).getFile()).isEqualTo("gs://" + BUCKET);
+    assertThat(e).hasMessageThat().contains("Access denied during bucket deletion");
+    assertThat(e).hasCauseThat().isSameInstanceAs(deniedCause);
+  }
+
+  private static Stream<StorageException> deleteBucketNotEmptyFailures() {
+    return Stream.of(
+        new StorageException(409, "The bucket you tried to delete is not empty."),
+        new StorageException(412, "Bucket is not empty"),
+        new StorageException(
+            400, "Bucket NOT EMPTY", Mockito.mock(FailedPreconditionException.class)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("deleteBucketNotEmptyFailures")
+  void translateDeleteBucketException_bucketNotEmpty_returnsDirectoryNotEmptyException(
+      StorageException cause) {
+    IOException e = GcsExceptionUtil.translateDeleteBucketException(cause, BUCKET);
+
+    assertThat(e).isInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(((DirectoryNotEmptyException) e).getFile()).isEqualTo("gs://" + BUCKET);
+    assertThat(e).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  private static Stream<StorageException> deleteBucketGenericFailures() {
+    return Stream.of(
+        new StorageException(409, "Conflict"),
+        new StorageException(409, null),
+        new StorageException(400, "Failed", Mockito.mock(FailedPreconditionException.class)),
+        new StorageException(500, "Internal error (not empty)"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("deleteBucketGenericFailures")
+  void translateDeleteBucketException_otherFailure_returnsGenericIOException(
+      StorageException cause) {
+    IOException e = GcsExceptionUtil.translateDeleteBucketException(cause, BUCKET);
+
+    assertThat(e).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(e).isNotInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(e).hasMessageThat().isEqualTo("Failed to delete bucket: " + BUCKET);
+    assertThat(e).hasCauseThat().isSameInstanceAs(cause);
   }
 }

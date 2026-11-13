@@ -24,6 +24,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -101,5 +102,73 @@ class FakeGcsClientImplTest {
   @Test
   void lazyGetGrpcStorage_returnsLocalStorageInstance() throws IOException {
     assertThat(fakeGcsClient.lazyGetGrpcStorage()).isSameInstanceAs(FakeGcsClientImpl.storage);
+  }
+
+  @Test
+  void deleteObject_existingObject_deletesObject() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("delete-bucket").setObjectName("delete-me").build();
+    TestDataGenerator.createGcsData(itemId, 10);
+
+    fakeGcsClient.deleteObject(itemId);
+
+    assertThrows(FileNotFoundException.class, () -> fakeGcsClient.getGcsItemInfo(itemId));
+  }
+
+  @Test
+  void deleteObject_matchingGeneration_deletesObject() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("delete-bucket").setObjectName("versioned").build();
+    TestDataGenerator.createGcsData(itemId, 10);
+    long generation = fakeGcsClient.getGcsItemInfo(itemId).getContentGeneration().get();
+    GcsItemId versionedId =
+        GcsItemId.builder()
+            .setBucketName("delete-bucket")
+            .setObjectName("versioned")
+            .setContentGeneration(generation)
+            .build();
+
+    fakeGcsClient.deleteObject(versionedId);
+
+    assertThrows(FileNotFoundException.class, () -> fakeGcsClient.getGcsItemInfo(itemId));
+  }
+
+  @Test
+  void deleteObject_staleGeneration_throwsIOExceptionAndKeepsObject() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("delete-bucket").setObjectName("stale").build();
+    TestDataGenerator.createGcsData(itemId, 10);
+    long generation = fakeGcsClient.getGcsItemInfo(itemId).getContentGeneration().get();
+    GcsItemId staleId =
+        GcsItemId.builder()
+            .setBucketName("delete-bucket")
+            .setObjectName("stale")
+            .setContentGeneration(generation + 1)
+            .build();
+
+    IOException e = assertThrows(IOException.class, () -> fakeGcsClient.deleteObject(staleId));
+
+    assertThat(e).hasMessageThat().contains("Generation mismatch");
+    assertEquals(10L, fakeGcsClient.getGcsItemInfo(itemId).getSize());
+  }
+
+  @Test
+  void deleteBucket_emptyBucket_succeeds() throws IOException {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName("empty-bucket-to-delete").build();
+
+    fakeGcsClient.deleteBucket(bucketId);
+  }
+
+  @Test
+  void deleteBucket_nonEmptyBucket_throwsDirectoryNotEmptyException() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("non-empty-bucket").setObjectName("object").build();
+    TestDataGenerator.createGcsData(itemId, 10);
+    GcsItemId bucketId = GcsItemId.builder().setBucketName("non-empty-bucket").build();
+
+    DirectoryNotEmptyException e =
+        assertThrows(DirectoryNotEmptyException.class, () -> fakeGcsClient.deleteBucket(bucketId));
+
+    assertEquals("gs://non-empty-bucket", e.getFile());
   }
 }

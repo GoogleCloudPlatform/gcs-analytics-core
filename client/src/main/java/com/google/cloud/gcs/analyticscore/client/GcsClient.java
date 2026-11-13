@@ -19,6 +19,7 @@ import com.google.common.annotations.VisibleForTesting;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 
@@ -165,6 +166,50 @@ public interface GcsClient {
    * @throws IOException if the bucket properties cannot be fetched
    */
   BucketProperties getBucketProperties(String bucketName) throws IOException;
+
+  /**
+   * Deletes the GCS object identified by {@code itemId}.
+   *
+   * <p>When {@link GcsItemId#getContentGeneration()} is present, deletion requires the live
+   * object's generation to match ({@code ifGenerationMatch}).
+   *
+   * <p>The default implementation throws {@link UnsupportedOperationException}, so that
+   * implementations written against earlier versions of this interface keep compiling.
+   *
+   * @param itemId the identity of the GCS object to delete
+   * @throws IllegalArgumentException if {@code itemId} does not denote a GCS object or specifies a
+   *     non-positive content generation
+   * @throws FileNotFoundException if the target object does not exist
+   * @throws AccessDeniedException if the caller lacks permission to delete the object
+   * @throws UnsupportedOperationException if this implementation does not support deleting objects
+   * @throws IOException if a generation mismatch or other I/O error occurs while deleting the
+   *     object
+   */
+  default void deleteObject(GcsItemId itemId) throws IOException {
+    throw new UnsupportedOperationException(
+        "deleteObject is not implemented by " + getClass().getName());
+  }
+
+  /**
+   * Deletes the empty GCS bucket identified by {@code itemId}.
+   *
+   * <p>Any {@link GcsItemId#getContentGeneration()} on {@code itemId} is ignored, as GCS buckets do
+   * not support content generations. The default implementation throws {@link
+   * UnsupportedOperationException}, so that implementations written against earlier versions of
+   * this interface keep compiling.
+   *
+   * @param itemId the identity of the GCS bucket to delete
+   * @throws IllegalArgumentException if {@code itemId} does not denote a bucket
+   * @throws FileNotFoundException if the target bucket does not exist
+   * @throws AccessDeniedException if the caller lacks permission to delete the bucket
+   * @throws java.nio.file.DirectoryNotEmptyException if the target bucket is not empty
+   * @throws UnsupportedOperationException if this implementation does not support deleting buckets
+   * @throws IOException if an I/O error occurs while deleting the bucket
+   */
+  default void deleteBucket(GcsItemId itemId) throws IOException {
+    throw new UnsupportedOperationException(
+        "deleteBucket is not implemented by " + getClass().getName());
+  }
 
   /** Close the client. */
   void close();

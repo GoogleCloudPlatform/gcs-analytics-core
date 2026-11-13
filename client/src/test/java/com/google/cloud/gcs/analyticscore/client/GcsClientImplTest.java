@@ -33,6 +33,7 @@ import static org.mockito.Mockito.when;
 import com.google.api.core.ApiFuture;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.api.gax.rpc.UnauthenticatedException;
@@ -96,6 +97,7 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.time.Duration;
 import java.time.Instant;
@@ -125,6 +127,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
@@ -3422,6 +3425,475 @@ class GcsClientImplTest {
 
     assertThrows(IOException.class, () -> clientWithMock.createEmptyObject(fileItemId));
     verify(mockStorage, never()).get(any(BlobId.class), any(Storage.BlobGetOption[].class));
+  }
+
+  @Test
+  void deleteObject_existingObject_deletesOnlyThatObject() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET_ID).setObjectName("delete-me.txt").build();
+    GcsItemId siblingId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET_ID).setObjectName("keep-me.txt").build();
+    StorageTestUtils.createBlobInStorage(storage, itemId, "payload");
+    StorageTestUtils.createBlobInStorage(storage, siblingId, "sibling");
+
+    gcsClient.deleteObject(itemId);
+
+    assertThrows(FileNotFoundException.class, () -> gcsClient.getGcsItemInfo(itemId));
+    assertThat(gcsClient.getGcsItemInfo(siblingId).getSize()).isEqualTo(7L);
+  }
+
+  @Test
+  void deleteObject_placeholderDirectory_deletesMarkerButNotSiblingObject() throws IOException {
+    GcsItemId siblingId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName("dir").build();
+    StorageTestUtils.createBlobInStorage(storage, TEST_DIR_ITEM_ID, "");
+    StorageTestUtils.createBlobInStorage(storage, siblingId, "sibling");
+
+    gcsClient.deleteObject(TEST_DIR_ITEM_ID);
+
+    assertThrows(FileNotFoundException.class, () -> gcsClient.getGcsItemInfo(TEST_DIR_ITEM_ID));
+    assertThat(gcsClient.getGcsItemInfo(siblingId).getSize()).isEqualTo(7L);
+  }
+
+  @Test
+  void deleteObject_missingObject_throwsFileNotFoundException() {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET_ID).setObjectName("missing.txt").build();
+
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> gcsClient.deleteObject(itemId));
+
+    assertFileNotFoundException(e, itemId);
+  }
+
+  @Test
+  void deleteObject_withGeneration_passesUnversionedBlobIdAndGenerationMatch() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.delete(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenReturn(true);
+    GcsItemId versionedId =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET)
+            .setObjectName(TEST_OBJECT)
+            .setContentGeneration(TEST_CONTENT_GENERATION)
+            .build();
+
+    createClientWithMockStorage(mockStorage).deleteObject(versionedId);
+
+    ArgumentCaptor<BlobId> blobIdCaptor = ArgumentCaptor.forClass(BlobId.class);
+    ArgumentCaptor<Storage.BlobSourceOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobSourceOption[].class);
+    verify(mockStorage).delete(blobIdCaptor.capture(), optionsCaptor.capture());
+    assertThat(blobIdCaptor.getValue()).isEqualTo(BlobId.of(TEST_BUCKET, TEST_OBJECT));
+    assertThat(blobIdCaptor.getValue().getGeneration()).isNull();
+    assertThat(optionsCaptor.getValue())
+        .asList()
+        .containsExactly(Storage.BlobSourceOption.generationMatch(TEST_CONTENT_GENERATION));
+  }
+
+  @Test
+  void deleteObject_writeAndReadUserProject_prefersWriteUserProject() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.delete(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenReturn(true);
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setGcsWriteOptions(GcsWriteOptions.builder().setUserProject("write-proj").build())
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("read-proj").build())
+            .build();
+
+    createClientWithMockStorage(mockStorage, options).deleteObject(TEST_ITEM_ID);
+
+    verify(mockStorage)
+        .delete(
+            BlobId.of(TEST_BUCKET, TEST_OBJECT),
+            Storage.BlobSourceOption.userProject("write-proj"));
+  }
+
+  @Test
+  void deleteObject_onlyReadUserProject_forwardsReadUserProject() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.delete(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenReturn(true);
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("read-proj").build())
+            .build();
+
+    createClientWithMockStorage(mockStorage, options).deleteObject(TEST_ITEM_ID);
+
+    verify(mockStorage)
+        .delete(
+            BlobId.of(TEST_BUCKET, TEST_OBJECT), Storage.BlobSourceOption.userProject("read-proj"));
+  }
+
+  @Test
+  void deleteObject_noGenerationOrUserProject_passesNoOptions() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.delete(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenReturn(true);
+
+    createClientWithMockStorage(mockStorage).deleteObject(TEST_ITEM_ID);
+
+    ArgumentCaptor<Storage.BlobSourceOption[]> optionsCaptor =
+        ArgumentCaptor.forClass(Storage.BlobSourceOption[].class);
+    verify(mockStorage).delete(eq(BlobId.of(TEST_BUCKET, TEST_OBJECT)), optionsCaptor.capture());
+    assertThat(optionsCaptor.getValue()).isEmpty();
+  }
+
+  private static Stream<Arguments> invalidDeleteObjectInputs() {
+    return Stream.of(
+        Arguments.of(null, NullPointerException.class),
+        Arguments.of(GcsItemId.ROOT, IllegalArgumentException.class),
+        Arguments.of(
+            GcsItemId.builder().setBucketName(TEST_BUCKET).build(), IllegalArgumentException.class),
+        Arguments.of(
+            GcsItemId.builder()
+                .setBucketName(TEST_BUCKET)
+                .setObjectName(TEST_OBJECT)
+                .setContentGeneration(0L)
+                .build(),
+            IllegalArgumentException.class),
+        Arguments.of(
+            GcsItemId.builder()
+                .setBucketName(TEST_BUCKET)
+                .setObjectName(TEST_OBJECT)
+                .setContentGeneration(-1L)
+                .build(),
+            IllegalArgumentException.class));
+  }
+
+  @ParameterizedTest
+  @MethodSource("invalidDeleteObjectInputs")
+  void deleteObject_invalidInput_throwsWithoutCallingStorage(
+      GcsItemId itemId, Class<? extends Throwable> expectedType) {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+
+    assertThrows(expectedType, () -> client.deleteObject(itemId));
+
+    verify(mockStorage, never()).delete(any(BlobId.class), any(Storage.BlobSourceOption[].class));
+  }
+
+  @Test
+  void deleteObject_storageNotFound_throwsFileNotFoundExceptionWithCause() {
+    Storage mockStorage = mock(Storage.class);
+    StorageException notFound = new StorageException(404, "Not Found");
+    when(mockStorage.delete(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenThrow(notFound);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> client.deleteObject(TEST_ITEM_ID));
+
+    assertThat(e).hasCauseThat().isSameInstanceAs(notFound);
+  }
+
+  @Test
+  void deleteObject_storageForbidden_throwsAccessDeniedException() {
+    Storage mockStorage = mock(Storage.class);
+    StorageException forbidden = new StorageException(403, "Forbidden");
+    when(mockStorage.delete(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenThrow(forbidden);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+
+    AccessDeniedException e =
+        assertThrows(AccessDeniedException.class, () -> client.deleteObject(TEST_ITEM_ID));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/" + TEST_OBJECT);
+    assertThat(e).hasCauseThat().isSameInstanceAs(forbidden);
+  }
+
+  @Test
+  void deleteObject_preconditionFailedWithGeneration_throwsGenerationMismatchIOException() {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.delete(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenThrow(new StorageException(412, "Precondition Failed"));
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsItemId versionedId =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET)
+            .setObjectName(TEST_OBJECT)
+            .setContentGeneration(TEST_CONTENT_GENERATION)
+            .build();
+
+    IOException e = assertThrows(IOException.class, () -> client.deleteObject(versionedId));
+
+    assertThat(e).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(e).hasMessageThat().contains("Generation mismatch");
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {409, 500})
+  void deleteObject_otherStorageError_throwsGenericIOExceptionWithCause(int code) {
+    Storage mockStorage = mock(Storage.class);
+    StorageException failure = new StorageException(code, "Failure");
+    when(mockStorage.delete(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenThrow(failure);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+
+    IOException e = assertThrows(IOException.class, () -> client.deleteObject(TEST_ITEM_ID));
+
+    assertThat(e).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Failed to delete object: gs://" + TEST_BUCKET + "/" + TEST_OBJECT);
+    assertThat(e).hasCauseThat().isSameInstanceAs(failure);
+  }
+
+  @Test
+  void deleteObject_defaultMethodOnUnimplementedClient_throwsUnsupportedOperationException() {
+    GcsClient minimalClient = mock(GcsClient.class, Answers.CALLS_REAL_METHODS);
+
+    UnsupportedOperationException e =
+        assertThrows(
+            UnsupportedOperationException.class, () -> minimalClient.deleteObject(TEST_ITEM_ID));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("deleteObject is not implemented by " + minimalClient.getClass().getName());
+  }
+
+  @Test
+  void deleteBucket_withUserProject_forwardsUserProject() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.delete(eq(TEST_BUCKET_NAME), any(Storage.BucketSourceOption[].class)))
+        .thenReturn(true);
+    GcsClientOptions options =
+        GcsClientOptions.builder()
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("billing-proj").build())
+            .build();
+    GcsClientImpl client = createClientWithMockStorage(mockStorage, options);
+
+    client.deleteBucket(GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build());
+
+    verify(mockStorage)
+        .delete(TEST_BUCKET_NAME, Storage.BucketSourceOption.userProject("billing-proj"));
+  }
+
+  @Test
+  void deleteBucket_noUserProject_passesNoOptions() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.delete(eq(TEST_BUCKET_NAME), any(Storage.BucketSourceOption[].class)))
+        .thenReturn(true);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+
+    client.deleteBucket(GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build());
+
+    verify(mockStorage).delete(TEST_BUCKET_NAME);
+  }
+
+  @Test
+  void deleteBucket_deleted_invalidatesCachedBucketProperties() throws IOException {
+    Storage mockStorage = mockStorageReturningFlatThenHnsBucket();
+    when(mockStorage.delete(eq(TEST_BUCKET_NAME), any(Storage.BucketSourceOption[].class)))
+        .thenReturn(true);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    assertThat(client.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isFalse();
+
+    client.deleteBucket(GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build());
+
+    assertThat(client.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isTrue();
+  }
+
+  @Test
+  void deleteBucket_storageReturnsFalse_throwsBucketNotFoundAndInvalidatesCache()
+      throws IOException {
+    Storage mockStorage = mockStorageReturningFlatThenHnsBucket();
+    when(mockStorage.delete(eq(TEST_BUCKET_NAME), any(Storage.BucketSourceOption[].class)))
+        .thenReturn(false);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build();
+    assertThat(client.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isFalse();
+
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> client.deleteBucket(bucketId));
+
+    assertThat(e).hasMessageThat().isEqualTo("Bucket not found: " + TEST_BUCKET_NAME);
+    assertThat(((StorageException) e.getCause()).getCode()).isEqualTo(404);
+    assertThat(client.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isTrue();
+  }
+
+  @Test
+  void deleteBucket_storageNotFound_throwsFileNotFoundExceptionAndInvalidatesCache()
+      throws IOException {
+    Storage mockStorage = mockStorageReturningFlatThenHnsBucket();
+    StorageException notFound = new StorageException(404, "Bucket not found");
+    when(mockStorage.delete(eq(TEST_BUCKET_NAME), any(Storage.BucketSourceOption[].class)))
+        .thenThrow(notFound);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build();
+    assertThat(client.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isFalse();
+
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> client.deleteBucket(bucketId));
+
+    assertThat(e).hasCauseThat().isSameInstanceAs(notFound);
+    assertThat(client.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isTrue();
+  }
+
+  private static Stream<Arguments> deleteBucketFailuresWhileBucketMayExist() {
+    return Stream.of(
+        Arguments.of(new StorageException(403, "Forbidden"), AccessDeniedException.class),
+        Arguments.of(
+            new StorageException(409, "The bucket you tried to delete is not empty"),
+            DirectoryNotEmptyException.class),
+        Arguments.of(new StorageException(500, "Internal Error"), IOException.class));
+  }
+
+  @ParameterizedTest
+  @MethodSource("deleteBucketFailuresWhileBucketMayExist")
+  void deleteBucket_failureWhileBucketMayExist_keepsCachedBucketProperties(
+      StorageException failure, Class<? extends IOException> expectedType) throws IOException {
+    Storage mockStorage = mockStorageReturningFlatThenHnsBucket();
+    when(mockStorage.delete(eq(TEST_BUCKET_NAME), any(Storage.BucketSourceOption[].class)))
+        .thenThrow(failure);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build();
+    assertThat(client.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isFalse();
+
+    assertThrows(expectedType, () -> client.deleteBucket(bucketId));
+
+    assertThat(client.getBucketProperties(TEST_BUCKET_NAME).isHnsEnabled()).isFalse();
+    verify(mockStorage, times(1)).get(eq(TEST_BUCKET_NAME), any(BucketGetOption.class));
+  }
+
+  /** Returns a mock whose bucket lookups report a flat bucket first and an HNS bucket after. */
+  private Storage mockStorageReturningFlatThenHnsBucket() {
+    Storage mockStorage = mock(Storage.class);
+    Bucket flatBucket = mockBucketWithHns(false);
+    Bucket hnsBucket = mockBucketWithHns(true);
+    when(flatBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
+    when(hnsBucket.getStorageClass()).thenReturn(StorageClass.STANDARD);
+    when(mockStorage.get(eq(TEST_BUCKET_NAME), any(BucketGetOption.class)))
+        .thenReturn(flatBucket, hnsBucket);
+    return mockStorage;
+  }
+
+  private static Stream<Arguments> invalidDeleteBucketInputs() {
+    return Stream.of(
+        Arguments.of(null, NullPointerException.class),
+        Arguments.of(GcsItemId.ROOT, IllegalArgumentException.class),
+        Arguments.of(TEST_ITEM_ID, IllegalArgumentException.class),
+        Arguments.of(TEST_DIR_ITEM_ID, IllegalArgumentException.class));
+  }
+
+  @ParameterizedTest
+  @MethodSource("invalidDeleteBucketInputs")
+  void deleteBucket_invalidInput_throwsWithoutCallingStorage(
+      GcsItemId itemId, Class<? extends Throwable> expectedType) {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+
+    assertThrows(expectedType, () -> client.deleteBucket(itemId));
+
+    verify(mockStorage, never()).delete(any(String.class), any(Storage.BucketSourceOption[].class));
+  }
+
+  @Test
+  void deleteBucket_bucketIdWithContentGeneration_ignoresGeneration() throws IOException {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.delete(eq(TEST_BUCKET_NAME), any(Storage.BucketSourceOption[].class)))
+        .thenReturn(true);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsItemId bucketIdWithGeneration =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET_NAME)
+            .setContentGeneration(TEST_CONTENT_GENERATION)
+            .build();
+
+    client.deleteBucket(bucketIdWithGeneration);
+
+    verify(mockStorage).delete(TEST_BUCKET_NAME);
+  }
+
+  @Test
+  void deleteBucket_bucketIdWithContentGenerationNotFound_stripsGenerationFromError() {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.delete(eq(TEST_BUCKET_NAME), any(Storage.BucketSourceOption[].class)))
+        .thenReturn(false);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsItemId bucketIdWithGeneration =
+        GcsItemId.builder()
+            .setBucketName(TEST_BUCKET_NAME)
+            .setContentGeneration(TEST_CONTENT_GENERATION)
+            .build();
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class, () -> client.deleteBucket(bucketIdWithGeneration));
+
+    assertThat(e).hasMessageThat().isEqualTo("Bucket not found: " + TEST_BUCKET_NAME);
+  }
+
+  @Test
+  void deleteBucket_storageForbidden_throwsAccessDeniedException() {
+    Storage mockStorage = mock(Storage.class);
+    StorageException forbidden = new StorageException(403, "Forbidden");
+    when(mockStorage.delete(eq(TEST_BUCKET_NAME), any(Storage.BucketSourceOption[].class)))
+        .thenThrow(forbidden);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build();
+
+    AccessDeniedException e =
+        assertThrows(AccessDeniedException.class, () -> client.deleteBucket(bucketId));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME);
+    assertThat(e).hasCauseThat().isSameInstanceAs(forbidden);
+  }
+
+  private static Stream<StorageException> deleteBucketNotEmptyFailures() {
+    return Stream.of(
+        new StorageException(409, "The bucket you tried to delete is not empty"),
+        new StorageException(412, "Bucket is not empty", mock(FailedPreconditionException.class)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("deleteBucketNotEmptyFailures")
+  void deleteBucket_bucketNotEmpty_throwsDirectoryNotEmptyExceptionWithCause(
+      StorageException notEmpty) {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.delete(eq(TEST_BUCKET_NAME), any(Storage.BucketSourceOption[].class)))
+        .thenThrow(notEmpty);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build();
+
+    DirectoryNotEmptyException e =
+        assertThrows(DirectoryNotEmptyException.class, () -> client.deleteBucket(bucketId));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME);
+    assertThat(e).hasCauseThat().isSameInstanceAs(notEmpty);
+  }
+
+  @Test
+  void deleteBucket_otherConflict_throwsGenericIOException() {
+    Storage mockStorage = mock(Storage.class);
+    StorageException conflict = new StorageException(409, "Conflict");
+    when(mockStorage.delete(eq(TEST_BUCKET_NAME), any(Storage.BucketSourceOption[].class)))
+        .thenThrow(conflict);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build();
+
+    IOException e = assertThrows(IOException.class, () -> client.deleteBucket(bucketId));
+
+    assertThat(e).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(e).isNotInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(e).hasMessageThat().isEqualTo("Failed to delete bucket: " + TEST_BUCKET_NAME);
+    assertThat(e).hasCauseThat().isSameInstanceAs(conflict);
+  }
+
+  @Test
+  void deleteBucket_defaultMethodOnUnimplementedClient_throwsUnsupportedOperationException() {
+    GcsClient minimalClient = mock(GcsClient.class, Answers.CALLS_REAL_METHODS);
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build();
+
+    UnsupportedOperationException e =
+        assertThrows(
+            UnsupportedOperationException.class, () -> minimalClient.deleteBucket(bucketId));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("deleteBucket is not implemented by " + minimalClient.getClass().getName());
   }
 
   @Test
