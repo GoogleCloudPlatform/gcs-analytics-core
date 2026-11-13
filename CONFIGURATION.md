@@ -107,9 +107,9 @@ These parameters fine-tune the low-level data streaming behavior. They allow you
 | `analytics-core.read.vectored.range.merged-size.max-bytes` | Maximum size (in bytes) of a merged range in vectored reads. | `8388608` (8 MB) |
 | `analytics-core.read.inplace-seek-limit-bytes` | In-place seek limit (in bytes). | `131072` (128 KB) |
 | `analytics-core.read.file-access-pattern` | File access pattern. Supported values: `RANDOM`, `SEQUENTIAL`, `AUTO_SEQUENTIAL`, `AUTO_RANDOM`. | `AUTO_SEQUENTIAL` |
+| `analytics-core.read.bidi.timeout-seconds` | Timeout (in seconds) for opening a bidi read session and for synchronous channel reads through it. Asynchronous vectored reads are not bounded by this timeout. Applies only when `client.protocol` is `BIDI`. | `10` |
 | `analytics-core.adaptive-read.sequential-read-threshold` | Threshold for number of sequential reads to switch to sequential mode. | `3` |
 | `analytics-core.random-read.min-request-size` | Minimum request size for random reads. If the requested read size is smaller, it reads up to this size. | `131072` (128 KB) |
-| `analytics-core.read.bidi.timeout-seconds` | Timeout (in seconds) for opening a bidi read session and for synchronous channel reads through it. Asynchronous vectored reads are not bounded by this timeout. Applies only when `client.protocol` is `BIDI`. | `10` |
 
 ### Retry Options
 
