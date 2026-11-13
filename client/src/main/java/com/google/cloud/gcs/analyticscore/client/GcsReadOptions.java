@@ -117,7 +117,8 @@ public abstract class GcsReadOptions {
     GcsReadOptions.Builder optionsBuilder = builder();
     if (analyticsCoreOptions.containsKey(prefix + GCS_CHANNEL_READ_CHUNK_SIZE_KEY)) {
       optionsBuilder.setChunkSize(
-          Integer.parseInt(analyticsCoreOptions.get(prefix + GCS_CHANNEL_READ_CHUNK_SIZE_KEY)));
+          ConfigurationUtil.safeParseInteger(
+              analyticsCoreOptions, prefix + GCS_CHANNEL_READ_CHUNK_SIZE_KEY));
     }
     if (analyticsCoreOptions.containsKey(prefix + DECRYPTION_KEY_KEY)) {
       optionsBuilder.setDecryptionKey(analyticsCoreOptions.get(prefix + DECRYPTION_KEY_KEY));
