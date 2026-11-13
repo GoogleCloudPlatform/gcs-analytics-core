@@ -23,14 +23,13 @@ import java.nio.ByteBuffer;
 import java.util.Comparator;
 import java.util.List;
 import javax.annotation.Nullable;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 class VectoredIoUtil {
   private static final Comparator<GcsObjectRange> OFFSET_COMPARATOR =
       Comparator.comparingLong(GcsObjectRange::getOffset);
 
-  public static @NonNull ImmutableList<GcsObjectRange> sortGcsObjectRanges(
-      @NonNull ImmutableList<GcsObjectRange> ranges) {
+  public static ImmutableList<GcsObjectRange> sortGcsObjectRanges(
+      ImmutableList<GcsObjectRange> ranges) {
     return ImmutableList.sortedCopyOf(OFFSET_COMPARATOR, ranges);
   }
 
@@ -49,8 +48,8 @@ class VectoredIoUtil {
    * <p>Empty results are built with {@link ByteBuffer#allocate(int)} rather than the caller's
    * allocator so pooled allocators are never asked for, or expected to track, empty buffers.
    */
-  static @NonNull ImmutableList<GcsObjectRange> completeDegenerateRanges(
-      @NonNull List<GcsObjectRange> ranges, @NonNull GcsItemId itemId) {
+  static ImmutableList<GcsObjectRange> completeDegenerateRanges(
+      List<GcsObjectRange> ranges, GcsItemId itemId) {
     checkNotNull(ranges, "ranges cannot be null");
     checkNotNull(itemId, "itemId cannot be null");
     ImmutableList.Builder<GcsObjectRange> pendingRanges =
@@ -137,8 +136,8 @@ class VectoredIoUtil {
     return result;
   }
 
-  private static @NonNull GcsObjectCombinedRange buildCombinedRange(
-      @NonNull GcsObjectRange firstRange,
+  private static GcsObjectCombinedRange buildCombinedRange(
+      GcsObjectRange firstRange,
       long offset,
       long end,
       @Nullable ImmutableList.Builder<GcsObjectRange> underlyingRanges) {
