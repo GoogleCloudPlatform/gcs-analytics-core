@@ -20,6 +20,7 @@ import com.google.cloud.gcs.analyticscore.client.auth.GcsAuthOptions;
 import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
 import java.util.Map;
+import java.util.Optional;
 
 /** Configuration options for the GCS File System. */
 @AutoValue
@@ -96,27 +97,36 @@ public abstract class GcsFileSystemOptions {
   public static GcsFileSystemOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
     GcsFileSystemOptions.Builder optionsBuilder = GcsFileSystemOptions.builder();
-    if (analyticsCoreOptions.containsKey(prefix + READ_THREAD_COUNT_KEY)) {
+    String readThreadCountKey = prefix + READ_THREAD_COUNT_KEY;
+    Optional<String> readThreadCount =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, readThreadCountKey);
+    if (readThreadCount.isPresent()) {
       optionsBuilder.setReadThreadCount(
-          ConfigurationUtil.safeParseInteger(analyticsCoreOptions, prefix + READ_THREAD_COUNT_KEY));
+          ConfigurationUtil.safeParseInteger(readThreadCountKey, readThreadCount.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + CLIENT_TYPE_KEY)) {
-      optionsBuilder.setClientType(
-          ClientType.valueOf(analyticsCoreOptions.get(prefix + CLIENT_TYPE_KEY)));
+    Optional<String> clientType =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + CLIENT_TYPE_KEY);
+    if (clientType.isPresent()) {
+      optionsBuilder.setClientType(ClientType.valueOf(clientType.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + HNS_API_ENABLED_KEY)) {
-      optionsBuilder.setHnsApiEnabled(
-          Boolean.parseBoolean(analyticsCoreOptions.get(prefix + HNS_API_ENABLED_KEY)));
+    Optional<String> hnsApiEnabled =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + HNS_API_ENABLED_KEY);
+    if (hnsApiEnabled.isPresent()) {
+      optionsBuilder.setHnsApiEnabled(Boolean.parseBoolean(hnsApiEnabled.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + METADATA_LOOKUP_PARALLEL_ENABLED_KEY)) {
+    Optional<String> metadataLookupParallelEnabled =
+        ConfigurationUtil.getTrimmedValue(
+            analyticsCoreOptions, prefix + METADATA_LOOKUP_PARALLEL_ENABLED_KEY);
+    if (metadataLookupParallelEnabled.isPresent()) {
       optionsBuilder.setMetadataLookupParallelEnabled(
-          Boolean.parseBoolean(
-              analyticsCoreOptions.get(prefix + METADATA_LOOKUP_PARALLEL_ENABLED_KEY)));
+          Boolean.parseBoolean(metadataLookupParallelEnabled.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + CREATE_ITEMS_CONFLICT_CHECK_ENABLE_KEY)) {
+    Optional<String> createItemsConflictCheckEnabled =
+        ConfigurationUtil.getTrimmedValue(
+            analyticsCoreOptions, prefix + CREATE_ITEMS_CONFLICT_CHECK_ENABLE_KEY);
+    if (createItemsConflictCheckEnabled.isPresent()) {
       optionsBuilder.setCreateItemsConflictCheckEnabled(
-          Boolean.parseBoolean(
-              analyticsCoreOptions.get(prefix + CREATE_ITEMS_CONFLICT_CHECK_ENABLE_KEY)));
+          Boolean.parseBoolean(createItemsConflictCheckEnabled.get()));
     }
 
     optionsBuilder.setGcsAuthOptions(
