@@ -61,7 +61,10 @@ public abstract class GcsListPage<T> {
    */
   public abstract Optional<T> getPrefixObject();
 
-  /** Returns the non-empty continuation token for fetching the next page, if any. */
+  /**
+   * Returns the continuation token for fetching the next page, if any. Empty or whitespace-only
+   * (blank) tokens are normalized to {@link Optional#empty()}.
+   */
   public abstract Optional<String> getNextPageToken();
 
   /** Returns {@code true} if {@link #getNextPageToken()} is present. */
@@ -109,9 +112,9 @@ public abstract class GcsListPage<T> {
     public abstract Builder<T> setPrefixObject(T prefixObject);
 
     /**
-     * Sets the continuation token for fetching the next page. An empty string normalizes to absent
-     * because gRPC proto3 {@code ListObjectsResponse.next_page_token} defaults to {@code ""} when
-     * unset.
+     * Sets the continuation token for fetching the next page. Empty or whitespace-only (blank)
+     * tokens normalize to {@link Optional#empty()} because gRPC proto3 {@code
+     * ListObjectsResponse.next_page_token} defaults to {@code ""} when unset.
      */
     public abstract Builder<T> setNextPageToken(String nextPageToken);
 
@@ -128,7 +131,7 @@ public abstract class GcsListPage<T> {
       setItems(ImmutableList.copyOf(getItems()));
       setPrefixes(ImmutableList.copyOf(getPrefixes()));
       // gRPC proto3 ListObjectsResponse.next_page_token defaults to "" when absent.
-      if (getNextPageToken().map(String::isEmpty).orElse(false)) {
+      if (getNextPageToken().map(String::isBlank).orElse(false)) {
         setNextPageToken(Optional.empty());
       }
       return autoBuild();

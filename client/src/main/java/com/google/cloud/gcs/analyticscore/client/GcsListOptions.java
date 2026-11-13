@@ -172,7 +172,10 @@ public abstract class GcsListOptions {
    */
   public abstract OptionalInt getPageSize();
 
-  /** Returns the non-empty continuation token from a previous {@link GcsListPage}, if set. */
+  /**
+   * Returns the continuation token from a previous {@link GcsListPage}, if set. Empty or
+   * whitespace-only (blank) tokens are normalized to {@link Optional#empty()}.
+   */
   public abstract Optional<String> getPageToken();
 
   /**
@@ -242,8 +245,9 @@ public abstract class GcsListOptions {
     public abstract Builder setPageSize(int pageSize);
 
     /**
-     * Sets the pagination continuation token. An empty string normalizes to absent because gRPC
-     * proto3 {@code ListObjectsResponse.next_page_token} defaults to {@code ""} when unset.
+     * Sets the pagination continuation token. Empty or whitespace-only (blank) tokens normalize to
+     * {@link Optional#empty()} because gRPC proto3 {@code ListObjectsResponse.next_page_token}
+     * defaults to {@code ""} when unset.
      */
     public abstract Builder setPageToken(String pageToken);
 
@@ -289,7 +293,7 @@ public abstract class GcsListOptions {
       normalizedFields.addAll(getFields());
       setFields(Sets.immutableEnumSet(normalizedFields));
       // gRPC proto3 ListObjectsResponse.next_page_token defaults to "" when absent.
-      if (getPageToken().map(String::isEmpty).orElse(false)) {
+      if (getPageToken().map(String::isBlank).orElse(false)) {
         setPageToken(Optional.empty());
       }
       GcsListOptions options = autoBuild();

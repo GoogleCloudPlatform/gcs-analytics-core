@@ -31,6 +31,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class GcsListPageTest {
 
@@ -114,6 +115,41 @@ class GcsListPageTest {
 
     assertThat(page.getNextPageToken()).isEmpty();
     assertThat(page.hasNextPage()).isFalse();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"   ", "\t\n", "\u2003"})
+  void build_withWhitespaceOnlyNextPageToken_normalizesToEmpty(String token) {
+    GcsListPage<GcsItemInfo> page =
+        GcsListPage.<GcsItemInfo>builder().setNextPageToken(token).build();
+
+    assertThat(page.getNextPageToken()).isEmpty();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"   ", "\t\n", "\u2003"})
+  void build_withWhitespaceOnlyOptionalNextPageToken_normalizesToEmpty(String token) {
+    GcsListPage<GcsItemInfo> page =
+        GcsListPage.<GcsItemInfo>builder().setNextPageToken(Optional.of(token)).build();
+
+    assertThat(page.getNextPageToken()).isEmpty();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"   ", "\t\n", "\u2003"})
+  void hasNextPage_withWhitespaceOnlyNextPageToken_returnsFalse(String token) {
+    GcsListPage<GcsItemInfo> page =
+        GcsListPage.<GcsItemInfo>builder().setNextPageToken(token).build();
+
+    assertThat(page.hasNextPage()).isFalse();
+  }
+
+  @Test
+  void build_withPaddedNextPageToken_preservesToken() {
+    GcsListPage<GcsItemInfo> page =
+        GcsListPage.<GcsItemInfo>builder().setNextPageToken(" token-1 ").build();
+
+    assertThat(page.getNextPageToken()).hasValue(" token-1 ");
   }
 
   @Test
