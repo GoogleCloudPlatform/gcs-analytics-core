@@ -48,7 +48,11 @@ public abstract class GcsListOptions {
     GENERATION,
     /** Object metadata generation number. */
     METAGENERATION,
-    /** Object size in bytes. */
+    /**
+     * Object size in bytes. Omitting this field causes listed items to report {@link
+     * GcsItemInfo#getSize()} {@code == 0L} (with {@link GcsItemInfo#exists()} {@code true}); do not
+     * pass items listed without {@code SIZE} to read channels or file-sizing paths.
+     */
     SIZE,
     /** Object MIME content type. */
     CONTENT_TYPE,
@@ -68,7 +72,8 @@ public abstract class GcsListOptions {
     METADATA
   }
 
-  private static final Set<ListField> DEFAULT_FIELDS =
+  /** Fields selected by {@link #builder()}; also requested by single-object metadata lookups. */
+  static final Set<ListField> DEFAULT_FIELDS =
       Sets.immutableEnumSet(
           ListField.NAME,
           ListField.BUCKET,
