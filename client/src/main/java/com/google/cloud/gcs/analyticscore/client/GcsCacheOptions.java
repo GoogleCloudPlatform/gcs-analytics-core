@@ -17,6 +17,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
 import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
@@ -68,9 +69,19 @@ public abstract class GcsCacheOptions {
         .setSmallObjectCacheMaxSizeBytes(DEFAULT_SMALL_OBJECT_CACHE_MAX_SIZE_BYTES);
   }
 
-  /** Creates a {@link GcsCacheOptions} instance from a map of configuration options. */
+  /**
+   * Creates a {@link GcsCacheOptions} instance from a map of configuration options.
+   *
+   * @param analyticsCoreOptions the configuration options map
+   * @param prefix the prefix prepended to configuration property keys
+   * @return the configured {@link GcsCacheOptions} instance
+   * @throws NullPointerException if {@code analyticsCoreOptions} or {@code prefix} is null.
+   */
   public static GcsCacheOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
+    checkNotNull(analyticsCoreOptions, "analyticsCoreOptions cannot be null");
+    checkNotNull(prefix, "prefix cannot be null");
+
     GcsCacheOptions.Builder optionsBuilder = builder();
     ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, prefix + FOOTER_CACHE_ENABLED_KEY)
         .map(Boolean::parseBoolean)

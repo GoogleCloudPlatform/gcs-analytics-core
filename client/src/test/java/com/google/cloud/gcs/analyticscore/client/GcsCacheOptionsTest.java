@@ -198,4 +198,24 @@ class GcsCacheOptionsTest {
 
     assertThrows(NumberFormatException.class, () -> GcsCacheOptions.createFromOptions(map, "gcs."));
   }
+
+  @Test
+  void createFromOptions_nullOptions_throwsNullPointerException() {
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class, () -> GcsCacheOptions.createFromOptions(null, "gcs."));
+
+    assertThat(exception).hasMessageThat().isEqualTo("analyticsCoreOptions cannot be null");
+  }
+
+  @Test
+  void createFromOptions_nullPrefix_throwsNullPointerException() {
+    Map<String, String> map = new HashMap<>();
+
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class, () -> GcsCacheOptions.createFromOptions(map, null));
+
+    assertThat(exception).hasMessageThat().isEqualTo("prefix cannot be null");
+  }
 }
