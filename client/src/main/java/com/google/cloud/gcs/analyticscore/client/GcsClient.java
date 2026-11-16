@@ -20,6 +20,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 
@@ -173,13 +174,15 @@ public interface GcsClient {
    * <p>When {@link GcsItemId#getContentGeneration()} is present, deletion requires the live
    * object's generation to match ({@code ifGenerationMatch}).
    *
+   * <p>Deleting an object that does not exist is a no-op, so retries and concurrent deletes of the
+   * same object succeed. Callers that must report a missing path should check that it exists first.
+   *
    * <p>The default implementation throws {@link UnsupportedOperationException}, so that
    * implementations written against earlier versions of this interface keep compiling.
    *
    * @param itemId the identity of the GCS object to delete
    * @throws IllegalArgumentException if {@code itemId} does not denote a GCS object or specifies a
    *     non-positive content generation
-   * @throws FileNotFoundException if the target object does not exist
    * @throws AccessDeniedException if the caller lacks permission to delete the object
    * @throws UnsupportedOperationException if this implementation does not support deleting objects
    * @throws IOException if a generation mismatch or other I/O error occurs while deleting the
@@ -200,9 +203,11 @@ public interface GcsClient {
    *
    * @param itemId the identity of the GCS bucket to delete
    * @throws IllegalArgumentException if {@code itemId} does not denote a bucket
-   * @throws FileNotFoundException if the target bucket does not exist
+   * @throws FileNotFoundException if the target bucket does not exist. This can also happen when
+   *     the client library automatically retries the request (for example after a timeout) and
+   *     finds that an earlier attempt already deleted the bucket.
    * @throws AccessDeniedException if the caller lacks permission to delete the bucket
-   * @throws java.nio.file.DirectoryNotEmptyException if the target bucket is not empty
+   * @throws DirectoryNotEmptyException if the target bucket is not empty
    * @throws UnsupportedOperationException if this implementation does not support deleting buckets
    * @throws IOException if an I/O error occurs while deleting the bucket
    */

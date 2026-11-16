@@ -47,6 +47,15 @@ class GcsExceptionUtil {
   /** Separator introducing a versioned object's content generation. */
   private static final String GENERATION_SEPARATOR = "#";
 
+  /**
+   * Text that identifies a delete of a non-empty bucket in the GCS error message ("The bucket you
+   * tried to delete is not empty."). GCS reports this case as JSON 409 with the generic reason
+   * {@code conflict}, or as gRPC {@code FAILED_PRECONDITION} without an error reason, so the
+   * message is the only signal that separates it from other conflicts. Integration tests guard this
+   * match against changes to the server message.
+   */
+  private static final String BUCKET_NOT_EMPTY_MESSAGE_FRAGMENT = "not empty";
+
   private GcsExceptionUtil() {}
 
   enum ErrorType {
@@ -203,7 +212,9 @@ class GcsExceptionUtil {
       case NOT_FOUND:
         return createFileNotFoundException(location, e);
       case ACCESS_DENIED:
-        return createAccessDeniedException(location, "object deletion", e);
+        // Report the plain object path, without "#<generation>", as
+        // AccessDeniedException#getFile().
+        return createAccessDeniedException(UriUtil.getStringPath(itemId), "object deletion", e);
       case PRECONDITION_FAILED:
         if (itemId.getContentGeneration().filter(generation -> generation > 0L).isPresent()) {
           return new IOException(
@@ -242,7 +253,7 @@ class GcsExceptionUtil {
             || e.getCode() == HttpURLConnection.HTTP_PRECON_FAILED
             || e.getCause() instanceof FailedPreconditionException)
         && e.getMessage() != null
-        && e.getMessage().toLowerCase(Locale.ROOT).contains("not empty");
+        && e.getMessage().toLowerCase(Locale.ROOT).contains(BUCKET_NOT_EMPTY_MESSAGE_FRAGMENT);
   }
 
   /**

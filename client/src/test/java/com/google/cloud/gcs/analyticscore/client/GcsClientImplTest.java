@@ -17,6 +17,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -3456,14 +3457,11 @@ class GcsClientImplTest {
   }
 
   @Test
-  void deleteObject_missingObject_throwsFileNotFoundException() {
+  void deleteObject_missingObject_returnsNormally() {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName(TEST_BUCKET_ID).setObjectName("missing.txt").build();
 
-    FileNotFoundException e =
-        assertThrows(FileNotFoundException.class, () -> gcsClient.deleteObject(itemId));
-
-    assertFileNotFoundException(e, itemId);
+    assertDoesNotThrow(() -> gcsClient.deleteObject(itemId));
   }
 
   @Test
@@ -3576,17 +3574,23 @@ class GcsClientImplTest {
   }
 
   @Test
-  void deleteObject_storageNotFound_throwsFileNotFoundExceptionWithCause() {
+  void deleteObject_storageNotFound_returnsNormally() {
     Storage mockStorage = mock(Storage.class);
-    StorageException notFound = new StorageException(404, "Not Found");
     when(mockStorage.delete(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
-        .thenThrow(notFound);
+        .thenThrow(new StorageException(404, "Not Found"));
     GcsClientImpl client = createClientWithMockStorage(mockStorage);
 
-    FileNotFoundException e =
-        assertThrows(FileNotFoundException.class, () -> client.deleteObject(TEST_ITEM_ID));
+    assertDoesNotThrow(() -> client.deleteObject(TEST_ITEM_ID));
+  }
 
-    assertThat(e).hasCauseThat().isSameInstanceAs(notFound);
+  @Test
+  void deleteObject_storageReturnsFalse_returnsNormally() {
+    Storage mockStorage = mock(Storage.class);
+    when(mockStorage.delete(any(BlobId.class), any(Storage.BlobSourceOption[].class)))
+        .thenReturn(false);
+    GcsClientImpl client = createClientWithMockStorage(mockStorage);
+
+    assertDoesNotThrow(() -> client.deleteObject(TEST_ITEM_ID));
   }
 
   @Test

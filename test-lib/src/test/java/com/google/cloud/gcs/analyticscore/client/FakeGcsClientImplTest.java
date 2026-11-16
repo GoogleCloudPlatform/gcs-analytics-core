@@ -108,7 +108,7 @@ class FakeGcsClientImplTest {
   void deleteObject_existingObject_deletesObject() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("delete-bucket").setObjectName("delete-me").build();
-    TestDataGenerator.createGcsData(itemId, 10);
+    StorageTestUtils.createBlobInStorage(FakeGcsClientImpl.storage, itemId, 1L, "0123456789");
 
     fakeGcsClient.deleteObject(itemId);
 
@@ -116,10 +116,18 @@ class FakeGcsClientImplTest {
   }
 
   @Test
+  void deleteObject_missingObject_returnsNormally() {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("delete-bucket").setObjectName("missing").build();
+
+    assertDoesNotThrow(() -> fakeGcsClient.deleteObject(itemId));
+  }
+
+  @Test
   void deleteObject_matchingGeneration_deletesObject() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("delete-bucket").setObjectName("versioned").build();
-    TestDataGenerator.createGcsData(itemId, 10);
+    StorageTestUtils.createBlobInStorage(FakeGcsClientImpl.storage, itemId, 1L, "0123456789");
     long generation = fakeGcsClient.getGcsItemInfo(itemId).getContentGeneration().get();
     GcsItemId versionedId =
         GcsItemId.builder()
@@ -137,7 +145,7 @@ class FakeGcsClientImplTest {
   void deleteObject_staleGeneration_throwsIOExceptionAndKeepsObject() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("delete-bucket").setObjectName("stale").build();
-    TestDataGenerator.createGcsData(itemId, 10);
+    StorageTestUtils.createBlobInStorage(FakeGcsClientImpl.storage, itemId, 1L, "0123456789");
     long generation = fakeGcsClient.getGcsItemInfo(itemId).getContentGeneration().get();
     GcsItemId staleId =
         GcsItemId.builder()
@@ -149,7 +157,7 @@ class FakeGcsClientImplTest {
     IOException e = assertThrows(IOException.class, () -> fakeGcsClient.deleteObject(staleId));
 
     assertThat(e).hasMessageThat().contains("Generation mismatch");
-    assertEquals(10L, fakeGcsClient.getGcsItemInfo(itemId).getSize());
+    assertThat(fakeGcsClient.getGcsItemInfo(itemId).getSize()).isEqualTo(10L);
   }
 
   @Test
@@ -163,12 +171,12 @@ class FakeGcsClientImplTest {
   void deleteBucket_nonEmptyBucket_throwsDirectoryNotEmptyException() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("non-empty-bucket").setObjectName("object").build();
-    TestDataGenerator.createGcsData(itemId, 10);
+    StorageTestUtils.createBlobInStorage(FakeGcsClientImpl.storage, itemId, 1L, "0123456789");
     GcsItemId bucketId = GcsItemId.builder().setBucketName("non-empty-bucket").build();
 
     DirectoryNotEmptyException e =
         assertThrows(DirectoryNotEmptyException.class, () -> fakeGcsClient.deleteBucket(bucketId));
 
-    assertEquals("gs://non-empty-bucket", e.getFile());
+    assertThat(e.getFile()).isEqualTo("gs://non-empty-bucket");
   }
 }

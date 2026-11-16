@@ -748,6 +748,16 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void translateDeleteObjectException_forbiddenWithGeneration_setsFileWithoutGeneration() {
+    StorageException deniedCause = new StorageException(403, "Forbidden");
+
+    IOException e = GcsExceptionUtil.translateDeleteObjectException(deniedCause, objectId(123L));
+
+    assertThat(e).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) e).getFile()).isEqualTo("gs://test-bucket/test-object");
+  }
+
+  @Test
   void translateDeleteObjectException_preconditionFailedWithGeneration_reportsMismatch() {
     IOException e =
         GcsExceptionUtil.translateDeleteObjectException(

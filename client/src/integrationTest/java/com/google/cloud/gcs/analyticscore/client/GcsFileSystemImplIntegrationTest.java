@@ -27,6 +27,7 @@ import com.google.storage.control.v2.StorageControlClient;
 import java.io.FileNotFoundException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -654,6 +655,112 @@ class GcsFileSystemImplIntegrationTest {
                         .getBucketInfo(GcsItemId.builder().setBucketName(bucketName).build());
         assertThat(bucketInfo.getItemId().getBucketName()).isEqualTo(bucketName);
         assertThat(bucketInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
+    void deleteObject_existingObject_deletesObject() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY);
+        TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete);
+        writeObject(ctx.itemId, TEST_FILE_CONTENT);
+        GcsClient gcsClient = gcsFileSystem.getGcsClient();
+
+        gcsClient.deleteObject(ctx.itemId);
+
+        assertThat(storage.get(BlobId.of(bucketName, ctx.objectName))).isNull();
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
+    void deleteObject_staleGeneration_throwsGenerationMismatchAndKeepsObject() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY);
+        TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete);
+        writeObject(ctx.itemId, TEST_FILE_CONTENT);
+        GcsClient gcsClient = gcsFileSystem.getGcsClient();
+        long generation = gcsClient.getGcsItemInfo(ctx.itemId).getContentGeneration().get();
+        GcsItemId staleItemId =
+                GcsItemId.builder()
+                        .setBucketName(bucketName)
+                        .setObjectName(ctx.objectName)
+                        .setContentGeneration(generation + 1)
+                        .build();
+
+        IOException exception =
+                assertThrows(IOException.class, () -> gcsClient.deleteObject(staleItemId));
+
+        assertThat(exception).hasMessageThat().contains("Generation mismatch");
+        assertThat(gcsClient.getGcsItemInfo(ctx.itemId).getContentGeneration()).hasValue(generation);
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
+    void deleteObject_nonExistentObject_returnsNormally() {
+        TestWriteContext ctx =
+                new TestWriteContext(
+                        System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY), blobsToDelete);
+        GcsClient gcsClient = gcsFileSystem.getGcsClient();
+
+        assertDoesNotThrow(() -> gcsClient.deleteObject(ctx.itemId));
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "gcs.integration.test.project-id", matches = ".+")
+    void deleteBucket_nonEmptyBucket_throwsDirectoryNotEmptyException() throws IOException {
+        String bucketName = "test-delete-bucket-" + UUID.randomUUID();
+        bucketsToDelete.add(bucketName);
+        GcsClient gcsClient = gcsFileSystem.getGcsClient();
+        gcsClient.createBucket(bucketName);
+        TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete);
+        writeObject(ctx.itemId, TEST_FILE_CONTENT);
+        GcsItemId bucketId = GcsItemId.builder().setBucketName(bucketName).build();
+
+        DirectoryNotEmptyException exception =
+                assertThrows(
+                        DirectoryNotEmptyException.class, () -> gcsClient.deleteBucket(bucketId));
+
+        assertThat(exception.getFile()).isEqualTo("gs://" + bucketName);
+        assertThat(storage.get(bucketName)).isNotNull();
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "gcs.integration.test.project-id", matches = ".+")
+    void deleteBucket_nonEmptyBucketOverGrpc_throwsDirectoryNotEmptyException() throws IOException {
+        String bucketName = "test-delete-bucket-" + UUID.randomUUID();
+        bucketsToDelete.add(bucketName);
+        gcsFileSystem.getGcsClient().createBucket(bucketName);
+        TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete);
+        writeObject(ctx.itemId, TEST_FILE_CONTENT);
+        GcsItemId bucketId = GcsItemId.builder().setBucketName(bucketName).build();
+        try (GcsFileSystemImpl grpcFileSystem =
+                createFileSystem(
+                        GcsClientOptions.builder()
+                                .setProtocol(GcsClientOptions.Protocol.GRPC)
+                                .build())) {
+            GcsClient grpcClient = grpcFileSystem.getGcsClient();
+
+            DirectoryNotEmptyException exception =
+                    assertThrows(
+                            DirectoryNotEmptyException.class,
+                            () -> grpcClient.deleteBucket(bucketId));
+
+            assertThat(exception.getFile()).isEqualTo("gs://" + bucketName);
+            assertThat(storage.get(bucketName)).isNotNull();
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "gcs.integration.test.project-id", matches = ".+")
+    void deleteBucket_emptyBucket_deletesBucket() throws IOException {
+        String bucketName = "test-delete-bucket-" + UUID.randomUUID();
+        // Registered for cleanup in case deleteBucket fails; tearDown ignores a missing bucket.
+        bucketsToDelete.add(bucketName);
+        GcsClient gcsClient = gcsFileSystem.getGcsClient();
+        gcsClient.createBucket(bucketName);
+        GcsItemId bucketId = GcsItemId.builder().setBucketName(bucketName).build();
+
+        gcsClient.deleteBucket(bucketId);
+
+        assertThat(storage.get(bucketName)).isNull();
     }
 
     private static class TestWriteContext {

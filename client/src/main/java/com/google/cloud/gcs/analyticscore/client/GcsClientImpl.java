@@ -775,10 +775,15 @@ class GcsClientImpl implements GcsClient {
     try {
       deleted = storage.delete(blobId, sourceOptions.toArray(new Storage.BlobSourceOption[0]));
     } catch (StorageException e) {
-      throw GcsExceptionUtil.translateDeleteObjectException(e, itemId);
+      if (GcsExceptionUtil.getErrorType(e) != GcsExceptionUtil.ErrorType.NOT_FOUND) {
+        throw GcsExceptionUtil.translateDeleteObjectException(e, itemId);
+      }
+      deleted = false;
     }
+    // A missing object is not an error: there is nothing to delete. This typically happens when
+    // the client library retries a delete whose first attempt already removed the object.
     if (!deleted) {
-      throw GcsExceptionUtil.createFileNotFoundException(itemId);
+      LOG.debug("Object to delete was not found: {}", itemId);
     }
   }
 
@@ -808,6 +813,8 @@ class GcsClientImpl implements GcsClient {
     }
   }
 
+  // TODO: Use the client-level user project (GcsClientOptions#getUserProject) once it is
+  // available, so deletes are billed like every other request.
   private Optional<String> resolveUserProject() {
     return clientOptions
         .getGcsWriteOptions()
