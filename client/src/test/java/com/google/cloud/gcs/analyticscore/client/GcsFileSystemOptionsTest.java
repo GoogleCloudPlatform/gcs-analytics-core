@@ -20,7 +20,11 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.collect.ImmutableMap;
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class GcsFileSystemOptionsTest {
 
@@ -119,10 +123,12 @@ class GcsFileSystemOptionsTest {
     assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.GRPC_CLIENT);
   }
 
-  @Test
-  void createFromOptions_withInvalidClientType_throwsIllegalArgumentException() {
+  @ParameterizedTest
+  @ValueSource(strings = {"INVALID_CLIENT", "grpc_client", "GRPC-CLIENT"})
+  void createFromOptions_withInvalidClientType_throwsIllegalArgumentException(
+      String invalidClientType) {
     ImmutableMap<String, String> properties =
-        ImmutableMap.of("fs.gs.client.type", "INVALID_CLIENT");
+        ImmutableMap.of("fs.gs.client.type", invalidClientType);
 
     assertThrows(
         IllegalArgumentException.class,
@@ -144,5 +150,88 @@ class GcsFileSystemOptionsTest {
         .isEqualTo(
             "fs.gs.analytics-core.read.thread.count=2147483648 cannot be greater than"
                 + " Integer.MAX_VALUE (2147483647)");
+  }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  void createFromOptions_withBlankAndNullValues_retainsDefaults() {
+    // Arrange
+    Map<String, String> properties = new HashMap<>();
+    properties.put("fs.gs.analytics-core.read.thread.count", "   ");
+    properties.put("fs.gs.client.type", "");
+    properties.put("fs.gs.analytics-core.hierarchical.namespace.enable", null);
+    properties.put("fs.gs.analytics-core.metadata.lookup.parallel.enable", "  ");
+    properties.put("fs.gs.analytics-core.create.items.conflict.check.enable", "");
+
+    // Act
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
+
+    // Assert
+    assertThat(options.getReadThreadCount()).isEqualTo(16);
+    assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.HTTP_CLIENT);
+    assertThat(options.isHnsApiEnabled()).isTrue();
+    assertThat(options.isMetadataLookupParallelEnabled()).isTrue();
+    assertThat(options.isCreateItemsConflictCheckEnabled()).isTrue();
+  }
+
+  @Test
+  void createFromOptions_withWhitespacePaddedTrueAndThreadCount_parsesTrimmedValues() {
+    // Arrange
+    ImmutableMap<String, String> properties =
+        ImmutableMap.of(
+            "fs.gs.analytics-core.read.thread.count", " 32 ",
+            "fs.gs.analytics-core.hierarchical.namespace.enable", " true ",
+            "fs.gs.analytics-core.metadata.lookup.parallel.enable", " TRUE ",
+            "fs.gs.analytics-core.create.items.conflict.check.enable", " true ");
+
+    // Act
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
+
+    // Assert
+    assertThat(options.getReadThreadCount()).isEqualTo(32);
+    assertThat(options.isHnsApiEnabled()).isTrue();
+    assertThat(options.isMetadataLookupParallelEnabled()).isTrue();
+    assertThat(options.isCreateItemsConflictCheckEnabled()).isTrue();
+  }
+
+  @Test
+  void createFromOptions_withWhitespacePaddedFalseBooleans_disablesFeatures() {
+    // Arrange
+    ImmutableMap<String, String> properties =
+        ImmutableMap.of(
+            "fs.gs.analytics-core.hierarchical.namespace.enable", " false ",
+            "fs.gs.analytics-core.metadata.lookup.parallel.enable", " FALSE ",
+            "fs.gs.analytics-core.create.items.conflict.check.enable", " false ");
+
+    // Act
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
+
+    // Assert
+    assertThat(options.isHnsApiEnabled()).isFalse();
+    assertThat(options.isMetadataLookupParallelEnabled()).isFalse();
+    assertThat(options.isCreateItemsConflictCheckEnabled()).isFalse();
+  }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  void createFromOptions_withWhitespacePaddedClientType_setsClientType() {
+    ImmutableMap<String, String> properties = ImmutableMap.of("fs.gs.client.type", " GRPC_CLIENT ");
+
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
+
+    assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.GRPC_CLIENT);
+  }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  void createFromOptions_withBlankClientType_retainsDefault() {
+    // Arrange
+    ImmutableMap<String, String> properties = ImmutableMap.of("fs.gs.client.type", "   ");
+
+    // Act
+    GcsFileSystemOptions options = GcsFileSystemOptions.createFromOptions(properties, "fs.gs.");
+
+    // Assert
+    assertThat(options.getClientType()).isEqualTo(GcsFileSystemOptions.ClientType.HTTP_CLIENT);
   }
 }
