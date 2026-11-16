@@ -63,6 +63,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.io.BaseEncoding;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
+import com.google.storage.control.v2.DeleteFolderRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.FolderName;
 import com.google.storage.control.v2.GetFolderRequest;
@@ -733,6 +734,47 @@ class GcsClientImpl implements GcsClient {
 
   private static boolean isZeroByte(Blob blob) {
     return blob.getSize() == null || blob.getSize() == 0L;
+  }
+
+  @Override
+  public void deleteFolder(GcsItemId folderId) throws IOException {
+    checkNotNull(folderId, "folderId must not be null");
+    checkArgument(folderId.isGcsObject(), "Expected a folder itemId but got: %s", folderId);
+    String objectName = folderId.getObjectName().orElse("");
+    checkArgument(
+        !UriUtil.removeTrailingSlash(objectName).isEmpty(), "Folder name cannot be empty");
+    DeleteFolderRequest request =
+        DeleteFolderRequest.newBuilder()
+            .setName(folderResourceName(folderId.getBucketName(), objectName))
+            .build();
+    try {
+      lazyGetStorageControlClient().deleteFolder(request);
+    } catch (NotFoundException e) {
+      // A missing folder is not an error: there is nothing to delete. This typically happens when
+      // the client library retries a delete whose first attempt already removed the folder.
+      LOG.debug("Folder to delete was not found: {}", folderId);
+    } catch (Exception e) {
+      // Errors name the folder without contentGeneration, which HNS folders do not have.
+      GcsItemId errorId =
+          GcsItemId.builder()
+              .setBucketName(folderId.getBucketName())
+              .setObjectName(objectName)
+              .build();
+      throw GcsExceptionUtil.translateDeleteFolderException(e, errorId);
+    }
+  }
+
+  /**
+   * Builds the {@code projects/_/buckets/<bucket>/folders/<folder>/} resource name, keeping the
+   * folder name verbatim and adding a trailing {@code /} only when it is missing.
+   *
+   * <p>{@code FolderName.format} is not used because its {@code PathTemplate} trims spaces around
+   * each {@code /} segment, while HNS folder names may start or end with spaces. The trailing slash
+   * is not stripped either: Storage Control appends one only when it is missing, so stripping it
+   * from a name such as {@code a//} would address the parent folder {@code a/}.
+   */
+  private static String folderResourceName(String bucketName, String objectName) {
+    return "projects/_/buckets/" + bucketName + "/folders/" + UriUtil.toDirectoryPath(objectName);
   }
 
   @Override

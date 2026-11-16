@@ -20,6 +20,7 @@ import static com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.ErrorTy
 import static com.google.common.truth.Truth.assertThat;
 
 import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.api.gax.rpc.UnauthenticatedException;
@@ -30,6 +31,7 @@ import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -574,6 +576,45 @@ class GcsExceptionUtilTest {
         GcsExceptionUtil.translateControlException(
             new RuntimeException("boom"), itemId, "fallback");
     assertThat(generic).hasMessageThat().isEqualTo("fallback");
+  }
+
+  @Test
+  void translateDeleteFolderException_nonEmptyPrecondition_returnsDirectoryNotEmptyException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    FailedPreconditionException nonEmptyCause = Mockito.mock(FailedPreconditionException.class);
+    Mockito.when(nonEmptyCause.getMessage())
+        .thenReturn("The folder you tried to delete is not empty.");
+
+    IOException e = GcsExceptionUtil.translateDeleteFolderException(nonEmptyCause, folderId);
+
+    assertThat(e).isInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(((DirectoryNotEmptyException) e).getFile()).isEqualTo("gs://" + BUCKET + "/dir/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(nonEmptyCause);
+  }
+
+  @Test
+  void translateDeleteFolderException_otherPrecondition_returnsGenericIOException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    FailedPreconditionException otherPrecondition = Mockito.mock(FailedPreconditionException.class);
+    Mockito.when(otherPrecondition.getMessage()).thenReturn("Hierarchical namespace not enabled");
+
+    IOException e = GcsExceptionUtil.translateDeleteFolderException(otherPrecondition, folderId);
+
+    assertThat(e).isNotInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(e).hasMessageThat().isEqualTo("Failed to delete folder: gs://" + BUCKET + "/dir/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(otherPrecondition);
+  }
+
+  @Test
+  void translateDeleteFolderException_preconditionWithNullMessage_returnsGenericIOException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    FailedPreconditionException nullMessageCause = Mockito.mock(FailedPreconditionException.class);
+
+    IOException e = GcsExceptionUtil.translateDeleteFolderException(nullMessageCause, folderId);
+
+    assertThat(e).isNotInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(e).hasMessageThat().isEqualTo("Failed to delete folder: gs://" + BUCKET + "/dir/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(nullMessageCause);
   }
 
   @Test

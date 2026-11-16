@@ -19,6 +19,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.api.gax.rpc.UnauthenticatedException;
@@ -28,7 +29,9 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.Locale;
 import java.util.Optional;
 
 /** Centralized utility for classifying GCS transport exceptions. */
@@ -43,6 +46,15 @@ class GcsExceptionUtil {
 
   /** Separator introducing a versioned object's content generation. */
   private static final String GENERATION_SEPARATOR = "#";
+
+  /**
+   * Text that identifies a delete of a non-empty folder in the Storage Control error message ("The
+   * folder you tried to delete is not empty."). Storage Control reports this case as {@code
+   * FAILED_PRECONDITION} without an error reason, and also uses {@code FAILED_PRECONDITION} for
+   * other failures (for example a bucket without hierarchical namespace), so the message is the
+   * only signal that separates them.
+   */
+  private static final String FOLDER_NOT_EMPTY_MESSAGE_FRAGMENT = "not empty";
 
   private GcsExceptionUtil() {}
 
@@ -189,6 +201,27 @@ class GcsExceptionUtil {
       default:
         return new IOException(fallbackMessage, e);
     }
+  }
+
+  /**
+   * Translates an exception thrown by the Storage Control API during folder deletion, mapping
+   * non-empty {@link FailedPreconditionException} failures to {@link DirectoryNotEmptyException}
+   * with the original exception preserved as its cause.
+   */
+  static IOException translateDeleteFolderException(Exception e, GcsItemId itemId) {
+    checkNotNull(e, "Exception should not be null");
+    checkNotNull(itemId, "itemId should not be null");
+    String location = formatLocation(itemId);
+    if (e instanceof FailedPreconditionException && isFolderNotEmptyException(e)) {
+      return (DirectoryNotEmptyException) new DirectoryNotEmptyException(location).initCause(e);
+    }
+    return translateControlException(e, itemId, "Failed to delete folder: " + location);
+  }
+
+  private static boolean isFolderNotEmptyException(Exception e) {
+    String message = e.getMessage();
+    return message != null
+        && message.toLowerCase(Locale.ROOT).contains(FOLDER_NOT_EMPTY_MESSAGE_FRAGMENT);
   }
 
   /**
