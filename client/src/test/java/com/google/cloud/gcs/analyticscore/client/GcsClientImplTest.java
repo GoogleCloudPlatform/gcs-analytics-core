@@ -33,6 +33,7 @@ import static org.mockito.Mockito.when;
 import com.google.api.core.ApiFuture;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.api.gax.rpc.UnauthenticatedException;
@@ -2208,6 +2209,81 @@ class GcsClientImplTest {
         .hasMessageThat()
         .isEqualTo("Failed to list folders under: gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
     assertThat(e).hasCauseThat().isSameInstanceAs(rpcError);
+  }
+
+  @Test
+  void listFolders_nonHnsBucket_throwsIOExceptionWithCause() {
+    // GCS rejects ListFolders on a flat (non-HNS) bucket with FAILED_PRECONDITION.
+    FailedPreconditionException notHnsError = mock(FailedPreconditionException.class);
+    when(notHnsError.getMessage())
+        .thenReturn("FAILED_PRECONDITION: The bucket does not support hierarchical namespace.");
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.listFolders(any(ListFoldersRequest.class))).thenThrow(notHnsError);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e =
+        assertThrows(IOException.class, () -> clientWithMockControl.listFolders(TEST_DIR_ITEM_ID));
+
+    assertThat(e).isNotInstanceOf(FileNotFoundException.class);
+    assertThat(e).isNotInstanceOf(AccessDeniedException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Failed to list folders under: gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasCauseThat().isSameInstanceAs(notHnsError);
+  }
+
+  private static Stream<GcsItemId> listFoldersBucketPrefixIds() {
+    return Stream.of(
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).build(),
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName("").build());
+  }
+
+  @ParameterizedTest
+  @MethodSource("listFoldersBucketPrefixIds")
+  void listFolders_bucketNotFoundForBucketPrefixId_reportsBucketName(GcsItemId prefixId) {
+    NotFoundException notFound = mock(NotFoundException.class);
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.listFolders(any(ListFoldersRequest.class))).thenThrow(notFound);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class, () -> clientWithMockControl.listFolders(prefixId));
+
+    assertThat(e).hasMessageThat().isEqualTo("Bucket not found: " + TEST_BUCKET_NAME);
+  }
+
+  @ParameterizedTest
+  @MethodSource("listFoldersBucketPrefixIds")
+  void listFolders_accessDeniedForBucketPrefixId_reportsBucketLocationWithoutTrailingSlash(
+      GcsItemId prefixId) {
+    PermissionDeniedException accessError = mock(PermissionDeniedException.class);
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.listFolders(any(ListFoldersRequest.class))).thenThrow(accessError);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    AccessDeniedException e =
+        assertThrows(
+            AccessDeniedException.class, () -> clientWithMockControl.listFolders(prefixId));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET_NAME);
+  }
+
+  @ParameterizedTest
+  @MethodSource("listFoldersBucketPrefixIds")
+  void listFolders_otherRpcExceptionForBucketPrefixId_reportsBucketLocationWithoutTrailingSlash(
+      GcsItemId prefixId) {
+    RuntimeException rpcError = new RuntimeException("RPC error");
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.listFolders(any(ListFoldersRequest.class))).thenThrow(rpcError);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e =
+        assertThrows(IOException.class, () -> clientWithMockControl.listFolders(prefixId));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Failed to list folders under: gs://" + TEST_BUCKET_NAME);
   }
 
   @Test

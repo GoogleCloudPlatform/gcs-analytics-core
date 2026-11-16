@@ -86,10 +86,10 @@ public interface GcsClient {
    *
    * <p>Returns every folder whose name starts with the directory form of {@code prefixId}'s object
    * name (for example, {@code dir} lists {@code dir/} and all folders below it), or every folder in
-   * the bucket when {@code prefixId} is a bucket. All result pages are fetched, requesting up to
-   * 5,000 folders per RPC (GCS currently returns at most 1,000 per page). The folder named exactly
-   * by the prefix is included when it exists, and folders keep the order returned by GCS. Any
-   * {@link GcsItemId#getContentGeneration()} on {@code prefixId} is ignored.
+   * the bucket when {@code prefixId} is a bucket. All result pages under the prefix are fetched and
+   * returned together. The folder named exactly by the prefix is included when it exists, and
+   * folders keep the order returned by GCS. Any {@link GcsItemId#getContentGeneration()} on {@code
+   * prefixId} is ignored.
    *
    * @param prefixId the bucket or folder to list folders under
    * @return an unmodifiable list of {@link GcsItemInfo.ItemType#NATIVE_FOLDER} items whose item IDs
@@ -97,7 +97,8 @@ public interface GcsClient {
    * @throws IllegalArgumentException if {@code prefixId} is the root or has an empty bucket name
    * @throws FileNotFoundException if the bucket does not exist
    * @throws AccessDeniedException if listing is denied (401/403)
-   * @throws IOException if the folders cannot be listed
+   * @throws IOException if the folders cannot be listed, including when the bucket is a flat
+   *     (non-HNS) bucket
    */
   default List<GcsItemInfo> listFolders(GcsItemId prefixId) throws IOException {
     throw new UnsupportedOperationException(
