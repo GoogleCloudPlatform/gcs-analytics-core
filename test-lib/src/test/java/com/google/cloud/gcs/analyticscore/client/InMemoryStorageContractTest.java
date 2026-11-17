@@ -119,7 +119,17 @@ class InMemoryStorageContractTest {
         dynamicTest("get", () -> assertUnsupported("get", () -> s.get(BLOB))),
         dynamicTest(
             "blobReadSession",
-            () -> assertUnsupported("blobReadSession", () -> s.blobReadSession(BLOB))));
+            () -> assertUnsupported("blobReadSession", () -> s.blobReadSession(BLOB))),
+        dynamicTest(
+            "reader(String,String)",
+            () -> assertUnsupported("reader", () -> s.reader("bucket", "obj"))),
+        dynamicTest(
+            "reader.capture",
+            () -> {
+              try (ReadChannel ch = s.reader(BLOB)) {
+                assertThrows(UnsupportedOperationException.class, ch::capture);
+              }
+            }));
   }
 
   @Test
@@ -128,6 +138,7 @@ class InMemoryStorageContractTest {
     Object sameProxy = s;
 
     assertThat(s.equals(sameProxy)).isTrue();
+    assertThat(s).isNotEqualTo(inMemory().storage());
     assertThat(s.hashCode()).isEqualTo(System.identityHashCode(s));
     assertThat(s.toString()).contains("InMemoryStorage");
   }
@@ -165,6 +176,11 @@ class InMemoryStorageContractTest {
       assertThat(storage.readerOpens()).isEqualTo(1);
       assertThat(storage.bytesServed()).isEqualTo(15);
 
+      ch.limit(20);
+      read(ch, 5);
+      assertThat(storage.readerOpens()).isEqualTo(1);
+      assertThat(storage.bytesServed()).isEqualTo(20);
+
       ch.seek(0);
       read(ch, 5);
       assertThat(storage.readerOpens()).isEqualTo(2);
@@ -172,7 +188,7 @@ class InMemoryStorageContractTest {
       ch.limit(CONTENT.length);
       readAll(ch);
       assertThat(storage.readerOpens()).isEqualTo(3);
-      assertThat(storage.bytesServed()).isEqualTo(15 + CONTENT.length);
+      assertThat(storage.bytesServed()).isEqualTo(20 + CONTENT.length);
     }
     storage.resetCounters();
     assertThat(storage.readerOpens() + storage.bytesServed()).isEqualTo(0);
@@ -184,6 +200,86 @@ class InMemoryStorageContractTest {
         InMemoryStorage.create(ImmutableMap.of(ITEM, CONTENT), TrackingReadChannel::new);
 
     assertThat(storage.storage().reader(BLOB)).isInstanceOf(TrackingReadChannel.class);
+  }
+
+  @Test
+  void create_bucketOnlyItemId_throwsIllegalArgumentException() {
+    GcsItemId bucketOnly = GcsItemId.builder().setBucketName("bucket").build();
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> InMemoryStorage.create(ImmutableMap.of(bucketOnly, CONTENT)));
+
+    assertThat(e).hasMessageThat().contains("Expected GCS object");
+  }
+
+  @Test
+  void find_existingObject_ignoresGenerationAndReturnsContent() {
+    InMemoryStorage storage = inMemory();
+    GcsItemId itemWithGeneration =
+        GcsItemId.builder()
+            .setBucketName("bucket")
+            .setObjectName("obj")
+            .setContentGeneration(42L)
+            .build();
+
+    assertThat(storage.find(ITEM)).hasValue(CONTENT);
+    assertThat(storage.find(itemWithGeneration)).hasValue(CONTENT);
+  }
+
+  @Test
+  void find_missingObjectOrBucketOnlyItemId_returnsEmpty() {
+    InMemoryStorage storage = inMemory();
+    GcsItemId missingObjectId =
+        GcsItemId.builder().setBucketName("bucket").setObjectName("missing").build();
+    GcsItemId bucketOnlyId = GcsItemId.builder().setBucketName("bucket").build();
+
+    assertThat(storage.find(missingObjectId)).isEmpty();
+    assertThat(storage.find(bucketOnlyId)).isEmpty();
+  }
+
+  @Test
+  void read_emptyBuffer_returnsZeroWithoutOpeningReader() throws IOException {
+    InMemoryStorage storage = inMemory();
+
+    try (ReadChannel ch = storage.storage().reader(BLOB)) {
+      assertThat(ch.read(ByteBuffer.allocate(0))).isEqualTo(0);
+      assertThat(storage.readerOpens()).isEqualTo(0);
+      assertThat(GcsReadChannelMetadataExtractor.extract(ch)).isNull();
+    }
+  }
+
+  @Test
+  void reader_withExplicitGeneration_retainsGenerationInMetadata() throws IOException {
+    InMemoryStorage storage = inMemory();
+
+    try (ReadChannel ch = storage.storage().reader(BlobId.of("bucket", "obj", 42L))) {
+      read(ch, 1);
+      assertThat(GcsReadChannelMetadataExtractor.extract(ch).getGeneration()).isEqualTo(42L);
+    }
+  }
+
+  @Test
+  void seek_negativePosition_throwsIllegalArgumentException() {
+    InMemoryStorage storage = inMemory();
+
+    try (ReadChannel ch = storage.storage().reader(BLOB)) {
+      IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> ch.seek(-1));
+      assertThat(e).hasMessageThat().contains("-1");
+      assertThat(storage.readerOpens()).isEqualTo(0);
+    }
+  }
+
+  @Test
+  void close_channel_updatesOpenState() {
+    InMemoryStorage storage = inMemory();
+
+    try (ReadChannel ch = storage.storage().reader(BLOB)) {
+      assertThat(ch.isOpen()).isTrue();
+      ch.close();
+      assertThat(ch.isOpen()).isFalse();
+    }
   }
 
   private static InMemoryStorage inMemory() {

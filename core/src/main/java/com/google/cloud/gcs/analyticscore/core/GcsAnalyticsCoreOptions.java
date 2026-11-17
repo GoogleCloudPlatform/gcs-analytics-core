@@ -16,19 +16,37 @@
 
 package com.google.cloud.gcs.analyticscore.core;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.cloud.gcs.analyticscore.client.GcsFileSystemOptions;
 import com.google.common.collect.ImmutableMap;
 import java.util.Map;
 
+/** Configuration options for GCS Analytics Core. */
 public class GcsAnalyticsCoreOptions {
-  private String prefix;
-  private ImmutableMap<String, String> analyticsCoreOptions;
 
+  private final String prefix;
+  private final ImmutableMap<String, String> analyticsCoreOptions;
+
+  /**
+   * Constructs a new {@code GcsAnalyticsCoreOptions} instance.
+   *
+   * @param prefix the configuration key prefix
+   * @param analyticsCoreOptions configuration options map
+   * @throws NullPointerException if {@code prefix} or {@code analyticsCoreOptions} is {@code null}
+   *     or if {@code analyticsCoreOptions} contains {@code null} keys or values
+   */
   public GcsAnalyticsCoreOptions(String prefix, Map<String, String> analyticsCoreOptions) {
-    this.prefix = prefix;
+    this.prefix = checkNotNull(prefix, "prefix cannot be null");
+    checkNotNull(analyticsCoreOptions, "analyticsCoreOptions cannot be null");
     this.analyticsCoreOptions = ImmutableMap.copyOf(analyticsCoreOptions);
   }
 
+  /**
+   * Returns {@link GcsFileSystemOptions} created from the configuration options and prefix.
+   *
+   * @return the file system options
+   */
   public GcsFileSystemOptions getGcsFileSystemOptions() {
     return GcsFileSystemOptions.createFromOptions(analyticsCoreOptions, prefix);
   }

@@ -18,9 +18,12 @@ package com.google.cloud.gcs.analyticscore.common.telemetry;
 import static com.google.common.truth.Truth.assertThat;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 class LoggingTelemetryOptionsTest {
 
@@ -83,5 +86,67 @@ class LoggingTelemetryOptionsTest {
     assertThat(telemetryOptions.get().isEnabled()).isFalse();
     assertThat(telemetryOptions.get().getLogLevel())
         .isEqualTo(LoggingTelemetryOptions.LogLevel.INFO);
+  }
+
+  @Test
+  void createFromOptions_withBlankOptions_returnsEmpty() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.logging.enabled", "   ");
+    options.put("prefix.telemetry.logging.level", " \t ");
+
+    Optional<LoggingTelemetryOptions> telemetryOptions =
+        LoggingTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isEmpty();
+  }
+
+  @Test
+  void createFromOptions_withWhitespaceAndLowercaseOptions_normalizesValues() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.logging.enabled", " true ");
+    options.put("prefix.telemetry.logging.level", " warning ");
+
+    Optional<LoggingTelemetryOptions> telemetryOptions =
+        LoggingTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isPresent();
+    assertThat(telemetryOptions.get().isEnabled()).isTrue();
+    assertThat(telemetryOptions.get().getLogLevel())
+        .isEqualTo(LoggingTelemetryOptions.LogLevel.WARNING);
+  }
+
+  @Test
+  void createFromOptions_withBlankLevel_retainsDefault() {
+    Map<String, String> options = new HashMap<>();
+    options.put("prefix.telemetry.logging.enabled", "true");
+    options.put("prefix.telemetry.logging.level", "   ");
+
+    Optional<LoggingTelemetryOptions> telemetryOptions =
+        LoggingTelemetryOptions.createFromOptions(options, "prefix.");
+
+    assertThat(telemetryOptions).isPresent();
+    assertThat(telemetryOptions.get().isEnabled()).isTrue();
+    assertThat(telemetryOptions.get().getLogLevel())
+        .isEqualTo(LoggingTelemetryOptions.LogLevel.DEBUG);
+  }
+
+  @Test
+  @ResourceLock(Resources.LOCALE)
+  void createFromOptions_underTurkishLocale_parsesLogLevelCorrectly() {
+    Locale previousLocale = Locale.getDefault();
+    try {
+      Locale.setDefault(new Locale("tr", "TR"));
+      Map<String, String> options = new HashMap<>();
+      options.put("prefix.telemetry.logging.level", "info");
+
+      Optional<LoggingTelemetryOptions> telemetryOptions =
+          LoggingTelemetryOptions.createFromOptions(options, "prefix.");
+
+      assertThat(telemetryOptions).isPresent();
+      assertThat(telemetryOptions.get().getLogLevel())
+          .isEqualTo(LoggingTelemetryOptions.LogLevel.INFO);
+    } finally {
+      Locale.setDefault(previousLocale);
+    }
   }
 }

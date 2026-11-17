@@ -243,6 +243,32 @@ class GcsHttpTransportFactoryTest {
   }
 
   @Test
+  void toTimeoutMillis_maxHttpTimeout_returnsMaxIntValue() {
+    int timeoutMillis =
+        GcsHttpTransportFactory.toTimeoutMillis(GcsAuthOptions.MAX_HTTP_TIMEOUT, "connectTimeout");
+
+    assertThat(timeoutMillis).isEqualTo(Integer.MAX_VALUE);
+  }
+
+  @Test
+  void toTimeoutMillis_exceedingMaxHttpTimeoutByNanos_throwsIllegalArgumentException() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            GcsHttpTransportFactory.toTimeoutMillis(
+                GcsAuthOptions.MAX_HTTP_TIMEOUT.plusNanos(1), "connectTimeout"));
+  }
+
+  @Test
+  void toTimeoutMillis_durationMax_throwsIllegalArgumentException() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            GcsHttpTransportFactory.toTimeoutMillis(
+                Duration.ofSeconds(Long.MAX_VALUE), "connectTimeout"));
+  }
+
+  @Test
   void keepAliveSslSocketFactory_negativeTimeout_throwsIllegalArgumentException() {
     assertThrows(
         IllegalArgumentException.class,
