@@ -115,6 +115,30 @@ class FakeGcsClientImplTest {
   }
 
   @Test
+  void getGcsItemInfoAndLazySize_withUserProject_succeedsAgainstLocalStorageHelper()
+      throws IOException {
+    GcsClientOptions clientOptions =
+        GcsClientOptions.builder().setUserProject("billing-project").build();
+    FakeGcsClientImpl clientWithUserProject =
+        new FakeGcsClientImpl(
+            clientOptions,
+            Suppliers.ofInstance(Executors.newSingleThreadExecutor()),
+            new Telemetry(ImmutableList.of()),
+            new AnalyticsCacheManager(GcsCacheOptions.builder().build())
+                .getBucketPropertiesCache());
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("user-proj-obj").build();
+    TestDataGenerator.createGcsData(itemId, 64);
+
+    assertThat(clientWithUserProject.getGcsItemInfo(itemId).getSize()).isEqualTo(64L);
+    try (VectoredSeekableByteChannel channel =
+        clientWithUserProject.openReadChannel(
+            itemId, GcsReadOptions.builder().setUserProjectId("override-proj").build())) {
+      assertThat(channel.size()).isEqualTo(64L);
+    }
+  }
+
+  @Test
   void listObjectsPage_listDirectory_separatesSelfMarkerAndDeduplicatesChildPrefix()
       throws IOException {
     String bucket = "list-dir-bucket";

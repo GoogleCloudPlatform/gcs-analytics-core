@@ -120,6 +120,11 @@ public final class HermeticGcsFileSystem {
     }
 
     @Override
+    GcsItemInfo getGcsItemInfo(GcsItemId itemId, Optional<String> userProject) throws IOException {
+      return getGcsItemInfo(itemId);
+    }
+
+    @Override
     public Optional<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) {
       checkNotNull(prefixId, "prefixId must not be null");
       return Optional.empty();

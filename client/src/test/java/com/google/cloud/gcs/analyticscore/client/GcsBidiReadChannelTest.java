@@ -1123,6 +1123,88 @@ class GcsBidiReadChannelTest {
         storage, itemInfo, readOptions, executorServiceSupplier, telemetry);
   }
 
+  @Test
+  void constructor_itemIdWithUserProject_forwardsBlobSourceUserProjectOption() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobId expectedBlobId = BlobId.of("test-bucket", "test-object");
+    Storage.BlobSourceOption expectedOption =
+        Storage.BlobSourceOption.userProject("billing-project");
+    when(mockStorage.blobReadSession(expectedBlobId, expectedOption)).thenReturn(sessionFuture);
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setBidiTimeout(10).setUserProjectId("billing-project").build();
+
+    try (GcsBidiReadChannel channel =
+        new GcsBidiReadChannel(
+            mockStorage, itemId, readOptions, executorServiceSupplier, telemetry)) {
+      assertThat(channel.isOpen()).isTrue();
+    }
+
+    verify(mockStorage).blobReadSession(expectedBlobId, expectedOption);
+  }
+
+  @Test
+  void constructor_itemInfoWithUserProject_forwardsBlobSourceUserProjectOption() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    GcsItemInfo itemInfo =
+        GcsItemInfo.builder().setItemId(itemId).setSize(64L).setContentGeneration(7L).build();
+    BlobId expectedBlobId = BlobId.of("test-bucket", "test-object");
+    Storage.BlobSourceOption expectedOption =
+        Storage.BlobSourceOption.userProject("billing-project");
+    when(mockStorage.blobReadSession(expectedBlobId, expectedOption)).thenReturn(sessionFuture);
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setBidiTimeout(10).setUserProjectId("billing-project").build();
+
+    try (GcsBidiReadChannel channel =
+        new GcsBidiReadChannel(
+            mockStorage, itemInfo, readOptions, executorServiceSupplier, telemetry)) {
+      assertThat(channel.isOpen()).isTrue();
+    }
+
+    verify(mockStorage).blobReadSession(expectedBlobId, expectedOption);
+  }
+
+  @Test
+  void constructor_blankUserProject_invokesBlobReadSessionWithoutUserProjectOption()
+      throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobId expectedBlobId = BlobId.of("test-bucket", "test-object");
+    when(mockStorage.blobReadSession(expectedBlobId)).thenReturn(sessionFuture);
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(64L).build();
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setBidiTimeout(10).setUserProjectId("   ").build();
+
+    try (GcsBidiReadChannel byId =
+            new GcsBidiReadChannel(
+                mockStorage, itemId, readOptions, executorServiceSupplier, telemetry);
+        GcsBidiReadChannel byInfo =
+            new GcsBidiReadChannel(
+                mockStorage, itemInfo, readOptions, executorServiceSupplier, telemetry)) {
+      assertThat(byId.isOpen()).isTrue();
+      assertThat(byInfo.isOpen()).isTrue();
+    }
+
+    verify(mockStorage, times(2)).blobReadSession(expectedBlobId);
+  }
+
+  @Test
+  void constructor_paddedUserProject_forwardsTrimmedBlobSourceUserProjectOption() throws Exception {
+    Storage mockStorage = mock(Storage.class);
+    BlobId expectedBlobId = BlobId.of("test-bucket", "test-object");
+    Storage.BlobSourceOption expectedOption =
+        Storage.BlobSourceOption.userProject("padded-project");
+    when(mockStorage.blobReadSession(expectedBlobId, expectedOption)).thenReturn(sessionFuture);
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder().setBidiTimeout(10).setUserProjectId("  padded-project  ").build();
+
+    try (GcsBidiReadChannel channel =
+        new GcsBidiReadChannel(
+            mockStorage, itemId, readOptions, executorServiceSupplier, telemetry)) {
+      assertThat(channel.isOpen()).isTrue();
+    }
+
+    verify(mockStorage).blobReadSession(expectedBlobId, expectedOption);
+  }
+
   private GcsBidiReadChannel newReaderWithMergeOptions(int maxMergeGap) throws IOException {
     GcsReadOptions readOptions =
         GcsReadOptions.builder()

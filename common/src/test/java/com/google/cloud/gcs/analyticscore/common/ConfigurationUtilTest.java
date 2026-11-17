@@ -103,4 +103,25 @@ class ConfigurationUtilTest {
     assertThrows(
         NullPointerException.class, () -> ConfigurationUtil.getTrimmedValue(options, null));
   }
+
+  @Test
+  void trimToOptional_paddedValue_returnsTrimmedValue() {
+    Optional<String> actual = ConfigurationUtil.trimToOptional("  value  ");
+
+    assertThat(actual).hasValue("value");
+  }
+
+  @Test
+  void trimToOptional_whitespaceValue_returnsEmptyOptional() {
+    Optional<String> actual = ConfigurationUtil.trimToOptional("   ");
+
+    assertThat(actual).isEmpty();
+  }
+
+  @Test
+  void trimToOptional_nullValue_returnsEmptyOptional() {
+    Optional<String> actual = ConfigurationUtil.trimToOptional(null);
+
+    assertThat(actual).isEmpty();
+  }
 }
