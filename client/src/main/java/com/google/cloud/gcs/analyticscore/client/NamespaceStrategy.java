@@ -18,8 +18,10 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.List;
 
 /**
  * Strategy interface for handling directory operations across different namespace models (Flat vs.
@@ -30,7 +32,6 @@ import java.nio.file.FileAlreadyExistsException;
  * <ul>
  *   <li>{@code boolean isDirectoryEmpty(GcsItemId id) throws IOException;}
  *   <li>{@code void renameDirectory(GcsItemId src, GcsItemId dst) throws IOException;}
- *   <li>{@code java.util.List<GcsItemInfo> listObjectInfo(GcsItemId id) throws IOException;}
  *   <li>{@code java.util.List<GcsItemInfo> listRecursive(GcsItemId id) throws IOException;}
  * </ul>
  */
@@ -89,4 +90,42 @@ interface NamespaceStrategy {
    * @throws IOException if an I/O error occurs
    */
   GcsItemInfo getDirectoryInfo(GcsItemId id, boolean inferImplicitDirectories) throws IOException;
+
+  /**
+   * Lists the immediate children of the directory {@code id.toDirectoryId()}, fetching every page
+   * of results. A bucket {@code id} lists the top level of the bucket.
+   *
+   * <p>The children are objects, including child placeholder objects such as {@code dir/sub/}, and
+   * subdirectories without such an object, which are returned as inferred directories. Those are
+   * implicit directories and, on hierarchical namespace buckets, folders. The directory's own
+   * placeholder object is not returned, and each object name is returned once: an object wins over
+   * an inferred directory with the same name.
+   *
+   * @param id the directory (with or without a trailing {@code "/"}) or bucket to list
+   * @return an unmodifiable list of the immediate children in the order they were listed; empty for
+   *     an existing empty directory or bucket
+   * @throws FileNotFoundException if {@code id} is an object path and no directory exists there, or
+   *     if the bucket does not exist
+   * @throws AccessDeniedException if the caller lacks permission to list the directory
+   * @throws InterruptedIOException if the calling thread is interrupted before a page of the
+   *     listing is requested; its interrupt status stays set
+   * @throws IOException if an I/O error occurs while listing
+   */
+  default List<GcsItemInfo> listDirectory(GcsItemId id) throws IOException {
+    return completeDirectoryListing(id, listDirectoryFirstPage(id));
+  }
+
+  /**
+   * Lists only the first page of {@code id.toDirectoryId()}. Callers that overlap listing with an
+   * object lookup run this single-RPC call on the status pool and finish the listing on the calling
+   * thread via {@link #completeDirectoryListing}.
+   */
+  GcsListPage<GcsItemInfo> listDirectoryFirstPage(GcsItemId id) throws IOException;
+
+  /**
+   * Finishes a directory listing started by {@link #listDirectoryFirstPage}, fetching any remaining
+   * pages and verifying directory existence when nothing was listed.
+   */
+  List<GcsItemInfo> completeDirectoryListing(GcsItemId id, GcsListPage<GcsItemInfo> firstPage)
+      throws IOException;
 }

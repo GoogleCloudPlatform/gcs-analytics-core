@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.List;
 import java.util.Optional;
 
 final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
@@ -85,5 +86,27 @@ final class FlatNamespaceStrategyImpl implements NamespaceStrategy {
       return firstItemInfo;
     }
     return GcsItemInfo.createInferredDirectory(dirId);
+  }
+
+  /**
+   * Lists the directory with {@link GcsListOptions#LIST_DIRECTORY}. The directory exists if a page
+   * returns a child or the directory's own placeholder object ({@code dir/}).
+   */
+  @Override
+  public GcsListPage<GcsItemInfo> listDirectoryFirstPage(GcsItemId id) throws IOException {
+    checkNotNull(id, "Item ID must not be null.");
+    return DirectoryListing.listFirstPage(gcsClient, id, GcsListOptions.LIST_DIRECTORY);
+  }
+
+  @Override
+  public List<GcsItemInfo> completeDirectoryListing(
+      GcsItemId id, GcsListPage<GcsItemInfo> firstPage) throws IOException {
+    checkNotNull(id, "Item ID must not be null.");
+    DirectoryListing listing =
+        DirectoryListing.listFromFirstPage(gcsClient, id, GcsListOptions.LIST_DIRECTORY, firstPage);
+    if (!listing.isDirectoryFound() && id.isGcsObject()) {
+      throw GcsExceptionUtil.createFileNotFoundException(id);
+    }
+    return listing.getChildren();
   }
 }

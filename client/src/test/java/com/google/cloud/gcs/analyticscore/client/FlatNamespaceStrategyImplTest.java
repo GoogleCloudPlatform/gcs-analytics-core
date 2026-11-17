@@ -18,9 +18,11 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -29,6 +31,7 @@ import com.google.cloud.storage.StorageException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -259,6 +262,98 @@ class FlatNamespaceStrategyImplTest {
 
     assertThat(actual).isSameInstanceAs(expected);
     verify(mockClient).getGcsItemInfo(dirIdWithSlash);
+  }
+
+  @Test
+  void listDirectory_nullItemId_throwsNullPointerException() {
+    assertThrows(NullPointerException.class, () -> strategy.listDirectory(null));
+  }
+
+  @Test
+  void listDirectory_childrenListed_returnsObjectsAndInferredDirectories() throws IOException {
+    GcsItemId dirId = createGcsItemId(TEST_DIR + "/");
+    GcsItemInfo file = createGcsItemInfo(TEST_DIR + "/file.txt", 100L);
+    GcsItemId implicitDirId = createGcsItemId(TEST_DIR + "/implicit/");
+    when(mockClient.listObjectsPage(dirId, GcsListOptions.LIST_DIRECTORY))
+        .thenReturn(
+            GcsListPage.<GcsItemInfo>builder()
+                .setItems(List.of(file))
+                .setPrefixes(List.of(implicitDirId))
+                .build());
+
+    List<GcsItemInfo> children = strategy.listDirectory(dirId);
+
+    assertThat(children)
+        .containsExactly(file, GcsItemInfo.createInferredDirectory(implicitDirId))
+        .inOrder();
+  }
+
+  @Test
+  void listDirectory_onlyOwnPlaceholderListed_returnsEmptyList() throws IOException {
+    GcsItemId dirId = createGcsItemId(TEST_DIR + "/");
+    when(mockClient.listObjectsPage(dirId, GcsListOptions.LIST_DIRECTORY))
+        .thenReturn(
+            GcsListPage.<GcsItemInfo>builder()
+                .setPrefixObject(GcsItemInfo.createPlaceholderDirectory(dirId))
+                .build());
+
+    List<GcsItemInfo> children = strategy.listDirectory(dirId);
+
+    assertThat(children).isEmpty();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {TEST_DIR, TEST_DIR + "/"})
+  void listDirectory_nothingListedForObjectPath_throwsFileNotFoundExceptionNamingItemId(
+      String objectName) throws IOException {
+    GcsItemId itemId = createGcsItemId(objectName);
+    when(mockClient.listObjectsPage(itemId.toDirectoryId(), GcsListOptions.LIST_DIRECTORY))
+        .thenReturn(GcsListPage.<GcsItemInfo>builder().build());
+
+    FileNotFoundException e =
+        assertThrows(FileNotFoundException.class, () -> strategy.listDirectory(itemId));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Location does not exist or generation not found: gs://"
+                + TEST_BUCKET
+                + "/"
+                + objectName);
+  }
+
+  @Test
+  void listDirectory_nothingListedForBucket_returnsEmptyList() throws IOException {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    when(mockClient.listObjectsPage(bucketId, GcsListOptions.LIST_DIRECTORY))
+        .thenReturn(GcsListPage.<GcsItemInfo>builder().build());
+
+    List<GcsItemInfo> children = strategy.listDirectory(bucketId);
+
+    assertThat(children).isEmpty();
+  }
+
+  @Test
+  void listDirectory_bucketDoesNotExist_propagatesFileNotFoundException() throws IOException {
+    GcsItemId dirId = createGcsItemId(TEST_DIR + "/");
+    FileNotFoundException expected = GcsExceptionUtil.createBucketNotFoundException(TEST_BUCKET);
+    when(mockClient.listObjectsPage(dirId, GcsListOptions.LIST_DIRECTORY)).thenThrow(expected);
+
+    FileNotFoundException actual =
+        assertThrows(FileNotFoundException.class, () -> strategy.listDirectory(dirId));
+
+    assertThat(actual).isSameInstanceAs(expected);
+  }
+
+  @Test
+  void listDirectory_nothingListed_doesNotLookUpFolder() throws IOException {
+    GcsItemId dirId = createGcsItemId(TEST_DIR + "/");
+    when(mockClient.listObjectsPage(dirId, GcsListOptions.LIST_DIRECTORY))
+        .thenReturn(GcsListPage.<GcsItemInfo>builder().build());
+
+    assertThrows(FileNotFoundException.class, () -> strategy.listDirectory(dirId));
+
+    verify(mockClient, never()).getFolderInfo(any());
   }
 
   private static GcsItemId createGcsItemId(String objectName) {

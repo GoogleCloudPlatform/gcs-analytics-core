@@ -46,7 +46,9 @@ import java.nio.channels.WritableByteChannel;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -54,6 +56,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,6 +78,15 @@ public class GcsFileSystemImpl implements GcsFileSystem {
 
   /** Timeout in seconds for background thread pools to terminate when closing the file system. */
   private static final int EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 10;
+
+  /**
+   * Sorts listed items like hadoop-connectors {@code FILE_INFO_PATH_COMPARATOR}: shorter URI
+   * strings first, then in lexicographic order.
+   */
+  private static final Comparator<GcsFileInfo> LIST_FILE_INFO_PATH_COMPARATOR =
+      Comparator.comparing(
+          (GcsFileInfo fileInfo) -> fileInfo.getUri().toString(),
+          Comparator.comparingInt(String::length).thenComparing(Comparator.naturalOrder()));
 
   private final GcsClient gcsClient;
   private final GcsFileSystemOptions fileSystemOptions;
@@ -241,6 +253,87 @@ public class GcsFileSystemImpl implements GcsFileSystem {
         "Expected GCS object to be provided. But got: %s",
         itemId);
     return toGcsFileInfo(gcsClient.getGcsItemInfo(itemId));
+  }
+
+  @Override
+  public List<GcsFileInfo> listFileInfo(GcsItemId itemId) throws IOException {
+    checkNotNull(itemId, "itemId should not be null");
+    if (itemId.isRoot()) {
+      // Listing the root means listing buckets, which GcsClient does not support yet.
+      throw new UnsupportedOperationException("Listing the root (gs:/) is not supported");
+    }
+    checkArgument(
+        !itemId.getBucketName().isEmpty(),
+        "Expected a bucket, directory or object but got: %s",
+        itemId);
+    // Listing ignores content generation; strip it once so lookups and error messages omit it.
+    GcsItemId targetId = withoutContentGeneration(itemId);
+
+    if (targetId.isDirectory()) {
+      return toSortedFileInfos(listDirectory(targetId));
+    }
+
+    // An object wins over a directory with the same name. Fetch only the first listing page in the
+    // background (or lazily, if parallel metadata lookup is disabled) while looking up the object,
+    // so multi-page listings do not hold a status-pool thread past the first page.
+    ExecutorService statusExecutorService = statusExecutorServiceSupplier.get();
+    Future<StartedDirectoryListing> firstPageFuture =
+        statusExecutorService.submit(() -> startDirectoryListing(targetId));
+    boolean awaitListing = false;
+    try {
+      GcsItemInfo objectInfo = gcsClient.getGcsItemInfo(targetId);
+      return List.of(toGcsFileInfo(objectInfo));
+    } catch (FileNotFoundException ignored) {
+      LOG.debug("Object '{}' not found, listing it as a directory.", targetId);
+      awaitListing = true;
+    } finally {
+      if (!awaitListing) {
+        firstPageFuture.cancel(true);
+      }
+    }
+    StartedDirectoryListing started = getFromFuture(firstPageFuture);
+    return toSortedFileInfos(started.complete(targetId));
+  }
+
+  private static GcsItemId withoutContentGeneration(GcsItemId itemId) {
+    if (itemId.getContentGeneration().isEmpty()) {
+      return itemId;
+    }
+    GcsItemId.Builder builder = GcsItemId.builder().setBucketName(itemId.getBucketName());
+    itemId.getObjectName().ifPresent(builder::setObjectName);
+    return builder.build();
+  }
+
+  private List<GcsItemInfo> listDirectory(GcsItemId itemId) throws IOException {
+    NamespaceStrategy strategy = resolveStrategy(itemId.getBucketName());
+    return strategy.listDirectory(itemId);
+  }
+
+  private StartedDirectoryListing startDirectoryListing(GcsItemId itemId) throws IOException {
+    NamespaceStrategy strategy = resolveStrategy(itemId.getBucketName());
+    return new StartedDirectoryListing(strategy, strategy.listDirectoryFirstPage(itemId));
+  }
+
+  private static final class StartedDirectoryListing {
+    private final NamespaceStrategy strategy;
+    private final GcsListPage<GcsItemInfo> firstPage;
+
+    private StartedDirectoryListing(
+        NamespaceStrategy strategy, GcsListPage<GcsItemInfo> firstPage) {
+      this.strategy = strategy;
+      this.firstPage = firstPage;
+    }
+
+    private List<GcsItemInfo> complete(GcsItemId itemId) throws IOException {
+      return strategy.completeDirectoryListing(itemId, firstPage);
+    }
+  }
+
+  private List<GcsFileInfo> toSortedFileInfos(List<GcsItemInfo> itemInfos) {
+    return itemInfos.stream()
+        .map(this::toGcsFileInfo)
+        .sorted(LIST_FILE_INFO_PATH_COMPARATOR)
+        .collect(Collectors.toUnmodifiableList());
   }
 
   /**

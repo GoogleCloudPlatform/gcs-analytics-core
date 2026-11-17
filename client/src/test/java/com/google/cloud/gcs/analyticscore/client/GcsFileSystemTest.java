@@ -20,11 +20,13 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /** Tests the default methods of {@link GcsFileSystem}. */
@@ -65,5 +67,40 @@ class GcsFileSystemTest {
     GcsFileSystem fileSystem = mock(GcsFileSystem.class, CALLS_REAL_METHODS);
 
     assertThrows(NullPointerException.class, () -> fileSystem.mkdirs((URI) null));
+  }
+
+  @Test
+  void listFileInfo_itemIdNotOverridden_throwsUnsupportedOperationException() {
+    GcsFileSystem fileSystem = mock(GcsFileSystem.class, CALLS_REAL_METHODS);
+
+    UnsupportedOperationException e =
+        assertThrows(
+            UnsupportedOperationException.class, () -> fileSystem.listFileInfo(DIR_ITEM_ID));
+    assertThat(e).hasMessageThat().startsWith("listFileInfo is not supported by ");
+  }
+
+  @Test
+  void listFileInfo_uri_delegatesToItemIdOverload() throws IOException {
+    GcsFileSystem fileSystem = mock(GcsFileSystem.class, CALLS_REAL_METHODS);
+    List<GcsFileInfo> expected = List.of(GcsFileInfo.createNotFound(DIR_ITEM_ID));
+    doReturn(expected).when(fileSystem).listFileInfo(DIR_ITEM_ID);
+
+    List<GcsFileInfo> actual = fileSystem.listFileInfo(DIR_URI);
+
+    assertThat(actual).isSameInstanceAs(expected);
+  }
+
+  @Test
+  void listFileInfo_uriWithItemIdNotOverridden_throwsUnsupportedOperationException() {
+    GcsFileSystem fileSystem = mock(GcsFileSystem.class, CALLS_REAL_METHODS);
+
+    assertThrows(UnsupportedOperationException.class, () -> fileSystem.listFileInfo(DIR_URI));
+  }
+
+  @Test
+  void listFileInfo_nullUri_throwsNullPointerException() {
+    GcsFileSystem fileSystem = mock(GcsFileSystem.class, CALLS_REAL_METHODS);
+
+    assertThrows(NullPointerException.class, () -> fileSystem.listFileInfo((URI) null));
   }
 }

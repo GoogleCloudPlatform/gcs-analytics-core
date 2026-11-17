@@ -19,9 +19,11 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -29,6 +31,7 @@ import static org.mockito.Mockito.when;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -189,5 +192,111 @@ class HierarchicalNamespaceStrategyImplTest {
 
     assertThat(result).isSameInstanceAs(folderInfo);
     verify(mockClient).getFolderInfo(folderId);
+  }
+
+  @Test
+  void listDirectory_nullItemId_throwsNullPointerException() {
+    assertThrows(NullPointerException.class, () -> strategy.listDirectory(null));
+  }
+
+  @Test
+  void listDirectory_childrenListed_returnsObjectsAndFoldersAsInferredDirectories()
+      throws IOException {
+    GcsItemId folderId = createGcsItemId(TEST_FOLDER + "/");
+    GcsItemInfo file =
+        GcsItemInfo.builder()
+            .setItemId(createGcsItemId(TEST_FOLDER + "/file.txt"))
+            .setSize(100L)
+            .build();
+    GcsItemId childFolderId = createGcsItemId(TEST_FOLDER + "/child/");
+    when(mockClient.listObjectsPage(folderId, GcsListOptions.LIST_DIRECTORY_HNS))
+        .thenReturn(
+            GcsListPage.<GcsItemInfo>builder()
+                .setItems(List.of(file))
+                .setPrefixes(List.of(childFolderId))
+                .build());
+
+    List<GcsItemInfo> children = strategy.listDirectory(folderId);
+
+    assertThat(children)
+        .containsExactly(file, GcsItemInfo.createInferredDirectory(childFolderId))
+        .inOrder();
+  }
+
+  @Test
+  void listDirectory_childrenListed_doesNotLookUpFolder() throws IOException {
+    GcsItemId folderId = createGcsItemId(TEST_FOLDER + "/");
+    when(mockClient.listObjectsPage(folderId, GcsListOptions.LIST_DIRECTORY_HNS))
+        .thenReturn(
+            GcsListPage.<GcsItemInfo>builder()
+                .setPrefixes(List.of(createGcsItemId(TEST_FOLDER + "/child/")))
+                .build());
+
+    strategy.listDirectory(folderId);
+
+    verify(mockClient, never()).getFolderInfo(any());
+  }
+
+  @Test
+  void listDirectory_onlyOwnPlaceholderListed_returnsEmptyListWithoutFolderLookup()
+      throws IOException {
+    GcsItemId folderId = createGcsItemId(TEST_FOLDER + "/");
+    when(mockClient.listObjectsPage(folderId, GcsListOptions.LIST_DIRECTORY_HNS))
+        .thenReturn(
+            GcsListPage.<GcsItemInfo>builder()
+                .setPrefixObject(GcsItemInfo.createPlaceholderDirectory(folderId))
+                .build());
+
+    List<GcsItemInfo> children = strategy.listDirectory(folderId);
+
+    assertThat(children).isEmpty();
+    verify(mockClient, never()).getFolderInfo(any());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {TEST_FOLDER, TEST_FOLDER + "/"})
+  void listDirectory_nothingListedAndFolderExists_returnsEmptyList(String objectName)
+      throws IOException {
+    GcsItemId itemId = createGcsItemId(objectName);
+    when(mockClient.listObjectsPage(itemId.toDirectoryId(), GcsListOptions.LIST_DIRECTORY_HNS))
+        .thenReturn(GcsListPage.<GcsItemInfo>builder().build());
+    when(mockClient.getFolderInfo(itemId))
+        .thenReturn(GcsItemInfo.createFolder(itemId.toDirectoryId(), 1L, 1L, 1L));
+
+    List<GcsItemInfo> children = strategy.listDirectory(itemId);
+
+    assertThat(children).isEmpty();
+  }
+
+  @Test
+  void listDirectory_nothingListedAndFolderMissing_propagatesFileNotFoundException()
+      throws IOException {
+    GcsItemId itemId = createGcsItemId(TEST_FOLDER);
+    FileNotFoundException expected = GcsExceptionUtil.createFileNotFoundException(itemId);
+    when(mockClient.listObjectsPage(itemId.toDirectoryId(), GcsListOptions.LIST_DIRECTORY_HNS))
+        .thenReturn(GcsListPage.<GcsItemInfo>builder().build());
+    when(mockClient.getFolderInfo(itemId)).thenThrow(expected);
+
+    FileNotFoundException actual =
+        assertThrows(FileNotFoundException.class, () -> strategy.listDirectory(itemId));
+
+    assertThat(actual).isSameInstanceAs(expected);
+  }
+
+  @Test
+  void listDirectory_nothingListedForBucket_returnsEmptyListWithoutFolderLookup()
+      throws IOException {
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
+    when(mockClient.listObjectsPage(bucketId, GcsListOptions.LIST_DIRECTORY_HNS))
+        .thenReturn(GcsListPage.<GcsItemInfo>builder().build());
+
+    List<GcsItemInfo> children = strategy.listDirectory(bucketId);
+
+    assertThat(children).isEmpty();
+    verify(mockClient, never()).getFolderInfo(any());
+  }
+
+  private static GcsItemId createGcsItemId(String objectName) {
+    return GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(objectName).build();
   }
 }
