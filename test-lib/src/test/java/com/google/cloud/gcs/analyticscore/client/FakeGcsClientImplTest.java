@@ -20,10 +20,12 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.storage.BlobId;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -101,5 +103,84 @@ class FakeGcsClientImplTest {
   @Test
   void lazyGetGrpcStorage_returnsLocalStorageInstance() throws IOException {
     assertThat(fakeGcsClient.lazyGetGrpcStorage()).isSameInstanceAs(FakeGcsClientImpl.storage);
+  }
+
+  @Test
+  void moveObject_existingSource_movesObjectToDestination() throws IOException {
+    GcsItemId srcId = moveObjectId("move-src");
+    GcsItemId dstId = moveObjectId("move-dst");
+    createMoveObjectBlob("move-src");
+
+    fakeGcsClient.moveObject(srcId, dstId);
+
+    assertThrows(FileNotFoundException.class, () -> fakeGcsClient.getGcsItemInfo(srcId));
+    GcsItemInfo dstInfo = fakeGcsClient.getGcsItemInfo(dstId);
+    assertThat(dstInfo.getItemId().getObjectName()).hasValue("move-dst");
+    assertThat(dstInfo.getSize()).isEqualTo(10L);
+  }
+
+  @Test
+  void moveObject_missingSource_throwsFileNotFoundException() {
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> fakeGcsClient.moveObject(moveObjectId("missing-src"), moveObjectId("move-dst")));
+
+    assertThat(e).hasMessageThat().contains("gs://move-bucket/missing-src");
+  }
+
+  @Test
+  void moveObject_staleSourceGeneration_throwsIOExceptionAndKeepsSource() throws IOException {
+    GcsItemId srcId = moveObjectId("stale-src");
+    createMoveObjectBlob("stale-src");
+    long generation = fakeGcsClient.getGcsItemInfo(srcId).getContentGeneration().get();
+    GcsItemId staleSrcId =
+        GcsItemId.builder()
+            .setBucketName("move-bucket")
+            .setObjectName("stale-src")
+            .setContentGeneration(generation + 1)
+            .build();
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () -> fakeGcsClient.moveObject(staleSrcId, moveObjectId("stale-dst")));
+
+    assertThat(e.getClass()).isEqualTo(IOException.class);
+    assertThat(fakeGcsClient.getGcsItemInfo(srcId).getSize()).isEqualTo(10L);
+  }
+
+  @Test
+  void moveObject_existingDestinationWithZeroGeneration_throwsFileAlreadyExistsAndKeepsBoth()
+      throws IOException {
+    GcsItemId srcId = moveObjectId("taken-src");
+    GcsItemId dstId = moveObjectId("taken-dst");
+    createMoveObjectBlob("taken-src");
+    StorageTestUtils.createBlobInStorage(
+        FakeGcsClientImpl.storage, BlobId.of("move-bucket", "taken-dst", 1L), "dst");
+    GcsItemId mustNotExistDstId =
+        GcsItemId.builder()
+            .setBucketName("move-bucket")
+            .setObjectName("taken-dst")
+            .setContentGeneration(0L)
+            .build();
+
+    FileAlreadyExistsException e =
+        assertThrows(
+            FileAlreadyExistsException.class,
+            () -> fakeGcsClient.moveObject(srcId, mustNotExistDstId));
+
+    assertThat(e.getFile()).isEqualTo("gs://move-bucket/taken-dst");
+    assertThat(fakeGcsClient.getGcsItemInfo(srcId).getSize()).isEqualTo(10L);
+    assertThat(fakeGcsClient.getGcsItemInfo(dstId).getSize()).isEqualTo(3L);
+  }
+
+  private static GcsItemId moveObjectId(String objectName) {
+    return GcsItemId.builder().setBucketName("move-bucket").setObjectName(objectName).build();
+  }
+
+  private static void createMoveObjectBlob(String objectName) {
+    StorageTestUtils.createBlobInStorage(
+        FakeGcsClientImpl.storage, BlobId.of("move-bucket", objectName, 1L), "0123456789");
   }
 }

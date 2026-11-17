@@ -19,7 +19,10 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.common.cache.AnalyticsCache;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
 import java.io.IOException;
@@ -63,6 +66,48 @@ public class FakeGcsClientImpl extends GcsClientImpl {
   public BucketProperties getBucketProperties(String bucketName) {
     // LocalStorageHelper does not support bucket operations
     return BucketProperties.create(false, false);
+  }
+
+  /**
+   * Moves the object as a copy followed by a delete of the source, enforcing the generation
+   * preconditions given by {@link GcsItemId#getContentGeneration()}.
+   *
+   * <p>{@link Storage#moveBlob} is not used: in {@link LocalStorageHelper} it ignores the
+   * preconditions, keeps the source name in the moved object's metadata, and fails for an object
+   * without a generation.
+   */
+  @Override
+  public void moveObject(GcsItemId srcId, GcsItemId dstId) throws IOException {
+    GcsClientImpl.checkMoveObjectArguments(srcId, dstId);
+    BlobId srcBlobId = BlobId.of(srcId.getBucketName(), srcId.getObjectName().get());
+    BlobId dstBlobId = BlobId.of(dstId.getBucketName(), dstId.getObjectName().get());
+    Blob src = storage.get(srcBlobId);
+    // GCS reports a missing source before it checks any precondition.
+    if (src == null) {
+      throw GcsExceptionUtil.translateMoveObjectException(
+          new StorageException(404, "Not Found"), srcId, dstId);
+    }
+    Blob dst = storage.get(dstBlobId);
+    boolean sourceChanged =
+        srcId.getContentGeneration().filter(gen -> !gen.equals(src.getGeneration())).isPresent();
+    boolean destinationChanged =
+        dstId
+            .getContentGeneration()
+            .filter(
+                gen -> gen == 0L ? dst != null : dst == null || !gen.equals(dst.getGeneration()))
+            .isPresent();
+    if (sourceChanged || destinationChanged) {
+      throw GcsExceptionUtil.translateMoveObjectException(
+          new StorageException(412, "Precondition Failed"), srcId, dstId);
+    }
+    storage
+        .copy(
+            Storage.CopyRequest.newBuilder()
+                .setSource(srcBlobId)
+                .setTarget(src.toBuilder().setBlobId(dstBlobId).build())
+                .build())
+        .getResult();
+    storage.delete(srcBlobId);
   }
 
   @Override

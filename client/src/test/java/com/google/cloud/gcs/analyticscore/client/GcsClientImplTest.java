@@ -2510,66 +2510,35 @@ class GcsClientImplTest {
   }
 
   @Test
-  void moveObject_encryptionKeysAndWriteUserProject_sendsKeyAndUserProjectOptions()
-      throws IOException {
+  void moveObject_writeAndReadUserProject_sendsWriteUserProject() throws IOException {
     Storage mockStorage = moveObjectMockStorage();
-    // Distinct from the write key: key options compare by value, so equal keys would hide a swap.
-    String readDecryptionKey = "MDEyMzQ1Njc4OUFCQ0RFRkdISUpLTE1OT1BRUlNUVVU=";
+    GcsClientOptions clientOptions =
+        TEST_GCS_CLIENT_OPTIONS.toBuilder()
+            .setGcsReadOptions(GcsReadOptions.builder().setUserProjectId("read-project").build())
+            .setGcsWriteOptions(GcsWriteOptions.builder().setUserProject("write-project").build())
+            .build();
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage, clientOptions);
+
+    clientWithMock.moveObject(moveObjectId("src"), moveObjectId("dst"));
+
+    assertThat(moveObjectCapturedRequest(mockStorage))
+        .isEqualTo(
+            Storage.MoveBlobRequest.newBuilder()
+                .setSource(BlobId.of(TEST_BUCKET, "src"))
+                .setTarget(BlobId.of(TEST_BUCKET, "dst"))
+                .setSourceOptions(Storage.BlobSourceOption.userProject("write-project"))
+                .build());
+  }
+
+  @Test
+  void moveObject_encryptionKeysConfigured_sendsNoKeyOptions() throws IOException {
+    Storage mockStorage = moveObjectMockStorage();
     GcsClientOptions clientOptions =
         TEST_GCS_CLIENT_OPTIONS.toBuilder()
             .setGcsReadOptions(
                 GcsReadOptions.builder()
-                    .setDecryptionKey(readDecryptionKey)
-                    .setUserProjectId("read-project")
+                    .setDecryptionKey("MDEyMzQ1Njc4OUFCQ0RFRkdISUpLTE1OT1BRUlNUVVU=")
                     .build())
-            .setGcsWriteOptions(
-                GcsWriteOptions.builder()
-                    .setEncryptionKey(TEST_ENCRYPTION_KEY)
-                    .setUserProject("write-project")
-                    .build())
-            .build();
-    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage, clientOptions);
-
-    clientWithMock.moveObject(moveObjectId("src"), moveObjectId("dst"));
-
-    assertThat(moveObjectCapturedRequest(mockStorage))
-        .isEqualTo(
-            Storage.MoveBlobRequest.newBuilder()
-                .setSource(BlobId.of(TEST_BUCKET, "src"))
-                .setTarget(BlobId.of(TEST_BUCKET, "dst"))
-                .setSourceOptions(
-                    Storage.BlobSourceOption.decryptionKey(readDecryptionKey),
-                    Storage.BlobSourceOption.userProject("write-project"))
-                .setTargetOptions(Storage.BlobTargetOption.encryptionKey(TEST_ENCRYPTION_KEY))
-                .build());
-  }
-
-  @Test
-  void moveObject_onlyReadDecryptionKey_sendsOnlySourceDecryptionKey() throws IOException {
-    Storage mockStorage = moveObjectMockStorage();
-    String readDecryptionKey = "MDEyMzQ1Njc4OUFCQ0RFRkdISUpLTE1OT1BRUlNUVVU=";
-    GcsClientOptions clientOptions =
-        TEST_GCS_CLIENT_OPTIONS.toBuilder()
-            .setGcsReadOptions(GcsReadOptions.builder().setDecryptionKey(readDecryptionKey).build())
-            .build();
-    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage, clientOptions);
-
-    clientWithMock.moveObject(moveObjectId("src"), moveObjectId("dst"));
-
-    assertThat(moveObjectCapturedRequest(mockStorage))
-        .isEqualTo(
-            Storage.MoveBlobRequest.newBuilder()
-                .setSource(BlobId.of(TEST_BUCKET, "src"))
-                .setTarget(BlobId.of(TEST_BUCKET, "dst"))
-                .setSourceOptions(Storage.BlobSourceOption.decryptionKey(readDecryptionKey))
-                .build());
-  }
-
-  @Test
-  void moveObject_onlyWriteEncryptionKey_sendsOnlyTargetEncryptionKey() throws IOException {
-    Storage mockStorage = moveObjectMockStorage();
-    GcsClientOptions clientOptions =
-        TEST_GCS_CLIENT_OPTIONS.toBuilder()
             .setGcsWriteOptions(
                 GcsWriteOptions.builder().setEncryptionKey(TEST_ENCRYPTION_KEY).build())
             .build();
@@ -2582,7 +2551,6 @@ class GcsClientImplTest {
             Storage.MoveBlobRequest.newBuilder()
                 .setSource(BlobId.of(TEST_BUCKET, "src"))
                 .setTarget(BlobId.of(TEST_BUCKET, "dst"))
-                .setTargetOptions(Storage.BlobTargetOption.encryptionKey(TEST_ENCRYPTION_KEY))
                 .build());
   }
 
@@ -2604,22 +2572,6 @@ class GcsClientImplTest {
                 .setTarget(BlobId.of(TEST_BUCKET, "dst"))
                 .setSourceOptions(Storage.BlobSourceOption.userProject("read-project"))
                 .build());
-  }
-
-  @Test
-  void moveObject_success_returnsMovedObjectInfo() throws IOException {
-    Storage mockStorage = mock(Storage.class);
-    Blob movedBlob = createMockBlob(TEST_BUCKET, "dst");
-    when(movedBlob.getGeneration()).thenReturn(42L);
-    when(movedBlob.getSize()).thenReturn(7L);
-    when(mockStorage.moveBlob(any(Storage.MoveBlobRequest.class))).thenReturn(movedBlob);
-    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
-
-    GcsItemInfo movedInfo = clientWithMock.moveObject(moveObjectId("src"), moveObjectId("dst"));
-
-    assertThat(movedInfo.getItemId()).isEqualTo(moveObjectId("dst", 42L));
-    assertThat(movedInfo.getContentGeneration()).hasValue(42L);
-    assertThat(movedInfo.getSize()).isEqualTo(7L);
   }
 
   private static Stream<Arguments> moveObjectInvalidArgumentCases() {

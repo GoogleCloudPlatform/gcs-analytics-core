@@ -270,20 +270,59 @@ class GcsClientImpl implements GcsClient {
   }
 
   @Override
-  public GcsItemInfo moveObject(GcsItemId srcId, GcsItemId dstId) throws IOException {
+  public void moveObject(GcsItemId srcId, GcsItemId dstId) throws IOException {
+    checkMoveObjectArguments(srcId, dstId);
+    List<Storage.BlobSourceOption> sourceOptions = new ArrayList<>();
+    srcId
+        .getContentGeneration()
+        .map(Storage.BlobSourceOption::generationMatch)
+        .ifPresent(sourceOptions::add);
+    clientOptions
+        .getGcsWriteOptions()
+        .getUserProject()
+        .or(() -> clientOptions.getGcsReadOptions().getUserProjectId())
+        .map(Storage.BlobSourceOption::userProject)
+        .ifPresent(sourceOptions::add);
+    List<Storage.BlobTargetOption> targetOptions = new ArrayList<>();
+    dstId
+        .getContentGeneration()
+        .map(Storage.BlobTargetOption::generationMatch)
+        .ifPresent(targetOptions::add);
+
+    // objects.move has no source generation parameter: generations are sent only as preconditions.
+    // No encryption key is sent: a move keeps the object's encryption and never re-encrypts.
+    Storage.MoveBlobRequest request =
+        Storage.MoveBlobRequest.newBuilder()
+            .setSource(BlobId.of(srcId.getBucketName(), srcId.getObjectName().get()))
+            .setTarget(BlobId.of(dstId.getBucketName(), dstId.getObjectName().get()))
+            .setSourceOptions(sourceOptions)
+            .setTargetOptions(targetOptions)
+            .build();
+    try {
+      storage.moveBlob(request);
+    } catch (StorageException e) {
+      throw GcsExceptionUtil.translateMoveObjectException(e, srcId, dstId);
+    }
+  }
+
+  /**
+   * Checks the arguments of {@link #moveObject(GcsItemId, GcsItemId)}. Package-private so that
+   * {@code FakeGcsClientImpl} validates a move exactly like this class.
+   */
+  static void checkMoveObjectArguments(GcsItemId srcId, GcsItemId dstId) {
     checkNotNull(srcId, "srcId must not be null");
     checkNotNull(dstId, "dstId must not be null");
     checkArgument(srcId.isGcsObject(), "Expected a GCS object srcId but got: %s", srcId);
     checkArgument(dstId.isGcsObject(), "Expected a GCS object dstId but got: %s", dstId);
+    // The GCS objects.move API only moves an object within its bucket: the request has a single
+    // bucket, so the client library would ignore a different destination bucket.
     checkArgument(
         srcId.getBucketName().equals(dstId.getBucketName()),
         "Cannot move objects across buckets: %s to %s",
         srcId,
         dstId);
-    String srcObjectName = srcId.getObjectName().get();
-    String dstObjectName = dstId.getObjectName().get();
     checkArgument(
-        !srcObjectName.equals(dstObjectName),
+        !srcId.getObjectName().get().equals(dstId.getObjectName().get()),
         "Move destination must be different from source: %s",
         srcId);
     srcId
@@ -300,71 +339,6 @@ class GcsClientImpl implements GcsClient {
                     generation >= 0,
                     "Destination generation must not be negative but got: %s",
                     generation));
-
-    List<Storage.BlobSourceOption> sourceOptions = new ArrayList<>();
-    srcId
-        .getContentGeneration()
-        .map(Storage.BlobSourceOption::generationMatch)
-        .ifPresent(sourceOptions::add);
-    clientOptions
-        .getGcsReadOptions()
-        .getDecryptionKey()
-        .map(Storage.BlobSourceOption::decryptionKey)
-        .ifPresent(sourceOptions::add);
-    clientOptions
-        .getGcsWriteOptions()
-        .getUserProject()
-        .or(() -> clientOptions.getGcsReadOptions().getUserProjectId())
-        .map(Storage.BlobSourceOption::userProject)
-        .ifPresent(sourceOptions::add);
-    List<Storage.BlobTargetOption> targetOptions = new ArrayList<>();
-    dstId
-        .getContentGeneration()
-        .map(Storage.BlobTargetOption::generationMatch)
-        .ifPresent(targetOptions::add);
-    clientOptions
-        .getGcsWriteOptions()
-        .getEncryptionKey()
-        .map(Storage.BlobTargetOption::encryptionKey)
-        .ifPresent(targetOptions::add);
-
-    // objects.move has no source generation parameter: generations are sent only as preconditions.
-    Storage.MoveBlobRequest request =
-        Storage.MoveBlobRequest.newBuilder()
-            .setSource(BlobId.of(srcId.getBucketName(), srcObjectName))
-            .setTarget(BlobId.of(dstId.getBucketName(), dstObjectName))
-            .setSourceOptions(sourceOptions)
-            .setTargetOptions(targetOptions)
-            .build();
-    try {
-      return fromBlob(storage.moveBlob(request));
-    } catch (StorageException e) {
-      throw moveObjectException(e, srcId, dstId);
-    }
-  }
-
-  /** Translates a {@link StorageException} thrown while moving {@code srcId} to {@code dstId}. */
-  private static IOException moveObjectException(
-      StorageException e, GcsItemId srcId, GcsItemId dstId) {
-    String failureMessage =
-        String.format(
-            "Failed to move %s to %s", UriUtil.getStringPath(srcId), UriUtil.getStringPath(dstId));
-    switch (GcsExceptionUtil.getErrorType(e)) {
-      case NOT_FOUND:
-      case ACCESS_DENIED:
-        return GcsExceptionUtil.translateStorageException(e, srcId, failureMessage);
-      case PRECONDITION_FAILED:
-        // Without a source generation, a 0 destination generation is the only precondition sent.
-        if (srcId.getContentGeneration().isEmpty()
-            && dstId.getContentGeneration().equals(Optional.of(0L))) {
-          return GcsExceptionUtil.createFileAlreadyExistsException(
-              dstId, "Move destination already exists", e);
-        }
-        return new IOException(failureMessage + ": generation precondition failed", e);
-      default:
-        // 409 also covers gRPC ABORTED, so it does not mean that the destination exists.
-        return new IOException(failureMessage, e);
-    }
   }
 
   @Override
