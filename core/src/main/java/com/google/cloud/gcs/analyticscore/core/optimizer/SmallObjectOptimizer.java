@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntFunction;
 
@@ -117,7 +118,14 @@ public class SmallObjectOptimizer implements FormatOptimizer {
   @Override
   public List<GcsObjectRange> readVectored(
       List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate) throws IOException {
-    if (fileSize == -1 || fileSize > readOptions.getSmallObjectCacheThresholdBytes()) {
+    checkNotNull(ranges, "ranges cannot be null");
+    checkNotNull(allocate, "allocate cannot be null");
+    for (GcsObjectRange range : ranges) {
+      checkNotNull(range, "range cannot be null");
+    }
+    if (ranges.isEmpty()
+        || fileSize == -1
+        || fileSize > readOptions.getSmallObjectCacheThresholdBytes()) {
       return ranges;
     }
 
@@ -133,30 +141,79 @@ public class SmallObjectOptimizer implements FormatOptimizer {
       return ranges; // Cannot satisfy yet
     }
 
-    telemetry.recordMetric(Metric.SMALL_OBJECT_CACHE_HIT, ranges.size(), Collections.emptyMap());
+    long servedCount = 0;
     for (GcsObjectRange range : ranges) {
-      ByteBuffer dest = allocate.apply(range.getLength());
-      if (dest == null) {
-        range
-            .getByteBufferFuture()
-            .completeExceptionally(
-                new IllegalArgumentException(
-                    String.format("Buffer allocation returned null for range: %s", range)));
-        continue;
-      }
-      int bytesRead = serveFromCache(range.getOffset(), dest, cachedBuffer);
-      if (bytesRead < range.getLength()) {
-        range
-            .getByteBufferFuture()
-            .completeExceptionally(
-                new EOFException(
-                    String.format("Error while populating range: %s, unexpected EOF", range)));
-      } else {
-        dest.flip();
-        range.getByteBufferFuture().complete(dest);
+      if (populateRangeFromCache(range, allocate, cachedBuffer)) {
+        servedCount++;
       }
     }
+    if (servedCount > 0) {
+      telemetry.recordMetric(Metric.SMALL_OBJECT_CACHE_HIT, servedCount, Collections.emptyMap());
+    }
     return Collections.emptyList();
+  }
+
+  private boolean populateRangeFromCache(
+      GcsObjectRange range, IntFunction<ByteBuffer> allocate, ByteBuffer cachedBuffer) {
+    CompletableFuture<ByteBuffer> future = range.getByteBufferFuture();
+    long offset = range.getOffset();
+    int length = range.getLength();
+    try {
+      // Keep degenerate-range precedence and messages in sync with
+      // VectoredIoUtil.completeDegenerateRanges.
+      if (offset < 0) {
+        future.completeExceptionally(
+            new EOFException(
+                String.format(
+                    "Invalid seek offset: position value (%d) must be >= 0 for '%s'",
+                    offset, currentItemId)));
+        return false;
+      }
+      if (length < 0) {
+        future.completeExceptionally(
+            new IllegalArgumentException(
+                String.format(
+                    "Invalid range length: length value (%d) must be >= 0 for '%s'",
+                    length, currentItemId)));
+        return false;
+      }
+      if (length == 0) {
+        future.complete(ByteBuffer.allocate(0));
+        return false;
+      }
+      if (offset > cachedBuffer.remaining() - length) {
+        future.completeExceptionally(
+            new EOFException(
+                String.format("Error while populating range: %s, unexpected EOF", range)));
+        return false;
+      }
+
+      ByteBuffer dest = allocate.apply(length);
+      if (dest == null) {
+        future.completeExceptionally(
+            new IllegalArgumentException(
+                String.format("Buffer allocation returned null for range: %s", range)));
+        return false;
+      }
+      if (dest.remaining() < length) {
+        future.completeExceptionally(
+            new IllegalArgumentException(
+                String.format(
+                    "Allocated buffer remaining (%d) is less than range length (%d) for range: %s",
+                    dest.remaining(), length, range)));
+        return false;
+      }
+
+      int startPosition = dest.position();
+      dest.limit(startPosition + length);
+      int unused = serveFromCache(offset, dest, cachedBuffer);
+      dest.position(startPosition);
+      future.complete(dest);
+      return true;
+    } catch (RuntimeException e) {
+      future.completeExceptionally(e);
+      return false;
+    }
   }
 
   private ByteBuffer ensureCached(VectoredSeekableByteChannel source) throws IOException {
@@ -177,11 +234,8 @@ public class SmallObjectOptimizer implements FormatOptimizer {
   }
 
   private int serveFromCache(long currPosition, ByteBuffer buffer, ByteBuffer cachedBuffer) {
-    if (currPosition >= fileSize) {
-      return -1;
-    }
     ByteBuffer cacheView = cachedBuffer.duplicate();
-    cacheView.position((int) currPosition);
+    cacheView.position(Math.toIntExact(currPosition));
     int bytesToRead = Math.min(buffer.remaining(), cacheView.remaining());
     cacheView.limit(cacheView.position() + bytesToRead);
     buffer.put(cacheView);
