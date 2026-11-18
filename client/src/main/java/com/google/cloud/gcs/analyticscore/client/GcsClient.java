@@ -55,6 +55,13 @@ public interface GcsClient {
    * generation precondition, where {@code 0} means the destination object must not exist. Without a
    * destination generation, an existing destination object is replaced.
    *
+   * <p>The client library retries a move only when {@code dstId} has a generation. If an attempt
+   * moved the object but its response was lost, the retry finds no source object, so this method
+   * throws {@link FileNotFoundException} although the move succeeded. If the source name was
+   * re-created in between, the retry fails a generation precondition instead. A caller that needs
+   * to know whether the move happened must check the destination object, for example by comparing
+   * its checksum with the source's. A move without a destination generation is never retried.
+   *
    * @param srcId the object to move
    * @param dstId the new name of the object. It must be in the same bucket as {@code srcId}: the
    *     GCS {@code objects.move} API only moves an object within its bucket.

@@ -321,6 +321,10 @@ class GcsClientImpl implements GcsClient {
     try {
       storage.moveBlob(request);
     } catch (StorageException e) {
+      // TODO: When GcsFileSystemImpl#rename uses moveObject, detect a retried move whose earlier
+      // attempt already succeeded. It fails with 404, or with 412 if the source name was
+      // re-created; telling it apart from a real failure needs the source's checksum from before
+      // the move.
       throw GcsExceptionUtil.translateMoveObjectException(e, srcId, dstId);
     }
   }

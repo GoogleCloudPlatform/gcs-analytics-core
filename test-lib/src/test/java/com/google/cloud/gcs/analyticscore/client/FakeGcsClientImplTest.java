@@ -647,12 +647,114 @@ class FakeGcsClientImplTest {
     assertThat(fakeGcsClient.getGcsItemInfo(dstId).getSize()).isEqualTo(3L);
   }
 
+  @Test
+  void moveObject_zeroDestinationGenerationAndMissingDestination_movesObject() throws IOException {
+    GcsItemId srcId = moveObjectId("zero-dst-gen-src");
+    GcsItemId dstId = moveObjectId("zero-dst-gen-dst");
+    createMoveObjectBlob("zero-dst-gen-src");
+
+    fakeGcsClient.moveObject(srcId, moveObjectId("zero-dst-gen-dst", 0L));
+
+    assertThrows(FileNotFoundException.class, () -> fakeGcsClient.getGcsItemInfo(srcId));
+    assertThat(fakeGcsClient.getGcsItemInfo(dstId).getSize()).isEqualTo(10L);
+  }
+
+  @Test
+  void
+      moveObject_positiveDestinationGenerationAndMissingDestination_throwsIOExceptionAndKeepsSource()
+          throws IOException {
+    GcsItemId srcId = moveObjectId("missing-dst-gen-src");
+    GcsItemId dstId = moveObjectId("missing-dst-gen-dst");
+    createMoveObjectBlob("missing-dst-gen-src");
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () -> fakeGcsClient.moveObject(srcId, moveObjectId("missing-dst-gen-dst", 5L)));
+
+    assertThat(e.getClass()).isEqualTo(IOException.class);
+    assertThat(fakeGcsClient.getGcsItemInfo(srcId).getSize()).isEqualTo(10L);
+    assertThrows(FileNotFoundException.class, () -> fakeGcsClient.getGcsItemInfo(dstId));
+  }
+
+  @Test
+  void moveObject_staleDestinationGeneration_throwsIOExceptionAndKeepsBoth() throws IOException {
+    GcsItemId srcId = moveObjectId("stale-dst-gen-src");
+    GcsItemId dstId = moveObjectId("stale-dst-gen-dst");
+    createMoveObjectBlob("stale-dst-gen-src");
+    createMoveObjectBlob("stale-dst-gen-dst", "dst");
+    long generation = fakeGcsClient.getGcsItemInfo(dstId).getContentGeneration().get();
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () ->
+                fakeGcsClient.moveObject(srcId, moveObjectId("stale-dst-gen-dst", generation + 1)));
+
+    assertThat(e.getClass()).isEqualTo(IOException.class);
+    assertThat(fakeGcsClient.getGcsItemInfo(srcId).getSize()).isEqualTo(10L);
+    assertThat(fakeGcsClient.getGcsItemInfo(dstId).getSize()).isEqualTo(3L);
+  }
+
+  @Test
+  void moveObject_matchingDestinationGeneration_replacesDestination() throws IOException {
+    GcsItemId srcId = moveObjectId("matching-dst-gen-src");
+    GcsItemId dstId = moveObjectId("matching-dst-gen-dst");
+    createMoveObjectBlob("matching-dst-gen-src");
+    createMoveObjectBlob("matching-dst-gen-dst", "dst");
+    long generation = fakeGcsClient.getGcsItemInfo(dstId).getContentGeneration().get();
+
+    fakeGcsClient.moveObject(srcId, moveObjectId("matching-dst-gen-dst", generation));
+
+    assertThrows(FileNotFoundException.class, () -> fakeGcsClient.getGcsItemInfo(srcId));
+    assertThat(fakeGcsClient.getGcsItemInfo(dstId).getSize()).isEqualTo(10L);
+  }
+
+  @Test
+  void moveObject_matchingSourceGeneration_movesObject() throws IOException {
+    GcsItemId srcId = moveObjectId("matching-src-gen-src");
+    GcsItemId dstId = moveObjectId("matching-src-gen-dst");
+    createMoveObjectBlob("matching-src-gen-src");
+    long generation = fakeGcsClient.getGcsItemInfo(srcId).getContentGeneration().get();
+
+    fakeGcsClient.moveObject(moveObjectId("matching-src-gen-src", generation), dstId);
+
+    assertThrows(FileNotFoundException.class, () -> fakeGcsClient.getGcsItemInfo(srcId));
+    assertThat(fakeGcsClient.getGcsItemInfo(dstId).getSize()).isEqualTo(10L);
+  }
+
+  @Test
+  void moveObject_noDestinationGenerationAndExistingDestination_replacesDestination()
+      throws IOException {
+    GcsItemId srcId = moveObjectId("overwrite-src");
+    GcsItemId dstId = moveObjectId("overwrite-dst");
+    createMoveObjectBlob("overwrite-src");
+    createMoveObjectBlob("overwrite-dst", "dst");
+
+    fakeGcsClient.moveObject(srcId, dstId);
+
+    assertThrows(FileNotFoundException.class, () -> fakeGcsClient.getGcsItemInfo(srcId));
+    assertThat(fakeGcsClient.getGcsItemInfo(dstId).getSize()).isEqualTo(10L);
+  }
+
   private static GcsItemId moveObjectId(String objectName) {
     return GcsItemId.builder().setBucketName("move-bucket").setObjectName(objectName).build();
   }
 
+  private static GcsItemId moveObjectId(String objectName, long generation) {
+    return GcsItemId.builder()
+        .setBucketName("move-bucket")
+        .setObjectName(objectName)
+        .setContentGeneration(generation)
+        .build();
+  }
+
   private static void createMoveObjectBlob(String objectName) {
+    createMoveObjectBlob(objectName, "0123456789");
+  }
+
+  private static void createMoveObjectBlob(String objectName, String content) {
     StorageTestUtils.createBlobInStorage(
-        FakeGcsClientImpl.storage, BlobId.of("move-bucket", objectName, 1L), "0123456789");
+        FakeGcsClientImpl.storage, BlobId.of("move-bucket", objectName, 1L), content);
   }
 }
