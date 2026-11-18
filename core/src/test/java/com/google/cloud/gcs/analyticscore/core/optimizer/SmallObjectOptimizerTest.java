@@ -43,14 +43,18 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobInfo;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -523,5 +527,287 @@ class SmallObjectOptimizerTest {
       assertThat(recordedMetrics)
           .doesNotContain(GcsAnalyticsCoreTelemetryConstants.Metric.SMALL_OBJECT_CACHE_MISS);
     }
+  }
+
+  @Test
+  void readVectored_nullArgumentsOrElement_throwsNullPointerException() throws IOException {
+    List<GcsObjectRange> listWithNull = Arrays.asList((GcsObjectRange) null);
+
+    // Unopened (fileSize == -1) pass-through path still fails fast at method entry.
+    NullPointerException unopenedNpe =
+        assertThrows(
+            NullPointerException.class,
+            () -> optimizer.readVectored(listWithNull, ByteBuffer::allocate));
+    assertThat(unopenedNpe).hasMessageThat().isEqualTo("range cannot be null");
+
+    // Cold-cache (onOpen without read) path still fails fast at method entry.
+    optimizer.onOpen(FILE_INFO, cacheManager);
+    NullPointerException coldCacheNpe =
+        assertThrows(
+            NullPointerException.class,
+            () -> optimizer.readVectored(listWithNull, ByteBuffer::allocate));
+    assertThat(coldCacheNpe).hasMessageThat().isEqualTo("range cannot be null");
+
+    // Warm-cache path and top-level null arguments.
+    optimizer.read(0, ByteBuffer.allocate(10), realSource);
+    assertThrows(
+        NullPointerException.class, () -> optimizer.readVectored(null, ByteBuffer::allocate));
+    assertThrows(
+        NullPointerException.class, () -> optimizer.readVectored(ImmutableList.of(), null));
+    NullPointerException warmCacheNpe =
+        assertThrows(
+            NullPointerException.class,
+            () -> optimizer.readVectored(listWithNull, ByteBuffer::allocate));
+    assertThat(warmCacheNpe).hasMessageThat().isEqualTo("range cannot be null");
+  }
+
+  @Test
+  void readVectored_nullBetweenValidRanges_failsFastWithoutCompletingAnyFuture()
+      throws IOException {
+    AtomicLong hitCount = new AtomicLong(0);
+    try (Telemetry hitTelemetry = telemetryRecordingCacheHits(hitCount)) {
+      SmallObjectOptimizer opt = new SmallObjectOptimizer(cacheOptions, readOptions, hitTelemetry);
+      opt.onOpen(FILE_INFO, cacheManager);
+      opt.read(0, ByteBuffer.allocate(10), realSource);
+      hitCount.set(0);
+
+      GcsObjectRange first = range(0L, 4);
+      GcsObjectRange last = range(4L, 4);
+      List<GcsObjectRange> mixedWithNull = Arrays.asList(first, null, last);
+      AtomicInteger allocCalls = new AtomicInteger(0);
+
+      NullPointerException thrown =
+          assertThrows(
+              NullPointerException.class,
+              () ->
+                  opt.readVectored(
+                      mixedWithNull,
+                      size -> {
+                        allocCalls.incrementAndGet();
+                        return ByteBuffer.allocate(size);
+                      }));
+
+      assertThat(thrown).hasMessageThat().isEqualTo("range cannot be null");
+      assertThat(allocCalls.get()).isEqualTo(0);
+      assertThat(first.getByteBufferFuture().isDone()).isFalse();
+      assertThat(last.getByteBufferFuture().isDone()).isFalse();
+      assertThat(hitCount.get()).isEqualTo(0L);
+    }
+  }
+
+  @Test
+  void readVectored_emptyRanges_returnsOriginalWithoutAllocOrMetric() throws IOException {
+    AtomicLong hitCount = new AtomicLong(0);
+    AtomicInteger allocCalls = new AtomicInteger(0);
+    try (Telemetry hitTelemetry = telemetryRecordingCacheHits(hitCount)) {
+      SmallObjectOptimizer opt = new SmallObjectOptimizer(cacheOptions, readOptions, hitTelemetry);
+      opt.onOpen(FILE_INFO, cacheManager);
+      opt.read(0, ByteBuffer.allocate(10), realSource);
+      List<GcsObjectRange> ranges = ImmutableList.of();
+
+      List<GcsObjectRange> remaining =
+          opt.readVectored(
+              ranges,
+              size -> {
+                allocCalls.incrementAndGet();
+                return ByteBuffer.allocate(size);
+              });
+
+      assertThat(remaining).isSameInstanceAs(ranges);
+      assertThat(allocCalls.get()).isEqualTo(0);
+      assertThat(hitCount.get()).isEqualTo(0L);
+    }
+  }
+
+  @Test
+  void readVectored_negativeOffset_completesWithEofAndContinues() throws Exception {
+    optimizer.onOpen(FILE_INFO, cacheManager);
+    optimizer.read(0, ByteBuffer.allocate(10), realSource);
+    AtomicInteger allocCalls = new AtomicInteger(0);
+    GcsObjectRange negZero = range(-1L, 0);
+    GcsObjectRange negTrunc = range(-(1L << 32) + 10L, 5);
+    GcsObjectRange valid = range(5L, 4);
+
+    optimizer.readVectored(
+        ImmutableList.of(negZero, negTrunc, valid),
+        size -> {
+          allocCalls.incrementAndGet();
+          return ByteBuffer.allocate(size);
+        });
+
+    assertThat(allocCalls.get()).isEqualTo(1);
+    assertThat(assertThrows(ExecutionException.class, () -> negZero.getByteBufferFuture().get()))
+        .hasCauseThat()
+        .isInstanceOf(EOFException.class);
+    assertThat(assertThrows(ExecutionException.class, () -> negTrunc.getByteBufferFuture().get()))
+        .hasCauseThat()
+        .isInstanceOf(EOFException.class);
+    ByteBuffer buf = valid.getByteBufferFuture().get();
+    assertThat(buf.remaining()).isEqualTo(4);
+    assertThat(buf.get(0)).isEqualTo((byte) 5);
+  }
+
+  @Test
+  void readVectored_negativeLength_completesWithIllegalArgumentWithoutAlloc() throws IOException {
+    optimizer.onOpen(FILE_INFO, cacheManager);
+    optimizer.read(0, ByteBuffer.allocate(10), realSource);
+    AtomicInteger allocCalls = new AtomicInteger(0);
+    GcsObjectRange negLen = range(0L, -5);
+
+    optimizer.readVectored(
+        ImmutableList.of(negLen),
+        size -> {
+          allocCalls.incrementAndGet();
+          return ByteBuffer.allocate(size);
+        });
+
+    assertThat(allocCalls.get()).isEqualTo(0);
+    assertThat(assertThrows(ExecutionException.class, () -> negLen.getByteBufferFuture().get()))
+        .hasCauseThat()
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void readVectored_zeroLength_completesEmptyWithoutAllocOrMetric() throws Exception {
+    AtomicLong hitCount = new AtomicLong(0);
+    try (Telemetry hitTelemetry = telemetryRecordingCacheHits(hitCount)) {
+      SmallObjectOptimizer opt = new SmallObjectOptimizer(cacheOptions, readOptions, hitTelemetry);
+      opt.onOpen(FILE_INFO, cacheManager);
+      opt.read(0, ByteBuffer.allocate(10), realSource);
+      AtomicInteger allocCalls = new AtomicInteger(0);
+      GcsObjectRange inBounds = range(10L, 0);
+      GcsObjectRange atEof = range(100L, 0);
+      GcsObjectRange pastEof = range(150L, 0);
+
+      opt.readVectored(
+          ImmutableList.of(inBounds, atEof, pastEof),
+          size -> {
+            allocCalls.incrementAndGet();
+            return ByteBuffer.allocate(size);
+          });
+
+      assertThat(allocCalls.get()).isEqualTo(0);
+      assertThat(hitCount.get()).isEqualTo(0L);
+      assertThat(inBounds.getByteBufferFuture().get().remaining()).isEqualTo(0);
+      assertThat(atEof.getByteBufferFuture().get().remaining()).isEqualTo(0);
+      assertThat(pastEof.getByteBufferFuture().get().remaining()).isEqualTo(0);
+    }
+  }
+
+  @Test
+  void readVectored_maxOffset_completesWithEofWithoutAlloc() throws IOException {
+    optimizer.onOpen(FILE_INFO, cacheManager);
+    optimizer.read(0, ByteBuffer.allocate(10), realSource);
+    AtomicInteger allocCalls = new AtomicInteger(0);
+    GcsObjectRange maxOffset = range(Long.MAX_VALUE, 10);
+
+    optimizer.readVectored(
+        ImmutableList.of(maxOffset),
+        size -> {
+          allocCalls.incrementAndGet();
+          return ByteBuffer.allocate(size);
+        });
+
+    assertThat(allocCalls.get()).isEqualTo(0);
+    assertThat(assertThrows(ExecutionException.class, () -> maxOffset.getByteBufferFuture().get()))
+        .hasCauseThat()
+        .isInstanceOf(EOFException.class);
+  }
+
+  @Test
+  void readVectored_allocatorThrows_failsOnlyThatRangeAndRecordsServedHits() throws Exception {
+    AtomicLong hitCount = new AtomicLong(0);
+    try (Telemetry hitTelemetry = telemetryRecordingCacheHits(hitCount)) {
+      SmallObjectOptimizer opt = new SmallObjectOptimizer(cacheOptions, readOptions, hitTelemetry);
+      opt.onOpen(FILE_INFO, cacheManager);
+      opt.read(0, ByteBuffer.allocate(10), realSource);
+      GcsObjectRange failing = range(0L, 10);
+      GcsObjectRange valid = range(20L, 5);
+      AtomicInteger call = new AtomicInteger(0);
+
+      opt.readVectored(
+          ImmutableList.of(failing, valid),
+          size -> {
+            if (call.getAndIncrement() == 0) {
+              throw new IllegalStateException("pool exhausted");
+            }
+            return ByteBuffer.allocate(size);
+          });
+
+      assertThat(call.get()).isEqualTo(2);
+      assertThat(hitCount.get()).isEqualTo(1L);
+      assertThat(assertThrows(ExecutionException.class, () -> failing.getByteBufferFuture().get()))
+          .hasCauseThat()
+          .isInstanceOf(IllegalStateException.class);
+      ByteBuffer buf = valid.getByteBufferFuture().get();
+      assertThat(buf.remaining()).isEqualTo(5);
+      assertThat(buf.get(0)).isEqualTo((byte) 20);
+    }
+  }
+
+  @Test
+  void readVectored_undersizedBuffer_completesWithIllegalArgument() throws IOException {
+    optimizer.onOpen(FILE_INFO, cacheManager);
+    optimizer.read(0, ByteBuffer.allocate(10), realSource);
+    GcsObjectRange r = range(0L, 10);
+
+    optimizer.readVectored(ImmutableList.of(r), size -> ByteBuffer.allocate(5));
+
+    assertThat(assertThrows(ExecutionException.class, () -> r.getByteBufferFuture().get()))
+        .hasCauseThat()
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void readVectored_slabBuffer_preservesPrefixAndSetsSliceBounds() throws Exception {
+    optimizer.onOpen(FILE_INFO, cacheManager);
+    optimizer.read(0, ByteBuffer.allocate(10), realSource);
+    ByteBuffer slab = ByteBuffer.allocate(64);
+    for (int i = 0; i < 16; i++) {
+      slab.put(i, (byte) 0x5A);
+    }
+    slab.position(16);
+    GcsObjectRange r = range(30L, 10);
+
+    optimizer.readVectored(ImmutableList.of(r), size -> slab);
+
+    ByteBuffer result = r.getByteBufferFuture().get();
+    assertThat(result).isSameInstanceAs(slab);
+    assertThat(result.position()).isEqualTo(16);
+    assertThat(result.limit()).isEqualTo(26);
+    assertThat(result.remaining()).isEqualTo(10);
+    for (int i = 0; i < 16; i++) {
+      assertThat(result.get(i)).isEqualTo((byte) 0x5A);
+    }
+    for (int i = 0; i < 10; i++) {
+      assertThat(result.get(16 + i)).isEqualTo((byte) (30 + i));
+    }
+  }
+
+  private static GcsObjectRange range(long offset, int length) {
+    return GcsObjectRange.builder()
+        .setOffset(offset)
+        .setLength(length)
+        .setByteBufferFuture(new CompletableFuture<>())
+        .build();
+  }
+
+  private static Telemetry telemetryRecordingCacheHits(AtomicLong hitCount) {
+    OperationListener listener =
+        new OperationListener() {
+          @Override
+          public void onOperationStart(Operation operation) {}
+
+          @Override
+          public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {
+            for (Map.Entry<MetricKey, Long> entry : metrics.entrySet()) {
+              if (entry.getKey().getMetric()
+                  == GcsAnalyticsCoreTelemetryConstants.Metric.SMALL_OBJECT_CACHE_HIT) {
+                hitCount.addAndGet(entry.getValue());
+              }
+            }
+          }
+        };
+    return new Telemetry(ImmutableList.of(listener));
   }
 }
