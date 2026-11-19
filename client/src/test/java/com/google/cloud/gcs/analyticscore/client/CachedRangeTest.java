@@ -124,71 +124,77 @@ class CachedRangeTest {
   }
 
   @Test
-  void recordBytesConsumed_partOfRange_returnsFalse() {
+  void recordBytesConsumed_unreadBytes_returnsTheirCount() {
     CachedRange range = rangeOf(new CompletableFuture<>());
 
-    boolean fullyConsumed = range.recordBytesConsumed(RANGE_OFFSET, BYTES.length - 1);
+    int newlyConsumed = range.recordBytesConsumed(RANGE_OFFSET, 3);
 
-    assertThat(fullyConsumed).isFalse();
+    assertThat(newlyConsumed).isEqualTo(3);
   }
 
   @Test
-  void recordBytesConsumed_wholeRangeInTwoParts_returnsTrue() {
-    CachedRange range = rangeOf(new CompletableFuture<>());
-    range.recordBytesConsumed(RANGE_OFFSET + 2, 2);
-
-    boolean fullyConsumed = range.recordBytesConsumed(RANGE_OFFSET, 2);
-
-    assertThat(fullyConsumed).isTrue();
-  }
-
-  @Test
-  void recordBytesConsumed_sameBytesTwice_returnsFalse() {
+  void recordBytesConsumed_sameBytesTwice_returnsZero() {
     CachedRange range = rangeOf(new CompletableFuture<>());
     range.recordBytesConsumed(RANGE_OFFSET, 2);
 
-    boolean fullyConsumed = range.recordBytesConsumed(RANGE_OFFSET, 2);
+    int newlyConsumed = range.recordBytesConsumed(RANGE_OFFSET, 2);
 
-    assertThat(fullyConsumed).isFalse();
+    assertThat(newlyConsumed).isEqualTo(0);
   }
 
   @Test
-  void recordBytesServed_bytesWithinRange_returnsAllBytes() {
+  void recordBytesConsumed_partlyConsumedBytes_returnsOnlyUnreadCount() {
     CachedRange range = rangeOf(new CompletableFuture<>());
+    range.recordBytesConsumed(RANGE_OFFSET, 1);
+    range.recordBytesConsumed(RANGE_OFFSET + 2, 1);
 
-    int newlyServed = range.recordBytesServed(3);
+    int newlyConsumed = range.recordBytesConsumed(RANGE_OFFSET, BYTES.length);
 
-    assertThat(newlyServed).isEqualTo(3);
+    assertThat(newlyConsumed).isEqualTo(2);
   }
 
   @Test
-  void recordBytesServed_totalExceedsRangeLength_returnsOnlyBytesUpToRangeLength() {
+  void recordBytesConsumed_spanWiderThanRange_countsOnlyBytesInsideRange() {
     CachedRange range = rangeOf(new CompletableFuture<>());
-    range.recordBytesServed(3);
 
-    int newlyServed = range.recordBytesServed(Integer.MAX_VALUE);
+    int newlyConsumed = range.recordBytesConsumed(RANGE_OFFSET - 5, BYTES.length + 10);
 
-    assertThat(newlyServed).isEqualTo(1);
+    assertThat(newlyConsumed).isEqualTo(BYTES.length);
   }
 
   @Test
-  void recordBytesServed_rangeAlreadyFullyServed_returnsZero() {
+  void recordBytesConsumed_spanOutsideRange_returnsZero() {
     CachedRange range = rangeOf(new CompletableFuture<>());
-    range.recordBytesServed(BYTES.length);
 
-    int newlyServed = range.recordBytesServed(2);
+    int newlyConsumed = range.recordBytesConsumed(RANGE_OFFSET + BYTES.length, 4);
 
-    assertThat(newlyServed).isEqualTo(0);
+    assertThat(newlyConsumed).isEqualTo(0);
   }
 
   @Test
-  void recordBytesServed_negativeBytes_throwsIllegalArgumentException() {
+  void isFullyConsumed_partOfRangeConsumed_returnsFalse() {
     CachedRange range = rangeOf(new CompletableFuture<>());
+    range.recordBytesConsumed(RANGE_OFFSET, BYTES.length - 1);
 
-    IllegalArgumentException exception =
-        assertThrows(IllegalArgumentException.class, () -> range.recordBytesServed(-1));
+    assertThat(range.isFullyConsumed()).isFalse();
+  }
 
-    assertThat(exception).hasMessageThat().isEqualTo("bytes -1 must be non-negative");
+  @Test
+  void isFullyConsumed_wholeRangeConsumedInTwoParts_returnsTrue() {
+    CachedRange range = rangeOf(new CompletableFuture<>());
+    range.recordBytesConsumed(RANGE_OFFSET + 2, 2);
+    range.recordBytesConsumed(RANGE_OFFSET, 2);
+
+    assertThat(range.isFullyConsumed()).isTrue();
+  }
+
+  @Test
+  void isFullyConsumed_sameBytesConsumedTwice_returnsFalse() {
+    CachedRange range = rangeOf(new CompletableFuture<>());
+    range.recordBytesConsumed(RANGE_OFFSET, 2);
+    range.recordBytesConsumed(RANGE_OFFSET, 2);
+
+    assertThat(range.isFullyConsumed()).isFalse();
   }
 
   @Test
