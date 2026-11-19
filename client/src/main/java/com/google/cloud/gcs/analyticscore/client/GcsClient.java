@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.List;
 import java.util.Optional;
 
 @VisibleForTesting
@@ -79,6 +80,30 @@ public interface GcsClient {
    * @throws IOException if the metadata cannot be fetched
    */
   GcsItemInfo getFolderInfo(GcsItemId itemId) throws IOException;
+
+  /**
+   * Lists native folders in a Hierarchical Namespace (HNS) bucket.
+   *
+   * <p>Returns every folder whose name starts with the directory form of {@code prefixId}'s object
+   * name (for example, {@code dir} lists {@code dir/} and all folders below it), or every folder in
+   * the bucket when {@code prefixId} is a bucket. All result pages under the prefix are fetched and
+   * returned together. The folder named exactly by the prefix is included when it exists, and
+   * folders keep the order returned by GCS. Any {@link GcsItemId#getContentGeneration()} on {@code
+   * prefixId} is ignored.
+   *
+   * @param prefixId the bucket or folder to list folders under
+   * @return an unmodifiable list of {@link GcsItemInfo.ItemType#NATIVE_FOLDER} items whose item IDs
+   *     are in directory form (ending in {@code /}), or an empty list if no folder matches
+   * @throws IllegalArgumentException if {@code prefixId} is the root or has an empty bucket name
+   * @throws FileNotFoundException if the bucket does not exist
+   * @throws AccessDeniedException if listing is denied (401/403)
+   * @throws IOException if the folders cannot be listed, including when the bucket is a flat
+   *     (non-HNS) bucket
+   */
+  default List<GcsItemInfo> listFolders(GcsItemId prefixId) throws IOException {
+    throw new UnsupportedOperationException(
+        "listFolders is not implemented by " + getClass().getName());
+  }
 
   /**
    * Fetches metadata for the first object in unsigned UTF-8 byte order matching {@code prefixId}:

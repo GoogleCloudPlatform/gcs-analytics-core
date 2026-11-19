@@ -612,6 +612,9 @@ class GcsFileSystemImplIntegrationTest {
         }
     }
 
+    // TODO: Add an HNS integration test for GcsClient#listFolders (nested folders, directory-form
+    // names) once GcsFileSystemImpl uses listFolders.
+
     @Test
     @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
     void mkdirs_hnsWithConflictingFile_throwsFileAlreadyExistsException() throws IOException {
