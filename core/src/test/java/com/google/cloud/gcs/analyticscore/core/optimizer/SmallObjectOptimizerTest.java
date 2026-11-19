@@ -242,6 +242,43 @@ class SmallObjectOptimizerTest {
   }
 
   @Test
+  void isApplicable_static_nullFileInfo_returnsFalse() {
+    assertThat(SmallObjectOptimizer.isApplicable(null, cacheOptions, readOptions)).isFalse();
+  }
+
+  @Test
+  void isApplicable_static_unknownSize_returnsFalse() {
+    GcsItemInfo unknownSizeInfo = GcsItemInfo.builder().setItemId(ITEM_ID).build();
+    GcsFileInfo unknownSizeFile = FILE_INFO.toBuilder().setItemInfo(unknownSizeInfo).build();
+
+    assertThat(SmallObjectOptimizer.isApplicable(unknownSizeFile, cacheOptions, readOptions))
+        .isFalse();
+  }
+
+  @Test
+  void isApplicable_static_nullCacheOptions_throwsNullPointerException() {
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class,
+            () -> SmallObjectOptimizer.isApplicable(FILE_INFO, null, readOptions));
+
+    assertThat(exception).hasMessageThat().isEqualTo("cacheOptions cannot be null");
+  }
+
+  @Test
+  void isApplicable_static_nullReadOptions_throwsNullPointerException() {
+    GcsCacheOptions disabledCacheOptions =
+        GcsCacheOptions.builder().setSmallObjectCacheEnabled(false).build();
+
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class,
+            () -> SmallObjectOptimizer.isApplicable(FILE_INFO, disabledCacheOptions, null));
+
+    assertThat(exception).hasMessageThat().isEqualTo("readOptions cannot be null");
+  }
+
+  @Test
   void onOpen_itemIdOnly_isNoOp() {
     optimizer.onOpen(ITEM_ID, cacheManager);
   }

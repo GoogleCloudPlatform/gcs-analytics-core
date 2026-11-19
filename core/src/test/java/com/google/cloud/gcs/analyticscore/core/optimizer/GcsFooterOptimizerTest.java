@@ -247,6 +247,28 @@ class GcsFooterOptimizerTest {
   }
 
   @Test
+  void isApplicable_static_nullItemId_throwsNullPointerException() {
+    GcsReadOptions disabledReadOptions =
+        GcsReadOptions.builder().setFooterPrefetchEnabled(false).build();
+
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class,
+            () -> GcsFooterOptimizer.isApplicable(null, disabledReadOptions));
+
+    assertThat(exception).hasMessageThat().isEqualTo("itemId cannot be null");
+  }
+
+  @Test
+  void isApplicable_static_nullReadOptions_throwsNullPointerException() {
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class, () -> GcsFooterOptimizer.isApplicable(ITEM_ID, null));
+
+    assertThat(exception).hasMessageThat().isEqualTo("readOptions cannot be null");
+  }
+
+  @Test
   void onOpen_withFileInfo_initializesState() throws IOException {
     optimizer.onOpen(FILE_INFO, mockCacheManager);
     ByteBuffer dst = ByteBuffer.allocate(10);

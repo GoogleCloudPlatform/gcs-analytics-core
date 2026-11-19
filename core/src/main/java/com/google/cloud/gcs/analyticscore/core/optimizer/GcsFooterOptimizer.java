@@ -61,11 +61,18 @@ public class GcsFooterOptimizer implements FormatOptimizer {
     this.telemetry = checkNotNull(telemetry, "telemetry cannot be null");
   }
 
-  @Override
-  public boolean isApplicable(GcsItemId itemId) {
+  /** Returns whether footer prefetching is applicable for the given item ID and read options. */
+  public static boolean isApplicable(GcsItemId itemId, GcsReadOptions readOptions) {
+    checkNotNull(itemId, "itemId cannot be null");
+    checkNotNull(readOptions, "readOptions cannot be null");
     return readOptions.isFooterPrefetchEnabled()
         && DataFileExtensions.hasAnyExtension(
             itemId.getObjectName(), FOOTER_OPTIMIZABLE_EXTENSIONS);
+  }
+
+  @Override
+  public boolean isApplicable(GcsItemId itemId) {
+    return isApplicable(itemId, readOptions);
   }
 
   @Override
