@@ -84,6 +84,48 @@ public class FakeGcsClientImpl extends GcsClientImpl {
   }
 
   /**
+   * Moves the object as a copy followed by a delete of the source, enforcing the generation
+   * preconditions given by {@link GcsItemId#getContentGeneration()}.
+   *
+   * <p>{@link Storage#moveBlob} is not used: in {@link LocalStorageHelper} it ignores the
+   * preconditions, keeps the source name in the moved object's metadata, and fails for an object
+   * without a generation.
+   */
+  @Override
+  public void moveObject(GcsItemId srcId, GcsItemId dstId) throws IOException {
+    GcsClientImpl.checkMoveObjectArguments(srcId, dstId);
+    BlobId srcBlobId = BlobId.of(srcId.getBucketName(), srcId.getObjectName().get());
+    BlobId dstBlobId = BlobId.of(dstId.getBucketName(), dstId.getObjectName().get());
+    Blob src = storage.get(srcBlobId);
+    // GCS reports a missing source before it checks any precondition.
+    if (src == null) {
+      throw GcsExceptionUtil.translateMoveObjectException(
+          new StorageException(404, "Not Found"), srcId, dstId);
+    }
+    Blob dst = storage.get(dstBlobId);
+    boolean sourceChanged =
+        srcId.getContentGeneration().filter(gen -> !gen.equals(src.getGeneration())).isPresent();
+    boolean destinationChanged =
+        dstId
+            .getContentGeneration()
+            .filter(
+                gen -> gen == 0L ? dst != null : dst == null || !gen.equals(dst.getGeneration()))
+            .isPresent();
+    if (sourceChanged || destinationChanged) {
+      throw GcsExceptionUtil.translateMoveObjectException(
+          new StorageException(412, "Precondition Failed"), srcId, dstId);
+    }
+    storage
+        .copy(
+            Storage.CopyRequest.newBuilder()
+                .setSource(srcBlobId)
+                .setTarget(src.toBuilder().setBlobId(dstBlobId).build())
+                .build())
+        .getResult();
+    storage.delete(srcBlobId);
+  }
+
+  /**
    * Deletes the object, enforcing {@link GcsItemId#getContentGeneration()} as a generation-match
    * precondition, which {@link LocalStorageHelper} ignores.
    */

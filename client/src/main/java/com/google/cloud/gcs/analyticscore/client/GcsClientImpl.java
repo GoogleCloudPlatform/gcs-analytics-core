@@ -297,6 +297,82 @@ class GcsClientImpl implements GcsClient {
   }
 
   @Override
+  public void moveObject(GcsItemId srcId, GcsItemId dstId) throws IOException {
+    checkMoveObjectArguments(srcId, dstId);
+    List<Storage.BlobSourceOption> sourceOptions = new ArrayList<>();
+    srcId
+        .getContentGeneration()
+        .map(Storage.BlobSourceOption::generationMatch)
+        .ifPresent(sourceOptions::add);
+    clientOptions
+        .getGcsWriteOptions()
+        .getUserProject()
+        .or(() -> clientOptions.getGcsReadOptions().getUserProjectId())
+        .map(Storage.BlobSourceOption::userProject)
+        .ifPresent(sourceOptions::add);
+    List<Storage.BlobTargetOption> targetOptions = new ArrayList<>();
+    dstId
+        .getContentGeneration()
+        .map(Storage.BlobTargetOption::generationMatch)
+        .ifPresent(targetOptions::add);
+
+    // objects.move has no source generation parameter: generations are sent only as preconditions.
+    // No encryption key is sent: a move keeps the object's encryption and never re-encrypts.
+    Storage.MoveBlobRequest request =
+        Storage.MoveBlobRequest.newBuilder()
+            .setSource(BlobId.of(srcId.getBucketName(), srcId.getObjectName().get()))
+            .setTarget(BlobId.of(dstId.getBucketName(), dstId.getObjectName().get()))
+            .setSourceOptions(sourceOptions)
+            .setTargetOptions(targetOptions)
+            .build();
+    try {
+      storage.moveBlob(request);
+    } catch (StorageException e) {
+      // TODO: When GcsFileSystemImpl#rename uses moveObject, detect a retried move whose earlier
+      // attempt already succeeded. It fails with 404, or with 412 if the source name was
+      // re-created; telling it apart from a real failure needs the source's checksum from before
+      // the move.
+      throw GcsExceptionUtil.translateMoveObjectException(e, srcId, dstId);
+    }
+  }
+
+  /**
+   * Checks the arguments of {@link #moveObject(GcsItemId, GcsItemId)}. Package-private so that
+   * {@code FakeGcsClientImpl} validates a move exactly like this class.
+   */
+  static void checkMoveObjectArguments(GcsItemId srcId, GcsItemId dstId) {
+    checkNotNull(srcId, "srcId must not be null");
+    checkNotNull(dstId, "dstId must not be null");
+    checkArgument(srcId.isGcsObject(), "Expected a GCS object srcId but got: %s", srcId);
+    checkArgument(dstId.isGcsObject(), "Expected a GCS object dstId but got: %s", dstId);
+    // The GCS objects.move API only moves an object within its bucket: the request has a single
+    // bucket, so the client library would ignore a different destination bucket.
+    checkArgument(
+        srcId.getBucketName().equals(dstId.getBucketName()),
+        "Cannot move objects across buckets: %s to %s",
+        srcId,
+        dstId);
+    checkArgument(
+        !srcId.getObjectName().get().equals(dstId.getObjectName().get()),
+        "Move destination must be different from source: %s",
+        srcId);
+    srcId
+        .getContentGeneration()
+        .ifPresent(
+            generation ->
+                checkArgument(
+                    generation > 0, "Source generation must be positive but got: %s", generation));
+    dstId
+        .getContentGeneration()
+        .ifPresent(
+            generation ->
+                checkArgument(
+                    generation >= 0,
+                    "Destination generation must not be negative but got: %s",
+                    generation));
+  }
+
+  @Override
   public GcsItemInfo getGcsItemInfo(GcsItemId itemId) throws IOException {
     checkNotNull(itemId, "Item ID must not be null.");
     if (itemId.isGcsObject()) {
