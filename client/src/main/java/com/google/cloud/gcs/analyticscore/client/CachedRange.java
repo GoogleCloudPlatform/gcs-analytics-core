@@ -27,7 +27,6 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntFunction;
 import javax.annotation.Nullable;
 
@@ -37,8 +36,8 @@ import javax.annotation.Nullable;
  * <p>The underlying bytes are held as a {@link CompletableFuture} so that a single entry represents
  * both an in-flight background download and a completed resident buffer.
  *
- * <p>Each entry tracks its own consumed and served bytes, so two entries are equal only if they are
- * the same instance.
+ * <p>Each entry tracks its own consumed bytes, so two entries are equal only if they are the same
+ * instance.
  */
 public final class CachedRange {
 
@@ -47,7 +46,6 @@ public final class CachedRange {
   private final CompletableFuture<ByteBuffer> future;
   private final Runnable promotionAction;
   private final RangeSet<Long> consumedRanges = TreeRangeSet.create();
-  private final AtomicInteger servedBytes = new AtomicInteger();
 
   private CachedRange(
       long startOffset,
@@ -115,27 +113,28 @@ public final class CachedRange {
   }
 
   /**
-   * Records {@code [offset, offset + length)} as consumed and returns {@code true} once every byte
-   * of this range has been consumed at least once. Bytes read more than once count only once.
+   * Records the part of {@code [offset, offset + length)} that lies inside this range as consumed
+   * and returns how many of those bytes had not been consumed before. Bytes read more than once
+   * count only once.
    */
-  synchronized boolean recordBytesConsumed(long offset, int length) {
-    consumedRanges.add(Range.closedOpen(offset, offset + length));
+  synchronized int recordBytesConsumed(long offset, int length) {
+    long from = Math.max(offset, startOffset);
+    long to = Math.min(offset + length, endOffset);
+    if (from >= to) {
+      return 0;
+    }
+    Range<Long> span = Range.closedOpen(from, to);
+    long alreadyConsumed = 0;
+    for (Range<Long> consumed : consumedRanges.subRangeSet(span).asRanges()) {
+      alreadyConsumed += consumed.upperEndpoint() - consumed.lowerEndpoint();
+    }
+    consumedRanges.add(span);
+    return (int) (to - from - alreadyConsumed);
+  }
+
+  /** Returns {@code true} once every byte of this range has been consumed at least once. */
+  synchronized boolean isFullyConsumed() {
     return consumedRanges.encloses(Range.closedOpen(startOffset, endOffset));
-  }
-
-  /**
-   * Records {@code bytes} as served for metrics and returns how many of them are newly counted.
-   * Bytes served more than once are counted again until the total counted for this range reaches
-   * {@link #getLength()}, which it never exceeds.
-   */
-  int recordBytesServed(int bytes) {
-    checkArgument(bytes >= 0, "bytes %s must be non-negative", bytes);
-    int previous = servedBytes.getAndAccumulate(bytes, this::cappedServedBytes);
-    return cappedServedBytes(previous, bytes) - previous;
-  }
-
-  private int cappedServedBytes(int total, int bytes) {
-    return (int) Math.min(getLength(), (long) total + bytes);
   }
 
   /**
