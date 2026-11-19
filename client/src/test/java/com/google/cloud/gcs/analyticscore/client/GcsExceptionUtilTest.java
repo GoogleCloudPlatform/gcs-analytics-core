@@ -888,20 +888,6 @@ class GcsExceptionUtilTest {
   }
 
   @Test
-  void translateDeleteObjectException_notFound_returnsFileNotFoundExceptionWithGeneration() {
-    StorageException notFoundCause = new StorageException(404, "Not Found");
-
-    IOException e = GcsExceptionUtil.translateDeleteObjectException(notFoundCause, objectId(1234L));
-
-    assertThat(e).isInstanceOf(FileNotFoundException.class);
-    assertThat(e)
-        .hasMessageThat()
-        .isEqualTo(
-            "Location does not exist or generation not found: gs://test-bucket/test-object#1234");
-    assertThat(e).hasCauseThat().isSameInstanceAs(notFoundCause);
-  }
-
-  @Test
   void translateDeleteObjectException_unauthorized_returnsAccessDeniedException() {
     StorageException deniedCause = new StorageException(401, "Unauthorized");
 

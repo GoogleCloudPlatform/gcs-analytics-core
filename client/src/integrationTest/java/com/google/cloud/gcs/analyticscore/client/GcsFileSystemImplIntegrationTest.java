@@ -708,6 +708,41 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
+    void deleteObject_nonExistentObjectWithGeneration_returnsNormally() {
+        String bucketName = System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY);
+        TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete);
+        GcsItemId itemIdWithGeneration =
+                GcsItemId.builder()
+                        .setBucketName(bucketName)
+                        .setObjectName(ctx.objectName)
+                        .setContentGeneration(1L)
+                        .build();
+        GcsClient gcsClient = gcsFileSystem.getGcsClient();
+
+        assertDoesNotThrow(() -> gcsClient.deleteObject(itemIdWithGeneration));
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
+    void deleteObject_objectAlreadyDeletedWithSameGeneration_returnsNormally() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY);
+        TestWriteContext ctx = new TestWriteContext(bucketName, blobsToDelete);
+        writeObject(ctx.itemId, TEST_FILE_CONTENT);
+        GcsClient gcsClient = gcsFileSystem.getGcsClient();
+        long generation = gcsClient.getGcsItemInfo(ctx.itemId).getContentGeneration().get();
+        GcsItemId itemIdWithGeneration =
+                GcsItemId.builder()
+                        .setBucketName(bucketName)
+                        .setObjectName(ctx.objectName)
+                        .setContentGeneration(generation)
+                        .build();
+        gcsClient.deleteObject(itemIdWithGeneration);
+
+        assertDoesNotThrow(() -> gcsClient.deleteObject(itemIdWithGeneration));
+    }
+
+    @Test
     @EnabledIfSystemProperty(named = "gcs.integration.test.project-id", matches = ".+")
     void deleteBucket_nonEmptyBucket_throwsDirectoryNotEmptyException() throws IOException {
         String bucketName = "test-delete-bucket-" + UUID.randomUUID();

@@ -780,6 +780,18 @@ class FakeGcsClientImplTest {
   }
 
   @Test
+  void deleteObject_missingObjectWithGeneration_returnsNormally() {
+    GcsItemId itemId =
+        GcsItemId.builder()
+            .setBucketName("delete-bucket")
+            .setObjectName("missing-with-generation")
+            .setContentGeneration(1L)
+            .build();
+
+    assertDoesNotThrow(() -> fakeGcsClient.deleteObject(itemId));
+  }
+
+  @Test
   void deleteObject_matchingGeneration_deletesObject() throws IOException {
     GcsItemId itemId =
         GcsItemId.builder().setBucketName("delete-bucket").setObjectName("versioned").build();

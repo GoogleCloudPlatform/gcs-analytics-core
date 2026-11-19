@@ -203,14 +203,16 @@ class GcsExceptionUtil {
     }
   }
 
-  /** Translates a {@link StorageException} thrown during object deletion. */
+  /**
+   * Translates a {@link StorageException} thrown during object deletion.
+   *
+   * <p>Callers handle 404 before calling this method: deleting a missing object is a no-op.
+   */
   static IOException translateDeleteObjectException(StorageException e, GcsItemId itemId) {
     checkNotNull(e, "StorageException should not be null");
     checkNotNull(itemId, "itemId should not be null");
     String location = formatLocation(itemId);
     switch (getErrorType(e)) {
-      case NOT_FOUND:
-        return createFileNotFoundException(location, e);
       case ACCESS_DENIED:
         // Report the plain object path, without "#<generation>", as
         // AccessDeniedException#getFile().
