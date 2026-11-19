@@ -125,6 +125,44 @@ public class FakeGcsClientImpl extends GcsClientImpl {
     storage.delete(srcBlobId);
   }
 
+  /**
+   * Deletes the object, enforcing {@link GcsItemId#getContentGeneration()} as a generation-match
+   * precondition, which {@link LocalStorageHelper} ignores.
+   */
+  @Override
+  public void deleteObject(GcsItemId itemId) throws IOException {
+    if (itemId != null && itemId.isGcsObject()) {
+      Optional<Long> generation = itemId.getContentGeneration().filter(gen -> gen > 0L);
+      if (generation.isPresent()) {
+        Blob blob = storage.get(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()));
+        if (blob != null && !generation.get().equals(blob.getGeneration())) {
+          throw GcsExceptionUtil.translateDeleteObjectException(
+              new StorageException(412, "Precondition Failed"), itemId);
+        }
+      }
+    }
+    super.deleteObject(itemId);
+  }
+
+  /**
+   * Deletes an empty bucket.
+   *
+   * <p>{@link LocalStorageHelper} does not model buckets, so every bucket is treated as existing:
+   * deletion succeeds when the bucket holds no objects and fails with {@link
+   * java.nio.file.DirectoryNotEmptyException} otherwise. Deleting a bucket never removes it from
+   * later lookups.
+   */
+  @Override
+  public void deleteBucket(GcsItemId itemId) throws IOException {
+    checkNotNull(itemId, "itemId must not be null");
+    checkArgument(itemId.isBucket(), "Expected a bucket itemId, but got: %s", itemId);
+    String bucketName = itemId.getBucketName();
+    if (storage.list(bucketName).getValues().iterator().hasNext()) {
+      throw GcsExceptionUtil.translateDeleteBucketException(
+          new StorageException(409, "The bucket you tried to delete is not empty"), bucketName);
+    }
+  }
+
   @Override
   public VectoredSeekableByteChannel openReadChannel(
       GcsItemInfo itemInfo, GcsReadOptions readOptions) throws IOException {

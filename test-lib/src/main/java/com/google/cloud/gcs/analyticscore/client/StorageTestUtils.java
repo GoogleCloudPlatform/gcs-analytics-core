@@ -32,4 +32,11 @@ public class StorageTestUtils {
     BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L);
     createBlobInStorage(storage, blobId, content);
   }
+
+  /** Creates an object with the given content at the given generation. */
+  public static void createBlobInStorage(
+      Storage storage, GcsItemId itemId, long generation, String content) {
+    BlobId blobId = BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), generation);
+    createBlobInStorage(storage, blobId, content);
+  }
 }
