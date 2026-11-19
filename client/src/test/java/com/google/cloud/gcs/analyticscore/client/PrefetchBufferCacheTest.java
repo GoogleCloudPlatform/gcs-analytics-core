@@ -309,21 +309,30 @@ class PrefetchBufferCacheTest {
     PrefetchBufferCache cache = newCache();
     RegisteredStream stream = cache.registerStream(itemId("object"));
     AtomicInteger otherRangePromotions = new AtomicInteger();
-    stream.registerRange(
-        4,
-        2,
-        CompletableFuture.completedFuture(bufferOf(new byte[2])),
-        otherRangePromotions::incrementAndGet);
+    registerInFlightCountingPromotions(stream, 4, new byte[2], otherRangePromotions);
     registerCompleted(stream, 3, new byte[6]);
-    stream.registerRange(
-        FIRST_RANGE_OFFSET,
-        COMBINED_RANGES.length,
-        CompletableFuture.completedFuture(bufferOf(COMBINED_RANGES)),
-        otherRangePromotions::incrementAndGet);
+    registerInFlightCountingPromotions(
+        stream, FIRST_RANGE_OFFSET, COMBINED_RANGES, otherRangePromotions);
 
     int unusedServedBytes = cache.serveFromCache(itemId("object"), 5, ByteBuffer.allocate(10));
 
     assertThat(otherRangePromotions.get()).isEqualTo(0);
+  }
+
+  @Test
+  void serveFromCache_windowCoveredByNestedAndEnclosingRanges_readsOnlyFromSmallerRange() {
+    PrefetchBufferCache cache = newCache();
+    RegisteredStream stream = cache.registerStream(itemId("object"));
+    AtomicInteger enclosingRangePromotions = new AtomicInteger();
+    registerCompleted(stream, SECOND_RANGE_OFFSET, SECOND_RANGE);
+    registerInFlightCountingPromotions(
+        stream, FIRST_RANGE_OFFSET, COMBINED_RANGES, enclosingRangePromotions);
+
+    int unusedServedBytes =
+        cache.serveFromCache(
+            itemId("object"), SECOND_RANGE_OFFSET, ByteBuffer.allocate(SECOND_RANGE.length));
+
+    assertThat(enclosingRangePromotions.get()).isEqualTo(0);
   }
 
   @Test
@@ -931,6 +940,25 @@ class PrefetchBufferCacheTest {
     assertThat(registered).isTrue();
   }
 
+  @Test
+  void registerRange_closedStreamWithFullCache_keepsIdleRangesOfOtherStreams() {
+    PrefetchBufferCache cache = newCacheWithFakeClock(/* maxSizeBytes= */ 8);
+    registerInFlight(cache.registerStream(itemId("other-object")), FIRST_RANGE_OFFSET, 8);
+    RegisteredStream closedStream = cache.registerStream(itemId("object"));
+    closedStream.close();
+    advanceFakeClock(TTL_SECONDS + 1);
+
+    registerInFlight(closedStream, FIRST_RANGE_OFFSET, 4);
+
+    assertThat(cache.isCovered(itemId("other-object"), FIRST_RANGE_OFFSET, 8)).isTrue();
+  }
+
+  @Test
+  void signatures_doNotExposeGuavaTypes() {
+    ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(
+        PrefetchBufferCache.class, RegisteredStream.class);
+  }
+
   private static PrefetchBufferCache newCache() {
     return newCache(MAX_SIZE_BYTES);
   }
@@ -960,6 +988,23 @@ class PrefetchBufferCacheTest {
 
   private static boolean registerInFlight(RegisteredStream stream, long offset, int length) {
     return stream.registerRange(offset, length, new CompletableFuture<>(), NO_PROMOTION);
+  }
+
+  /**
+   * Registers a range that is still downloading. When a reader starts waiting on the range, it
+   * counts the promotion and completes with {@code bytes}, so the reader never blocks.
+   */
+  private static void registerInFlightCountingPromotions(
+      RegisteredStream stream, long offset, byte[] bytes, AtomicInteger promotions) {
+    CompletableFuture<ByteBuffer> future = new CompletableFuture<>();
+    stream.registerRange(
+        offset,
+        bytes.length,
+        future,
+        () -> {
+          promotions.incrementAndGet();
+          future.complete(bufferOf(bytes));
+        });
   }
 
   private static void runOnAllWorkers(Runnable work) throws Exception {

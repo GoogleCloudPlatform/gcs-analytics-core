@@ -174,7 +174,9 @@ public final class PrefetchBufferCache {
   }
 
   private boolean offer(Entry entry, AtomicBoolean streamClosed) {
-    if (entry.range.getLength() > maxSizeBytes || downloadFailed(entry.range)) {
+    if (streamClosed.get()
+        || entry.range.getLength() > maxSizeBytes
+        || downloadFailed(entry.range)) {
       return false;
     }
     makeRoomFor(entry);
@@ -182,7 +184,8 @@ public final class PrefetchBufferCache {
     itemStates.computeIfPresent(
         entry.itemId,
         (id, state) -> {
-          // Read inside the compute, so a stream that has closed never stores a range.
+          // Read again inside the compute, so a stream that closes during this call never stores
+          // a range.
           admitted.set(!streamClosed.get() && admit(state, entry));
           return state;
         });
@@ -295,15 +298,22 @@ public final class PrefetchBufferCache {
           newlyConsumed,
           Collections.emptyMap());
     }
-    long earliestStart = earliestStartReaching(state, offset);
+    evictIfFullyConsumed(served);
     for (Entry entry : entriesStartingAtOrBefore(state, offset + length - 1)) {
-      if (entry.key.getStartOffset() < earliestStart) {
+      if (entry.key.getStartOffset() < earliestStartReaching(state, offset)) {
         break;
       }
-      int unused = entry.range.recordBytesConsumed(offset, length);
-      if (entry.range.isFullyConsumed()) {
-        evict(entry);
+      if (entry == served || entry.key.getEndOffset() <= offset) {
+        continue;
       }
+      int unused = entry.range.recordBytesConsumed(offset, length);
+      evictIfFullyConsumed(entry);
+    }
+  }
+
+  private void evictIfFullyConsumed(Entry entry) {
+    if (entry.range.isFullyConsumed()) {
+      evict(entry);
     }
   }
 
@@ -323,12 +333,11 @@ public final class PrefetchBufferCache {
   @Nullable
   private static Entry selectEntry(ItemState state, long offset, int length) {
     long endOffset = LongMath.saturatedAdd(offset, length);
-    long earliestStart = earliestStartReaching(state, offset);
     Entry smallestCovering = null;
     Entry furthestReaching = null;
     for (Entry entry : entriesStartingAtOrBefore(state, offset)) {
       RangeKey key = entry.key;
-      if (key.getStartOffset() < earliestStart) {
+      if (key.getStartOffset() < earliestStartReaching(state, offset)) {
         break;
       }
       if (key.getEndOffset() <= offset) {
@@ -357,7 +366,8 @@ public final class PrefetchBufferCache {
   /**
    * Returns the smallest start offset a range of the item can have and still hold the byte at
    * {@code offset}. No range of the item is longer than its {@code maxRangeLength}, which bounds
-   * every scan.
+   * every scan. A scan reads this bound for each range it visits, because a longer range can be
+   * registered while the scan runs.
    */
   private static long earliestStartReaching(ItemState state, long offset) {
     return offset - (state.maxRangeLength - 1);
