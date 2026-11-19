@@ -48,6 +48,15 @@ class GcsExceptionUtil {
   private static final String GENERATION_SEPARATOR = "#";
 
   /**
+   * Text that identifies a delete of a non-empty bucket in the GCS error message ("The bucket you
+   * tried to delete is not empty."). GCS reports this case as JSON 409 with the generic reason
+   * {@code conflict}, or as gRPC {@code FAILED_PRECONDITION} without an error reason, so the
+   * message is the only signal that separates it from other conflicts. Integration tests guard this
+   * match against changes to the server message.
+   */
+  private static final String BUCKET_NOT_EMPTY_MESSAGE_FRAGMENT = "not empty";
+
+  /**
    * Text that identifies a delete of a non-empty folder in the Storage Control error message ("The
    * folder you tried to delete is not empty."). Storage Control reports this case as {@code
    * FAILED_PRECONDITION} without an error reason, and also uses {@code FAILED_PRECONDITION} for
@@ -201,6 +210,61 @@ class GcsExceptionUtil {
       default:
         return new IOException(fallbackMessage, e);
     }
+  }
+
+  /**
+   * Translates a {@link StorageException} thrown during object deletion.
+   *
+   * <p>Callers handle 404 before calling this method: deleting a missing object is a no-op.
+   */
+  static IOException translateDeleteObjectException(StorageException e, GcsItemId itemId) {
+    checkNotNull(e, "StorageException should not be null");
+    checkNotNull(itemId, "itemId should not be null");
+    String location = formatLocation(itemId);
+    switch (getErrorType(e)) {
+      case ACCESS_DENIED:
+        // Report the plain object path, without "#<generation>", as
+        // AccessDeniedException#getFile().
+        return createAccessDeniedException(UriUtil.getStringPath(itemId), "object deletion", e);
+      case PRECONDITION_FAILED:
+        if (itemId.getContentGeneration().filter(generation -> generation > 0L).isPresent()) {
+          return new IOException(
+              String.format(
+                  "Generation mismatch for object %s. Concurrent modification detected.",
+                  UriUtil.getStringPath(itemId)),
+              e);
+        }
+        break;
+      default:
+        break;
+    }
+    return new IOException("Failed to delete object: " + location, e);
+  }
+
+  /** Translates a {@link StorageException} thrown during bucket deletion. */
+  static IOException translateDeleteBucketException(StorageException e, String bucketName) {
+    checkNotNull(e, "StorageException should not be null");
+    checkNotNull(bucketName, "bucketName should not be null");
+    String location = "gs://" + bucketName;
+    switch (getErrorType(e)) {
+      case NOT_FOUND:
+        return createBucketNotFoundException(bucketName, e);
+      case ACCESS_DENIED:
+        return createAccessDeniedException(location, "bucket deletion", e);
+      default:
+        if (isBucketNotEmptyException(e)) {
+          return (DirectoryNotEmptyException) new DirectoryNotEmptyException(location).initCause(e);
+        }
+        return new IOException("Failed to delete bucket: " + bucketName, e);
+    }
+  }
+
+  private static boolean isBucketNotEmptyException(StorageException e) {
+    return (e.getCode() == HttpURLConnection.HTTP_CONFLICT
+            || e.getCode() == HttpURLConnection.HTTP_PRECON_FAILED
+            || e.getCause() instanceof FailedPreconditionException)
+        && e.getMessage() != null
+        && e.getMessage().toLowerCase(Locale.ROOT).contains(BUCKET_NOT_EMPTY_MESSAGE_FRAGMENT);
   }
 
   /**
