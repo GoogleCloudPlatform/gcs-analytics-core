@@ -53,6 +53,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 // TODO: Setup buckets and test data as part of setup on place of relying on existing bucket.
+// TODO: Add integration tests for GcsClient#moveObject once GcsFileSystemImpl uses it.
 class GcsFileSystemImplIntegrationTest {
 
     private static final String GCS_INTEGRATION_TEST_BUCKET_PROPERTY = "gcs.integration.test.bucket";
