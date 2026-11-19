@@ -192,6 +192,44 @@ class GcsExceptionUtil {
   }
 
   /**
+   * Translates a {@link StorageException} thrown while moving the object {@code srcId} to {@code
+   * dstId}. Not-found and access-denied errors are reported for the source object.
+   *
+   * @param e the error returned by GCS
+   * @param srcId the object that was being moved
+   * @param dstId the new name of the object
+   * @return a {@link FileNotFoundException} for a 404, an {@link AccessDeniedException} for a 401
+   *     or 403, a {@link FileAlreadyExistsException} for a 412 when the only precondition sent was
+   *     a {@code 0} destination generation, and a generic {@link IOException} otherwise
+   */
+  static IOException translateMoveObjectException(
+      StorageException e, GcsItemId srcId, GcsItemId dstId) {
+    checkNotNull(e, "StorageException should not be null");
+    checkNotNull(srcId, "srcId should not be null");
+    checkNotNull(dstId, "dstId should not be null");
+    String failureMessage =
+        String.format(
+            "Failed to move %s to %s", UriUtil.getStringPath(srcId), UriUtil.getStringPath(dstId));
+    switch (getErrorType(e)) {
+      case NOT_FOUND:
+        return createFileNotFoundException(formatLocation(srcId), e);
+      case ACCESS_DENIED:
+        // Report the plain object path, without "#<generation>", as AccessDeniedException#getFile.
+        return createAccessDeniedException(UriUtil.getStringPath(srcId), "object move", e);
+      case PRECONDITION_FAILED:
+        // Without a source generation, a 0 destination generation is the only precondition sent.
+        if (srcId.getContentGeneration().isEmpty()
+            && dstId.getContentGeneration().equals(Optional.of(0L))) {
+          return createFileAlreadyExistsException(dstId, "Move destination already exists", e);
+        }
+        return new IOException(failureMessage + ": generation precondition failed", e);
+      default:
+        // 409 also covers gRPC ABORTED, so it does not mean that the destination exists.
+        return new IOException(failureMessage, e);
+    }
+  }
+
+  /**
    * Translates an exception thrown by the Storage Control API into the appropriate {@link
    * IOException} subtype ({@link FileAlreadyExistsException}, {@link FileNotFoundException}, {@link
    * AccessDeniedException}, or a generic {@link IOException} with {@code fallbackMessage}).

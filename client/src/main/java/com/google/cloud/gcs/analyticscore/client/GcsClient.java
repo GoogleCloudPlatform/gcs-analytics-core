@@ -46,6 +46,44 @@ public interface GcsClient {
       throws IOException;
 
   /**
+   * Moves an object to a new name in the same bucket (GCS {@code objects.move}).
+   *
+   * <p>The move is a server-side, metadata-only operation: no object bytes are copied. The object
+   * keeps its encryption, including a customer-supplied key: a move never re-encrypts.
+   *
+   * <p>The content generation of {@code srcId}, if present, is sent as a source generation
+   * precondition. The content generation of {@code dstId}, if present, is sent as a destination
+   * generation precondition, where {@code 0} means the destination object must not exist. Without a
+   * destination generation, an existing destination object is replaced.
+   *
+   * <p>The client library retries a move only when {@code dstId} has a generation. If an attempt
+   * moved the object but its response was lost, the retry finds no source object, so this method
+   * throws {@link FileNotFoundException} although the move succeeded. If the source name was
+   * re-created in between, the retry fails a generation precondition instead. A caller that needs
+   * to know whether the move happened must check the destination object, for example by comparing
+   * its checksum with the source's. A move without a destination generation is never retried.
+   *
+   * @param srcId the object to move
+   * @param dstId the new name of the object. It must be in the same bucket as {@code srcId}: the
+   *     GCS {@code objects.move} API only moves an object within its bucket.
+   * @throws IllegalArgumentException if {@code srcId} or {@code dstId} is not a GCS object, the two
+   *     IDs name different buckets or the same object, the source generation is not positive, or
+   *     the destination generation is negative
+   * @throws FileNotFoundException if the source object does not exist
+   * @throws FileAlreadyExistsException if {@code dstId} has generation {@code 0}, the destination
+   *     exists, and {@code srcId} has no generation. If {@code srcId} also has a generation, GCS
+   *     does not say which check failed, so a plain {@link IOException} is thrown.
+   * @throws AccessDeniedException if the caller is not allowed to move the object
+   * @throws IOException if any other generation precondition fails or the move fails for another
+   *     reason
+   * @see <a href="https://cloud.google.com/storage/docs/json_api/v1/objects/move">objects.move</a>
+   */
+  default void moveObject(GcsItemId srcId, GcsItemId dstId) throws IOException {
+    throw new UnsupportedOperationException(
+        "moveObject is not implemented by " + getClass().getName());
+  }
+
+  /**
    * Fetches metadata for the given GCS object.
    *
    * <p>This method supports GCS objects only. A missing object is reported by raising a {@link

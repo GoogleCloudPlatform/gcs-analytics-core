@@ -727,6 +727,149 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void translateMoveObjectException_notFound_returnsFileNotFoundExceptionForSource() {
+    StorageException notFound = new StorageException(404, "Not Found");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            notFound, moveObjectId("src"), moveObjectId("dst"));
+
+    assertThat(exception).isInstanceOf(FileNotFoundException.class);
+    assertThat(exception).hasMessageThat().contains("gs://" + BUCKET + "/src");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(notFound);
+  }
+
+  @Test
+  void translateMoveObjectException_forbidden_returnsAccessDeniedExceptionForSource() {
+    StorageException forbidden = new StorageException(403, "Forbidden");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            forbidden, moveObjectId("src"), moveObjectId("dst"));
+
+    assertThat(exception).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/src");
+    assertThat(exception).hasMessageThat().contains("Access denied during object move: Forbidden");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(forbidden);
+  }
+
+  @Test
+  void translateMoveObjectException_unauthorized_returnsAccessDeniedException() {
+    StorageException unauthorized = new StorageException(401, "Unauthorized");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            unauthorized, moveObjectId("src"), moveObjectId("dst"));
+
+    assertThat(exception).isInstanceOf(AccessDeniedException.class);
+    assertThat(exception).hasCauseThat().isSameInstanceAs(unauthorized);
+  }
+
+  @Test
+  void translateMoveObjectException_forbiddenWithSourceGeneration_fileHasNoGeneration() {
+    StorageException forbidden = new StorageException(403, "Forbidden");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            forbidden, moveObjectId("src", 7L), moveObjectId("dst"));
+
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/src");
+  }
+
+  @Test
+  void
+      translateMoveObjectException_preconditionFailedWithOnlyZeroDestinationGeneration_returnsFileAlreadyExists() {
+    StorageException preconditionFailed = new StorageException(412, "Precondition Failed");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            preconditionFailed, moveObjectId("src"), moveObjectId("dst", 0L));
+
+    assertThat(exception).isInstanceOf(FileAlreadyExistsException.class);
+    assertThat(((FileAlreadyExistsException) exception).getFile())
+        .isEqualTo("gs://" + BUCKET + "/dst");
+    assertThat(((FileAlreadyExistsException) exception).getReason())
+        .isEqualTo("Move destination already exists");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(preconditionFailed);
+  }
+
+  @Test
+  void translateMoveObjectException_preconditionFailedWithSourceGeneration_returnsIOException() {
+    StorageException preconditionFailed = new StorageException(412, "Precondition Failed");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            preconditionFailed, moveObjectId("src", 7L), moveObjectId("dst", 0L));
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed to move gs://"
+                + BUCKET
+                + "/src to gs://"
+                + BUCKET
+                + "/dst: generation precondition failed");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(preconditionFailed);
+  }
+
+  @Test
+  void
+      translateMoveObjectException_preconditionFailedWithPositiveDestinationGeneration_returnsIOException() {
+    StorageException preconditionFailed = new StorageException(412, "Precondition Failed");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            preconditionFailed, moveObjectId("src"), moveObjectId("dst", 5L));
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception).hasMessageThat().endsWith(": generation precondition failed");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(preconditionFailed);
+  }
+
+  @Test
+  void translateMoveObjectException_conflict_returnsIOExceptionNotFileAlreadyExists() {
+    StorageException conflict = new StorageException(409, "Conflict");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            conflict, moveObjectId("src"), moveObjectId("dst", 0L));
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Failed to move gs://" + BUCKET + "/src to gs://" + BUCKET + "/dst");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(conflict);
+  }
+
+  @Test
+  void translateMoveObjectException_serverError_returnsIOExceptionWithCause() {
+    StorageException serverError = new StorageException(500, "Internal Error");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            serverError, moveObjectId("src"), moveObjectId("dst"));
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Failed to move gs://" + BUCKET + "/src to gs://" + BUCKET + "/dst");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(serverError);
+  }
+
+  private static GcsItemId moveObjectId(String objectName) {
+    return GcsItemId.builder().setBucketName(BUCKET).setObjectName(objectName).build();
+  }
+
+  private static GcsItemId moveObjectId(String objectName, long generation) {
+    return GcsItemId.builder()
+        .setBucketName(BUCKET)
+        .setObjectName(objectName)
+        .setContentGeneration(generation)
+        .build();
+  }
+
+  @Test
   void constructor_isPrivate() throws Exception {
     Constructor<GcsExceptionUtil> constructor = GcsExceptionUtil.class.getDeclaredConstructor();
 
