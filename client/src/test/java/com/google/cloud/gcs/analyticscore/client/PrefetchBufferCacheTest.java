@@ -336,6 +336,51 @@ class PrefetchBufferCacheTest {
   }
 
   @Test
+  void serveFromCache_downloadedEnclosingAndInFlightNestedRanges_readsOnlyFromDownloadedRange() {
+    PrefetchBufferCache cache = newCache();
+    RegisteredStream stream = cache.registerStream(itemId("object"));
+    AtomicInteger nestedRangePromotions = new AtomicInteger();
+    registerInFlightCountingPromotions(
+        stream, SECOND_RANGE_OFFSET, SECOND_RANGE, nestedRangePromotions);
+    registerCompleted(stream, FIRST_RANGE_OFFSET, COMBINED_RANGES);
+
+    int unusedServedBytes =
+        cache.serveFromCache(
+            itemId("object"), SECOND_RANGE_OFFSET, ByteBuffer.allocate(SECOND_RANGE.length));
+
+    assertThat(nestedRangePromotions.get()).isEqualTo(0);
+  }
+
+  @Test
+  void serveFromCache_inFlightRangesWithSameStart_readsOnlyFromSmallerRange() {
+    PrefetchBufferCache cache = newCache();
+    RegisteredStream stream = cache.registerStream(itemId("object"));
+    AtomicInteger largerRangePromotions = new AtomicInteger();
+    registerInFlightCountingPromotions(
+        stream, FIRST_RANGE_OFFSET, FIRST_RANGE, new AtomicInteger());
+    registerInFlightCountingPromotions(
+        stream, FIRST_RANGE_OFFSET, COMBINED_RANGES, largerRangePromotions);
+
+    int unusedServedBytes =
+        cache.serveFromCache(
+            itemId("object"), FIRST_RANGE_OFFSET, ByteBuffer.allocate(FIRST_RANGE.length));
+
+    assertThat(largerRangePromotions.get()).isEqualTo(0);
+  }
+
+  @Test
+  void serveFromCache_earlierRangeEndsBeforeRead_keepsEarlierRange() {
+    PrefetchBufferCache cache = newCache();
+    RegisteredStream stream = cache.registerStream(itemId("object"));
+    registerCompleted(stream, FIRST_RANGE_OFFSET, new byte[] {1, 2});
+    registerCompleted(stream, 2, new byte[] {3, 4, 5, 6, 7, 8});
+
+    int unusedServedBytes = cache.serveFromCache(itemId("object"), 4, ByteBuffer.allocate(2));
+
+    assertThat(cache.isCovered(itemId("object"), FIRST_RANGE_OFFSET, 2)).isTrue();
+  }
+
+  @Test
   void serveFromCache_inFlightRange_runsPromotionCallback() {
     PrefetchBufferCache cache = newCache();
     AtomicBoolean promoted = new AtomicBoolean();
@@ -938,6 +983,28 @@ class PrefetchBufferCacheTest {
     boolean registered = registerInFlight(stream, FIRST_RANGE_OFFSET, 4);
 
     assertThat(registered).isTrue();
+  }
+
+  @Test
+  void registerRange_streamClosesDuringCall_returnsFalse() {
+    PrefetchBufferCache cache = newCache();
+    RegisteredStream unusedOpenStream = cache.registerStream(itemId("object"));
+    RegisteredStream closingStream = cache.registerStream(itemId("object"));
+    // The cache checks the download after it first checks the stream, so this future closes the
+    // stream in the middle of the call.
+    CompletableFuture<ByteBuffer> futureThatClosesStream =
+        new CompletableFuture<ByteBuffer>() {
+          @Override
+          public boolean isDone() {
+            closingStream.close();
+            return super.isDone();
+          }
+        };
+
+    boolean registered =
+        closingStream.registerRange(FIRST_RANGE_OFFSET, 4, futureThatClosesStream, NO_PROMOTION);
+
+    assertThat(registered).isFalse();
   }
 
   @Test

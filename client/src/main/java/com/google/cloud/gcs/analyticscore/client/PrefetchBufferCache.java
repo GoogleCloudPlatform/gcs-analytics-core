@@ -48,9 +48,10 @@ import javax.annotation.Nullable;
  * it is still downloading stops counting toward the limit, and its download is not cancelled.
  *
  * <p>A small range may be cached alongside a larger range that contains it, for example a
- * dictionary page next to the whole column chunk. A read is served by the smallest range covering
- * it, so it never waits on a larger download it does not need. Bytes that a read copies are marked
- * as consumed on every range that holds them.
+ * dictionary page next to the whole column chunk. A read is served by a covering range that is
+ * already downloaded if there is one, and otherwise by the smallest range covering it, so it never
+ * waits on a download it does not need. Bytes that a read copies are marked as consumed on every
+ * range that holds them.
  *
  * <p>A stored range leaves the cache when every one of its bytes has been consumed, when its
  * download fails or returns the wrong number of bytes, or when the last stream on its object
@@ -153,7 +154,7 @@ public final class PrefetchBufferCache {
   public boolean isCovered(GcsItemId itemId, long offset, int length) {
     checkNotNull(itemId, "itemId cannot be null");
     ItemState state = itemStates.get(itemId);
-    return state != null && length >= 0 && findSmallestCovering(state, offset, length) != null;
+    return state != null && length >= 0 && findCovering(state, offset, length) != null;
   }
 
   /** Discards all cached ranges. Open streams stay registered. */
@@ -211,8 +212,7 @@ public final class PrefetchBufferCache {
 
   private boolean admit(ItemState state, Entry entry) {
     CachedRange range = entry.range;
-    boolean covered =
-        findSmallestCovering(state, range.getStartOffset(), range.getLength()) != null;
+    boolean covered = findCovering(state, range.getStartOffset(), range.getLength()) != null;
     if (covered || !tryReserve(range.getLength())) {
       return false;
     }
@@ -318,7 +318,7 @@ public final class PrefetchBufferCache {
   }
 
   @Nullable
-  private static Entry findSmallestCovering(ItemState state, long offset, int length) {
+  private static Entry findCovering(ItemState state, long offset, int length) {
     Entry selected = selectEntry(state, offset, length);
     boolean covers =
         selected != null && selected.key.getEndOffset() >= LongMath.saturatedAdd(offset, length);
@@ -326,14 +326,14 @@ public final class PrefetchBufferCache {
   }
 
   /**
-   * Returns the smallest range covering {@code [offset, offset + length)}, or else the range
+   * Returns the preferred range covering {@code [offset, offset + length)}, or else the range
    * holding the byte at {@code offset} that reaches furthest, so a stitched read uses as few
    * segments as possible. Returns {@code null} if no range holds the byte at {@code offset}.
    */
   @Nullable
   private static Entry selectEntry(ItemState state, long offset, int length) {
     long endOffset = LongMath.saturatedAdd(offset, length);
-    Entry smallestCovering = null;
+    Entry covering = null;
     Entry furthestReaching = null;
     for (Entry entry : entriesStartingAtOrBefore(state, offset)) {
       RangeKey key = entry.key;
@@ -345,11 +345,27 @@ public final class PrefetchBufferCache {
       }
       if (key.getEndOffset() < endOffset) {
         furthestReaching = furtherReaching(furthestReaching, entry);
-      } else if (smallestCovering == null || key.getLength() < smallestCovering.key.getLength()) {
-        smallestCovering = entry;
+      } else {
+        covering = preferredCovering(covering, entry);
       }
     }
-    return smallestCovering != null ? smallestCovering : furthestReaching;
+    return covering != null ? covering : furthestReaching;
+  }
+
+  /**
+   * Prefers a range whose download has finished, so a read does not wait while its bytes are
+   * already in memory, and then the shorter range. A finished download that failed is evicted by
+   * the read that picks it, and that read then selects again.
+   */
+  private static Entry preferredCovering(@Nullable Entry current, Entry candidate) {
+    if (current == null) {
+      return candidate;
+    }
+    boolean candidateDownloaded = candidate.range.getFuture().isDone();
+    if (candidateDownloaded != current.range.getFuture().isDone()) {
+      return candidateDownloaded ? candidate : current;
+    }
+    return candidate.key.getLength() < current.key.getLength() ? candidate : current;
   }
 
   private static Entry furtherReaching(@Nullable Entry current, Entry candidate) {
