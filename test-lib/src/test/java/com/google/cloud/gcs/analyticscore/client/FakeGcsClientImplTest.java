@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.InvalidArgumentException;
 import com.google.api.gax.rpc.NotFoundException;
+import com.google.api.gax.rpc.UnimplementedException;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
@@ -34,13 +35,18 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.storage.control.v2.CreateFolderRequest;
+import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
+import com.google.storage.control.v2.ListFoldersRequest;
 import com.google.storage.control.v2.StorageControlClient;
+import com.google.storage.control.v2.StorageControlClient.ListFoldersPagedResponse;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -718,6 +724,25 @@ class FakeGcsClientImplTest {
   }
 
   @Test
+  void deleteFolder_childObjectUnderLeadingSlashFolder_throwsDirectoryNotEmptyException()
+      throws IOException {
+    String bucketName = "hns-leading-slash-bucket";
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName(bucketName).setObjectName("/dir/").build();
+    fakeGcsClient.createFolder(folderId, true);
+    putBlob(bucketName, "/dir/child.parquet", "data");
+
+    try {
+      assertThrows(DirectoryNotEmptyException.class, () -> fakeGcsClient.deleteFolder(folderId));
+
+      assertThat(folderExists(bucketName, "/dir/")).isTrue();
+    } finally {
+      // FakeGcsClientImpl.storage is shared across the JVM; don't leak the object into other tests.
+      FakeGcsClientImpl.storage.delete(BlobId.of(bucketName, "/dir/child.parquet"));
+    }
+  }
+
+  @Test
   void deleteFolder_emptySegmentFolder_deletesThatFolderNotParent() throws IOException {
     String bucketName = "hns-empty-segment-bucket";
     fakeGcsClient
@@ -757,6 +782,176 @@ class FakeGcsClientImplTest {
     IOException e = assertThrows(IOException.class, () -> fakeGcsClient.deleteFolder(folderId));
 
     assertThat(e).hasMessageThat().isEqualTo("StorageControlClient is closed");
+  }
+
+  @Test
+  void listFolders_prefix_returnsPrefixFolderAndDescendantsInUtf8Order() throws IOException {
+    String bucketName = "hns-list-bucket";
+    // U+FB01 sorts before U+1F600 by UTF-8 bytes, but after it by UTF-16 code units.
+    String[] createdOutOfOrder = {
+      "dir/b/", "dir/\uD83D\uDE00/", "dir/a/x/", "dir/B/", "dir/\uFB01/", "dir/a b/", "dir2/"
+    };
+    for (String folder : createdOutOfOrder) {
+      fakeGcsClient.createFolder(id(bucketName, folder), true);
+    }
+
+    List<GcsItemInfo> folders = fakeGcsClient.listFolders(id(bucketName, "dir"));
+
+    assertThat(folderNames(folders))
+        .containsExactly(
+            "dir/",
+            "dir/B/",
+            "dir/a b/",
+            "dir/a/",
+            "dir/a/x/",
+            "dir/b/",
+            "dir/\uFB01/",
+            "dir/\uD83D\uDE00/")
+        .inOrder();
+  }
+
+  @Test
+  void listFolders_bucket_returnsOnlyFoldersOfThatBucket() throws IOException {
+    fakeGcsClient.createFolder(id("hns-list-all-bucket", "b/"), false);
+    fakeGcsClient.createFolder(id("hns-list-all-bucket", "a/"), false);
+    fakeGcsClient.createFolder(id("hns-list-all-bucket2", "c/"), false);
+    GcsItemId bucketId = GcsItemId.builder().setBucketName("hns-list-all-bucket").build();
+
+    List<GcsItemInfo> folders = fakeGcsClient.listFolders(bucketId);
+
+    assertThat(folderNames(folders)).containsExactly("a/", "b/").inOrder();
+  }
+
+  @Test
+  void listFolders_noMatchingFolder_returnsEmptyList() throws IOException {
+    fakeGcsClient.createFolder(id("hns-list-empty-bucket", "other/"), false);
+
+    List<GcsItemInfo> folders = fakeGcsClient.listFolders(id("hns-list-empty-bucket", "missing/"));
+
+    assertThat(folders).isEmpty();
+  }
+
+  @Test
+  void listFolders_moreFoldersThanOnePage_returnsAllFolders() throws IOException {
+    String bucketName = "hns-list-two-pages-bucket";
+    createNumberedFolders(bucketName, "big/", 1000);
+
+    List<GcsItemInfo> folders = fakeGcsClient.listFolders(id(bucketName, "big/"));
+
+    assertThat(folders).hasSize(1001);
+  }
+
+  @Test
+  void listFolders_pageSizeAboveLimit_returnsOneThousandFoldersPerPage() throws IOException {
+    String bucketName = "hns-list-limit-bucket";
+    createNumberedFolders(bucketName, "big/", 1000);
+    ListFoldersRequest request =
+        ListFoldersRequest.newBuilder()
+            .setParent("projects/_/buckets/" + bucketName)
+            .setPrefix("big/")
+            .setPageSize(5000)
+            .build();
+
+    ListFoldersPagedResponse response =
+        fakeGcsClient.lazyGetStorageControlClient().listFolders(request);
+
+    assertThat(response.getPage().getValues()).hasSize(1000);
+    assertThat(response.getNextPageToken()).isNotEmpty();
+  }
+
+  @Test
+  void listFolders_pageSizeSmallerThanResult_pagesThroughAllFoldersInOrder() throws IOException {
+    String bucketName = "hns-list-paging-bucket";
+    for (String folder : new String[] {"p/c/", "p/a/", "p/d/", "p/b/"}) {
+      fakeGcsClient.createFolder(id(bucketName, folder), true);
+    }
+    ListFoldersRequest request =
+        ListFoldersRequest.newBuilder()
+            .setParent("projects/_/buckets/" + bucketName)
+            .setPrefix("p/")
+            .setPageSize(2)
+            .build();
+
+    ListFoldersPagedResponse response =
+        fakeGcsClient.lazyGetStorageControlClient().listFolders(request);
+
+    assertThat(folderPaths(response.getPage().getValues())).containsExactly("p/", "p/a/").inOrder();
+    assertThat(folderPaths(response.iterateAll()))
+        .containsExactly("p/", "p/a/", "p/b/", "p/c/", "p/d/")
+        .inOrder();
+  }
+
+  @TestFactory
+  Stream<DynamicTest> listFolders_invalidRequest_throwsExpectedException() {
+    ListFoldersRequest valid =
+        ListFoldersRequest.newBuilder()
+            .setParent("projects/_/buckets/hns-list-invalid-bucket")
+            .build();
+    return Stream.of(
+        listFoldersThrows(
+            "parentWithoutBucketPrefix",
+            InvalidArgumentException.class,
+            valid.toBuilder().setParent("hns-list-invalid-bucket").build()),
+        listFoldersThrows(
+            "prefixWithoutTrailingSlash",
+            InvalidArgumentException.class,
+            valid.toBuilder().setPrefix("dir").build()),
+        listFoldersThrows(
+            "negativePageSize",
+            InvalidArgumentException.class,
+            valid.toBuilder().setPageSize(-1).build()),
+        listFoldersThrows(
+            "invalidPageToken",
+            InvalidArgumentException.class,
+            valid.toBuilder().setPageToken("garbage").build()),
+        listFoldersThrows(
+            "delimiter", UnimplementedException.class, valid.toBuilder().setDelimiter("/").build()),
+        listFoldersThrows(
+            "lexicographicStart",
+            UnimplementedException.class,
+            valid.toBuilder().setLexicographicStart("a/").build()),
+        listFoldersThrows(
+            "lexicographicEnd",
+            UnimplementedException.class,
+            valid.toBuilder().setLexicographicEnd("b/").build()));
+  }
+
+  private DynamicTest listFoldersThrows(
+      String name, Class<? extends Throwable> type, ListFoldersRequest request) {
+    return dynamicTest(
+        name,
+        () -> {
+          StorageControlClient controlClient = fakeGcsClient.lazyGetStorageControlClient();
+
+          assertThrows(type, () -> controlClient.listFolders(request));
+        });
+  }
+
+  /** Creates {@code parent} and {@code count} folders directly below it. */
+  private void createNumberedFolders(String bucketName, String parent, int count)
+      throws IOException {
+    fakeGcsClient.createFolder(id(bucketName, parent), false);
+    for (int i = 0; i < count; i++) {
+      fakeGcsClient.createFolder(id(bucketName, String.format("%sf%04d/", parent, i)), false);
+    }
+  }
+
+  private static List<String> folderNames(List<GcsItemInfo> folders) {
+    List<String> names = new ArrayList<>();
+    for (GcsItemInfo folder : folders) {
+      names.add(folder.getItemId().getObjectName().orElse(""));
+    }
+    return names;
+  }
+
+  /** Returns the folder paths, the part of each resource name after {@code /folders/}. */
+  private static List<String> folderPaths(Iterable<Folder> folders) {
+    List<String> paths = new ArrayList<>();
+    for (Folder folder : folders) {
+      String name = folder.getName();
+      paths.add(name.substring(name.indexOf("/folders/") + "/folders/".length()));
+    }
+    return paths;
   }
 
   /** Looks a folder up by its exact name, bypassing GcsClient name handling. */
