@@ -67,6 +67,7 @@ import com.google.storage.control.v2.CreateFolderRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.FolderName;
 import com.google.storage.control.v2.GetFolderRequest;
+import com.google.storage.control.v2.ListFoldersRequest;
 import com.google.storage.control.v2.StorageControlClient;
 import com.google.storage.control.v2.StorageControlSettings;
 import java.io.IOException;
@@ -133,6 +134,12 @@ class GcsClientImpl implements GcsClient {
   /** Every {@link GcsListOptions.ListField}, for converting blobs fetched without a projection. */
   private static final Set<GcsListOptions.ListField> ALL_LIST_FIELDS =
       Sets.immutableEnumSet(EnumSet.allOf(GcsListOptions.ListField.class));
+
+  // Storage Control parent resource name prefix for a bucket; the bucket name follows it.
+  private static final String STORAGE_CONTROL_BUCKET_PARENT_PREFIX = "projects/_/buckets/";
+  // Requested ListFolders page size, as in hadoop-connectors ListFolderOptions.DEFAULT. GCS
+  // currently caps each page at 1,000 folders, so listFolders fetches every page.
+  private static final int LIST_FOLDERS_PAGE_SIZE = 5000;
 
   @VisibleForTesting Storage storage;
   @VisibleForTesting volatile Storage grpcStorage;
@@ -357,6 +364,81 @@ class GcsClientImpl implements GcsClient {
     } catch (Exception e) {
       throw new IOException("Failed to get folder info for: " + itemId, e);
     }
+  }
+
+  @Override
+  public List<GcsItemInfo> listFolders(GcsItemId prefixId) throws IOException {
+    checkNotNull(prefixId, "prefixId must not be null");
+    checkArgument(
+        !prefixId.getBucketName().isEmpty(),
+        "prefixId must have a non-empty bucket name but got: %s",
+        prefixId);
+    String bucketName = prefixId.getBucketName();
+    String objectName = prefixId.getObjectName().orElse("");
+    // Errors name the listed location without the content generation, which listing ignores.
+    GcsItemId listedId =
+        GcsItemId.builder().setBucketName(bucketName).setObjectName(objectName).build();
+    String parent = STORAGE_CONTROL_BUCKET_PARENT_PREFIX + bucketName;
+    ListFoldersRequest.Builder request =
+        ListFoldersRequest.newBuilder().setParent(parent).setPageSize(LIST_FOLDERS_PAGE_SIZE);
+    if (!objectName.isEmpty()) {
+      // ListFolders only accepts prefixes that end with '/'.
+      request.setPrefix(UriUtil.toDirectoryPath(objectName));
+    }
+
+    String folderResourcePrefix = parent + "/folders/";
+    ImmutableList.Builder<GcsItemInfo> folders = ImmutableList.builder();
+    try {
+      // iterateAll() fetches the remaining pages lazily, so iteration errors are translated too.
+      Iterable<Folder> allFolders =
+          lazyGetStorageControlClient().listFolders(request.build()).iterateAll();
+      for (Folder folder : allFolders) {
+        GcsItemId folderId = toFolderItemId(folder, bucketName, folderResourcePrefix, listedId);
+        folders.add(fromFolder(folder, folderId));
+      }
+    } catch (NotFoundException e) {
+      // ListFolders returns NOT_FOUND only when the bucket itself does not exist.
+      throw GcsExceptionUtil.createBucketNotFoundException(bucketName, e);
+    } catch (Exception e) {
+      throw GcsExceptionUtil.translateControlException(
+          e, listedId, "Failed to list folders under: " + UriUtil.getStringPath(listedId));
+    }
+    return folders.build();
+  }
+
+  /**
+   * Returns the directory-form item ID of a folder returned by ListFolders.
+   *
+   * <p>Takes the folder path verbatim after {@code folderResourcePrefix}, as hadoop-connectors
+   * FolderInfo does. {@code FolderName.parse} would trim whitespace around every '/' and so misname
+   * such folders.
+   *
+   * @param folder the folder returned by ListFolders
+   * @param bucketName the listed bucket
+   * @param folderResourcePrefix the {@code projects/_/buckets/<bucket>/folders/} resource prefix
+   * @param listedId the listed location, used in the error message
+   * @return the folder's item ID, whose object name ends with {@code /}
+   * @throws IOException if the folder resource name is not a non-empty folder path under {@code
+   *     folderResourcePrefix}
+   */
+  private static GcsItemId toFolderItemId(
+      Folder folder, String bucketName, String folderResourcePrefix, GcsItemId listedId)
+      throws IOException {
+    String resourceName = folder.getName();
+    String folderPath =
+        resourceName.startsWith(folderResourcePrefix)
+            ? resourceName.substring(folderResourcePrefix.length())
+            : "";
+    if (folderPath.isEmpty()) {
+      throw new IOException(
+          String.format(
+              "Unexpected folder resource name '%s' when listing folders under: %s",
+              resourceName, UriUtil.getStringPath(listedId)));
+    }
+    return GcsItemId.builder()
+        .setBucketName(bucketName)
+        .setObjectName(UriUtil.toDirectoryPath(folderPath))
+        .build();
   }
 
   @VisibleForTesting
@@ -914,7 +996,7 @@ class GcsClientImpl implements GcsClient {
     checkArgument(!folderName.isEmpty(), "Folder name cannot be empty");
     CreateFolderRequest request =
         CreateFolderRequest.newBuilder()
-            .setParent(String.format("projects/_/buckets/%s", itemId.getBucketName()))
+            .setParent(STORAGE_CONTROL_BUCKET_PARENT_PREFIX + itemId.getBucketName())
             .setFolderId(folderName)
             .setRecursive(recursive)
             .build();
