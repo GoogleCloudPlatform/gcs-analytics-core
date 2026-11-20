@@ -220,6 +220,26 @@ class GcsRetryOptionsTest {
   }
 
   @Test
+  void createFromOptions_nullOptions_throwsNullPointerException() {
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class, () -> GcsRetryOptions.createFromOptions(null, PREFIX));
+
+    assertThat(e).hasMessageThat().contains("analyticsCoreOptions cannot be null");
+  }
+
+  @Test
+  void createFromOptions_nullPrefix_throwsNullPointerException() {
+    Map<String, String> options = ImmutableMap.of();
+
+    NullPointerException e =
+        assertThrows(
+            NullPointerException.class, () -> GcsRetryOptions.createFromOptions(options, null));
+
+    assertThat(e).hasMessageThat().contains("prefix cannot be null");
+  }
+
+  @Test
   void build_invalidMaxAttempts_reportsUnprefixedKey() {
     GcsRetryOptions.Builder builder = GcsRetryOptions.builder().setMaxAttempts(0);
 
