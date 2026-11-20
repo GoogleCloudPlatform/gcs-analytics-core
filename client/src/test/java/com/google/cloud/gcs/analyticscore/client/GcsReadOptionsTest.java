@@ -20,9 +20,13 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.collect.ImmutableMap;
+import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -30,6 +34,7 @@ class GcsReadOptionsTest {
 
   private static final int KB = 1024;
   private static final int MB = 1024 * KB;
+  private static final String TEST_DECRYPTION_KEY = "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=";
 
   @Test
   void createFromOptions_withAllProperties_shouldCreateCorrectOptions() {
@@ -167,5 +172,119 @@ class GcsReadOptionsTest {
     GcsReadOptions readOptions = GcsReadOptions.createFromOptions(properties, "gcs.");
 
     assertThat(readOptions.isBidiReadEnabled()).isTrue();
+  }
+
+  @Test
+  @ResourceLock(Resources.LOCALE)
+  void createFromOptions_underTurkishLocale_parsesFileAccessPatternCorrectly() {
+    Map<String, String> properties =
+        ImmutableMap.of("gcs.analytics-core.read.file-access-pattern", "sequential");
+    Locale previousLocale = Locale.getDefault();
+    try {
+      Locale.setDefault(new Locale("tr", "TR"));
+      GcsReadOptions readOptions = GcsReadOptions.createFromOptions(properties, "gcs.");
+      assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.SEQUENTIAL);
+    } finally {
+      Locale.setDefault(previousLocale);
+    }
+  }
+
+  @Test
+  void createFromOptions_withWhitespacePaddedValues_trimsAndParsesCorrectly() {
+    Map<String, String> properties =
+        ImmutableMap.<String, String>builder()
+            .put("gcs.channel.read.chunk-size-bytes", "  8192  ")
+            .put("gcs.decryption-key", "  " + TEST_DECRYPTION_KEY + "\n")
+            .put("gcs.user-project", "  project-123  ")
+            .put("gcs.analytics-core.footer.prefetch.enabled", "  true  ")
+            .put("gcs.analytics-core.small-file.footer.prefetch.size-bytes", "  41943  ")
+            .put("gcs.analytics-core.large-file.footer.prefetch.size-bytes", "  4194304  ")
+            .put("gcs.analytics-core.small-file.cache.threshold-bytes", "  102400  ")
+            .put("gcs.analytics-core.read.bidi.enabled", "  true  ")
+            .put("gcs.analytics-core.read.bidi.timeout-seconds", "  30  ")
+            .put("gcs.analytics-core.read.inplace-seek-limit-bytes", "  16777216  ")
+            .put("gcs.analytics-core.read.file-access-pattern", "  random  ")
+            .put("gcs.analytics-core.adaptive-read.sequential-read-threshold", "  5  ")
+            .put("gcs.analytics-core.random-read.min-request-size", "  65536  ")
+            .build();
+
+    GcsReadOptions readOptions = GcsReadOptions.createFromOptions(properties, "gcs.");
+
+    assertThat(readOptions.getChunkSize()).hasValue(8192);
+    assertThat(readOptions.getDecryptionKey()).hasValue(TEST_DECRYPTION_KEY);
+    assertThat(readOptions.getUserProjectId()).hasValue("project-123");
+    assertThat(readOptions.isFooterPrefetchEnabled()).isTrue();
+    assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(41943);
+    assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(4194304);
+    assertThat(readOptions.getSmallObjectCacheThresholdBytes()).isEqualTo(102400);
+    assertThat(readOptions.isBidiReadEnabled()).isTrue();
+    assertThat(readOptions.getBidiTimeout()).isEqualTo(30);
+    assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(16777216);
+    assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.RANDOM);
+    assertThat(readOptions.getAdaptiveReadSequentialReadThreshold()).isEqualTo(5);
+    assertThat(readOptions.getRandomReadMinRequestSize()).isEqualTo(65536);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", "   ", "\t\n"})
+  void createFromOptions_withBlankValues_retainsDefaults(String blankValue) {
+    Map<String, String> properties =
+        ImmutableMap.<String, String>builder()
+            .put("gcs.channel.read.chunk-size-bytes", blankValue)
+            .put("gcs.decryption-key", blankValue)
+            .put("gcs.user-project", blankValue)
+            .put("gcs.analytics-core.footer.prefetch.enabled", blankValue)
+            .put("gcs.analytics-core.small-file.footer.prefetch.size-bytes", blankValue)
+            .put("gcs.analytics-core.large-file.footer.prefetch.size-bytes", blankValue)
+            .put("gcs.analytics-core.small-file.cache.threshold-bytes", blankValue)
+            .put("gcs.analytics-core.read.bidi.enabled", blankValue)
+            .put("gcs.analytics-core.read.bidi.timeout-seconds", blankValue)
+            .put("gcs.analytics-core.read.inplace-seek-limit-bytes", blankValue)
+            .put("gcs.analytics-core.read.file-access-pattern", blankValue)
+            .put("gcs.analytics-core.adaptive-read.sequential-read-threshold", blankValue)
+            .put("gcs.analytics-core.random-read.min-request-size", blankValue)
+            .build();
+
+    GcsReadOptions readOptions = GcsReadOptions.createFromOptions(properties, "gcs.");
+
+    assertDefaultOptions(readOptions);
+  }
+
+  @Test
+  void createFromOptions_withNullMapValues_retainsDefaults() {
+    Map<String, String> properties = new HashMap<>();
+    properties.put("gcs.channel.read.chunk-size-bytes", null);
+    properties.put("gcs.decryption-key", null);
+    properties.put("gcs.user-project", null);
+    properties.put("gcs.analytics-core.footer.prefetch.enabled", null);
+    properties.put("gcs.analytics-core.small-file.footer.prefetch.size-bytes", null);
+    properties.put("gcs.analytics-core.large-file.footer.prefetch.size-bytes", null);
+    properties.put("gcs.analytics-core.small-file.cache.threshold-bytes", null);
+    properties.put("gcs.analytics-core.read.bidi.enabled", null);
+    properties.put("gcs.analytics-core.read.bidi.timeout-seconds", null);
+    properties.put("gcs.analytics-core.read.inplace-seek-limit-bytes", null);
+    properties.put("gcs.analytics-core.read.file-access-pattern", null);
+    properties.put("gcs.analytics-core.adaptive-read.sequential-read-threshold", null);
+    properties.put("gcs.analytics-core.random-read.min-request-size", null);
+
+    GcsReadOptions readOptions = GcsReadOptions.createFromOptions(properties, "gcs.");
+
+    assertDefaultOptions(readOptions);
+  }
+
+  private static void assertDefaultOptions(GcsReadOptions readOptions) {
+    assertThat(readOptions.getChunkSize()).isEmpty();
+    assertThat(readOptions.getDecryptionKey()).isEmpty();
+    assertThat(readOptions.getUserProjectId()).isEmpty();
+    assertThat(readOptions.isFooterPrefetchEnabled()).isTrue();
+    assertThat(readOptions.getFooterPrefetchSizeSmallFile()).isEqualTo(50 * KB);
+    assertThat(readOptions.getFooterPrefetchSizeLargeFile()).isEqualTo(MB);
+    assertThat(readOptions.getSmallObjectCacheThresholdBytes()).isEqualTo(MB);
+    assertThat(readOptions.isBidiReadEnabled()).isFalse();
+    assertThat(readOptions.getBidiTimeout()).isEqualTo(10);
+    assertThat(readOptions.getInplaceSeekLimit()).isEqualTo(128 * KB);
+    assertThat(readOptions.getFileAccessPattern()).isEqualTo(FileAccessPattern.AUTO_SEQUENTIAL);
+    assertThat(readOptions.getAdaptiveReadSequentialReadThreshold()).isEqualTo(3);
+    assertThat(readOptions.getRandomReadMinRequestSize()).isEqualTo(128 * KB);
   }
 }
