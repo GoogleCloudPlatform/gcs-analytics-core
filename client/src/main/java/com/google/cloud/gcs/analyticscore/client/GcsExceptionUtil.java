@@ -56,6 +56,15 @@ class GcsExceptionUtil {
    */
   private static final String BUCKET_NOT_EMPTY_MESSAGE_FRAGMENT = "not empty";
 
+  /**
+   * Text that identifies a delete of a non-empty folder in the Storage Control error message ("The
+   * folder you tried to delete is not empty."). Storage Control reports this case as {@code
+   * FAILED_PRECONDITION} without an error reason, and also uses {@code FAILED_PRECONDITION} for
+   * other failures (for example a bucket without hierarchical namespace), so the message is the
+   * only signal that separates them.
+   */
+  private static final String FOLDER_NOT_EMPTY_MESSAGE_FRAGMENT = "not empty";
+
   private GcsExceptionUtil() {}
 
   enum ErrorType {
@@ -294,6 +303,27 @@ class GcsExceptionUtil {
         // 409 also covers gRPC ABORTED, so it does not mean that the destination exists.
         return new IOException(failureMessage, e);
     }
+  }
+
+  /**
+   * Translates an exception thrown by the Storage Control API during folder deletion, mapping
+   * non-empty {@link FailedPreconditionException} failures to {@link DirectoryNotEmptyException}
+   * with the original exception preserved as its cause.
+   */
+  static IOException translateDeleteFolderException(Exception e, GcsItemId itemId) {
+    checkNotNull(e, "Exception should not be null");
+    checkNotNull(itemId, "itemId should not be null");
+    String location = formatLocation(itemId);
+    if (e instanceof FailedPreconditionException && isFolderNotEmptyException(e)) {
+      return (DirectoryNotEmptyException) new DirectoryNotEmptyException(location).initCause(e);
+    }
+    return translateControlException(e, itemId, "Failed to delete folder: " + location);
+  }
+
+  private static boolean isFolderNotEmptyException(Exception e) {
+    String message = e.getMessage();
+    return message != null
+        && message.toLowerCase(Locale.ROOT).contains(FOLDER_NOT_EMPTY_MESSAGE_FRAGMENT);
   }
 
   /**

@@ -28,6 +28,7 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageException;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
 import com.google.common.base.Supplier;
+import com.google.storage.control.v2.StorageControlClient;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -75,6 +76,11 @@ public class FakeGcsClientImpl extends GcsClientImpl {
   @Override
   protected Storage createGrpcStorage(Optional<Credentials> credentials) {
     return storage;
+  }
+
+  @Override
+  protected StorageControlClient createStorageControlClient(Optional<Credentials> credentials) {
+    return StorageControlClient.create(new FakeStorageControlStub(storage));
   }
 
   @Override

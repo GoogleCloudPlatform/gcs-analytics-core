@@ -583,6 +583,45 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void translateDeleteFolderException_nonEmptyPrecondition_returnsDirectoryNotEmptyException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    FailedPreconditionException nonEmptyCause = Mockito.mock(FailedPreconditionException.class);
+    Mockito.when(nonEmptyCause.getMessage())
+        .thenReturn("The folder you tried to delete is not empty.");
+
+    IOException e = GcsExceptionUtil.translateDeleteFolderException(nonEmptyCause, folderId);
+
+    assertThat(e).isInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(((DirectoryNotEmptyException) e).getFile()).isEqualTo("gs://" + BUCKET + "/dir/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(nonEmptyCause);
+  }
+
+  @Test
+  void translateDeleteFolderException_otherPrecondition_returnsGenericIOException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    FailedPreconditionException otherPrecondition = Mockito.mock(FailedPreconditionException.class);
+    Mockito.when(otherPrecondition.getMessage()).thenReturn("Hierarchical namespace not enabled");
+
+    IOException e = GcsExceptionUtil.translateDeleteFolderException(otherPrecondition, folderId);
+
+    assertThat(e).isNotInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(e).hasMessageThat().isEqualTo("Failed to delete folder: gs://" + BUCKET + "/dir/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(otherPrecondition);
+  }
+
+  @Test
+  void translateDeleteFolderException_preconditionWithNullMessage_returnsGenericIOException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    FailedPreconditionException nullMessageCause = Mockito.mock(FailedPreconditionException.class);
+
+    IOException e = GcsExceptionUtil.translateDeleteFolderException(nullMessageCause, folderId);
+
+    assertThat(e).isNotInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(e).hasMessageThat().isEqualTo("Failed to delete folder: gs://" + BUCKET + "/dir/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(nullMessageCause);
+  }
+
+  @Test
   void createFileAlreadyExistsException_setsFormattedLocationAndCause() {
     GcsItemId itemId =
         GcsItemId.builder()

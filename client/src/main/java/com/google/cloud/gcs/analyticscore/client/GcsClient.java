@@ -260,6 +260,34 @@ public interface GcsClient {
   void createFolder(GcsItemId itemId, boolean recursive) throws IOException;
 
   /**
+   * Deletes a single empty native folder in a Hierarchical Namespace (HNS) enabled bucket.
+   *
+   * <p>The folder must be empty: objects and subfolders under it are not deleted. {@code folderId}
+   * may name the folder with or without a trailing slash. Any {@link
+   * GcsItemId#getContentGeneration()} on {@code folderId} is ignored, as GCS folders do not support
+   * content generations.
+   *
+   * <p>Deleting a folder that does not exist is a no-op, so retries and concurrent deletes of the
+   * same folder succeed. Callers that must report a missing path should check that it exists first.
+   *
+   * <p>The default implementation throws {@link UnsupportedOperationException}.
+   *
+   * @param folderId the identity of the folder to delete
+   * @throws IllegalArgumentException if {@code folderId} is not an object path (for example the
+   *     root or a bucket) or its folder name is empty (object name {@code "/"})
+   * @throws AccessDeniedException if the caller is unauthenticated or not allowed to delete the
+   *     folder
+   * @throws DirectoryNotEmptyException if the folder is not empty (the original {@code
+   *     FAILED_PRECONDITION} exception is kept as the cause)
+   * @throws IOException if the folder cannot be deleted for another reason, such as another {@code
+   *     FAILED_PRECONDITION} or RPC error (the original exception is kept as the cause)
+   */
+  default void deleteFolder(GcsItemId folderId) throws IOException {
+    throw new UnsupportedOperationException(
+        "deleteFolder is not implemented by " + getClass().getName());
+  }
+
+  /**
    * Fetches bucket capability properties (such as HNS and Rapid storage class).
    *
    * <p>If bucket metadata cannot be retrieved because the caller lacks bucket-level permissions

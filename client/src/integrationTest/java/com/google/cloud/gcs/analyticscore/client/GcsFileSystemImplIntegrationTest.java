@@ -15,6 +15,7 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import com.google.api.gax.rpc.NotFoundException;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
@@ -23,6 +24,7 @@ import com.google.cloud.storage.StorageOptions;
 import com.google.common.base.CharMatcher;
 import com.google.common.collect.ImmutableMap;
 import com.google.storage.control.v2.DeleteFolderRequest;
+import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
 import java.io.FileNotFoundException;
 import java.nio.channels.WritableByteChannel;
@@ -641,6 +643,50 @@ class GcsFileSystemImplIntegrationTest {
                             () -> hnsFileSystem.mkdirs(subdirUri));
             assertThat(exception.getFile()).isEqualTo(ctx.uri.toString() + "/subdir/");
             assertThat(exception.getOtherFile()).isEqualTo(ctx.uri.toString());
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void deleteFolder_folderNameWithLeadingSpace_deletesOnlyThatFolder() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        String rootFolder = "test-delete-folder-" + UUID.randomUUID();
+        String spaceFolder = rootFolder + "/ dir/";
+        String plainFolder = rootFolder + "/dir/";
+        foldersToDelete.add("projects/_/buckets/" + bucketName + "/folders/" + rootFolder);
+        foldersToDelete.add("projects/_/buckets/" + bucketName + "/folders/" + spaceFolder);
+        foldersToDelete.add("projects/_/buckets/" + bucketName + "/folders/" + plainFolder);
+        GcsItemId spaceFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(spaceFolder).build();
+        GcsItemId plainFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(plainFolder).build();
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+                .setHnsApiEnabled(true)
+                .build();
+        try (GcsFileSystemImpl hnsFileSystem = new GcsFileSystemImpl(options)) {
+            GcsClient gcsClient = hnsFileSystem.getGcsClient();
+            gcsClient.createFolder(spaceFolderId, true);
+            gcsClient.createFolder(plainFolderId, true);
+
+            gcsClient.deleteFolder(spaceFolderId);
+
+            try (StorageControlClient controlClient = StorageControlClient.create()) {
+                String foldersPrefix = "projects/_/buckets/" + bucketName + "/folders/";
+                assertThrows(
+                        NotFoundException.class,
+                        () -> controlClient.getFolder(
+                                GetFolderRequest.newBuilder()
+                                        .setName(foldersPrefix + spaceFolder)
+                                        .build()));
+                assertThat(
+                                controlClient
+                                        .getFolder(
+                                                GetFolderRequest.newBuilder()
+                                                        .setName(foldersPrefix + plainFolder)
+                                                        .build())
+                                        .getName())
+                        .isEqualTo(foldersPrefix + plainFolder);
+            }
         }
     }
 
