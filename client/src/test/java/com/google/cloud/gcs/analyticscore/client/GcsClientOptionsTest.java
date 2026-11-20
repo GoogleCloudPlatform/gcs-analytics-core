@@ -22,8 +22,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class GcsClientOptionsTest {
 
@@ -52,6 +57,7 @@ class GcsClientOptionsTest {
         .isEqualTo(GcsClientOptions.PartFileCleanupType.ALWAYS);
     assertThat(options.getPcuPartFileNamePrefix()).isEmpty();
     assertThat(options.getTemporaryPaths()).isEmpty();
+    assertThat(options.getBatchThreads()).isEqualTo(15);
   }
 
   @Test
@@ -70,6 +76,7 @@ class GcsClientOptionsTest {
             .setPcuPartFileCleanupType(GcsClientOptions.PartFileCleanupType.ON_SUCCESS)
             .setPcuPartFileNamePrefix("temp-prefix-")
             .setTemporaryPaths(ImmutableList.of("/tmp/path1", "/tmp/path2"))
+            .setBatchThreads(8)
             .build();
 
     assertThat(options.getProjectId()).hasValue("test-project");
@@ -86,6 +93,7 @@ class GcsClientOptionsTest {
         .isEqualTo(GcsClientOptions.PartFileCleanupType.ON_SUCCESS);
     assertThat(options.getPcuPartFileNamePrefix()).isEqualTo("temp-prefix-");
     assertThat(options.getTemporaryPaths()).containsExactly("/tmp/path1", "/tmp/path2").inOrder();
+    assertThat(options.getBatchThreads()).isEqualTo(8);
   }
 
   @Test
@@ -104,6 +112,7 @@ class GcsClientOptionsTest {
             .put("gcs.channel.write.pcu.part-file.cleanup-type", "on_success")
             .put("gcs.channel.write.pcu.part-file.name-prefix", "temp-prefix-")
             .put("gcs.channel.write.temporary-paths", "/tmp/path1, /tmp/path2")
+            .put("gcs.batch.threads", "8")
             .build();
 
     GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
@@ -122,6 +131,7 @@ class GcsClientOptionsTest {
         .isEqualTo(GcsClientOptions.PartFileCleanupType.ON_SUCCESS);
     assertThat(options.getPcuPartFileNamePrefix()).isEqualTo("temp-prefix-");
     assertThat(options.getTemporaryPaths()).containsExactly("/tmp/path1", "/tmp/path2").inOrder();
+    assertThat(options.getBatchThreads()).isEqualTo(8);
   }
 
   @Test
@@ -161,6 +171,109 @@ class GcsClientOptionsTest {
   @Test
   void createFromOptions_withOverflowingPcuBufferCapacity_throwsIllegalArgumentException() {
     assertOverflowThrows("gcs.channel.write.pcu.buffer.capacity-bytes");
+  }
+
+  @Test
+  void createFromOptions_withOverflowingBatchThreads_throwsIllegalArgumentException() {
+    assertOverflowThrows("gcs.batch.threads");
+  }
+
+  @Test
+  void createFromOptions_withZeroBatchThreads_allowsDirectExecutorMode() {
+    GcsClientOptions options =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.batch.threads", "0"), "gcs.");
+
+    assertThat(options.getBatchThreads()).isEqualTo(0);
+  }
+
+  @Test
+  void createFromOptions_withWhitespaceBatchThreads_parsesCorrectly() {
+    GcsClientOptions options =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.batch.threads", "  12  "), "gcs.");
+
+    assertThat(options.getBatchThreads()).isEqualTo(12);
+  }
+
+  @Test
+  void createFromOptions_withEmptyOrBlankBatchThreads_retainsDefault() {
+    GcsClientOptions emptyOptions =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.batch.threads", ""), "gcs.");
+    GcsClientOptions blankOptions =
+        GcsClientOptions.createFromOptions(ImmutableMap.of("gcs.batch.threads", "   "), "gcs.");
+
+    assertThat(emptyOptions.getBatchThreads()).isEqualTo(15);
+    assertThat(blankOptions.getBatchThreads()).isEqualTo(15);
+  }
+
+  @Test
+  void createFromOptions_withExcessiveBatchThreads_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.batch.threads", String.valueOf(GcsClientOptions.MAX_BATCH_THREADS + 1));
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsClientOptions.createFromOptions(rawOptions, "gcs."));
+
+    assertThat(exception).hasMessageThat().contains("batch.threads must be at most");
+  }
+
+  @Test
+  void builder_withZeroBatchThreads_buildsSuccessfully() {
+    GcsClientOptions options = GcsClientOptions.builder().setBatchThreads(0).build();
+
+    assertThat(options.getBatchThreads()).isEqualTo(0);
+  }
+
+  @Test
+  void builder_withMaxBatchThreads_buildsSuccessfully() {
+    GcsClientOptions options =
+        GcsClientOptions.builder().setBatchThreads(GcsClientOptions.MAX_BATCH_THREADS).build();
+
+    assertThat(options.getBatchThreads()).isEqualTo(GcsClientOptions.MAX_BATCH_THREADS);
+  }
+
+  @Test
+  void builder_withNegativeBatchThreads_throwsIllegalArgumentException() {
+    GcsClientOptions.Builder builder = GcsClientOptions.builder().setBatchThreads(-1);
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception).hasMessageThat().contains("batch.threads must be non-negative");
+  }
+
+  @Test
+  void createFromOptions_withNegativeBatchThreads_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.batch.threads", "-1");
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsClientOptions.createFromOptions(rawOptions, "gcs."));
+
+    assertThat(exception).hasMessageThat().contains("batch.threads must be non-negative");
+  }
+
+  @Test
+  void builder_withExcessiveBatchThreads_throwsIllegalArgumentException() {
+    GcsClientOptions.Builder builder =
+        GcsClientOptions.builder().setBatchThreads(GcsClientOptions.MAX_BATCH_THREADS + 1);
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, builder::build);
+
+    assertThat(exception).hasMessageThat().contains("batch.threads must be at most");
+  }
+
+  @Test
+  void createFromOptions_withNonNumericBatchThreads_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.batch.threads", "not-a-number");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> GcsClientOptions.createFromOptions(rawOptions, "gcs."));
   }
 
   private void assertOverflowThrows(String key) {
@@ -278,6 +391,111 @@ class GcsClientOptionsTest {
                 .setMaxAttempts(11)
                 .setTotalTimeout(Duration.ofMinutes(1))
                 .build());
+  }
+
+  @Test
+  void createFromOptions_withWhitespaceAndMixedCaseEnums_parsesCorrectly() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.channel.write.upload-type", "  Parallel-Composite-Upload  ",
+            "gcs.channel.write.pcu.part-file.cleanup-type", "\tOn-Success\n");
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getUploadType())
+        .isEqualTo(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD);
+    assertThat(options.getPcuPartFileCleanupType())
+        .isEqualTo(GcsClientOptions.PartFileCleanupType.ON_SUCCESS);
+  }
+
+  @Test
+  void createFromOptions_withUnknownUploadType_throwsIllegalArgumentException() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of("gcs.channel.write.upload-type", "invalid-upload");
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GcsClientOptions.createFromOptions(rawOptions, "gcs."));
+
+    assertThat(exception).hasMessageThat().contains("INVALID_UPLOAD");
+  }
+
+  @Test
+  void createFromOptions_withBlankCleanupType_retainsDefault() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of("gcs.channel.write.pcu.part-file.cleanup-type", "   ");
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getPcuPartFileCleanupType())
+        .isEqualTo(GcsClientOptions.PartFileCleanupType.ALWAYS);
+  }
+
+  @Test
+  void createFromOptions_withBlankUploadType_retainsDefault() {
+    Map<String, String> rawOptions = ImmutableMap.of("gcs.channel.write.upload-type", "   ");
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getUploadType()).isEqualTo(GcsClientOptions.UploadType.CHUNK_UPLOAD);
+  }
+
+  @Test
+  @ResourceLock(Resources.LOCALE)
+  void createFromOptions_withTurkishDefaultLocale_parsesEnumsCorrectly() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.client.protocol", "bidi",
+            "gcs.channel.write.upload-type", "parallel-composite-upload",
+            "gcs.channel.write.pcu.part-file.cleanup-type", "on-success");
+    Locale previousLocale = Locale.getDefault();
+    GcsClientOptions options;
+    try {
+      Locale.setDefault(new Locale("tr", "TR"));
+      options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+    } finally {
+      Locale.setDefault(previousLocale);
+    }
+
+    assertThat(options.getProtocol()).isEqualTo(GcsClientOptions.Protocol.BIDI);
+    assertThat(options.getUploadType())
+        .isEqualTo(GcsClientOptions.UploadType.PARALLEL_COMPOSITE_UPLOAD);
+    assertThat(options.getPcuPartFileCleanupType())
+        .isEqualTo(GcsClientOptions.PartFileCleanupType.ON_SUCCESS);
+  }
+
+  @Test
+  void createFromOptions_withWhitespaceNumericWriteOptions_parsesCorrectly() {
+    Map<String, String> rawOptions =
+        ImmutableMap.of(
+            "gcs.channel.write.chunk-size-bytes", "  " + MB + "  ",
+            "gcs.channel.write.pcu.buffer.count", "\t4\n",
+            "gcs.channel.write.pcu.buffer.capacity-bytes", "  " + (64 * MB) + "  ");
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options.getUploadChunkSize()).isEqualTo(MB);
+    assertThat(options.getPcuBufferCount()).isEqualTo(4);
+    assertThat(options.getPcuBufferCapacity()).isEqualTo(64 * MB);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", "   "})
+  void createFromOptions_withEmptyOrBlankOptions_retainsDefaults(String blankValue) {
+    Map<String, String> rawOptions =
+        ImmutableMap.<String, String>builder()
+            .put("gcs.client.protocol", blankValue)
+            .put("gcs.channel.write.chunk-size-bytes", blankValue)
+            .put("gcs.channel.write.upload-type", blankValue)
+            .put("gcs.channel.write.pcu.buffer.count", blankValue)
+            .put("gcs.channel.write.pcu.buffer.capacity-bytes", blankValue)
+            .put("gcs.channel.write.pcu.part-file.cleanup-type", blankValue)
+            .build();
+
+    GcsClientOptions options = GcsClientOptions.createFromOptions(rawOptions, "gcs.");
+
+    assertThat(options).isEqualTo(GcsClientOptions.builder().build());
   }
 
   private static GcsClientOptions.Protocol protocolFor(String value) {

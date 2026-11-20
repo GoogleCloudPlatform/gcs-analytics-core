@@ -15,8 +15,12 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.auto.value.AutoValue;
+import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
 import java.util.Map;
+import java.util.Optional;
 
 /** Configuration options for Gcs vectored read. */
 @AutoValue
@@ -43,14 +47,23 @@ public abstract class GcsVectoredReadOptions {
 
   public static GcsVectoredReadOptions createFromOptions(
       Map<String, String> analyticsCoreOptions, String prefix) {
+    checkNotNull(analyticsCoreOptions, "analyticsCoreOptions cannot be null");
+    checkNotNull(prefix, "prefix cannot be null");
+
     Builder optionsBuilder = builder();
-    if (analyticsCoreOptions.containsKey(prefix + MAX_MERGE_GAP_KEY)) {
+    String maxMergeGapKey = prefix + MAX_MERGE_GAP_KEY;
+    Optional<String> maxMergeGap =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, maxMergeGapKey);
+    if (maxMergeGap.isPresent()) {
       optionsBuilder.setMaxMergeGap(
-          Integer.parseInt(analyticsCoreOptions.get(prefix + MAX_MERGE_GAP_KEY)));
+          ConfigurationUtil.safeParseInteger(maxMergeGapKey, maxMergeGap.get()));
     }
-    if (analyticsCoreOptions.containsKey(prefix + MAX_MERGE_SIZE_KEY)) {
+    String maxMergeSizeKey = prefix + MAX_MERGE_SIZE_KEY;
+    Optional<String> maxMergeSize =
+        ConfigurationUtil.getTrimmedValue(analyticsCoreOptions, maxMergeSizeKey);
+    if (maxMergeSize.isPresent()) {
       optionsBuilder.setMaxMergeSize(
-          Integer.parseInt(analyticsCoreOptions.get(prefix + MAX_MERGE_SIZE_KEY)));
+          ConfigurationUtil.safeParseInteger(maxMergeSizeKey, maxMergeSize.get()));
     }
 
     return optionsBuilder.build();
@@ -60,7 +73,7 @@ public abstract class GcsVectoredReadOptions {
   @AutoValue.Builder
   abstract static class Builder {
 
-    abstract Builder setMaxMergeGap(int minMergeDistance);
+    abstract Builder setMaxMergeGap(int maxMergeGap);
 
     abstract Builder setMaxMergeSize(int maxMergeSize);
 

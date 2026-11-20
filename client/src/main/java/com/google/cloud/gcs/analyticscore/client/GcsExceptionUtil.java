@@ -19,6 +19,7 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.api.gax.rpc.UnauthenticatedException;
@@ -28,7 +29,9 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.Locale;
 import java.util.Optional;
 
 /** Centralized utility for classifying GCS transport exceptions. */
@@ -43,6 +46,24 @@ class GcsExceptionUtil {
 
   /** Separator introducing a versioned object's content generation. */
   private static final String GENERATION_SEPARATOR = "#";
+
+  /**
+   * Text that identifies a delete of a non-empty bucket in the GCS error message ("The bucket you
+   * tried to delete is not empty."). GCS reports this case as JSON 409 with the generic reason
+   * {@code conflict}, or as gRPC {@code FAILED_PRECONDITION} without an error reason, so the
+   * message is the only signal that separates it from other conflicts. Integration tests guard this
+   * match against changes to the server message.
+   */
+  private static final String BUCKET_NOT_EMPTY_MESSAGE_FRAGMENT = "not empty";
+
+  /**
+   * Text that identifies a delete of a non-empty folder in the Storage Control error message ("The
+   * folder you tried to delete is not empty."). Storage Control reports this case as {@code
+   * FAILED_PRECONDITION} without an error reason, and also uses {@code FAILED_PRECONDITION} for
+   * other failures (for example a bucket without hierarchical namespace), so the message is the
+   * only signal that separates them.
+   */
+  private static final String FOLDER_NOT_EMPTY_MESSAGE_FRAGMENT = "not empty";
 
   private GcsExceptionUtil() {}
 
@@ -189,6 +210,120 @@ class GcsExceptionUtil {
       default:
         return new IOException(fallbackMessage, e);
     }
+  }
+
+  /**
+   * Translates a {@link StorageException} thrown during object deletion.
+   *
+   * <p>Callers handle 404 before calling this method: deleting a missing object is a no-op.
+   */
+  static IOException translateDeleteObjectException(StorageException e, GcsItemId itemId) {
+    checkNotNull(e, "StorageException should not be null");
+    checkNotNull(itemId, "itemId should not be null");
+    String location = formatLocation(itemId);
+    switch (getErrorType(e)) {
+      case ACCESS_DENIED:
+        // Report the plain object path, without "#<generation>", as
+        // AccessDeniedException#getFile().
+        return createAccessDeniedException(UriUtil.getStringPath(itemId), "object deletion", e);
+      case PRECONDITION_FAILED:
+        if (itemId.getContentGeneration().filter(generation -> generation > 0L).isPresent()) {
+          return new IOException(
+              String.format(
+                  "Generation mismatch for object %s. Concurrent modification detected.",
+                  UriUtil.getStringPath(itemId)),
+              e);
+        }
+        break;
+      default:
+        break;
+    }
+    return new IOException("Failed to delete object: " + location, e);
+  }
+
+  /** Translates a {@link StorageException} thrown during bucket deletion. */
+  static IOException translateDeleteBucketException(StorageException e, String bucketName) {
+    checkNotNull(e, "StorageException should not be null");
+    checkNotNull(bucketName, "bucketName should not be null");
+    String location = "gs://" + bucketName;
+    switch (getErrorType(e)) {
+      case NOT_FOUND:
+        return createBucketNotFoundException(bucketName, e);
+      case ACCESS_DENIED:
+        return createAccessDeniedException(location, "bucket deletion", e);
+      default:
+        if (isBucketNotEmptyException(e)) {
+          return (DirectoryNotEmptyException) new DirectoryNotEmptyException(location).initCause(e);
+        }
+        return new IOException("Failed to delete bucket: " + bucketName, e);
+    }
+  }
+
+  private static boolean isBucketNotEmptyException(StorageException e) {
+    return (e.getCode() == HttpURLConnection.HTTP_CONFLICT
+            || e.getCode() == HttpURLConnection.HTTP_PRECON_FAILED
+            || e.getCause() instanceof FailedPreconditionException)
+        && e.getMessage() != null
+        && e.getMessage().toLowerCase(Locale.ROOT).contains(BUCKET_NOT_EMPTY_MESSAGE_FRAGMENT);
+  }
+
+  /**
+   * Translates a {@link StorageException} thrown while moving the object {@code srcId} to {@code
+   * dstId}. Not-found and access-denied errors are reported for the source object.
+   *
+   * @param e the error returned by GCS
+   * @param srcId the object that was being moved
+   * @param dstId the new name of the object
+   * @return a {@link FileNotFoundException} for a 404, an {@link AccessDeniedException} for a 401
+   *     or 403, a {@link FileAlreadyExistsException} for a 412 when the only precondition sent was
+   *     a {@code 0} destination generation, and a generic {@link IOException} otherwise
+   */
+  static IOException translateMoveObjectException(
+      StorageException e, GcsItemId srcId, GcsItemId dstId) {
+    checkNotNull(e, "StorageException should not be null");
+    checkNotNull(srcId, "srcId should not be null");
+    checkNotNull(dstId, "dstId should not be null");
+    String failureMessage =
+        String.format(
+            "Failed to move %s to %s", UriUtil.getStringPath(srcId), UriUtil.getStringPath(dstId));
+    switch (getErrorType(e)) {
+      case NOT_FOUND:
+        return createFileNotFoundException(formatLocation(srcId), e);
+      case ACCESS_DENIED:
+        // Report the plain object path, without "#<generation>", as AccessDeniedException#getFile.
+        return createAccessDeniedException(UriUtil.getStringPath(srcId), "object move", e);
+      case PRECONDITION_FAILED:
+        // Without a source generation, a 0 destination generation is the only precondition sent.
+        if (srcId.getContentGeneration().isEmpty()
+            && dstId.getContentGeneration().equals(Optional.of(0L))) {
+          return createFileAlreadyExistsException(dstId, "Move destination already exists", e);
+        }
+        return new IOException(failureMessage + ": generation precondition failed", e);
+      default:
+        // 409 also covers gRPC ABORTED, so it does not mean that the destination exists.
+        return new IOException(failureMessage, e);
+    }
+  }
+
+  /**
+   * Translates an exception thrown by the Storage Control API during folder deletion, mapping
+   * non-empty {@link FailedPreconditionException} failures to {@link DirectoryNotEmptyException}
+   * with the original exception preserved as its cause.
+   */
+  static IOException translateDeleteFolderException(Exception e, GcsItemId itemId) {
+    checkNotNull(e, "Exception should not be null");
+    checkNotNull(itemId, "itemId should not be null");
+    String location = formatLocation(itemId);
+    if (e instanceof FailedPreconditionException && isFolderNotEmptyException(e)) {
+      return (DirectoryNotEmptyException) new DirectoryNotEmptyException(location).initCause(e);
+    }
+    return translateControlException(e, itemId, "Failed to delete folder: " + location);
+  }
+
+  private static boolean isFolderNotEmptyException(Exception e) {
+    String message = e.getMessage();
+    return message != null
+        && message.toLowerCase(Locale.ROOT).contains(FOLDER_NOT_EMPTY_MESSAGE_FRAGMENT);
   }
 
   /**
@@ -347,6 +482,26 @@ class GcsExceptionUtil {
     return (FileNotFoundException)
         new FileNotFoundException(String.format(BUCKET_NOT_FOUND_MESSAGE_FORMAT, bucketName))
             .initCause(cause);
+  }
+
+  /**
+   * Creates a {@link FileNotFoundException} for a bucket that does not exist, wrapping a Storage
+   * Control {@link NotFoundException} inside a synthetic 404 {@link StorageException} as its cause.
+   *
+   * @param bucketName the name of the bucket that was not found
+   * @param cause the Storage Control NotFoundException returned by GCS
+   * @return a FileNotFoundException whose cause is a 404 StorageException chaining to {@code cause}
+   */
+  static FileNotFoundException createBucketNotFoundException(
+      String bucketName, NotFoundException cause) {
+    checkNotNull(bucketName, "bucketName should not be null");
+    checkNotNull(cause, "cause should not be null");
+    return createBucketNotFoundException(
+        bucketName,
+        new StorageException(
+            HttpURLConnection.HTTP_NOT_FOUND,
+            String.format(BUCKET_NOT_FOUND_MESSAGE_FORMAT, bucketName),
+            cause));
   }
 
   /**

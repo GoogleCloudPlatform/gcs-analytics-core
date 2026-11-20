@@ -20,6 +20,7 @@ import static com.google.cloud.gcs.analyticscore.client.GcsExceptionUtil.ErrorTy
 import static com.google.common.truth.Truth.assertThat;
 
 import com.google.api.gax.rpc.AlreadyExistsException;
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
 import com.google.api.gax.rpc.UnauthenticatedException;
@@ -30,9 +31,14 @@ import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mockito;
 
 class GcsExceptionUtilTest {
@@ -577,6 +583,45 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void translateDeleteFolderException_nonEmptyPrecondition_returnsDirectoryNotEmptyException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    FailedPreconditionException nonEmptyCause = Mockito.mock(FailedPreconditionException.class);
+    Mockito.when(nonEmptyCause.getMessage())
+        .thenReturn("The folder you tried to delete is not empty.");
+
+    IOException e = GcsExceptionUtil.translateDeleteFolderException(nonEmptyCause, folderId);
+
+    assertThat(e).isInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(((DirectoryNotEmptyException) e).getFile()).isEqualTo("gs://" + BUCKET + "/dir/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(nonEmptyCause);
+  }
+
+  @Test
+  void translateDeleteFolderException_otherPrecondition_returnsGenericIOException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    FailedPreconditionException otherPrecondition = Mockito.mock(FailedPreconditionException.class);
+    Mockito.when(otherPrecondition.getMessage()).thenReturn("Hierarchical namespace not enabled");
+
+    IOException e = GcsExceptionUtil.translateDeleteFolderException(otherPrecondition, folderId);
+
+    assertThat(e).isNotInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(e).hasMessageThat().isEqualTo("Failed to delete folder: gs://" + BUCKET + "/dir/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(otherPrecondition);
+  }
+
+  @Test
+  void translateDeleteFolderException_preconditionWithNullMessage_returnsGenericIOException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    FailedPreconditionException nullMessageCause = Mockito.mock(FailedPreconditionException.class);
+
+    IOException e = GcsExceptionUtil.translateDeleteFolderException(nullMessageCause, folderId);
+
+    assertThat(e).isNotInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(e).hasMessageThat().isEqualTo("Failed to delete folder: gs://" + BUCKET + "/dir/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(nullMessageCause);
+  }
+
+  @Test
   void createFileAlreadyExistsException_setsFormattedLocationAndCause() {
     GcsItemId itemId =
         GcsItemId.builder()
@@ -660,6 +705,29 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void createBucketNotFoundException_fromNotFoundException_returnsBucketNotFoundMessage() {
+    NotFoundException cause = Mockito.mock(NotFoundException.class);
+
+    FileNotFoundException exception = GcsExceptionUtil.createBucketNotFoundException(BUCKET, cause);
+
+    assertThat(exception).hasMessageThat().isEqualTo("Bucket not found: " + BUCKET);
+    assertThat(exception.getCause()).isInstanceOf(StorageException.class);
+    assertThat(((StorageException) exception.getCause()).getCode()).isEqualTo(404);
+    assertThat(exception.getCause().getCause()).isSameInstanceAs(cause);
+  }
+
+  @Test
+  void createBucketNotFoundException_fromNotFoundException_isClassifiedAsNotFound() {
+    NotFoundException cause = Mockito.mock(NotFoundException.class);
+
+    FileNotFoundException exception = GcsExceptionUtil.createBucketNotFoundException(BUCKET, cause);
+    ErrorType errorType =
+        GcsExceptionUtil.getErrorType(GcsExceptionUtil.getStorageException(exception).get());
+
+    assertThat(errorType).isEqualTo(ErrorType.NOT_FOUND);
+  }
+
+  @Test
   void createAccessDeniedException_keepsGivenErrorAsCause() {
     StorageException cause = new StorageException(403, "Forbidden");
 
@@ -704,9 +772,274 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void translateMoveObjectException_notFound_returnsFileNotFoundExceptionForSource() {
+    StorageException notFound = new StorageException(404, "Not Found");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            notFound, moveObjectId("src"), moveObjectId("dst"));
+
+    assertThat(exception).isInstanceOf(FileNotFoundException.class);
+    assertThat(exception).hasMessageThat().contains("gs://" + BUCKET + "/src");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(notFound);
+  }
+
+  @Test
+  void translateMoveObjectException_forbidden_returnsAccessDeniedExceptionForSource() {
+    StorageException forbidden = new StorageException(403, "Forbidden");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            forbidden, moveObjectId("src"), moveObjectId("dst"));
+
+    assertThat(exception).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/src");
+    assertThat(exception).hasMessageThat().contains("Access denied during object move: Forbidden");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(forbidden);
+  }
+
+  @Test
+  void translateMoveObjectException_unauthorized_returnsAccessDeniedException() {
+    StorageException unauthorized = new StorageException(401, "Unauthorized");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            unauthorized, moveObjectId("src"), moveObjectId("dst"));
+
+    assertThat(exception).isInstanceOf(AccessDeniedException.class);
+    assertThat(exception).hasCauseThat().isSameInstanceAs(unauthorized);
+  }
+
+  @Test
+  void translateMoveObjectException_forbiddenWithSourceGeneration_fileHasNoGeneration() {
+    StorageException forbidden = new StorageException(403, "Forbidden");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            forbidden, moveObjectId("src", 7L), moveObjectId("dst"));
+
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/src");
+  }
+
+  @Test
+  void
+      translateMoveObjectException_preconditionFailedWithOnlyZeroDestinationGeneration_returnsFileAlreadyExists() {
+    StorageException preconditionFailed = new StorageException(412, "Precondition Failed");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            preconditionFailed, moveObjectId("src"), moveObjectId("dst", 0L));
+
+    assertThat(exception).isInstanceOf(FileAlreadyExistsException.class);
+    assertThat(((FileAlreadyExistsException) exception).getFile())
+        .isEqualTo("gs://" + BUCKET + "/dst");
+    assertThat(((FileAlreadyExistsException) exception).getReason())
+        .isEqualTo("Move destination already exists");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(preconditionFailed);
+  }
+
+  @Test
+  void translateMoveObjectException_preconditionFailedWithSourceGeneration_returnsIOException() {
+    StorageException preconditionFailed = new StorageException(412, "Precondition Failed");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            preconditionFailed, moveObjectId("src", 7L), moveObjectId("dst", 0L));
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed to move gs://"
+                + BUCKET
+                + "/src to gs://"
+                + BUCKET
+                + "/dst: generation precondition failed");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(preconditionFailed);
+  }
+
+  @Test
+  void
+      translateMoveObjectException_preconditionFailedWithPositiveDestinationGeneration_returnsIOException() {
+    StorageException preconditionFailed = new StorageException(412, "Precondition Failed");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            preconditionFailed, moveObjectId("src"), moveObjectId("dst", 5L));
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception).hasMessageThat().endsWith(": generation precondition failed");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(preconditionFailed);
+  }
+
+  @Test
+  void translateMoveObjectException_conflict_returnsIOExceptionNotFileAlreadyExists() {
+    StorageException conflict = new StorageException(409, "Conflict");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            conflict, moveObjectId("src"), moveObjectId("dst", 0L));
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Failed to move gs://" + BUCKET + "/src to gs://" + BUCKET + "/dst");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(conflict);
+  }
+
+  @Test
+  void translateMoveObjectException_serverError_returnsIOExceptionWithCause() {
+    StorageException serverError = new StorageException(500, "Internal Error");
+
+    IOException exception =
+        GcsExceptionUtil.translateMoveObjectException(
+            serverError, moveObjectId("src"), moveObjectId("dst"));
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Failed to move gs://" + BUCKET + "/src to gs://" + BUCKET + "/dst");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(serverError);
+  }
+
+  private static GcsItemId moveObjectId(String objectName) {
+    return GcsItemId.builder().setBucketName(BUCKET).setObjectName(objectName).build();
+  }
+
+  private static GcsItemId moveObjectId(String objectName, long generation) {
+    return GcsItemId.builder()
+        .setBucketName(BUCKET)
+        .setObjectName(objectName)
+        .setContentGeneration(generation)
+        .build();
+  }
+
+  @Test
   void constructor_isPrivate() throws Exception {
     Constructor<GcsExceptionUtil> constructor = GcsExceptionUtil.class.getDeclaredConstructor();
 
     assertThat(Modifier.isPrivate(constructor.getModifiers())).isTrue();
+  }
+
+  private static GcsItemId objectId(Long generation) {
+    GcsItemId.Builder b = GcsItemId.builder().setBucketName(BUCKET).setObjectName(NAME);
+    return (generation == null ? b : b.setContentGeneration(generation)).build();
+  }
+
+  @Test
+  void translateDeleteObjectException_unauthorized_returnsAccessDeniedException() {
+    StorageException deniedCause = new StorageException(401, "Unauthorized");
+
+    IOException e = GcsExceptionUtil.translateDeleteObjectException(deniedCause, objectId(null));
+
+    assertThat(e).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) e).getFile()).isEqualTo("gs://test-bucket/test-object");
+    assertThat(e).hasMessageThat().contains("Access denied during object deletion");
+    assertThat(e).hasCauseThat().isSameInstanceAs(deniedCause);
+  }
+
+  @Test
+  void translateDeleteObjectException_forbiddenWithGeneration_setsFileWithoutGeneration() {
+    StorageException deniedCause = new StorageException(403, "Forbidden");
+
+    IOException e = GcsExceptionUtil.translateDeleteObjectException(deniedCause, objectId(123L));
+
+    assertThat(e).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) e).getFile()).isEqualTo("gs://test-bucket/test-object");
+  }
+
+  @Test
+  void translateDeleteObjectException_preconditionFailedWithGeneration_reportsMismatch() {
+    IOException e =
+        GcsExceptionUtil.translateDeleteObjectException(
+            new StorageException(412, "Precondition Failed"), objectId(1234L));
+
+    assertThat(e).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Generation mismatch for object gs://test-bucket/test-object."
+                + " Concurrent modification detected.");
+  }
+
+  private static Stream<Arguments> deleteObjectGenericFailures() {
+    return Stream.of(
+        Arguments.of(new StorageException(409, "Retention hold"), null),
+        Arguments.of(new StorageException(412, "Precondition Failed"), null),
+        Arguments.of(new StorageException(412, "Precondition Failed"), 0L),
+        Arguments.of(new StorageException(500, "Internal Error"), null));
+  }
+
+  @ParameterizedTest
+  @MethodSource("deleteObjectGenericFailures")
+  void translateDeleteObjectException_otherFailure_returnsGenericIOException(
+      StorageException cause, Long generation) {
+    IOException e = GcsExceptionUtil.translateDeleteObjectException(cause, objectId(generation));
+
+    assertThat(e).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(e).hasMessageThat().startsWith("Failed to delete object: gs://test-bucket/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  @Test
+  void translateDeleteBucketException_notFound_returnsBucketNotFoundException() {
+    StorageException notFoundCause = new StorageException(404, "Bucket not found");
+
+    IOException e = GcsExceptionUtil.translateDeleteBucketException(notFoundCause, BUCKET);
+
+    assertThat(e).isInstanceOf(FileNotFoundException.class);
+    assertThat(e).hasMessageThat().isEqualTo("Bucket not found: " + BUCKET);
+    assertThat(e).hasCauseThat().isSameInstanceAs(notFoundCause);
+  }
+
+  @Test
+  void translateDeleteBucketException_forbidden_returnsAccessDeniedException() {
+    StorageException deniedCause = new StorageException(403, "Forbidden");
+
+    IOException e = GcsExceptionUtil.translateDeleteBucketException(deniedCause, BUCKET);
+
+    assertThat(e).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) e).getFile()).isEqualTo("gs://" + BUCKET);
+    assertThat(e).hasMessageThat().contains("Access denied during bucket deletion");
+    assertThat(e).hasCauseThat().isSameInstanceAs(deniedCause);
+  }
+
+  private static Stream<StorageException> deleteBucketNotEmptyFailures() {
+    return Stream.of(
+        new StorageException(409, "The bucket you tried to delete is not empty."),
+        new StorageException(412, "Bucket is not empty"),
+        new StorageException(
+            400, "Bucket NOT EMPTY", Mockito.mock(FailedPreconditionException.class)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("deleteBucketNotEmptyFailures")
+  void translateDeleteBucketException_bucketNotEmpty_returnsDirectoryNotEmptyException(
+      StorageException cause) {
+    IOException e = GcsExceptionUtil.translateDeleteBucketException(cause, BUCKET);
+
+    assertThat(e).isInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(((DirectoryNotEmptyException) e).getFile()).isEqualTo("gs://" + BUCKET);
+    assertThat(e).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  private static Stream<StorageException> deleteBucketGenericFailures() {
+    return Stream.of(
+        new StorageException(409, "Conflict"),
+        new StorageException(409, null),
+        new StorageException(400, "Failed", Mockito.mock(FailedPreconditionException.class)),
+        new StorageException(500, "Internal error (not empty)"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("deleteBucketGenericFailures")
+  void translateDeleteBucketException_otherFailure_returnsGenericIOException(
+      StorageException cause) {
+    IOException e = GcsExceptionUtil.translateDeleteBucketException(cause, BUCKET);
+
+    assertThat(e).isNotInstanceOf(FileAlreadyExistsException.class);
+    assertThat(e).isNotInstanceOf(DirectoryNotEmptyException.class);
+    assertThat(e).hasMessageThat().isEqualTo("Failed to delete bucket: " + BUCKET);
+    assertThat(e).hasCauseThat().isSameInstanceAs(cause);
   }
 }
