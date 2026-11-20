@@ -21,6 +21,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -36,7 +37,9 @@ import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsWriteOptions;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Operation;
+import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey;
 import com.google.cloud.gcs.analyticscore.common.telemetry.MetricsRecorder;
+import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationSupplier;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.common.collect.ImmutableList;
@@ -44,9 +47,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.WritableByteChannel;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -419,5 +425,193 @@ class GoogleCloudStorageOutputStreamTest {
       byte[] actualBytes = Arrays.copyOf(buffer, read);
       assertThat(actualBytes).isEqualTo(expectedBytes);
     }
+  }
+
+  @Test
+  void close_calledTwice_closesChannelOnce() throws IOException {
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
+    GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId);
+
+    stream.close();
+    stream.close();
+
+    verify(mockChannel, times(1)).close();
+  }
+
+  @Test
+  void close_calledTwice_emitsSingleWriteCloseMetric() throws IOException {
+    List<String> recordedOperations = new ArrayList<>();
+    OperationListener listener =
+        new OperationListener() {
+          @Override
+          public void onOperationStart(
+              com.google.cloud.gcs.analyticscore.common.telemetry.Operation operation) {
+            recordedOperations.add(operation.getName());
+          }
+
+          @Override
+          public void onOperationEnd(
+              com.google.cloud.gcs.analyticscore.common.telemetry.Operation operation,
+              Map<MetricKey, Long> metrics) {}
+        };
+    Telemetry telemetry = new Telemetry(ImmutableList.of(listener));
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getTelemetry()).thenReturn(telemetry);
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
+    GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId);
+
+    stream.close();
+    stream.close();
+
+    long writeCloseOperations =
+        recordedOperations.stream()
+            .filter(name -> name.equals(Operation.WRITE_CLOSE.name()))
+            .count();
+    assertThat(writeCloseOperations).isEqualTo(1L);
+  }
+
+  @Test
+  void write_afterClose_throwsClosedChannelException() throws IOException {
+    GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(fakeFileSystem, itemId);
+    stream.close();
+
+    assertThrows(ClosedChannelException.class, () -> stream.write(new byte[] {1, 2, 3}));
+  }
+
+  @Test
+  void writeSingleByte_afterClose_throwsClosedChannelException() throws IOException {
+    GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(fakeFileSystem, itemId);
+    stream.close();
+
+    assertThrows(ClosedChannelException.class, () -> stream.write(65));
+  }
+
+  @Test
+  void write_zeroLengthAfterClose_throwsClosedChannelException() throws IOException {
+    GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(fakeFileSystem, itemId);
+    stream.close();
+
+    assertThrows(ClosedChannelException.class, () -> stream.write(new byte[0], 0, 0));
+  }
+
+  @Test
+  void write_afterClose_doesNotRecordWriteMetric() throws IOException {
+    List<String> recordedOperations = new ArrayList<>();
+    OperationListener listener =
+        new OperationListener() {
+          @Override
+          public void onOperationStart(
+              com.google.cloud.gcs.analyticscore.common.telemetry.Operation operation) {
+            recordedOperations.add(operation.getName());
+          }
+
+          @Override
+          public void onOperationEnd(
+              com.google.cloud.gcs.analyticscore.common.telemetry.Operation operation,
+              Map<MetricKey, Long> metrics) {}
+        };
+    Telemetry telemetry = new Telemetry(ImmutableList.of(listener));
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getTelemetry()).thenReturn(telemetry);
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockChannel.write(any(ByteBuffer.class)))
+        .thenAnswer(
+            i -> {
+              ByteBuffer buf = i.getArgument(0);
+              int rem = buf.remaining();
+              buf.position(buf.position() + rem);
+              return rem;
+            });
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
+    GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId);
+    stream.close();
+
+    assertThrows(ClosedChannelException.class, () -> stream.write(new byte[] {1, 2, 3}));
+
+    verify(mockChannel, never()).write(any(ByteBuffer.class));
+    long writeOperations =
+        recordedOperations.stream().filter(name -> name.equals(Operation.WRITE.name())).count();
+    assertThat(writeOperations).isEqualTo(0L);
+  }
+
+  @Test
+  void close_whenChannelCloseThrows_surfacesErrorOnSubsequentCloseAndDisallowsWrite()
+      throws IOException {
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockChannel.write(any(ByteBuffer.class)))
+        .thenAnswer(
+            i -> {
+              ByteBuffer buf = i.getArgument(0);
+              int rem = buf.remaining();
+              buf.position(buf.limit());
+              return rem;
+            });
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
+    doThrow(new IOException("fail")).when(mockChannel).close();
+    GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId);
+
+    IOException thrown = assertThrows(IOException.class, stream::close);
+    assertThat(thrown).hasMessageThat().isEqualTo("fail");
+
+    // Subsequent close surfaces the error instead of silently returning cleanly.
+    IOException subsequentCloseThrown = assertThrows(IOException.class, stream::close);
+    assertThat(subsequentCloseThrown).hasCauseThat().isEqualTo(thrown);
+
+    // Channel is only closed once.
+    verify(mockChannel, times(1)).close();
+
+    // Writes after failed close are disallowed.
+    assertThrows(ClosedChannelException.class, () -> stream.write(new byte[] {1, 2, 3}));
+  }
+
+  @Test
+  void close_whenChannelCloseThrowsRuntimeException_propagatesUnwrapped() throws IOException {
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
+    WritableByteChannel mockChannel = mock(WritableByteChannel.class);
+    when(mockChannel.write(any(ByteBuffer.class)))
+        .thenAnswer(
+            i -> {
+              ByteBuffer buf = i.getArgument(0);
+              int rem = buf.remaining();
+              buf.position(buf.limit());
+              return rem;
+            });
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFileSystem.create(any(GcsItemId.class), any())).thenReturn(mockChannel);
+    RuntimeException runtimeException = new IllegalStateException("channel close failure");
+    doThrow(runtimeException).when(mockChannel).close();
+    GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(mockFileSystem, itemId);
+
+    RuntimeException thrown = assertThrows(IllegalStateException.class, stream::close);
+    assertThat(thrown).isSameInstanceAs(runtimeException);
+
+    // Subsequent close surfaces the error instead of silently returning cleanly.
+    IOException subsequentCloseThrown = assertThrows(IOException.class, stream::close);
+    assertThat(subsequentCloseThrown).hasCauseThat().isSameInstanceAs(runtimeException);
+
+    // Channel is only closed once.
+    verify(mockChannel, times(1)).close();
+
+    // Writes after failed close are disallowed.
+    assertThrows(ClosedChannelException.class, () -> stream.write(new byte[] {1, 2, 3}));
   }
 }
