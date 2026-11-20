@@ -157,6 +157,43 @@ class ParquetSchemaFingerprintTest {
   }
 
   @Test
+  void of_groupChildCountZeroOrUnset_returnsDifferentFingerprints() {
+    ImmutableList<SchemaElement> zeroChildCountSchema = ImmutableList.of(root(1), group("a", 0));
+    ImmutableList<SchemaElement> unsetChildCountSchema = ImmutableList.of(root(1), group("a"));
+
+    long zeroChildCountFingerprint = ParquetSchemaFingerprint.of(zeroChildCountSchema);
+    long unsetChildCountFingerprint = ParquetSchemaFingerprint.of(unsetChildCountSchema);
+
+    assertThat(unsetChildCountFingerprint).isNotEqualTo(zeroChildCountFingerprint);
+  }
+
+  @Test
+  void of_fixedLengthByteArrayWidthZeroOrUnset_returnsDifferentFingerprints() {
+    ImmutableList<SchemaElement> zeroWidthSchema =
+        ImmutableList.of(root(1), leaf("id", Type.FIXED_LEN_BYTE_ARRAY).setType_length(0));
+    ImmutableList<SchemaElement> unsetWidthSchema =
+        ImmutableList.of(root(1), leaf("id", Type.FIXED_LEN_BYTE_ARRAY));
+
+    long zeroWidthFingerprint = ParquetSchemaFingerprint.of(zeroWidthSchema);
+    long unsetWidthFingerprint = ParquetSchemaFingerprint.of(unsetWidthSchema);
+
+    assertThat(unsetWidthFingerprint).isNotEqualTo(zeroWidthFingerprint);
+  }
+
+  @Test
+  void of_unsetGroupChildCountAndFixedWidth_returnsEqualFingerprints() {
+    ImmutableList<SchemaElement> firstSchema =
+        ImmutableList.of(group("schema"), group("a"), leaf("id", Type.FIXED_LEN_BYTE_ARRAY));
+    ImmutableList<SchemaElement> secondSchema =
+        ImmutableList.of(group("schema"), group("a"), leaf("id", Type.FIXED_LEN_BYTE_ARRAY));
+
+    long firstFingerprint = ParquetSchemaFingerprint.of(firstSchema);
+    long secondFingerprint = ParquetSchemaFingerprint.of(secondSchema);
+
+    assertThat(firstFingerprint).isEqualTo(secondFingerprint);
+  }
+
+  @Test
   void of_emptySchema_throwsIllegalArgumentException() {
     ImmutableList<SchemaElement> schema = ImmutableList.of();
 
@@ -165,6 +202,10 @@ class ParquetSchemaFingerprintTest {
 
   private static SchemaElement root(int childCount) {
     return group("schema", childCount);
+  }
+
+  private static SchemaElement group(String name) {
+    return new SchemaElement(name);
   }
 
   private static SchemaElement group(String name, int childCount) {
