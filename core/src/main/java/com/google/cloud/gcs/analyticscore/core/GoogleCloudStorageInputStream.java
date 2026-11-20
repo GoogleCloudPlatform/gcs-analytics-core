@@ -22,6 +22,7 @@ import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConsta
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Operation;
 import com.google.cloud.gcs.analyticscore.core.channel.SmartReadChannel;
+import com.google.cloud.gcs.analyticscore.core.optimizer.FormatOptimizer;
 import com.google.cloud.gcs.analyticscore.core.optimizer.GcsFooterOptimizer;
 import com.google.cloud.gcs.analyticscore.core.optimizer.SmallObjectOptimizer;
 import com.google.cloud.storage.BlobId;
@@ -35,6 +36,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.IntFunction;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /** This is a seekable input stream for GCS objects. It is backed by a GcsFileSystem instance. */
 public class GoogleCloudStorageInputStream extends SeekableInputStream {
@@ -297,7 +299,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   }
 
   private static VectoredSeekableByteChannel openReadChannel(
-      GcsFileSystem gcsFileSystem, GcsItemId gcsItemId, GcsFileInfo gcsFileInfo)
+      GcsFileSystem gcsFileSystem, GcsItemId gcsItemId, @Nullable GcsFileInfo gcsFileInfo)
       throws IOException {
     return gcsFileSystem
         .getTelemetry()
@@ -305,26 +307,63 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
             Operation.OPEN.name(),
             Metric.OPEN_DURATION,
             COMMON_ATTRIBUTES,
-            recorder -> {
-              GcsReadOptions readOptions =
-                  gcsFileSystem.getFileSystemOptions().getGcsClientOptions().getGcsReadOptions();
-              VectoredSeekableByteChannel rawChannel =
-                  gcsFileInfo != null
-                      ? gcsFileSystem.open(gcsFileInfo, readOptions)
-                      : gcsFileSystem.open(gcsItemId, readOptions);
+            recorder ->
+                openChannel(
+                    gcsFileSystem,
+                    gcsItemId,
+                    gcsFileInfo,
+                    gcsFileSystem
+                        .getFileSystemOptions()
+                        .getGcsClientOptions()
+                        .getGcsReadOptions()));
+  }
 
-              return SmartReadChannel.builder()
-                  .setDelegate(rawChannel)
-                  .setItemId(gcsItemId)
-                  .setFileInfo(gcsFileInfo)
-                  .setCacheManager(gcsFileSystem.getCacheManager())
-                  .addOptimizer(
-                      new SmallObjectOptimizer(
-                          gcsFileSystem.getFileSystemOptions().getGcsCacheOptions(),
-                          readOptions,
-                          gcsFileSystem.getTelemetry()))
-                  .addOptimizer(new GcsFooterOptimizer(readOptions, gcsFileSystem.getTelemetry()))
-                  .build();
-            });
+  private static VectoredSeekableByteChannel openChannel(
+      GcsFileSystem gcsFileSystem,
+      GcsItemId gcsItemId,
+      @Nullable GcsFileInfo gcsFileInfo,
+      GcsReadOptions readOptions)
+      throws IOException {
+    VectoredSeekableByteChannel rawChannel =
+        gcsFileInfo != null
+            ? gcsFileSystem.open(gcsFileInfo, readOptions)
+            : gcsFileSystem.open(gcsItemId, readOptions);
+    checkNotNull(rawChannel, "rawChannel cannot be null");
+    GcsCacheOptions cacheOptions = gcsFileSystem.getFileSystemOptions().getGcsCacheOptions();
+    // SmallObjectOptimizer caches and serves the entire object, making GcsFooterOptimizer
+    // redundant.
+    if (SmallObjectOptimizer.isApplicable(gcsFileInfo, cacheOptions, readOptions)) {
+      return wrapWithOptimizer(
+          rawChannel,
+          gcsFileSystem,
+          gcsItemId,
+          gcsFileInfo,
+          new SmallObjectOptimizer(cacheOptions, readOptions, gcsFileSystem.getTelemetry()));
+    }
+    if (GcsFooterOptimizer.isApplicable(gcsItemId, readOptions)) {
+      return wrapWithOptimizer(
+          rawChannel,
+          gcsFileSystem,
+          gcsItemId,
+          gcsFileInfo,
+          new GcsFooterOptimizer(readOptions, gcsFileSystem.getTelemetry()));
+    }
+    return rawChannel;
+  }
+
+  private static VectoredSeekableByteChannel wrapWithOptimizer(
+      VectoredSeekableByteChannel rawChannel,
+      GcsFileSystem gcsFileSystem,
+      GcsItemId gcsItemId,
+      @Nullable GcsFileInfo gcsFileInfo,
+      FormatOptimizer optimizer)
+      throws IOException {
+    return SmartReadChannel.builder()
+        .setDelegate(rawChannel)
+        .setItemId(gcsItemId)
+        .setFileInfo(gcsFileInfo)
+        .setCacheManager(gcsFileSystem.getCacheManager())
+        .addOptimizer(optimizer)
+        .build();
   }
 }

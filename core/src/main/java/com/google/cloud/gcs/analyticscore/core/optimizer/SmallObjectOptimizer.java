@@ -35,6 +35,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntFunction;
+import javax.annotation.Nullable;
 
 /** A {@link FormatOptimizer} that caches and serves small objects in a private buffer. */
 public class SmallObjectOptimizer implements FormatOptimizer {
@@ -63,12 +64,24 @@ public class SmallObjectOptimizer implements FormatOptimizer {
     return false; // File size is required to determine applicability
   }
 
-  @Override
-  public boolean isApplicable(GcsFileInfo fileInfo) {
-    return cacheOptions.isSmallObjectCacheEnabled()
-        && fileInfo.getItemInfo().getSize() <= readOptions.getSmallObjectCacheThresholdBytes()
+  /** Returns whether small-object caching is applicable for the given file metadata and options. */
+  public static boolean isApplicable(
+      @Nullable GcsFileInfo fileInfo, GcsCacheOptions cacheOptions, GcsReadOptions readOptions) {
+    checkNotNull(cacheOptions, "cacheOptions cannot be null");
+    checkNotNull(readOptions, "readOptions cannot be null");
+    if (fileInfo == null || !cacheOptions.isSmallObjectCacheEnabled()) {
+      return false;
+    }
+    long fileSize = fileInfo.getItemInfo().getSize();
+    return fileSize >= 0
+        && fileSize <= readOptions.getSmallObjectCacheThresholdBytes()
         && DataFileExtensions.hasAnyExtension(
             fileInfo.getItemInfo().getItemId().getObjectName(), DATA_FILE_EXTENSIONS);
+  }
+
+  @Override
+  public boolean isApplicable(GcsFileInfo fileInfo) {
+    return isApplicable(fileInfo, cacheOptions, readOptions);
   }
 
   @Override
