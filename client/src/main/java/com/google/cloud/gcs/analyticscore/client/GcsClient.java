@@ -252,7 +252,9 @@ public interface GcsClient {
    *
    * <p>This operation only applies to buckets with Hierarchical Namespace enabled. The server
    * renames the folder and everything under it atomically. Both IDs must be in the same bucket and
-   * may name the folder with or without a trailing slash.
+   * may name the folder with or without a trailing slash. Any {@link
+   * GcsItemId#getContentGeneration()} on {@code srcFolderId} or {@code dstFolderId} is ignored, as
+   * GCS folders do not support content generations.
    *
    * <p>This method blocks until the long-running rename operation finishes, polling with the client
    * library's default settings: the first poll within 5 seconds, then up to 45 seconds between
@@ -261,8 +263,6 @@ public interface GcsClient {
    *
    * @param srcFolderId the folder to rename
    * @param dstFolderId the new name of the folder
-   * @return metadata of the renamed folder, a {@link GcsItemInfo.ItemType#NATIVE_FOLDER} whose ID
-   *     is {@code dstFolderId} in directory form (ending in {@code /}) without a content generation
    * @throws IllegalArgumentException if either ID is not an object path or has an empty folder
    *     name, if the IDs are in different buckets, or if both name the same folder
    * @throws FileNotFoundException if the source folder does not exist
@@ -271,8 +271,7 @@ public interface GcsClient {
    * @throws InterruptedIOException if the thread is interrupted while waiting for the rename
    * @throws IOException if waiting for the rename times out or the rename fails for another reason
    */
-  default GcsItemInfo renameFolder(GcsItemId srcFolderId, GcsItemId dstFolderId)
-      throws IOException {
+  default void renameFolder(GcsItemId srcFolderId, GcsItemId dstFolderId) throws IOException {
     throw new UnsupportedOperationException(
         "renameFolder is not implemented by " + getClass().getName());
   }

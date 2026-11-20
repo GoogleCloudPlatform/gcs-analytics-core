@@ -20,14 +20,20 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.core.ApiFuture;
 import com.google.api.core.ApiFutures;
+import com.google.api.core.ForwardingApiFuture;
 import com.google.api.gax.grpc.GrpcCallContext;
+import com.google.api.gax.longrunning.OperationFuture;
+import com.google.api.gax.longrunning.OperationSnapshot;
+import com.google.api.gax.retrying.RetryingFuture;
 import com.google.api.gax.rpc.ApiCallContext;
 import com.google.api.gax.rpc.ApiException;
 import com.google.api.gax.rpc.ApiExceptionFactory;
 import com.google.api.gax.rpc.Callables;
+import com.google.api.gax.rpc.OperationCallable;
 import com.google.api.gax.rpc.StatusCode;
 import com.google.api.gax.rpc.UnaryCallable;
 import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
 import com.google.protobuf.Empty;
 import com.google.protobuf.Timestamp;
@@ -37,6 +43,8 @@ import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.ListFoldersRequest;
 import com.google.storage.control.v2.ListFoldersResponse;
+import com.google.storage.control.v2.RenameFolderMetadata;
+import com.google.storage.control.v2.RenameFolderRequest;
 import com.google.storage.control.v2.StorageControlClient.ListFoldersPagedResponse;
 import com.google.storage.control.v2.stub.StorageControlStub;
 import com.google.storage.control.v2.stub.StorageControlStubSettings;
@@ -55,9 +63,9 @@ import java.util.function.Function;
 /**
  * In-memory {@link StorageControlStub} for hermetic {@link FakeGcsClientImpl} folder operations.
  *
- * <p>Supports {@code CreateFolder}, {@code GetFolder}, {@code DeleteFolder} and {@code
- * ListFolders}; every other call throws {@link UnsupportedOperationException}. There is no bucket
- * registry, so every bucket is treated as an existing bucket with hierarchical namespace.
+ * <p>Supports {@code CreateFolder}, {@code GetFolder}, {@code DeleteFolder}, {@code ListFolders}
+ * and {@code RenameFolder}; every other call throws {@link UnsupportedOperationException}. There is
+ * no bucket registry, so every bucket is treated as an existing bucket with hierarchical namespace.
  *
  * <p>State scope: objects live in {@link FakeGcsClientImpl#storage}, a static singleton shared by
  * every client in the JVM, while folders live in this stub, so each client instance starts with no
@@ -74,6 +82,15 @@ import java.util.function.Function;
  * folder below it, ordered by the UTF-8 bytes of their names, at most 1,000 per page. {@code
  * delimiter}, {@code lexicographic_start} and {@code lexicographic_end} are not supported and are
  * rejected with {@code UNIMPLEMENTED}.
+ *
+ * <p>{@code RenameFolder} follows GCS too: it moves the folder with every folder and object below
+ * it, keeps the creation time and metageneration of the moved folders, and sets their update time.
+ * It fails, in this order, with {@code INVALID_ARGUMENT} when the destination is the source or lies
+ * inside it, {@code NOT_FOUND} when the source folder does not exist, {@code ALREADY_EXISTS} when
+ * the destination folder exists, and {@code FAILED_PRECONDITION} when the parent of the destination
+ * does not exist. An object named like the destination does not block the rename. The returned
+ * operation is always finished. Unlike GCS, the objects are moved one at a time, as a copy and a
+ * delete, so their generations can change.
  */
 final class FakeStorageControlStub extends StorageControlStub {
   private static final String BUCKET_PARENT_PREFIX = "projects/_/buckets/";
@@ -121,6 +138,31 @@ final class FakeStorageControlStub extends StorageControlStub {
         .withDefaultCallContext(GrpcCallContext.createDefault());
   }
 
+  @Override
+  public OperationCallable<RenameFolderRequest, Folder, RenameFolderMetadata>
+      renameFolderOperationCallable() {
+    return new OperationCallable<RenameFolderRequest, Folder, RenameFolderMetadata>() {
+      @Override
+      public OperationFuture<Folder, RenameFolderMetadata> futureCall(
+          RenameFolderRequest request, ApiCallContext context) {
+        // The rename runs within this call, so the operation is finished when it is returned.
+        return new FinishedOperationFuture<>(
+            unaryCallable(FakeStorageControlStub.this::renameFolder).futureCall(request, context));
+      }
+
+      @Override
+      public OperationFuture<Folder, RenameFolderMetadata> resumeFutureCall(
+          String operationName, ApiCallContext context) {
+        throw new UnsupportedOperationException("Not implemented: resumeFutureCall()");
+      }
+
+      @Override
+      public ApiFuture<Void> cancel(String operationName, ApiCallContext context) {
+        throw new UnsupportedOperationException("Not implemented: cancel()");
+      }
+    };
+  }
+
   private Folder createFolder(CreateFolderRequest request) {
     String bucket = extractBucketName(request.getParent());
     String folderPath = toFolderPath(request.getFolderId());
@@ -158,6 +200,76 @@ final class FakeStorageControlStub extends StorageControlStub {
       }
       folders.remove(key);
       return Empty.getDefaultInstance();
+    }
+  }
+
+  /**
+   * Renames a folder, moving every folder and object below it, and returns the renamed folder. The
+   * checks run in the order GCS applies them: the names first, then the source, then the
+   * destination and its parent.
+   */
+  private Folder renameFolder(RenameFolderRequest request) {
+    String srcKey = parseFolderResourceName(request.getName());
+    String bucket = bucketOf(srcKey);
+    String srcPath = folderPathOf(srcKey);
+    String dstPath = toFolderPath(request.getDestinationFolderId());
+    String dstKey = folderResourceName(bucket, dstPath);
+    if (dstKey.equals(srcKey)) {
+      throw apiException(
+          StatusCode.Code.INVALID_ARGUMENT,
+          "Source and destination folder names are the same: '" + srcPath + "'");
+    }
+    if (dstKey.startsWith(srcKey)) {
+      throw apiException(
+          StatusCode.Code.INVALID_ARGUMENT,
+          String.format(
+              "Destination folder '%s' is a sub-folder of the source folder '%s'.",
+              dstPath, srcPath));
+    }
+    Timestamp now = currentTimestamp();
+    synchronized (folders) {
+      if (!folders.containsKey(srcKey)) {
+        throw apiException(StatusCode.Code.NOT_FOUND, "Folder not found: " + srcKey);
+      }
+      if (folders.containsKey(dstKey)) {
+        throw apiException(StatusCode.Code.ALREADY_EXISTS, "Folder already exists: " + dstKey);
+      }
+      ensureParentFolders(bucket, dstPath, false, now);
+      // GCS keeps the creation time and metageneration of each moved folder and sets its update
+      // time.
+      for (String key : new ArrayList<>(folders.keySet())) {
+        if (key.startsWith(srcKey)) {
+          String renamedKey = dstKey + key.substring(srcKey.length());
+          Folder folder = folders.remove(key);
+          folders.put(
+              renamedKey, folder.toBuilder().setName(renamedKey).setUpdateTime(now).build());
+        }
+      }
+      moveObjects(bucket, srcPath, dstPath);
+      return folders.get(dstKey);
+    }
+  }
+
+  /** Moves every object named below {@code srcPath} to the same name below {@code dstPath}. */
+  private void moveObjects(String bucket, String srcPath, String dstPath) {
+    // Lists the whole bucket and filters here, for the reason given in hasChildObject.
+    List<Blob> objects = new ArrayList<>();
+    for (Blob blob : storage.list(bucket).iterateAll()) {
+      if (blob != null && !blob.isDirectory() && blob.getName().startsWith(srcPath)) {
+        objects.add(blob);
+      }
+    }
+    for (Blob object : objects) {
+      BlobId source = BlobId.of(bucket, object.getName());
+      BlobId target = BlobId.of(bucket, dstPath + object.getName().substring(srcPath.length()));
+      storage
+          .copy(
+              Storage.CopyRequest.newBuilder()
+                  .setSource(source)
+                  .setTarget(object.toBuilder().setBlobId(target).build())
+                  .build())
+          .getResult();
+      storage.delete(source);
     }
   }
 
@@ -258,8 +370,8 @@ final class FakeStorageControlStub extends StorageControlStub {
   }
 
   private boolean hasChildObject(String key) {
-    String bucket = key.substring(BUCKET_PARENT_PREFIX.length(), key.indexOf(FOLDERS_SEGMENT));
-    String prefix = key.substring(key.indexOf(FOLDERS_SEGMENT) + FOLDERS_SEGMENT.length());
+    String bucket = bucketOf(key);
+    String prefix = folderPathOf(key);
     // List the whole bucket and filter here: LocalStorageHelper's FakeStorageRpc strips a leading
     // '/' from the PREFIX option, so it would miss the children of a folder whose name starts with
     // '/'.
@@ -314,6 +426,16 @@ final class FakeStorageControlStub extends StorageControlStub {
 
   private static String folderResourceName(String bucket, String folderPath) {
     return BUCKET_PARENT_PREFIX + bucket + FOLDERS_SEGMENT + folderPath;
+  }
+
+  /** Returns the bucket of a key built by {@link #folderResourceName}. */
+  private static String bucketOf(String key) {
+    return key.substring(BUCKET_PARENT_PREFIX.length(), key.indexOf(FOLDERS_SEGMENT));
+  }
+
+  /** Returns the folder path of a key built by {@link #folderResourceName}. */
+  private static String folderPathOf(String key) {
+    return key.substring(key.indexOf(FOLDERS_SEGMENT) + FOLDERS_SEGMENT.length());
   }
 
   /** Returns the folder name that {@code pageToken} resumes after, or empty for the first page. */
@@ -382,6 +504,44 @@ final class FakeStorageControlStub extends StorageControlStub {
     @Override
     public Object getTransportCode() {
       return code;
+    }
+  }
+
+  /**
+   * The future of a long-running operation that finished, or failed, within the call that started
+   * it. As for a real operation, {@code get()} reports a failure as an {@link
+   * java.util.concurrent.ExecutionException} whose cause is the {@link ApiException}.
+   */
+  private static final class FinishedOperationFuture<ResponseT, MetadataT>
+      extends ForwardingApiFuture<ResponseT> implements OperationFuture<ResponseT, MetadataT> {
+
+    private FinishedOperationFuture(ApiFuture<ResponseT> result) {
+      super(result);
+    }
+
+    @Override
+    public String getName() {
+      throw new UnsupportedOperationException("Not implemented: getName()");
+    }
+
+    @Override
+    public ApiFuture<OperationSnapshot> getInitialFuture() {
+      throw new UnsupportedOperationException("Not implemented: getInitialFuture()");
+    }
+
+    @Override
+    public RetryingFuture<OperationSnapshot> getPollingFuture() {
+      throw new UnsupportedOperationException("Not implemented: getPollingFuture()");
+    }
+
+    @Override
+    public ApiFuture<MetadataT> peekMetadata() {
+      throw new UnsupportedOperationException("Not implemented: peekMetadata()");
+    }
+
+    @Override
+    public ApiFuture<MetadataT> getMetadata() {
+      throw new UnsupportedOperationException("Not implemented: getMetadata()");
     }
   }
 

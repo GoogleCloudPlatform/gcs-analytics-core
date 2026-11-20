@@ -22,7 +22,6 @@ import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.gax.longrunning.OperationFuture;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.retrying.RetrySettings;
-import com.google.api.gax.rpc.AlreadyExistsException;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
@@ -805,43 +804,57 @@ class GcsClientImpl implements GcsClient {
   }
 
   @Override
-  public GcsItemInfo renameFolder(GcsItemId srcFolderId, GcsItemId dstFolderId) throws IOException {
+  public void renameFolder(GcsItemId srcFolderId, GcsItemId dstFolderId) throws IOException {
     checkNotNull(srcFolderId, "srcFolderId must not be null");
     checkNotNull(dstFolderId, "dstFolderId must not be null");
     checkArgument(
-        srcFolderId.isGcsObject(), "Expected a folder srcFolderId but got: %s", srcFolderId);
+        srcFolderId.isGcsObject(),
+        "srcFolderId must have a bucket and a folder path, but got: %s",
+        srcFolderId);
     checkArgument(
-        dstFolderId.isGcsObject(), "Expected a folder dstFolderId but got: %s", dstFolderId);
+        dstFolderId.isGcsObject(),
+        "dstFolderId must have a bucket and a folder path, but got: %s",
+        dstFolderId);
     String bucketName = srcFolderId.getBucketName();
     checkArgument(
         bucketName.equals(dstFolderId.getBucketName()),
         "Source and destination folders must be in the same bucket: %s, %s",
         srcFolderId,
         dstFolderId);
-    String srcFolder = UriUtil.removeTrailingSlash(srcFolderId.getObjectName().get());
-    String dstFolder = UriUtil.removeTrailingSlash(dstFolderId.getObjectName().get());
-    checkArgument(!srcFolder.isEmpty(), "Source folder name cannot be empty");
-    checkArgument(!dstFolder.isEmpty(), "Destination folder name cannot be empty");
+    String srcObjectName = srcFolderId.getObjectName().get();
+    String dstObjectName = dstFolderId.getObjectName().get();
     checkArgument(
-        !srcFolder.equals(dstFolder),
+        !UriUtil.removeTrailingSlash(srcObjectName).isEmpty(),
+        "Source folder name cannot be empty");
+    checkArgument(
+        !UriUtil.removeTrailingSlash(dstObjectName).isEmpty(),
+        "Destination folder name cannot be empty");
+    // Like the source name, the destination is sent verbatim with a trailing slash.
+    String dstFolder = UriUtil.toDirectoryPath(dstObjectName);
+    checkArgument(
+        !UriUtil.toDirectoryPath(srcObjectName).equals(dstFolder),
         "Source and destination folders must differ: %s",
         srcFolderId);
 
     // request_id stays unset: the generated client populates it.
     RenameFolderRequest request =
         RenameFolderRequest.newBuilder()
-            .setName(FolderName.format("_", bucketName, srcFolder))
+            .setName(folderResourceName(bucketName, srcObjectName))
             .setDestinationFolderId(dstFolder)
             .build();
     OperationFuture<Folder, RenameFolderMetadata> future;
     try {
       future = lazyGetStorageControlClient().renameFolderAsync(request);
     } catch (Exception e) {
-      throw renameFolderException(e, srcFolderId, dstFolderId);
+      throw GcsExceptionUtil.translateRenameFolderException(e, srcFolderId, dstFolderId);
     }
-    Folder folder;
     try {
-      folder = future.get();
+      // Blocks until the rename finishes or fails, or the client library stops polling.
+      // TODO: Set polling settings for this operation once the polling policy for long-running
+      // folder operations is decided. Until then the client library defaults apply, as in
+      // hadoop-connectors: the first poll is sent up to 5 seconds after the request, and waiting
+      // stops after 5 minutes.
+      future.get();
     } catch (InterruptedException e) {
       // Cancelling stops only the client-side polling, not the server-side rename.
       future.cancel(true);
@@ -854,7 +867,7 @@ class GcsClientImpl implements GcsClient {
                       UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)))
               .initCause(e);
     } catch (ExecutionException e) {
-      throw renameFolderException(e.getCause(), srcFolderId, dstFolderId);
+      throw GcsExceptionUtil.translateRenameFolderException(e.getCause(), srcFolderId, dstFolderId);
     } catch (CancellationException e) {
       // GAX cancels the polling future once its total polling timeout expires.
       throw new IOException(
@@ -864,21 +877,6 @@ class GcsClientImpl implements GcsClient {
               UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)),
           e);
     }
-    return fromFolder(folder, dstFolderId.toDirectoryId());
-  }
-
-  private static IOException renameFolderException(
-      @Nullable Throwable cause, GcsItemId srcFolderId, GcsItemId dstFolderId) {
-    String message =
-        String.format(
-            "Failed to rename folder %s to %s",
-            UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId));
-    if (!(cause instanceof Exception)) {
-      return new IOException(message, cause);
-    }
-    // ALREADY_EXISTS refers to the destination; every other failure is reported for the source.
-    GcsItemId itemId = cause instanceof AlreadyExistsException ? dstFolderId : srcFolderId;
-    return GcsExceptionUtil.translateControlException((Exception) cause, itemId, message);
   }
 
   @Override

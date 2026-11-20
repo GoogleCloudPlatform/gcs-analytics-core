@@ -1986,17 +1986,25 @@ class GcsClientImplTest {
     assertThat(e).hasMessageThat().contains("Failed to get folder info for: " + TEST_ITEM_ID);
   }
 
+  private static Stream<Arguments> renameFolderVerbatimNames() {
+    return Stream.of(
+        Arguments.of("src", "dst", "src/", "dst/"),
+        Arguments.of("src/", "dst/", "src/", "dst/"),
+        Arguments.of("parent/src/", "parent/dst", "parent/src/", "parent/dst/"),
+        Arguments.of(" src/", " dst/", " src/", " dst/"),
+        Arguments.of("src /", "dst /", "src /", "dst /"),
+        Arguments.of("a/ b/", "a/ c/", "a/ b/", "a/ c/"),
+        Arguments.of("   ", "dst", "   /", "dst/"),
+        Arguments.of("x//", "y//", "x//", "y//"));
+  }
+
   @ParameterizedTest
-  @CsvSource({
-    "src/, dst/, src, dst",
-    "src, dst, src, dst",
-    "parent/src/, parent/dst, parent/src, parent/dst"
-  })
-  void renameFolder_idsWithOrWithoutTrailingSlash_sendsFolderNamesWithoutTrailingSlash(
+  @MethodSource("renameFolderVerbatimNames")
+  void renameFolder_folderNames_sendsVerbatimNamesWithTrailingSlash(
       String srcObjectName,
       String dstObjectName,
       String expectedSrcFolder,
-      String expectedDstFolder)
+      String expectedDstFolderId)
       throws Exception {
     StorageControlClient mockControlClient = mock(StorageControlClient.class);
     OperationFuture<Folder, RenameFolderMetadata> future =
@@ -2006,7 +2014,7 @@ class GcsClientImplTest {
     RenameFolderRequest expectedRequest =
         RenameFolderRequest.newBuilder()
             .setName("projects/_/buckets/" + TEST_BUCKET + "/folders/" + expectedSrcFolder)
-            .setDestinationFolderId(expectedDstFolder)
+            .setDestinationFolderId(expectedDstFolderId)
             .build();
 
     clientWithMockControl.renameFolder(
@@ -2016,30 +2024,72 @@ class GcsClientImplTest {
   }
 
   @Test
-  void renameFolder_folderRenamed_returnsDestinationFolderInfo() throws Exception {
+  void renameFolder_renameStarted_waitsForTheOperationToFinish() throws Exception {
     StorageControlClient mockControlClient = mock(StorageControlClient.class);
     OperationFuture<Folder, RenameFolderMetadata> future =
         renameFolderMockFuture(mockControlClient);
-    when(future.get()).thenReturn(createMockFolder(TEST_BUCKET, "dst"));
+    when(future.get()).thenReturn(Folder.getDefaultInstance());
     GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
-    GcsItemId dstFolderId =
-        GcsItemId.builder()
-            .setBucketName(TEST_BUCKET)
-            .setObjectName("dst")
-            .setContentGeneration(TEST_CONTENT_GENERATION)
+
+    clientWithMockControl.renameFolder(renameFolderTestId("src/"), renameFolderTestId("dst/"));
+
+    verify(future).get();
+  }
+
+  @Test
+  void renameFolder_folderIdsWithContentGeneration_sendsRequestWithoutGeneration()
+      throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderMockFuture(mockControlClient);
+    when(future.get()).thenReturn(Folder.getDefaultInstance());
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    RenameFolderRequest expectedRequest =
+        RenameFolderRequest.newBuilder()
+            .setName("projects/_/buckets/" + TEST_BUCKET + "/folders/src/")
+            .setDestinationFolderId("dst/")
             .build();
 
-    GcsItemInfo itemInfo =
-        clientWithMockControl.renameFolder(renameFolderTestId("src/"), dstFolderId);
+    clientWithMockControl.renameFolder(
+        renameFolderTestId("src/", TEST_CONTENT_GENERATION),
+        renameFolderTestId("dst/", TEST_CONTENT_GENERATION));
 
-    assertThat(itemInfo.getItemId()).isEqualTo(renameFolderTestId("dst/"));
-    assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
-    assertThat(itemInfo.getSize()).isEqualTo(0L);
-    assertThat(itemInfo.getMetaGeneration()).isEqualTo(3L);
-    assertThat(itemInfo.getCreationTime())
-        .isEqualTo(Instant.ofEpochSecond(1000, 500).toEpochMilli());
-    assertThat(itemInfo.getModificationTime())
-        .isEqualTo(Instant.ofEpochSecond(2000, 500).toEpochMilli());
+    verify(mockControlClient).renameFolderAsync(expectedRequest);
+  }
+
+  @Test
+  void renameFolder_sourceWithContentGenerationNotFound_reportsSourceWithoutGeneration()
+      throws Exception {
+    GcsClientImpl clientWithMockControl =
+        renameFolderClientFailingWith(new ExecutionException(mock(NotFoundException.class)));
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/", TEST_CONTENT_GENERATION),
+                    renameFolderTestId("dst/")));
+
+    assertFileNotFoundException(e, renameFolderTestId("src/"));
+  }
+
+  @Test
+  void renameFolder_destinationWithContentGenerationExists_reportsDestinationWithoutGeneration()
+      throws Exception {
+    AlreadyExistsException alreadyExists = mock(AlreadyExistsException.class);
+    GcsClientImpl clientWithMockControl =
+        renameFolderClientFailingWith(new ExecutionException(alreadyExists));
+
+    FileAlreadyExistsException e =
+        assertThrows(
+            FileAlreadyExistsException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"),
+                    renameFolderTestId("dst/", TEST_CONTENT_GENERATION)));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/dst/");
   }
 
   @Test
@@ -2231,19 +2281,20 @@ class GcsClientImplTest {
   private static Stream<Arguments> renameFolderInvalidArguments() {
     GcsItemId srcFolderId = renameFolderTestId("src/");
     GcsItemId dstFolderId = renameFolderTestId("dst/");
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
     return Stream.of(
         Arguments.of(null, dstFolderId, NullPointerException.class, "srcFolderId must not be null"),
         Arguments.of(srcFolderId, null, NullPointerException.class, "dstFolderId must not be null"),
         Arguments.of(
-            GcsItemId.builder().setBucketName(TEST_BUCKET).build(),
+            bucketId,
             dstFolderId,
             IllegalArgumentException.class,
-            "Expected a folder srcFolderId"),
+            "srcFolderId must have a bucket and a folder path, but got: " + bucketId),
         Arguments.of(
             srcFolderId,
             GcsItemId.ROOT,
             IllegalArgumentException.class,
-            "Expected a folder dstFolderId"),
+            "dstFolderId must have a bucket and a folder path, but got: " + GcsItemId.ROOT),
         Arguments.of(
             srcFolderId,
             GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName("dst/").build(),
@@ -2283,6 +2334,14 @@ class GcsClientImplTest {
 
   private static GcsItemId renameFolderTestId(String objectName) {
     return GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName(objectName).build();
+  }
+
+  private static GcsItemId renameFolderTestId(String objectName, long contentGeneration) {
+    return GcsItemId.builder()
+        .setBucketName(TEST_BUCKET)
+        .setObjectName(objectName)
+        .setContentGeneration(contentGeneration)
+        .build();
   }
 
   @SuppressWarnings("unchecked")

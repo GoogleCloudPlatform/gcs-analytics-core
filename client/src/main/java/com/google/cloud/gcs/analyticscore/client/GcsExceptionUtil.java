@@ -33,6 +33,7 @@ import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Locale;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /** Centralized utility for classifying GCS transport exceptions. */
 class GcsExceptionUtil {
@@ -353,6 +354,40 @@ class GcsExceptionUtil {
           new AccessDeniedException(location, null, e.getMessage()).initCause(e);
     }
     return new IOException(fallbackMessage, e);
+  }
+
+  /**
+   * Translates a failure of a Storage Control folder rename into the appropriate {@link
+   * IOException}.
+   *
+   * <p>An {@link AlreadyExistsException} is reported for the destination folder; every other
+   * failure is reported for the source folder. Folders have no content generation, so both are
+   * reported without one.
+   *
+   * @param cause the failure, thrown when the rename was started or carried by its long-running
+   *     operation; {@code null} and non-{@link Exception} causes become a generic {@link
+   *     IOException}
+   * @param srcFolderId the folder that was being renamed
+   * @param dstFolderId the new name of the folder
+   */
+  static IOException translateRenameFolderException(
+      @Nullable Throwable cause, GcsItemId srcFolderId, GcsItemId dstFolderId) {
+    checkNotNull(srcFolderId, "srcFolderId should not be null");
+    checkNotNull(dstFolderId, "dstFolderId should not be null");
+    String failureMessage =
+        String.format(
+            "Failed to rename folder %s to %s",
+            UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId));
+    if (!(cause instanceof Exception)) {
+      return new IOException(failureMessage, cause);
+    }
+    // ALREADY_EXISTS refers to the destination; every other failure is reported for the source.
+    GcsItemId folderId = cause instanceof AlreadyExistsException ? dstFolderId : srcFolderId;
+    GcsItemId.Builder folderIdWithoutGeneration =
+        GcsItemId.builder().setBucketName(folderId.getBucketName());
+    folderId.getObjectName().ifPresent(folderIdWithoutGeneration::setObjectName);
+    return translateControlException(
+        (Exception) cause, folderIdWithoutGeneration.build(), failureMessage);
   }
 
   /**
