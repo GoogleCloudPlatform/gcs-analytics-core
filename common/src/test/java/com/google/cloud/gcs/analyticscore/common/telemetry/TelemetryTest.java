@@ -20,11 +20,33 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class TelemetryTest {
+
+  private static final Metric M1 = TestMetric.of("m1", Metric.MetricType.COUNTER);
+  private static final Metric M2 = TestMetric.of("m2", Metric.MetricType.COUNTER);
+  private static final Metric M3 = TestMetric.of("m3", Metric.MetricType.COUNTER);
+  private static final Metric DURATION = TestMetric.of("duration", Metric.MetricType.DURATION);
+  private static final MetricKey K1 = keyOf(M1);
+  private static final MetricKey K2 = keyOf(M2);
+  private static final MetricKey K3 = keyOf(M3);
+  private static final MetricKey DURATION_KEY = keyOf(DURATION);
+  private static final Operation READ_OP = Operation.builder().setName("READ").build();
+  private static final Operation READ_DURATION_OP =
+      Operation.builder().setName("READ").setDurationMetric(DURATION).build();
 
   private Telemetry telemetry;
   private FakeOperationMetricsListener listener;
@@ -240,6 +262,189 @@ class TelemetryTest {
 
     assertDoesNotThrow(
         () -> telemetryWithFailingListener.recordMetric(testMetric, 1L, Collections.emptyMap()));
+  }
+
+  @Test
+  void measure_noMetricsAndNoDuration_deliversEmptyUnmodifiableMap() throws Exception {
+    Map<MetricKey, Long> metrics = measureMetrics(READ_OP, r -> {});
+
+    assertThat(metrics).isEmpty();
+    assertThat(metrics).hasSize(0);
+    assertThat(metrics.get(K1)).isNull();
+    assertThat(metrics.containsKey(K1)).isFalse();
+    assertThat(metrics.entrySet()).isEmpty();
+  }
+
+  @Test
+  void measure_singleMetricRepeated_accumulatesAndIsUnmodifiable() throws Exception {
+    Map<MetricKey, Long> metrics =
+        measureMetrics(
+            READ_OP,
+            r -> {
+              rec(r, M1, 10L);
+              rec(r, M1, 15L);
+            });
+
+    Iterator<Map.Entry<MetricKey, Long>> it = metrics.entrySet().iterator();
+    assertThat(metrics).hasSize(1);
+    assertThat(metrics.entrySet()).hasSize(1);
+    assertThat(metrics.get(K1)).isEqualTo(25L);
+    assertThat(metrics.get(K2)).isNull();
+    assertThat(metrics.containsKey(K1)).isTrue();
+    assertThat(metrics.containsKey(null)).isFalse();
+    assertThat(it.hasNext()).isTrue();
+    assertThat(it.next()).isEqualTo(Map.entry(K1, 25L));
+    assertThat(it.hasNext()).isFalse();
+    assertThrows(NoSuchElementException.class, it::next);
+    assertThrows(UnsupportedOperationException.class, () -> metrics.put(K2, 1L));
+    assertThrows(UnsupportedOperationException.class, () -> metrics.remove(K1));
+    assertThrows(UnsupportedOperationException.class, metrics::clear);
+  }
+
+  @Test
+  void measure_twoMetricsWithSecondRepeated_accumulatesAndMatchesMapEquality() throws Exception {
+    Map<MetricKey, Long> metrics =
+        measureMetrics(
+            READ_OP,
+            r -> {
+              rec(r, M1, 5L);
+              rec(r, M2, 7L);
+              rec(r, M2, 3L);
+            });
+
+    Map<MetricKey, Long> expected = Map.of(K1, 5L, K2, 10L);
+    assertThat(metrics).hasSize(2);
+    assertThat(metrics.get(K1)).isEqualTo(5L);
+    assertThat(metrics.get(K2)).isEqualTo(10L);
+    assertThat(metrics.get(K3)).isNull();
+    assertThat(metrics).isEqualTo(expected);
+    assertThat(metrics.hashCode()).isEqualTo(expected.hashCode());
+  }
+
+  @Test
+  void measure_moreThanTwoMetrics_spillsToOverflowAndRemainsUnmodifiable() throws Exception {
+    Map<MetricKey, Long> metrics =
+        measureMetrics(
+            READ_DURATION_OP,
+            r -> {
+              rec(r, M1, 1L);
+              rec(r, M2, 2L);
+              rec(r, M3, 3L);
+              rec(r, M3, 4L);
+            });
+
+    Map.Entry<MetricKey, Long> firstEntry = metrics.entrySet().iterator().next();
+    assertThat(metrics).hasSize(4);
+    assertThat(metrics.get(K1)).isEqualTo(1L);
+    assertThat(metrics.get(K2)).isEqualTo(2L);
+    assertThat(metrics.get(K3)).isEqualTo(7L);
+    assertThat(metrics.get(DURATION_KEY)).isAtLeast(0L);
+    assertThrows(UnsupportedOperationException.class, () -> metrics.put(K1, 1L));
+    assertThrows(UnsupportedOperationException.class, metrics::clear);
+    assertThrows(UnsupportedOperationException.class, () -> firstEntry.setValue(99L));
+  }
+
+  @Test
+  void measure_durationMetricAlsoRecordedBySupplier_overwritesInAllSlots() throws Exception {
+    List<List<Metric>> cases =
+        List.of(List.of(DURATION), List.of(M1, DURATION), List.of(M1, M2, DURATION));
+
+    for (List<Metric> recorded : cases) {
+      Map<MetricKey, Long> metrics =
+          measureMetrics(READ_DURATION_OP, r -> recorded.forEach(m -> rec(r, m, Long.MAX_VALUE)));
+      assertThat(metrics.get(DURATION_KEY)).isAtLeast(0L);
+      assertThat(metrics.get(DURATION_KEY)).isLessThan(Long.MAX_VALUE);
+    }
+  }
+
+  @Test
+  void measure_supplierThrows_propagatesExceptionAndDeliversCollectedMetrics() {
+    IllegalStateException boom = new IllegalStateException("boom");
+    OperationSupplier<Object, RuntimeException> failing =
+        r -> {
+          rec(r, M1, 42L);
+          throw boom;
+        };
+
+    IllegalStateException thrown =
+        assertThrows(
+            IllegalStateException.class, () -> telemetry.measure(READ_DURATION_OP, failing));
+
+    Map<MetricKey, Long> metrics = listener.getEndedMetrics().get(0);
+    assertThat(thrown).isSameInstanceAs(boom);
+    assertThat(metrics.get(K1)).isEqualTo(42L);
+    assertThat(metrics.get(DURATION_KEY)).isAtLeast(0L);
+  }
+
+  @Test
+  void measure_recorderUsedAfterMeasureReturns_doesNotMutateDeliveredMetrics() throws Exception {
+    AtomicReference<MetricsRecorder> leaked = new AtomicReference<>();
+
+    Map<MetricKey, Long> metrics =
+        measureMetrics(
+            READ_OP,
+            r -> {
+              rec(r, M1, 10L);
+              leaked.set(r);
+            });
+    rec(leaked.get(), M1, 999L);
+
+    assertThat(metrics).containsExactly(K1, 10L);
+  }
+
+  @Test
+  void measure_concurrentRecordingAcrossThreads_accumulatesWithoutLostUpdates() throws Exception {
+    int threads = 4;
+    int iterations = 200;
+    ExecutorService executor = Executors.newFixedThreadPool(threads);
+    CyclicBarrier barrier = new CyclicBarrier(threads);
+    try {
+      telemetry.measure(
+          READ_OP,
+          r -> {
+            List<Future<Void>> futures =
+                executor.invokeAll(
+                    Collections.nCopies(
+                        threads,
+                        () -> {
+                          barrier.await(5, TimeUnit.SECONDS);
+                          for (int i = 0; i < iterations; i++) {
+                            rec(r, M1, 1L);
+                            rec(r, M2, 2L);
+                          }
+                          return null;
+                        }));
+            for (Future<Void> f : futures) {
+              f.get();
+            }
+            return null;
+          });
+      Map<MetricKey, Long> metrics = listener.getEndedMetrics().get(0);
+      assertThat(metrics.get(K1)).isEqualTo((long) threads * iterations);
+      assertThat(metrics.get(K2)).isEqualTo(2L * threads * iterations);
+    } finally {
+      executor.shutdownNow();
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+  }
+
+  private Map<MetricKey, Long> measureMetrics(Operation op, Consumer<MetricsRecorder> body)
+      throws Exception {
+    telemetry.measure(
+        op,
+        r -> {
+          body.accept(r);
+          return null;
+        });
+    return listener.getEndedMetrics().get(listener.getEndedMetrics().size() - 1);
+  }
+
+  private static void rec(MetricsRecorder r, Metric m, long v) {
+    r.record(m, v, Collections.emptyMap());
+  }
+
+  private static MetricKey keyOf(Metric metric) {
+    return MetricKey.builder().setMetric(metric).build();
   }
 
   /** Fails on every callback, to verify that a misbehaving listener cannot break an operation. */

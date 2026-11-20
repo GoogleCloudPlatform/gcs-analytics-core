@@ -18,7 +18,6 @@ package com.google.cloud.gcs.analyticscore.common.telemetry;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,11 +61,11 @@ public class Telemetry implements AutoCloseable {
     }
     // Deliberately concurrent: MetricsRecorder is public API, so a supplier is free to fan work
     // out across threads and record from each of them.
-    Map<MetricKey, Long> currentMetrics = new ConcurrentHashMap<>();
+    CompactMetricsMap currentMetrics = new CompactMetricsMap();
     MetricsRecorder recorder =
         (metric, value, attributes) -> {
           MetricKey key = MetricKey.builder().setMetric(metric).setAttributes(attributes).build();
-          currentMetrics.merge(key, value, Long::sum);
+          currentMetrics.record(key, value);
         };
     notifyStart(operation);
     long startTime = System.nanoTime();
@@ -74,11 +73,7 @@ public class Telemetry implements AutoCloseable {
       return operationSupplier.get(recorder);
     } finally {
       long durationNs = System.nanoTime() - startTime;
-      operation
-          .getDurationMetric()
-          .ifPresent(
-              metric ->
-                  currentMetrics.put(MetricKey.builder().setMetric(metric).build(), durationNs));
+      currentMetrics.freeze(operation.getDurationMetric(), durationNs);
       notifyEnd(operation, currentMetrics);
     }
   }
