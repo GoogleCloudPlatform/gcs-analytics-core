@@ -1022,11 +1022,7 @@ class GcsBidiReadChannelTest {
   }
 
   @Test
-  void read_emptyByteStringFromSession_returnsZeroWithoutAdvancingPosition() throws Exception {
-    // TODO: Documents current behavior pending a fix in GcsBidiReadChannel.readBytesFromSession.
-    // Returning 0 on an in-bounds blocking read into a non-empty buffer violates the
-    // ReadableByteChannel contract and spins callers like SmallObjectOptimizer and
-    // GcsFooterOptimizer; update this test once empty responses return -1 or throw.
+  void read_emptyByteStringFromSession_throwsIOException() throws Exception {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(KB).build();
     when(blobReadSession.readAs(any()))
         .thenReturn(ApiFutures.immediateFuture(disposableByteString));
@@ -1036,11 +1032,60 @@ class GcsBidiReadChannelTest {
       seekableReader.position(5L);
       ByteBuffer dst = ByteBuffer.allocate(10);
 
-      int bytesRead = seekableReader.read(dst);
+      IOException e = assertThrows(IOException.class, () -> seekableReader.read(dst));
 
-      assertThat(bytesRead).isEqualTo(0);
+      assertThat(e).isNotInstanceOf(EOFException.class);
+      assertThat(e)
+          .hasMessageThat()
+          .contains("Received empty response (0 bytes) from bidi read session");
       assertThat(seekableReader.position()).isEqualTo(5L);
       assertThat(dst.position()).isEqualTo(0);
+      verify(disposableByteString).close();
+    }
+  }
+
+  @Test
+  void read_oversizedPayloadWithinBufferCapacity_throwsIOException() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(15L).build();
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(sequentialBytes(0, 8));
+
+    try (GcsBidiReadChannel seekableReader = createChannelWithItemInfo(itemInfo)) {
+      seekableReader.position(10L);
+      ByteBuffer dst = ByteBuffer.allocate(10);
+
+      IOException e = assertThrows(IOException.class, () -> seekableReader.read(dst));
+
+      assertThat(e)
+          .hasMessageThat()
+          .contains("Received more bytes (8) than requested (5) from bidi read session");
+      assertThat(seekableReader.position()).isEqualTo(10L);
+      assertThat(dst.position()).isEqualTo(0);
+      verify(disposableByteString).close();
+    }
+  }
+
+  @Test
+  void read_partialPayloadFromSession_returnsBytesReadAndAdvancesPosition() throws Exception {
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(20L).build();
+    ByteString payload = sequentialBytes(5, 4);
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(payload);
+
+    try (GcsBidiReadChannel seekableReader = createChannelWithItemInfo(itemInfo)) {
+      seekableReader.position(5L);
+      ByteBuffer dst = ByteBuffer.allocate(10);
+
+      int bytesRead = seekableReader.read(dst);
+
+      assertThat(bytesRead).isEqualTo(4);
+      assertThat(seekableReader.position()).isEqualTo(9L);
+      assertThat(dst.position()).isEqualTo(4);
+      dst.flip();
+      assertThat(toByteArray(dst)).isEqualTo(payload.toByteArray());
+      verify(disposableByteString).close();
     }
   }
 

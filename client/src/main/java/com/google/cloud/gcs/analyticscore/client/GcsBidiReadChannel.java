@@ -151,9 +151,7 @@ class GcsBidiReadChannel extends GcsReadChannel {
     }
     long bytesToRequest = Math.min((long) dst.remaining(), objectSize - position);
     int bytesRead = readBytesFromSession(dst, position, bytesToRequest);
-    if (bytesRead > 0) {
-      position += bytesRead;
-    }
+    position += bytesRead;
     return bytesRead;
   }
 
@@ -270,9 +268,21 @@ class GcsBidiReadChannel extends GcsReadChannel {
     try (DisposableByteString dbs = futureBytes.get(bidiClientTimeoutSeconds, TimeUnit.SECONDS)) {
       ByteString byteString = dbs.byteString();
       int bytesRead = byteString.size();
-      if (bytesRead > 0) {
-        byteString.copyTo(dst);
+      if (bytesRead <= 0) {
+        throw new IOException(
+            String.format(
+                "Received empty response (%d bytes) from bidi read session for %s at offset %d "
+                    + "(requested %d bytes, object size %d)",
+                bytesRead, itemId, offset, length, objectSize));
       }
+      if (bytesRead > length) {
+        throw new IOException(
+            String.format(
+                "Received more bytes (%d) than requested (%d) from bidi read session for %s at "
+                    + "offset %d",
+                bytesRead, length, itemId, offset));
+      }
+      byteString.copyTo(dst);
       return bytesRead;
     } catch (InterruptedException e) {
       futureBytes.cancel(true);
