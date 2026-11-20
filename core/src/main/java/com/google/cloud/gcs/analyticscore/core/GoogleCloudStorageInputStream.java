@@ -35,14 +35,15 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.IntFunction;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /** This is a seekable input stream for GCS objects. It is backed by a GcsFileSystem instance. */
 public class GoogleCloudStorageInputStream extends SeekableInputStream {
   private static final ImmutableMap<String, String> COMMON_ATTRIBUTES =
       ImmutableMap.of(Attribute.CLASS_NAME.name(), GoogleCloudStorageInputStream.class.getName());
 
-  // Used for single-byte reads to avoid repeated allocation.
-  private final ByteBuffer singleByteBuffer = ByteBuffer.wrap(new byte[1]);
+  // Lazily allocated on the first single-byte read() to avoid per-stream allocation.
+  @Nullable private ByteBuffer singleByteBuffer;
 
   private final GcsFileSystem gcsFileSystem;
   private final VectoredSeekableByteChannel channel;
@@ -167,13 +168,17 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
   @Override
   public int read() throws IOException {
     checkNotClosed("Cannot read: already closed");
-    // Delegate to the byte array read method.
-    int bytesRead = read(singleByteBuffer.array(), 0, 1);
+    ByteBuffer buffer = singleByteBuffer;
+    if (buffer == null) {
+      buffer = ByteBuffer.allocate(1);
+      singleByteBuffer = buffer;
+    }
+    buffer.clear();
+    int bytesRead = read(buffer);
     if (bytesRead == -1) {
       return -1;
     }
-
-    return singleByteBuffer.array()[0] & 0xFF;
+    return buffer.get(0) & 0xFF;
   }
 
   @Override
