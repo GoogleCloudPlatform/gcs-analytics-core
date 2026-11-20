@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.auto.value.AutoValue;
+import com.google.auto.value.extension.memoized.Memoized;
 import com.google.cloud.gcs.analyticscore.common.ConfigurationUtil;
 import java.util.Map;
 import java.util.Optional;
@@ -94,6 +95,17 @@ public abstract class GcsReadOptions {
   public abstract int getAdaptiveReadSequentialReadThreshold();
 
   public abstract int getRandomReadMinRequestSize();
+
+  @Memoized
+  GcsReadOptions memoizedRandomAccessOptions() {
+    return toBuilder().setFileAccessPattern(FileAccessPattern.RANDOM).build();
+  }
+
+  public final GcsReadOptions withRandomAccess() {
+    return getFileAccessPattern() == FileAccessPattern.RANDOM
+        ? this
+        : memoizedRandomAccessOptions();
+  }
 
   @SuppressWarnings("deprecation")
   public static Builder builder() {
