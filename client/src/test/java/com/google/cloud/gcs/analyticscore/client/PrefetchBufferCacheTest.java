@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -1021,6 +1022,252 @@ class PrefetchBufferCacheTest {
   }
 
   @Test
+  void serveVectoredFromCache_completedRange_completesRangeWithItsBytes() throws Exception {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    GcsObjectRange range = vectoredRange(FIRST_RANGE_OFFSET, 4);
+
+    serveVectored(cache, range);
+
+    assertThat(readBytes(range)).isEqualTo(FIRST_RANGE);
+  }
+
+  @Test
+  void serveVectoredFromCache_completedRange_returnsNoUnservedRanges() {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+
+    List<GcsObjectRange> unservedRanges =
+        serveVectored(cache, vectoredRange(FIRST_RANGE_OFFSET, 4));
+
+    assertThat(unservedRanges).isEmpty();
+  }
+
+  @Test
+  void serveVectoredFromCache_rangeInsideCachedRange_completesRangeWithItsBytes() throws Exception {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    GcsObjectRange range = vectoredRange(1, 2);
+
+    serveVectored(cache, range);
+
+    assertThat(readBytes(range)).isEqualTo(new byte[] {2, 3});
+  }
+
+  @Test
+  void serveVectoredFromCache_rangeSpanningAdjacentRanges_stitchesTheirBytes() throws Exception {
+    PrefetchBufferCache cache = newCache();
+    RegisteredStream stream = cache.registerStream(itemId("object"));
+    registerCompleted(stream, FIRST_RANGE_OFFSET, FIRST_RANGE);
+    registerCompleted(stream, SECOND_RANGE_OFFSET, SECOND_RANGE);
+    GcsObjectRange range = vectoredRange(FIRST_RANGE_OFFSET, 8);
+
+    serveVectored(cache, range);
+
+    assertThat(readBytes(range)).isEqualTo(COMBINED_RANGES);
+  }
+
+  @Test
+  void serveVectoredFromCache_uncachedAndCachedRanges_returnsOnlyUncachedRange() {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    GcsObjectRange uncachedRange = vectoredRange(SECOND_RANGE_OFFSET, 4);
+
+    List<GcsObjectRange> unservedRanges =
+        serveVectored(cache, vectoredRange(FIRST_RANGE_OFFSET, 4), uncachedRange);
+
+    assertThat(unservedRanges).containsExactly(uncachedRange);
+  }
+
+  @Test
+  void serveVectoredFromCache_partlyCachedRange_returnsRange() {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    GcsObjectRange range = vectoredRange(2, 4);
+
+    List<GcsObjectRange> unservedRanges = serveVectored(cache, range);
+
+    assertThat(unservedRanges).containsExactly(range);
+  }
+
+  @Test
+  void serveVectoredFromCache_itemWithoutOpenStream_returnsAllRanges() {
+    PrefetchBufferCache cache = newCache();
+    GcsObjectRange firstRange = vectoredRange(FIRST_RANGE_OFFSET, 4);
+    GcsObjectRange secondRange = vectoredRange(SECOND_RANGE_OFFSET, 3);
+
+    List<GcsObjectRange> unservedRanges = serveVectored(cache, firstRange, secondRange);
+
+    assertThat(unservedRanges).containsExactly(firstRange, secondRange).inOrder();
+  }
+
+  @Test
+  void serveVectoredFromCache_emptyRange_returnsRange() {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    GcsObjectRange range = vectoredRange(1, 0);
+
+    List<GcsObjectRange> unservedRanges = serveVectored(cache, range);
+
+    assertThat(unservedRanges).containsExactly(range);
+  }
+
+  @Test
+  void serveVectoredFromCache_inFlightRange_completesRangeWhenDownloadFinishes() throws Exception {
+    PrefetchBufferCache cache = newCache();
+    CompletableFuture<ByteBuffer> download = new CompletableFuture<>();
+    cache
+        .registerStream(itemId("object"))
+        .registerRange(SECOND_RANGE_OFFSET, 4, download, NO_PROMOTION);
+    GcsObjectRange range = vectoredRange(SECOND_RANGE_OFFSET, 4);
+    serveVectored(cache, range);
+
+    download.complete(bufferOf(SECOND_RANGE));
+
+    assertThat(readBytes(range)).isEqualTo(SECOND_RANGE);
+  }
+
+  @Test
+  void serveVectoredFromCache_inFlightRange_promotesDownload() {
+    PrefetchBufferCache cache = newCache();
+    AtomicInteger promotions = new AtomicInteger();
+    registerInFlightCountingPromotions(
+        cache.registerStream(itemId("object")), SECOND_RANGE_OFFSET, SECOND_RANGE, promotions);
+
+    serveVectored(cache, vectoredRange(SECOND_RANGE_OFFSET, 4));
+
+    assertThat(promotions.get()).isEqualTo(1);
+  }
+
+  @ParameterizedTest
+  @MethodSource("badDownloads")
+  void serveVectoredFromCache_badDownload_passesRangeToFallback(
+      Consumer<CompletableFuture<ByteBuffer>> badDownload) {
+    PrefetchBufferCache cache = newCache();
+    CompletableFuture<ByteBuffer> download = new CompletableFuture<>();
+    cache
+        .registerStream(itemId("object"))
+        .registerRange(FIRST_RANGE_OFFSET, 4, download, NO_PROMOTION);
+    GcsObjectRange range = vectoredRange(FIRST_RANGE_OFFSET, 4);
+    List<GcsObjectRange> fallbackRanges = new ArrayList<>();
+    List<GcsObjectRange> unusedUnservedRanges =
+        cache.serveVectoredFromCache(
+            itemId("object"), ImmutableList.of(range), ByteBuffer::allocate, fallbackRanges::add);
+
+    badDownload.accept(download);
+
+    assertThat(fallbackRanges).containsExactly(range);
+  }
+
+  @Test
+  void serveVectoredFromCache_fallbackThrows_failsRangeWithThatException() {
+    PrefetchBufferCache cache = newCache();
+    CompletableFuture<ByteBuffer> download = new CompletableFuture<>();
+    cache
+        .registerStream(itemId("object"))
+        .registerRange(FIRST_RANGE_OFFSET, 4, download, NO_PROMOTION);
+    GcsObjectRange range = vectoredRange(FIRST_RANGE_OFFSET, 4);
+    IllegalStateException fallbackError = new IllegalStateException("channel closed");
+    List<GcsObjectRange> unusedUnservedRanges =
+        cache.serveVectoredFromCache(
+            itemId("object"),
+            ImmutableList.of(range),
+            ByteBuffer::allocate,
+            failedRange -> {
+              throw fallbackError;
+            });
+
+    download.completeExceptionally(new RuntimeException("network error"));
+
+    ExecutionException thrown =
+        assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(thrown).hasCauseThat().isSameInstanceAs(fallbackError);
+  }
+
+  @Test
+  void serveVectoredFromCache_servedRange_recordsCacheHit() {
+    RecordingOperationListener listener = new RecordingOperationListener();
+    PrefetchBufferCache cache = newCache(listener);
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+
+    serveVectored(cache, vectoredRange(FIRST_RANGE_OFFSET, 4));
+
+    assertThat(listener.getTotal(GcsAnalyticsCoreTelemetryConstants.Metric.PREFETCH_CACHE_HIT))
+        .isEqualTo(1);
+  }
+
+  @Test
+  void serveVectoredFromCache_uncachedRange_recordsNoCacheMiss() {
+    RecordingOperationListener listener = new RecordingOperationListener();
+    PrefetchBufferCache cache = newCache(listener);
+
+    serveVectored(cache, vectoredRange(FIRST_RANGE_OFFSET, 4));
+
+    assertThat(listener.getTotal(GcsAnalyticsCoreTelemetryConstants.Metric.PREFETCH_CACHE_MISS))
+        .isEqualTo(0);
+  }
+
+  @Test
+  void serveVectoredFromCache_failedDownload_recordsNoCacheHit() {
+    RecordingOperationListener listener = new RecordingOperationListener();
+    PrefetchBufferCache cache = newCache(listener);
+    CompletableFuture<ByteBuffer> download = new CompletableFuture<>();
+    cache
+        .registerStream(itemId("object"))
+        .registerRange(FIRST_RANGE_OFFSET, 4, download, NO_PROMOTION);
+    serveVectored(cache, vectoredRange(FIRST_RANGE_OFFSET, 4));
+
+    download.completeExceptionally(new RuntimeException("network error"));
+
+    assertThat(listener.getTotal(GcsAnalyticsCoreTelemetryConstants.Metric.PREFETCH_CACHE_HIT))
+        .isEqualTo(0);
+  }
+
+  @Test
+  void serveVectoredFromCache_servedRange_recordsConsumedBytes() {
+    RecordingOperationListener listener = new RecordingOperationListener();
+    PrefetchBufferCache cache = newCache(listener);
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+
+    serveVectored(cache, vectoredRange(1, 3));
+
+    assertThat(listener.getTotal(GcsAnalyticsCoreTelemetryConstants.Metric.PREFETCH_BYTES_CONSUMED))
+        .isEqualTo(3);
+  }
+
+  @Test
+  void serveVectoredFromCache_everyByteRead_evictsRange() {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+
+    serveVectored(cache, vectoredRange(FIRST_RANGE_OFFSET, 4));
+
+    assertThat(cache.isCovered(itemId("object"), FIRST_RANGE_OFFSET, 1)).isFalse();
+  }
+
+  @Test
+  void serveVectoredFromCache_downloadNotFinished_keepsRange() {
+    PrefetchBufferCache cache = newCache();
+    registerInFlight(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, 4);
+
+    serveVectored(cache, vectoredRange(FIRST_RANGE_OFFSET, 4));
+
+    assertThat(cache.isCovered(itemId("object"), FIRST_RANGE_OFFSET, 4)).isTrue();
+  }
+
+  @Test
+  void serveVectoredFromCache_rangeReadThroughEnclosingRange_evictsNestedRange() {
+    PrefetchBufferCache cache = newCache();
+    RegisteredStream stream = cache.registerStream(itemId("object"));
+    registerCompleted(stream, 2, new byte[] {3, 4});
+    registerCompleted(stream, FIRST_RANGE_OFFSET, COMBINED_RANGES);
+
+    serveVectored(cache, vectoredRange(FIRST_RANGE_OFFSET, 8));
+
+    assertThat(cache.isCovered(itemId("object"), 2, 2)).isFalse();
+  }
+
+  @Test
   void signatures_doNotExposeGuavaTypes() {
     ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(
         PrefetchBufferCache.class, RegisteredStream.class);
@@ -1122,6 +1369,31 @@ class PrefetchBufferCacheTest {
 
   private static GcsItemId itemId(String objectName) {
     return GcsItemId.builder().setBucketName("test-bucket").setObjectName(objectName).build();
+  }
+
+  private static GcsObjectRange vectoredRange(long offset, int length) {
+    return GcsObjectRange.builder()
+        .setOffset(offset)
+        .setLength(length)
+        .setByteBufferFuture(new CompletableFuture<>())
+        .build();
+  }
+
+  /** Serves {@code ranges} of "object" with a fallback that is never expected to run. */
+  private static List<GcsObjectRange> serveVectored(
+      PrefetchBufferCache cache, GcsObjectRange... ranges) {
+    return cache.serveVectoredFromCache(
+        itemId("object"),
+        ImmutableList.copyOf(ranges),
+        ByteBuffer::allocate,
+        failedRange -> failedRange.getByteBufferFuture().cancel(false));
+  }
+
+  private static byte[] readBytes(GcsObjectRange range) throws Exception {
+    ByteBuffer buffer = range.getByteBufferFuture().get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    byte[] bytes = new byte[buffer.remaining()];
+    buffer.duplicate().get(bytes);
+    return bytes;
   }
 
   private static Stream<Named<Consumer<CompletableFuture<ByteBuffer>>>> badDownloads() {
