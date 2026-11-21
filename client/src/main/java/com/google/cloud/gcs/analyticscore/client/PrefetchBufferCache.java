@@ -156,11 +156,13 @@ public final class PrefetchBufferCache {
    * the ranges it does not serve so the caller reads them from the object.
    *
    * <p>A served range's future completes with a buffer from {@code allocate} once the downloads
-   * holding its bytes finish. A range that spans adjacent cached ranges is stitched from them. If
-   * the range cannot be completed from the cache, for example because one of those downloads fails,
-   * the range is passed to {@code onDownloadFailed} on the thread that completes the download, so
-   * the caller can read it from the object instead. If {@code onDownloadFailed} throws, the range's
-   * future fails with that exception.
+   * holding its bytes finish, and fails if {@code allocate} fails. A range that spans adjacent
+   * cached ranges is stitched from them. If a download fails and no other cached range holds the
+   * bytes, the range is passed to {@code onDownloadFailed} so the caller can read it from the
+   * object. If {@code onDownloadFailed} throws, the range's future fails with that exception.
+   *
+   * <p>{@code allocate} and {@code onDownloadFailed} run on the calling thread or on a thread that
+   * completes a download, so they must be thread-safe and must not block.
    *
    * <p>Records a cache hit for each range completed from the cache. Never records a miss. A caller
    * that expected the bytes to be cached reports misses with {@link #recordCacheMiss()}.
@@ -387,27 +389,71 @@ public final class PrefetchBufferCache {
       List<Segment> segments,
       IntFunction<ByteBuffer> allocate,
       Consumer<GcsObjectRange> onDownloadFailed) {
-    CompletableFuture<ByteBuffer> unused =
-        stitchAsync(segments, range.getLength(), allocate)
-            .whenComplete(
-                (buffer, error) -> {
-                  if (error != null) {
-                    passToFallback(range, onDownloadFailed);
-                    return;
-                  }
-                  recordVectoredHit(state, segments);
-                  range.getByteBufferFuture().complete(buffer);
-                });
-  }
-
-  private static CompletableFuture<ByteBuffer> stitchAsync(
-      List<Segment> segments, int length, IntFunction<ByteBuffer> allocate) {
     List<CompletableFuture<ByteBuffer>> slices = new ArrayList<>(segments.size());
     for (Segment segment : segments) {
       slices.add(segment.entry.range.sliceAsync(segment.offset, segment.length));
     }
-    return CompletableFuture.allOf(slices.toArray(new CompletableFuture<?>[0]))
-        .thenApply(unused -> copyToAllocated(slices, length, allocate));
+    CompletableFuture<?> unused =
+        whenAllDownloaded(slices)
+            .whenComplete(
+                (ignored, downloadError) -> {
+                  if (range.getByteBufferFuture().isDone()) {
+                    return;
+                  }
+                  if (downloadError == null) {
+                    completeFromSlices(state, range, segments, slices, allocate);
+                  } else {
+                    evictFailedDownloads(segments, slices);
+                    retryFromCache(state, range, allocate, onDownloadFailed);
+                  }
+                });
+  }
+
+  private static CompletableFuture<?> whenAllDownloaded(
+      List<CompletableFuture<ByteBuffer>> slices) {
+    return slices.size() == 1
+        ? slices.get(0)
+        : CompletableFuture.allOf(slices.toArray(new CompletableFuture<?>[0]));
+  }
+
+  private void completeFromSlices(
+      ItemState state,
+      GcsObjectRange range,
+      List<Segment> segments,
+      List<CompletableFuture<ByteBuffer>> slices,
+      IntFunction<ByteBuffer> allocate) {
+    ByteBuffer buffer;
+    try {
+      buffer = copyToAllocated(slices, range.getLength(), allocate);
+    } catch (Throwable t) {
+      range.getByteBufferFuture().completeExceptionally(t);
+      return;
+    }
+    if (range.getByteBufferFuture().complete(buffer)) {
+      recordVectoredHit(state, segments);
+    }
+  }
+
+  private void evictFailedDownloads(
+      List<Segment> segments, List<CompletableFuture<ByteBuffer>> slices) {
+    for (int i = 0; i < segments.size(); i++) {
+      if (slices.get(i).isCompletedExceptionally()) {
+        evict(segments.get(i).entry);
+      }
+    }
+  }
+
+  private void retryFromCache(
+      ItemState state,
+      GcsObjectRange range,
+      IntFunction<ByteBuffer> allocate,
+      Consumer<GcsObjectRange> onDownloadFailed) {
+    List<Segment> segments = findSegments(state, range);
+    if (segments == null) {
+      passToFallback(range, onDownloadFailed);
+    } else {
+      completeFromSegments(state, range, segments, allocate, onDownloadFailed);
+    }
   }
 
   private static ByteBuffer copyToAllocated(
@@ -434,8 +480,8 @@ public final class PrefetchBufferCache {
       GcsObjectRange range, Consumer<GcsObjectRange> onDownloadFailed) {
     try {
       onDownloadFailed.accept(range);
-    } catch (RuntimeException e) {
-      range.getByteBufferFuture().completeExceptionally(e);
+    } catch (Throwable t) {
+      range.getByteBufferFuture().completeExceptionally(t);
     }
   }
 
