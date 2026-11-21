@@ -29,7 +29,7 @@ public interface OperationListener extends AutoCloseable {
    * Triggered when an operation ends.
    *
    * @param operation the operation context
-   * @param metrics a map of collected metrics (key includes name and attributes)
+   * @param metrics an unmodifiable map of collected metrics (key includes name and attributes)
    */
   void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics);
 
