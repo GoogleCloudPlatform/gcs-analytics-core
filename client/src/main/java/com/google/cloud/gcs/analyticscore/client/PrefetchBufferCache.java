@@ -25,21 +25,25 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.math.LongMath;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
+import java.util.function.IntFunction;
 import java.util.function.LongSupplier;
 import javax.annotation.Nullable;
 
 /**
  * Holds speculatively fetched bytes as exact byte ranges addressed by absolute file offset, and
- * serves reads from those ranges.
+ * serves single-buffer and vectored reads from those ranges.
  *
  * <p>Ranges are offered through a {@link RegisteredStream}, so every stored range belongs to an
  * object with at least one open stream. The total length of stored ranges, including ranges that
@@ -145,6 +149,44 @@ public final class PrefetchBufferCache {
   public void recordCacheMiss() {
     telemetry.recordMetric(
         GcsAnalyticsCoreTelemetryConstants.Metric.PREFETCH_CACHE_MISS, 1L, Collections.emptyMap());
+  }
+
+  /**
+   * Serves the ranges of a vectored read whose bytes are all cached for {@code itemId}, and returns
+   * the ranges it does not serve so the caller reads them from the object.
+   *
+   * <p>A served range's future completes with a buffer from {@code allocate} once the downloads
+   * holding its bytes finish, and fails if {@code allocate} fails. A range that spans adjacent
+   * cached ranges is stitched from them. If a download fails and no other cached range holds the
+   * bytes, the range is passed to {@code onDownloadFailed} so the caller can read it from the
+   * object. If {@code onDownloadFailed} throws, the range's future fails with that exception.
+   *
+   * <p>{@code allocate} and {@code onDownloadFailed} run on the calling thread or on a thread that
+   * completes a download, so they must be thread-safe and must not block.
+   *
+   * <p>Records a cache hit for each range completed from the cache. Never records a miss. A caller
+   * that expected the bytes to be cached reports misses with {@link #recordCacheMiss()}.
+   */
+  public List<GcsObjectRange> serveVectoredFromCache(
+      GcsItemId itemId,
+      List<GcsObjectRange> ranges,
+      IntFunction<ByteBuffer> allocate,
+      Consumer<GcsObjectRange> onDownloadFailed) {
+    checkNotNull(itemId, "itemId cannot be null");
+    checkNotNull(ranges, "ranges cannot be null");
+    checkNotNull(allocate, "allocate cannot be null");
+    checkNotNull(onDownloadFailed, "onDownloadFailed cannot be null");
+    ItemState state = itemStates.get(itemId);
+    List<GcsObjectRange> unservedRanges = new ArrayList<>();
+    for (GcsObjectRange range : ranges) {
+      List<Segment> segments = state == null ? null : findSegments(state, range);
+      if (segments == null) {
+        unservedRanges.add(range);
+      } else {
+        completeFromSegments(state, range, segments, allocate, onDownloadFailed);
+      }
+    }
+    return Collections.unmodifiableList(unservedRanges);
   }
 
   /**
@@ -314,6 +356,132 @@ public final class PrefetchBufferCache {
   private void evictIfFullyConsumed(Entry entry) {
     if (entry.range.isFullyConsumed()) {
       evict(entry);
+    }
+  }
+
+  /**
+   * Returns, in order, the parts of cached ranges that together hold every byte of {@code range},
+   * or {@code null} if some byte of it is not cached.
+   */
+  @Nullable
+  private static List<Segment> findSegments(ItemState state, GcsObjectRange range) {
+    if (range.getLength() <= 0) {
+      return null;
+    }
+    long endOffset = LongMath.saturatedAdd(range.getOffset(), range.getLength());
+    List<Segment> segments = new ArrayList<>();
+    long cursor = range.getOffset();
+    while (cursor < endOffset) {
+      Entry entry = selectEntry(state, cursor, (int) (endOffset - cursor));
+      if (entry == null) {
+        return null;
+      }
+      long segmentEnd = Math.min(entry.key.getEndOffset(), endOffset);
+      segments.add(new Segment(entry, cursor, (int) (segmentEnd - cursor)));
+      cursor = segmentEnd;
+    }
+    return segments;
+  }
+
+  private void completeFromSegments(
+      ItemState state,
+      GcsObjectRange range,
+      List<Segment> segments,
+      IntFunction<ByteBuffer> allocate,
+      Consumer<GcsObjectRange> onDownloadFailed) {
+    List<CompletableFuture<ByteBuffer>> slices = new ArrayList<>(segments.size());
+    for (Segment segment : segments) {
+      slices.add(segment.entry.range.sliceAsync(segment.offset, segment.length));
+    }
+    CompletableFuture<?> unused =
+        whenAllDownloaded(slices)
+            .whenComplete(
+                (ignored, downloadError) -> {
+                  if (range.getByteBufferFuture().isDone()) {
+                    return;
+                  }
+                  if (downloadError == null) {
+                    completeFromSlices(state, range, segments, slices, allocate);
+                  } else {
+                    evictFailedDownloads(segments, slices);
+                    retryFromCache(state, range, allocate, onDownloadFailed);
+                  }
+                });
+  }
+
+  private static CompletableFuture<?> whenAllDownloaded(
+      List<CompletableFuture<ByteBuffer>> slices) {
+    return slices.size() == 1
+        ? slices.get(0)
+        : CompletableFuture.allOf(slices.toArray(new CompletableFuture<?>[0]));
+  }
+
+  private void completeFromSlices(
+      ItemState state,
+      GcsObjectRange range,
+      List<Segment> segments,
+      List<CompletableFuture<ByteBuffer>> slices,
+      IntFunction<ByteBuffer> allocate) {
+    ByteBuffer buffer;
+    try {
+      buffer = copyToAllocated(slices, range.getLength(), allocate);
+    } catch (Throwable t) {
+      range.getByteBufferFuture().completeExceptionally(t);
+      return;
+    }
+    if (range.getByteBufferFuture().complete(buffer)) {
+      recordVectoredHit(state, segments);
+    }
+  }
+
+  private void evictFailedDownloads(
+      List<Segment> segments, List<CompletableFuture<ByteBuffer>> slices) {
+    for (int i = 0; i < segments.size(); i++) {
+      if (slices.get(i).isCompletedExceptionally()) {
+        evict(segments.get(i).entry);
+      }
+    }
+  }
+
+  private void retryFromCache(
+      ItemState state,
+      GcsObjectRange range,
+      IntFunction<ByteBuffer> allocate,
+      Consumer<GcsObjectRange> onDownloadFailed) {
+    List<Segment> segments = findSegments(state, range);
+    if (segments == null) {
+      passToFallback(range, onDownloadFailed);
+    } else {
+      completeFromSegments(state, range, segments, allocate, onDownloadFailed);
+    }
+  }
+
+  private static ByteBuffer copyToAllocated(
+      List<CompletableFuture<ByteBuffer>> slices, int length, IntFunction<ByteBuffer> allocate) {
+    ByteBuffer target = allocate.apply(length);
+    checkArgument(target != null, "Buffer allocation returned null for %s bytes", length);
+    for (CompletableFuture<ByteBuffer> slice : slices) {
+      target.put(slice.join());
+    }
+    target.flip();
+    return target;
+  }
+
+  private void recordVectoredHit(ItemState state, List<Segment> segments) {
+    for (Segment segment : segments) {
+      segment.entry.lastUsedNanos = nanoClock.getAsLong();
+      recordConsumption(state, segment.entry, segment.offset, segment.length);
+    }
+    telemetry.recordMetric(
+        GcsAnalyticsCoreTelemetryConstants.Metric.PREFETCH_CACHE_HIT, 1L, Collections.emptyMap());
+  }
+
+  private static void passToFallback(
+      GcsObjectRange range, Consumer<GcsObjectRange> onDownloadFailed) {
+    try {
+      onDownloadFailed.accept(range);
+    } catch (Throwable t) {
+      range.getByteBufferFuture().completeExceptionally(t);
     }
   }
 
@@ -487,6 +655,20 @@ public final class PrefetchBufferCache {
       this.key = RangeKey.create(range.getStartOffset(), range.getEndOffset());
       this.range = range;
       this.lastUsedNanos = lastUsedNanos;
+    }
+  }
+
+  /** The bytes {@code [offset, offset + length)} of a vectored read that {@code entry} holds. */
+  private static final class Segment {
+
+    private final Entry entry;
+    private final long offset;
+    private final int length;
+
+    private Segment(Entry entry, long offset, int length) {
+      this.entry = entry;
+      this.offset = offset;
+      this.length = length;
     }
   }
 
