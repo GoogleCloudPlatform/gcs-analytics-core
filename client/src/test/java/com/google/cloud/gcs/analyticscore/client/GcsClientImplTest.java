@@ -2510,6 +2510,170 @@ class GcsClientImplTest {
     assertThat(e).hasCauseThat().isSameInstanceAs(timeout);
   }
 
+  @Test
+  void renameFolder_interruptedAfterOperationAccepted_namesOperationInMessage() throws Exception {
+    String operationName = "projects/_/buckets/" + TEST_BUCKET + "/operations/rename-1";
+    ApiFuture<OperationSnapshot> initialFuture = renameFolderAcceptedOperation(operationName);
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderMockFuture(mockControlClient);
+    when(future.get()).thenThrow(new InterruptedException("interrupted"));
+    when(future.getInitialFuture()).thenReturn(initialFuture);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    InterruptedIOException e;
+    try {
+      e =
+          assertThrows(
+              InterruptedIOException.class,
+              () ->
+                  clientWithMockControl.renameFolder(
+                      renameFolderTestId("src/"), renameFolderTestId("dst/")));
+    } finally {
+      // Clears the restored interrupt flag so that it cannot leak into later tests.
+      Thread.interrupted();
+    }
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Interrupted while renaming folder gs://"
+                + TEST_BUCKET
+                + "/src/ to gs://"
+                + TEST_BUCKET
+                + "/dst/; the rename may still complete on the server (operation: "
+                + operationName
+                + ")");
+  }
+
+  @Test
+  void renameFolder_pollingFailsAfterOperationAccepted_namesOperationInMessage() {
+    String operationName = "projects/_/buckets/" + TEST_BUCKET + "/operations/rename-1";
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderOperationFuture(
+            renameFolderAcceptedOperation(operationName),
+            ApiFutures.immediateFailedFuture(mock(NotFoundException.class)),
+            snapshot -> Folder.getDefaultInstance());
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.renameFolderAsync(any(RenameFolderRequest.class))).thenReturn(future);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed while polling rename of folder gs://"
+                + TEST_BUCKET
+                + "/src/ to gs://"
+                + TEST_BUCKET
+                + "/dst/; the rename may still complete on the server (operation: "
+                + operationName
+                + ")");
+  }
+
+  @Test
+  void renameFolder_pollingTimedOutAfterOperationAccepted_namesOperationInMessage()
+      throws Exception {
+    String operationName = "projects/_/buckets/" + TEST_BUCKET + "/operations/rename-1";
+    ApiFuture<OperationSnapshot> initialFuture = renameFolderAcceptedOperation(operationName);
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderMockFuture(mockControlClient);
+    when(future.get()).thenThrow(new CancellationException());
+    when(future.getInitialFuture()).thenReturn(initialFuture);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Timed out waiting to rename folder gs://"
+                + TEST_BUCKET
+                + "/src/ to gs://"
+                + TEST_BUCKET
+                + "/dst/; the rename may still complete on the server (operation: "
+                + operationName
+                + ")");
+  }
+
+  @ParameterizedTest
+  @MethodSource("renameFolderInitialFuturesWithoutAcceptedOperation")
+  void renameFolder_pollingTimedOutBeforeOperationAccepted_leavesOperationOutOfMessage(
+      ApiFuture<OperationSnapshot> initialFuture) throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderMockFuture(mockControlClient);
+    when(future.get()).thenThrow(new CancellationException());
+    when(future.getInitialFuture()).thenReturn(initialFuture);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Timed out waiting to rename folder gs://"
+                + TEST_BUCKET
+                + "/src/ to gs://"
+                + TEST_BUCKET
+                + "/dst/; the rename may still complete on the server");
+  }
+
+  private static Stream<Arguments> renameFolderInitialFuturesWithoutAcceptedOperation() {
+    return Stream.of(
+        // The request that starts the rename is still in flight.
+        Arguments.of(SettableApiFuture.<OperationSnapshot>create()),
+        // The request that starts the rename failed or was cancelled.
+        Arguments.of(
+            ApiFutures.<OperationSnapshot>immediateFailedFuture(
+                new IllegalStateException("start failed"))),
+        Arguments.of(ApiFutures.<OperationSnapshot>immediateCancelledFuture()));
+  }
+
+  @Test
+  void renameFolder_pollingTimedOutAndInitialFutureNotExposed_leavesOperationOutOfMessage()
+      throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderMockFuture(mockControlClient);
+    when(future.get()).thenThrow(new CancellationException());
+    when(future.getInitialFuture()).thenThrow(new UnsupportedOperationException());
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Timed out waiting to rename folder gs://"
+                + TEST_BUCKET
+                + "/src/ to gs://"
+                + TEST_BUCKET
+                + "/dst/; the rename may still complete on the server");
+  }
+
   @ParameterizedTest
   @MethodSource("renameFolderInvalidArguments")
   void renameFolder_invalidFolderIds_throwsWithoutSendingRequest(
@@ -2619,6 +2783,13 @@ class GcsClientImplTest {
         initialFuture,
         responseTransformer,
         snapshot -> RenameFolderMetadata.getDefaultInstance());
+  }
+
+  /** Returns the initial future of a rename that the server accepted as {@code operationName}. */
+  private static ApiFuture<OperationSnapshot> renameFolderAcceptedOperation(String operationName) {
+    OperationSnapshot snapshot = mock(OperationSnapshot.class);
+    when(snapshot.getName()).thenReturn(operationName);
+    return ApiFutures.immediateFuture(snapshot);
   }
 
   private static final class ImmediateRetryingFuture extends ForwardingApiFuture<OperationSnapshot>

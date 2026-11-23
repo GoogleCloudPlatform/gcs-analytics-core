@@ -259,8 +259,9 @@ public interface GcsClient {
    * <p>This method blocks until the long-running rename operation finishes, polling with the client
    * library's default settings (currently the first poll within 5 seconds and up to 45 seconds
    * between polls, targeting up to 5 minutes in total; transient {@code GetOperation} retries can
-   * extend waiting, and defaults may change across client library versions). If waiting stops
-   * early, the rename may still complete on the server.
+   * extend waiting, and defaults may change across client library versions). If waiting stops early
+   * (an interrupt, a timeout or a failed poll), the rename may still complete on the server; the
+   * exception message then names the long-running operation, if the server had accepted it.
    *
    * @param srcFolderId the folder to rename
    * @param dstFolderId the new name of the folder

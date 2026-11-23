@@ -404,9 +404,14 @@ class GcsExceptionUtil {
    *     generic {@link IOException}
    * @param srcFolderId the folder that was being renamed
    * @param dstFolderId the new name of the folder
+   * @param operationName the name of the long-running operation, which the message then names, or
+   *     {@code null} if it is not known
    */
   static IOException translateRenameFolderPollingException(
-      @Nullable Throwable cause, GcsItemId srcFolderId, GcsItemId dstFolderId) {
+      @Nullable Throwable cause,
+      GcsItemId srcFolderId,
+      GcsItemId dstFolderId,
+      @Nullable String operationName) {
     checkNotNull(srcFolderId, "srcFolderId should not be null");
     checkNotNull(dstFolderId, "dstFolderId should not be null");
     String srcLocation = UriUtil.getStringPath(srcFolderId);
@@ -415,15 +420,15 @@ class GcsExceptionUtil {
       return createAccessDeniedException(
           srcLocation,
           String.format(
-              "polling rename of folder %s to %s (the rename may still complete on the server)",
-              srcLocation, dstLocation),
+              "polling rename of folder %s to %s (the rename may still complete on the server)%s",
+              srcLocation, dstLocation, operationNameSuffix(operationName)),
           cause);
     }
     return new IOException(
         String.format(
             "Failed while polling rename of folder %s to %s; the rename may still complete on the"
-                + " server",
-            srcLocation, dstLocation),
+                + " server%s",
+            srcLocation, dstLocation, operationNameSuffix(operationName)),
         cause);
   }
 
@@ -595,6 +600,21 @@ class GcsExceptionUtil {
                 null,
                 String.format("Access denied during %s: %s", context, cause.getMessage()))
             .initCause(cause);
+  }
+
+  /**
+   * Returns the text that names a long-running operation at the end of an error message, so that an
+   * operation that may still be running on the server can be looked up.
+   *
+   * @param operationName the name of the long-running operation, or {@code null} if it is not known
+   * @return {@code " (operation: <operationName>)"}, or an empty string if {@code operationName} is
+   *     {@code null} or empty
+   */
+  static String operationNameSuffix(@Nullable String operationName) {
+    if (operationName == null || operationName.isEmpty()) {
+      return "";
+    }
+    return " (operation: " + operationName + ")";
   }
 
   private static String formatLocation(GcsItemId itemId) {

@@ -880,8 +880,10 @@ class GcsClientImpl implements GcsClient {
           new InterruptedIOException(
                   String.format(
                       "Interrupted while renaming folder %s to %s; the rename may still complete"
-                          + " on the server",
-                      UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)))
+                          + " on the server%s",
+                      UriUtil.getStringPath(srcFolderId),
+                      UriUtil.getStringPath(dstFolderId),
+                      GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))))
               .initCause(e);
     } catch (ExecutionException e) {
       Throwable cause = e.getCause();
@@ -894,8 +896,10 @@ class GcsClientImpl implements GcsClient {
             new InterruptedIOException(
                     String.format(
                         "Interrupted while renaming folder %s to %s; the rename may still complete"
-                            + " on the server",
-                        UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)))
+                            + " on the server%s",
+                        UriUtil.getStringPath(srcFolderId),
+                        UriUtil.getStringPath(dstFolderId),
+                        GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))))
                 .initCause(cause);
       }
       if (isPollingFailure(future)) {
@@ -903,7 +907,7 @@ class GcsClientImpl implements GcsClient {
         // resource (not srcFolderId) was not found; actual operation errors arrive in
         // Operation.error on an OK poll.
         throw GcsExceptionUtil.translateRenameFolderPollingException(
-            cause, srcFolderId, dstFolderId);
+            cause, srcFolderId, dstFolderId, acceptedOperationName(future));
       }
       throw GcsExceptionUtil.translateRenameFolderException(cause, srcFolderId, dstFolderId);
     } catch (CancellationException e) {
@@ -911,8 +915,10 @@ class GcsClientImpl implements GcsClient {
       throw new IOException(
           String.format(
               "Timed out waiting to rename folder %s to %s; the rename may still complete on the"
-                  + " server",
-              UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)),
+                  + " server%s",
+              UriUtil.getStringPath(srcFolderId),
+              UriUtil.getStringPath(dstFolderId),
+              GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))),
           e);
     }
   }
@@ -1260,6 +1266,32 @@ class GcsClientImpl implements GcsClient {
       return true;
     } catch (CancellationException | ExecutionException e) {
       return false;
+    }
+  }
+
+  /**
+   * Returns the name of the long-running operation behind {@code future} if the server has accepted
+   * it ({@code initialFuture} completed normally), so that error messages can name an operation
+   * that may still be running. Returns {@code null} if the operation was not accepted, if the
+   * request that starts it is still in flight, or if {@code future} does not expose its initial
+   * future. Never blocks.
+   */
+  @Nullable
+  private static String acceptedOperationName(OperationFuture<?, ?> future) {
+    ApiFuture<OperationSnapshot> initialFuture;
+    try {
+      initialFuture = future.getInitialFuture();
+    } catch (UnsupportedOperationException e) {
+      return null;
+    }
+    if (!isDone(initialFuture)) {
+      return null;
+    }
+    try {
+      OperationSnapshot snapshot = Uninterruptibles.getUninterruptibly(initialFuture);
+      return snapshot == null ? null : snapshot.getName();
+    } catch (CancellationException | ExecutionException e) {
+      return null;
     }
   }
 
