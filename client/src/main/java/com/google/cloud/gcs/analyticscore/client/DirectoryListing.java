@@ -122,7 +122,7 @@ final class DirectoryListing {
             "Interrupted while listing " + UriUtil.getStringPath(dirId));
       }
       GcsListOptions nextPageOptions =
-          options.toBuilder().setPageToken(page.getNextPageToken().get()).build();
+          options.toBuilder().setPageToken(page.getNextPageToken().orElseThrow()).build();
       page = gcsClient.listObjectsPage(dirId, nextPageOptions);
     }
     return new DirectoryListing(
