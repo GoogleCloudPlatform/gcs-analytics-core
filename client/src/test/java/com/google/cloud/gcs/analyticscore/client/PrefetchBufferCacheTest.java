@@ -29,11 +29,13 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -1221,6 +1223,30 @@ class PrefetchBufferCacheTest {
     nestedDownload.completeExceptionally(new RuntimeException("network error"));
 
     assertThat(readBytes(range)).isEqualTo(SECOND_RANGE);
+  }
+
+  @Test
+  void serveVectoredFromCache_promotionThrowsAfterFailedDownload_failsRangeWithThatException() {
+    PrefetchBufferCache cache = newCache();
+    RegisteredStream stream = cache.registerStream(itemId("object"));
+    CompletableFuture<ByteBuffer> nestedDownload = new CompletableFuture<>();
+    RejectedExecutionException promotionError = new RejectedExecutionException("pool shut down");
+    stream.registerRange(SECOND_RANGE_OFFSET, 4, nestedDownload, NO_PROMOTION);
+    stream.registerRange(
+        FIRST_RANGE_OFFSET,
+        8,
+        new CompletableFuture<>(),
+        () -> {
+          throw promotionError;
+        });
+    GcsObjectRange range = vectoredRange(SECOND_RANGE_OFFSET, 4);
+    serveVectored(cache, range);
+
+    nestedDownload.completeExceptionally(new RuntimeException("network error"));
+
+    CompletionException thrown =
+        assertThrows(CompletionException.class, () -> range.getByteBufferFuture().getNow(null));
+    assertThat(thrown).hasCauseThat().isSameInstanceAs(promotionError);
   }
 
   @Test

@@ -397,14 +397,18 @@ public final class PrefetchBufferCache {
         whenAllDownloaded(slices)
             .whenComplete(
                 (ignored, downloadError) -> {
-                  if (range.getByteBufferFuture().isDone()) {
-                    return;
-                  }
-                  if (downloadError == null) {
-                    completeFromSlices(state, range, segments, slices, allocate);
-                  } else {
-                    evictFailedDownloads(segments, slices);
-                    retryFromCache(state, range, allocate, onDownloadFailed);
+                  try {
+                    if (range.getByteBufferFuture().isDone()) {
+                      return;
+                    }
+                    if (downloadError == null) {
+                      completeFromSlices(state, range, segments, slices, allocate);
+                    } else {
+                      evictFailedDownloads(segments, slices);
+                      retryFromCache(state, range, allocate, onDownloadFailed);
+                    }
+                  } catch (Throwable t) {
+                    range.getByteBufferFuture().completeExceptionally(t);
                   }
                 });
   }
@@ -422,13 +426,7 @@ public final class PrefetchBufferCache {
       List<Segment> segments,
       List<CompletableFuture<ByteBuffer>> slices,
       IntFunction<ByteBuffer> allocate) {
-    ByteBuffer buffer;
-    try {
-      buffer = copyToAllocated(slices, range.getLength(), allocate);
-    } catch (Throwable t) {
-      range.getByteBufferFuture().completeExceptionally(t);
-      return;
-    }
+    ByteBuffer buffer = copyToAllocated(slices, range.getLength(), allocate);
     if (range.getByteBufferFuture().complete(buffer)) {
       recordVectoredHit(state, segments);
     }
@@ -450,7 +448,7 @@ public final class PrefetchBufferCache {
       Consumer<GcsObjectRange> onDownloadFailed) {
     List<Segment> segments = findSegments(state, range);
     if (segments == null) {
-      passToFallback(range, onDownloadFailed);
+      onDownloadFailed.accept(range);
     } else {
       completeFromSegments(state, range, segments, allocate, onDownloadFailed);
     }
@@ -474,15 +472,6 @@ public final class PrefetchBufferCache {
     }
     telemetry.recordMetric(
         GcsAnalyticsCoreTelemetryConstants.Metric.PREFETCH_CACHE_HIT, 1L, Collections.emptyMap());
-  }
-
-  private static void passToFallback(
-      GcsObjectRange range, Consumer<GcsObjectRange> onDownloadFailed) {
-    try {
-      onDownloadFailed.accept(range);
-    } catch (Throwable t) {
-      range.getByteBufferFuture().completeExceptionally(t);
-    }
   }
 
   @Nullable
