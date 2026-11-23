@@ -1117,6 +1117,17 @@ class PrefetchBufferCacheTest {
     assertThat(unservedRanges).containsExactly(range);
   }
 
+  @Test
+  void serveVectoredFromCache_negativeOffset_returnsRange() {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    GcsObjectRange range = vectoredRange(-2, 4);
+
+    List<GcsObjectRange> unservedRanges = serveVectored(cache, range);
+
+    assertThat(unservedRanges).containsExactly(range);
+  }
+
   @ParameterizedTest
   @ValueSource(longs = {Long.MAX_VALUE - 2, Long.MAX_VALUE})
   void serveVectoredFromCache_rangeEndsPastLongMaxValue_returnsRange(long offset) {
