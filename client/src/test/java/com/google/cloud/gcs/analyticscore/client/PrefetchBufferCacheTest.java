@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.IntFunction;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Named;
@@ -1340,16 +1341,93 @@ class PrefetchBufferCacheTest {
   }
 
   @Test
-  void serveVectoredFromCache_allocatorReturnsNull_failsRange() {
+  void serveVectoredFromCache_allocatorReturnsNull_failsRangeWithIllegalArgumentException() {
     PrefetchBufferCache cache = newCache();
     registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
     GcsObjectRange range = vectoredRange(FIRST_RANGE_OFFSET, 4);
 
+    serveVectored(cache, length -> null, range);
+
+    ExecutionException thrown =
+        assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(thrown).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void serveVectoredFromCache_allocatorThrows_failsRangeWithThatException() {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    GcsObjectRange range = vectoredRange(FIRST_RANGE_OFFSET, 4);
+    OutOfMemoryError allocationError = new OutOfMemoryError("direct memory exhausted");
+
+    serveVectored(
+        cache,
+        length -> {
+          throw allocationError;
+        },
+        range);
+
+    ExecutionException thrown =
+        assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(thrown).hasCauseThat().isSameInstanceAs(allocationError);
+  }
+
+  @ParameterizedTest
+  @MethodSource("failingAllocators")
+  void serveVectoredFromCache_allocatorFails_doesNotCallFallback(
+      IntFunction<ByteBuffer> failingAllocator) {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    List<GcsObjectRange> fallbackRanges = new ArrayList<>();
+
     List<GcsObjectRange> unusedUnservedRanges =
         cache.serveVectoredFromCache(
-            itemId("object"), ImmutableList.of(range), length -> null, failedRange -> {});
+            itemId("object"),
+            ImmutableList.of(vectoredRange(FIRST_RANGE_OFFSET, 4)),
+            failingAllocator,
+            fallbackRanges::add);
 
-    assertThat(range.getByteBufferFuture().isCompletedExceptionally()).isTrue();
+    assertThat(fallbackRanges).isEmpty();
+  }
+
+  @ParameterizedTest
+  @MethodSource("failingAllocators")
+  void serveVectoredFromCache_allocatorFails_keepsCachedRange(
+      IntFunction<ByteBuffer> failingAllocator) {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+
+    serveVectored(cache, failingAllocator, vectoredRange(FIRST_RANGE_OFFSET, 4));
+
+    assertThat(cache.isCovered(itemId("object"), FIRST_RANGE_OFFSET, 4)).isTrue();
+  }
+
+  @ParameterizedTest
+  @MethodSource("failingAllocators")
+  void serveVectoredFromCache_allocatorFails_recordsNoCacheHit(
+      IntFunction<ByteBuffer> failingAllocator) {
+    RecordingOperationListener listener = new RecordingOperationListener();
+    PrefetchBufferCache cache = newCache(listener);
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+
+    serveVectored(cache, failingAllocator, vectoredRange(FIRST_RANGE_OFFSET, 4));
+
+    assertThat(listener.getTotal(GcsAnalyticsCoreTelemetryConstants.Metric.PREFETCH_CACHE_HIT))
+        .isEqualTo(0);
+  }
+
+  @ParameterizedTest
+  @MethodSource("failingAllocators")
+  void serveVectoredFromCache_allocatorFails_recordsNoConsumedBytes(
+      IntFunction<ByteBuffer> failingAllocator) {
+    RecordingOperationListener listener = new RecordingOperationListener();
+    PrefetchBufferCache cache = newCache(listener);
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+
+    serveVectored(cache, failingAllocator, vectoredRange(FIRST_RANGE_OFFSET, 4));
+
+    assertThat(listener.getTotal(GcsAnalyticsCoreTelemetryConstants.Metric.PREFETCH_BYTES_CONSUMED))
+        .isEqualTo(0);
   }
 
   @Test
@@ -1605,10 +1683,19 @@ class PrefetchBufferCacheTest {
   /** Serves {@code ranges} of "object" with a fallback that is never expected to run. */
   private static List<GcsObjectRange> serveVectored(
       PrefetchBufferCache cache, GcsObjectRange... ranges) {
+    return serveVectored(cache, ByteBuffer::allocate, ranges);
+  }
+
+  /**
+   * Serves {@code ranges} of "object" into buffers from {@code allocate}, with a fallback that is
+   * never expected to run.
+   */
+  private static List<GcsObjectRange> serveVectored(
+      PrefetchBufferCache cache, IntFunction<ByteBuffer> allocate, GcsObjectRange... ranges) {
     return cache.serveVectoredFromCache(
         itemId("object"),
         ImmutableList.copyOf(ranges),
-        ByteBuffer::allocate,
+        allocate,
         failedRange -> failedRange.getByteBufferFuture().cancel(false));
   }
 
@@ -1625,6 +1712,16 @@ class PrefetchBufferCacheTest {
             "fails", future -> future.completeExceptionally(new RuntimeException("network error"))),
         Named.of("returns no buffer", future -> future.complete(null)),
         Named.of("returns a short buffer", future -> future.complete(bufferOf(new byte[] {1, 2}))));
+  }
+
+  private static Stream<Named<IntFunction<ByteBuffer>>> failingAllocators() {
+    return Stream.of(
+        Named.of("returns null", length -> null),
+        Named.of(
+            "throws",
+            length -> {
+              throw new OutOfMemoryError("direct memory exhausted");
+            }));
   }
 
   private static ByteBuffer bufferOf(byte[] bytes) {
