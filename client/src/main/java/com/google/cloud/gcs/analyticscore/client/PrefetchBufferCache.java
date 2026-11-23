@@ -153,7 +153,8 @@ public final class PrefetchBufferCache {
 
   /**
    * Serves the ranges of a vectored read whose bytes are all cached for {@code itemId}, and returns
-   * the ranges it does not serve so the caller reads them from the object.
+   * the ranges it does not serve so the caller reads them from the object. A range whose future is
+   * already done is skipped and is not returned.
    *
    * <p>A served range's future completes with a buffer from {@code allocate} once the downloads
    * holding its bytes finish, and fails if {@code allocate} fails. A range that spans adjacent
@@ -179,6 +180,9 @@ public final class PrefetchBufferCache {
     ItemState state = itemStates.get(itemId);
     List<GcsObjectRange> unservedRanges = new ArrayList<>();
     for (GcsObjectRange range : ranges) {
+      if (range.getByteBufferFuture().isDone()) {
+        continue;
+      }
       List<Segment> segments = state == null ? null : findSegments(state, range);
       if (segments == null) {
         unservedRanges.add(range);

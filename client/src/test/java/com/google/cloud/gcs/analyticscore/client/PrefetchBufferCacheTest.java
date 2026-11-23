@@ -1128,6 +1128,31 @@ class PrefetchBufferCacheTest {
   }
 
   @Test
+  void serveVectoredFromCache_rangeAlreadyDone_returnsNoUnservedRanges() {
+    PrefetchBufferCache cache = newCache();
+    GcsObjectRange range = vectoredRange(FIRST_RANGE_OFFSET, 4);
+    range.getByteBufferFuture().cancel(false);
+
+    List<GcsObjectRange> unservedRanges = serveVectored(cache, range);
+
+    assertThat(unservedRanges).isEmpty();
+  }
+
+  @Test
+  void serveVectoredFromCache_rangeAlreadyDone_doesNotPromoteDownload() {
+    PrefetchBufferCache cache = newCache();
+    AtomicInteger promotions = new AtomicInteger();
+    registerInFlightCountingPromotions(
+        cache.registerStream(itemId("object")), SECOND_RANGE_OFFSET, SECOND_RANGE, promotions);
+    GcsObjectRange range = vectoredRange(SECOND_RANGE_OFFSET, 4);
+    range.getByteBufferFuture().cancel(false);
+
+    serveVectored(cache, range);
+
+    assertThat(promotions.get()).isEqualTo(0);
+  }
+
+  @Test
   void serveVectoredFromCache_inFlightRange_completesRangeWhenDownloadFinishes() throws Exception {
     PrefetchBufferCache cache = newCache();
     CompletableFuture<ByteBuffer> download = new CompletableFuture<>();
