@@ -31,9 +31,17 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.google.api.core.ApiFunction;
 import com.google.api.core.ApiFuture;
+import com.google.api.core.ApiFutures;
+import com.google.api.core.ForwardingApiFuture;
+import com.google.api.core.SettableApiFuture;
 import com.google.api.gax.longrunning.OperationFuture;
+import com.google.api.gax.longrunning.OperationFutureImpl;
+import com.google.api.gax.longrunning.OperationSnapshot;
 import com.google.api.gax.paging.Page;
+import com.google.api.gax.retrying.RetryingFuture;
+import com.google.api.gax.retrying.TimedAttemptSettings;
 import com.google.api.gax.rpc.AlreadyExistsException;
 import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
@@ -2167,27 +2175,19 @@ class GcsClientImplTest {
   }
 
   @Test
-  void renameFolder_nonExceptionCause_throwsIOExceptionWithCause() throws Exception {
+  void renameFolder_errorCause_rethrowsError() throws Exception {
     Error error = new Error("fatal");
     GcsClientImpl clientWithMockControl =
         renameFolderClientFailingWith(new ExecutionException(error));
 
-    IOException e =
+    Error e =
         assertThrows(
-            IOException.class,
+            Error.class,
             () ->
                 clientWithMockControl.renameFolder(
                     renameFolderTestId("src/"), renameFolderTestId("dst/")));
 
-    assertThat(e)
-        .hasMessageThat()
-        .isEqualTo(
-            "Failed to rename folder gs://"
-                + TEST_BUCKET
-                + "/src/ to gs://"
-                + TEST_BUCKET
-                + "/dst/");
-    assertThat(e).hasCauseThat().isSameInstanceAs(error);
+    assertThat(e).isSameInstanceAs(error);
   }
 
   @Test
@@ -2235,6 +2235,256 @@ class GcsClientImplTest {
     assertThat(e).hasCauseThat().isSameInstanceAs(interrupted);
     assertThat(e).hasMessageThat().contains("the rename may still complete on the server");
     verify(future).cancel(true);
+  }
+
+  @Test
+  void renameFolder_preInterruptedThread_throwsInterruptedIOExceptionWithoutSendingRequest() {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    InterruptedIOException e;
+    boolean interruptFlagKept;
+    Thread.currentThread().interrupt();
+    try {
+      e =
+          assertThrows(
+              InterruptedIOException.class,
+              () ->
+                  clientWithMockControl.renameFolder(
+                      renameFolderTestId("src/"), renameFolderTestId("dst/")));
+    } finally {
+      interruptFlagKept = Thread.interrupted();
+    }
+
+    assertThat(interruptFlagKept).isTrue();
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Interrupted before renaming folder gs://"
+                + TEST_BUCKET
+                + "/src/ to gs://"
+                + TEST_BUCKET
+                + "/dst/");
+    assertThat(e).hasCauseThat().isNull();
+    verify(mockControlClient, never()).renameFolderAsync(any(RenameFolderRequest.class));
+  }
+
+  @Test
+  void
+      renameFolder_executionExceptionWithInterruptedCause_restoresInterruptAndThrowsInterruptedIOException()
+          throws Exception {
+    InterruptedException interrupted = new InterruptedException("interrupted");
+    GcsClientImpl clientWithMockControl =
+        renameFolderClientFailingWith(new ExecutionException(interrupted));
+
+    InterruptedIOException e;
+    boolean interruptFlagRestored;
+    try {
+      e =
+          assertThrows(
+              InterruptedIOException.class,
+              () ->
+                  clientWithMockControl.renameFolder(
+                      renameFolderTestId("src/"), renameFolderTestId("dst/")));
+    } finally {
+      interruptFlagRestored = Thread.interrupted();
+    }
+
+    assertThat(interruptFlagRestored).isTrue();
+    assertThat(e).hasCauseThat().isSameInstanceAs(interrupted);
+    assertThat(e).hasMessageThat().contains("the rename may still complete on the server");
+  }
+
+  @Test
+  void renameFolder_cancelThrowsOnInterrupt_stillRestoresInterruptFlag() throws Exception {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderMockFuture(mockControlClient);
+    RuntimeException cancelFailure = new RuntimeException("cancel failed");
+    when(future.get()).thenThrow(new InterruptedException("interrupted"));
+    when(future.cancel(true)).thenThrow(cancelFailure);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    RuntimeException e;
+    boolean interruptFlagRestored;
+    try {
+      e =
+          assertThrows(
+              RuntimeException.class,
+              () ->
+                  clientWithMockControl.renameFolder(
+                      renameFolderTestId("src/"), renameFolderTestId("dst/")));
+    } finally {
+      interruptFlagRestored = Thread.interrupted();
+    }
+
+    assertThat(e).isSameInstanceAs(cancelFailure);
+    assertThat(interruptFlagRestored).isTrue();
+  }
+
+  @Test
+  void renameFolder_pollingFailsWithNotFound_throwsGenericIOExceptionNotFileNotFound() {
+    NotFoundException notFound = mock(NotFoundException.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderOperationFuture(
+            ApiFutures.immediateFuture(mock(OperationSnapshot.class)),
+            ApiFutures.immediateFailedFuture(notFound),
+            snapshot -> Folder.getDefaultInstance());
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.renameFolderAsync(any(RenameFolderRequest.class))).thenReturn(future);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e.getClass()).isEqualTo(IOException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed while polling rename of folder gs://"
+                + TEST_BUCKET
+                + "/src/ to gs://"
+                + TEST_BUCKET
+                + "/dst/; the rename may still complete on the server");
+    assertThat(e).hasCauseThat().isSameInstanceAs(notFound);
+  }
+
+  @Test
+  void renameFolder_pollingFailsWithPermissionDenied_throwsAccessDeniedWithPollingContext() {
+    PermissionDeniedException permissionDenied = mock(PermissionDeniedException.class);
+    when(permissionDenied.getMessage()).thenReturn("Permission denied");
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderOperationFuture(
+            ApiFutures.immediateFuture(mock(OperationSnapshot.class)),
+            ApiFutures.immediateFailedFuture(permissionDenied),
+            snapshot -> Folder.getDefaultInstance());
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.renameFolderAsync(any(RenameFolderRequest.class))).thenReturn(future);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    AccessDeniedException e =
+        assertThrows(
+            AccessDeniedException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e.getFile()).isEqualTo("gs://" + TEST_BUCKET + "/src/");
+    assertThat(e).hasMessageThat().contains("polling rename");
+    assertThat(e).hasMessageThat().contains("the rename may still complete on the server");
+    assertThat(e).hasCauseThat().isSameInstanceAs(permissionDenied);
+  }
+
+  @Test
+  void renameFolder_operationFinishesWithNotFoundError_throwsFileNotFoundException() {
+    NotFoundException notFound = mock(NotFoundException.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderOperationFuture(
+            ApiFutures.immediateFuture(mock(OperationSnapshot.class)),
+            ApiFutures.immediateFuture(mock(OperationSnapshot.class)),
+            snapshot -> {
+              throw notFound;
+            });
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.renameFolderAsync(any(RenameFolderRequest.class))).thenReturn(future);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertFileNotFoundException(e, renameFolderTestId("src/"));
+  }
+
+  @Test
+  void renameFolder_initialFutureFailsWithNotFound_throwsFileNotFoundException() {
+    NotFoundException notFound = mock(NotFoundException.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderOperationFuture(
+            ApiFutures.immediateFailedFuture(notFound),
+            ApiFutures.immediateFailedFuture(notFound),
+            snapshot -> Folder.getDefaultInstance());
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.renameFolderAsync(any(RenameFolderRequest.class))).thenReturn(future);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertFileNotFoundException(e, renameFolderTestId("src/"));
+  }
+
+  @Test
+  void renameFolder_futureDoesNotExposeInitialFuture_fallsBackToOperationTranslation()
+      throws Exception {
+    NotFoundException notFound = mock(NotFoundException.class);
+    ExecutionException executionException = new ExecutionException(notFound);
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderMockFuture(mockControlClient);
+    when(future.get()).thenThrow(executionException);
+    when(future.getInitialFuture()).thenThrow(new UnsupportedOperationException());
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertFileNotFoundException(e, renameFolderTestId("src/"));
+  }
+
+  @Test
+  void renameFolder_pollingFutureNotDone_fallsBackToOperationTranslation() throws Exception {
+    NotFoundException notFound = mock(NotFoundException.class);
+    ExecutionException executionException = new ExecutionException(notFound);
+    ApiFuture<OperationSnapshot> initialFuture =
+        ApiFutures.immediateFuture(mock(OperationSnapshot.class));
+    RetryingFuture<OperationSnapshot> pollingFuture =
+        new ImmediateRetryingFuture(SettableApiFuture.create());
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderMockFuture(mockControlClient);
+    when(future.get()).thenThrow(executionException);
+    when(future.getInitialFuture()).thenReturn(initialFuture);
+    when(future.getPollingFuture()).thenReturn(pollingFuture);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () ->
+                clientWithMockControl.renameFolder(
+                    renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertFileNotFoundException(e, renameFolderTestId("src/"));
+  }
+
+  @Test
+  void renameFolder_afterClose_propagatesIOExceptionDirectly() {
+    GcsClientImpl localClient = createClientWithMockStorage(mock(Storage.class));
+    localClient.close();
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () -> localClient.renameFolder(renameFolderTestId("src/"), renameFolderTestId("dst/")));
+
+    assertThat(e).hasMessageThat().isEqualTo("StorageControlClient is closed");
+    assertThat(e).hasCauseThat().isNull();
   }
 
   @Test
@@ -2358,6 +2608,49 @@ class GcsClientImplTest {
         renameFolderMockFuture(mockControlClient);
     when(future.get()).thenThrow(failure);
     return createClientWithMockControl(mockControlClient);
+  }
+
+  private static OperationFuture<Folder, RenameFolderMetadata> renameFolderOperationFuture(
+      ApiFuture<OperationSnapshot> initialFuture,
+      ApiFuture<OperationSnapshot> pollingFuture,
+      ApiFunction<OperationSnapshot, Folder> responseTransformer) {
+    return new OperationFutureImpl<>(
+        new ImmediateRetryingFuture(pollingFuture),
+        initialFuture,
+        responseTransformer,
+        snapshot -> RenameFolderMetadata.getDefaultInstance());
+  }
+
+  private static final class ImmediateRetryingFuture extends ForwardingApiFuture<OperationSnapshot>
+      implements RetryingFuture<OperationSnapshot> {
+    ImmediateRetryingFuture(ApiFuture<OperationSnapshot> delegate) {
+      super(delegate);
+    }
+
+    @Override
+    public void setAttemptFuture(ApiFuture<OperationSnapshot> attemptFuture) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Callable<OperationSnapshot> getCallable() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public TimedAttemptSettings getAttemptSettings() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ApiFuture<OperationSnapshot> peekAttemptResult() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ApiFuture<OperationSnapshot> getAttemptResult() {
+      throw new UnsupportedOperationException();
+    }
   }
 
   @Test

@@ -50,6 +50,7 @@ import com.google.storage.control.v2.stub.StorageControlStub;
 import com.google.storage.control.v2.stub.StorageControlStubSettings;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -89,8 +90,9 @@ import java.util.function.Function;
  * inside it, {@code NOT_FOUND} when the source folder does not exist, {@code ALREADY_EXISTS} when
  * the destination folder exists, and {@code FAILED_PRECONDITION} when the parent of the destination
  * does not exist. An object named like the destination does not block the rename. The returned
- * operation is always finished. Unlike GCS, the objects are moved one at a time, as a copy and a
- * delete, so their generations can change.
+ * operation is always finished. Unlike GCS, the source folder must have been created explicitly
+ * with {@code createFolder} (writing objects alone does not create implicit folders), and the
+ * objects are moved one at a time, as a copy and a delete, so their generations can change.
  */
 final class FakeStorageControlStub extends StorageControlStub {
   private static final String BUCKET_PARENT_PREFIX = "projects/_/buckets/";
@@ -100,11 +102,17 @@ final class FakeStorageControlStub extends StorageControlStub {
   private static final int MAX_LIST_FOLDERS_PAGE_SIZE = 1000;
 
   private final Storage storage;
+  private final Clock clock;
   private final Map<String, Folder> folders = new ConcurrentHashMap<>();
   private volatile boolean closed = false;
 
   FakeStorageControlStub(Storage storage) {
+    this(storage, Clock.systemUTC());
+  }
+
+  FakeStorageControlStub(Storage storage, Clock clock) {
     this.storage = checkNotNull(storage, "storage must not be null");
+    this.clock = checkNotNull(clock, "clock must not be null");
   }
 
   @Override
@@ -181,7 +189,10 @@ final class FakeStorageControlStub extends StorageControlStub {
 
   private Folder getFolder(GetFolderRequest request) {
     String key = parseFolderResourceName(request.getName());
-    Folder folder = folders.get(key);
+    Folder folder;
+    synchronized (folders) {
+      folder = folders.get(key);
+    }
     if (folder == null) {
       throw apiException(StatusCode.Code.NOT_FOUND, "Folder not found: " + key);
     }
@@ -430,12 +441,14 @@ final class FakeStorageControlStub extends StorageControlStub {
 
   /** Returns the bucket of a key built by {@link #folderResourceName}. */
   private static String bucketOf(String key) {
-    return key.substring(BUCKET_PARENT_PREFIX.length(), key.indexOf(FOLDERS_SEGMENT));
+    return key.substring(
+        BUCKET_PARENT_PREFIX.length(), key.indexOf(FOLDERS_SEGMENT, BUCKET_PARENT_PREFIX.length()));
   }
 
   /** Returns the folder path of a key built by {@link #folderResourceName}. */
   private static String folderPathOf(String key) {
-    return key.substring(key.indexOf(FOLDERS_SEGMENT) + FOLDERS_SEGMENT.length());
+    return key.substring(
+        key.indexOf(FOLDERS_SEGMENT, BUCKET_PARENT_PREFIX.length()) + FOLDERS_SEGMENT.length());
   }
 
   /** Returns the folder name that {@code pageToken} resumes after, or empty for the first page. */
@@ -463,8 +476,8 @@ final class FakeStorageControlStub extends StorageControlStub {
         .build();
   }
 
-  private static Timestamp currentTimestamp() {
-    Instant now = Instant.now();
+  private Timestamp currentTimestamp() {
+    Instant now = clock.instant();
     return Timestamp.newBuilder().setSeconds(now.getEpochSecond()).setNanos(now.getNano()).build();
   }
 

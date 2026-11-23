@@ -257,9 +257,10 @@ public interface GcsClient {
    * GCS folders do not support content generations.
    *
    * <p>This method blocks until the long-running rename operation finishes, polling with the client
-   * library's default settings: the first poll within 5 seconds, then up to 45 seconds between
-   * polls, for 5 minutes in total. If waiting stops early, the rename may still complete on the
-   * server.
+   * library's default settings (currently the first poll within 5 seconds and up to 45 seconds
+   * between polls, targeting up to 5 minutes in total; transient {@code GetOperation} retries can
+   * extend waiting, and defaults may change across client library versions). If waiting stops
+   * early, the rename may still complete on the server.
    *
    * @param srcFolderId the folder to rename
    * @param dstFolderId the new name of the folder
@@ -268,8 +269,10 @@ public interface GcsClient {
    * @throws FileNotFoundException if the source folder does not exist
    * @throws FileAlreadyExistsException if the destination already exists
    * @throws AccessDeniedException if the request is unauthenticated or not permitted
-   * @throws InterruptedIOException if the thread is interrupted while waiting for the rename
-   * @throws IOException if waiting for the rename times out or the rename fails for another reason
+   * @throws InterruptedIOException if the thread is already interrupted or is interrupted while
+   *     waiting for the rename
+   * @throws IOException if waiting for the rename times out, polling fails, or the rename fails for
+   *     another reason
    */
   default void renameFolder(GcsItemId srcFolderId, GcsItemId dstFolderId) throws IOException {
     throw new UnsupportedOperationException(

@@ -391,6 +391,43 @@ class GcsExceptionUtil {
   }
 
   /**
+   * Translates a failure while polling the long-running operation of a folder rename.
+   *
+   * <p>Once the server accepts {@code RenameFolder}, polling calls {@code
+   * google.longrunning.Operations.GetOperation}. Per AIP-151, a {@code NOT_FOUND} from {@code
+   * GetOperation} means the operation resource (or bucket) was not found rather than {@code
+   * srcFolderId} being missing (operation failures arrive in {@code Operation.error} on an {@code
+   * OK} poll), so {@link NotFoundException} maps to a generic {@link IOException} instead of {@link
+   * FileNotFoundException}.
+   *
+   * @param cause the polling failure; {@code null} and non-{@link Exception} causes become a
+   *     generic {@link IOException}
+   * @param srcFolderId the folder that was being renamed
+   * @param dstFolderId the new name of the folder
+   */
+  static IOException translateRenameFolderPollingException(
+      @Nullable Throwable cause, GcsItemId srcFolderId, GcsItemId dstFolderId) {
+    checkNotNull(srcFolderId, "srcFolderId should not be null");
+    checkNotNull(dstFolderId, "dstFolderId should not be null");
+    String srcLocation = UriUtil.getStringPath(srcFolderId);
+    String dstLocation = UriUtil.getStringPath(dstFolderId);
+    if (cause instanceof PermissionDeniedException || cause instanceof UnauthenticatedException) {
+      return createAccessDeniedException(
+          srcLocation,
+          String.format(
+              "polling rename of folder %s to %s (the rename may still complete on the server)",
+              srcLocation, dstLocation),
+          cause);
+    }
+    return new IOException(
+        String.format(
+            "Failed while polling rename of folder %s to %s; the rename may still complete on the"
+                + " server",
+            srcLocation, dstLocation),
+        cause);
+  }
+
+  /**
    * Creates a {@link FileAlreadyExistsException} for the given {@link GcsItemId}, setting {@link
    * FileAlreadyExistsException#getFile()} to the formatted {@code gs://} URI and attaching {@code
    * cause}.

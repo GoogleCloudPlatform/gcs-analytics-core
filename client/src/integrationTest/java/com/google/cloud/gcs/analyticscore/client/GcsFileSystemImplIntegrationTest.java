@@ -699,8 +699,15 @@ class GcsFileSystemImplIntegrationTest {
         String spaceFolder = rootFolder + "/ dir/";
         String plainFolder = rootFolder + "/dir/";
         String renamedFolder = rootFolder + "/renamed/";
-        // The renamed folder is registered under both names, so that cleanup removes it whether
-        // or not the rename happened.
+        BlobId spaceChild = BlobId.of(bucketName, spaceFolder + "child.txt");
+        BlobId renamedChild = BlobId.of(bucketName, renamedFolder + "child.txt");
+        BlobId plainChild = BlobId.of(bucketName, plainFolder + "child.txt");
+        byte[] plainContent = "plain folder content".getBytes(StandardCharsets.UTF_8);
+        // The renamed folder and its child object are registered under both names, so that cleanup
+        // removes them whether or not the rename happened.
+        blobsToDelete.add(spaceChild);
+        blobsToDelete.add(renamedChild);
+        blobsToDelete.add(plainChild);
         foldersToDelete.add(foldersPrefix + rootFolder);
         foldersToDelete.add(foldersPrefix + spaceFolder);
         foldersToDelete.add(foldersPrefix + plainFolder);
@@ -718,9 +725,14 @@ class GcsFileSystemImplIntegrationTest {
             GcsClient gcsClient = hnsFileSystem.getGcsClient();
             gcsClient.createFolder(spaceFolderId, true);
             gcsClient.createFolder(plainFolderId, true);
+            storage.create(BlobInfo.newBuilder(spaceChild).build(), TEST_FILE_CONTENT);
+            storage.create(BlobInfo.newBuilder(plainChild).build(), plainContent);
 
             gcsClient.renameFolder(spaceFolderId, renamedFolderId);
 
+            assertThat(storage.get(spaceChild)).isNull();
+            assertThat(storage.readAllBytes(renamedChild)).isEqualTo(TEST_FILE_CONTENT);
+            assertThat(storage.readAllBytes(plainChild)).isEqualTo(plainContent);
             try (StorageControlClient controlClient = StorageControlClient.create()) {
                 assertThrows(
                         NotFoundException.class,

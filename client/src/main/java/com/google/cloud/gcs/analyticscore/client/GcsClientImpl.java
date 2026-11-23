@@ -18,10 +18,13 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.api.core.ApiFuture;
 import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.gax.longrunning.OperationFuture;
+import com.google.api.gax.longrunning.OperationSnapshot;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.retrying.RetrySettings;
+import com.google.api.gax.retrying.RetryingFuture;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
@@ -63,6 +66,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.BaseEncoding;
+import com.google.common.util.concurrent.Uninterruptibles;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
 import com.google.storage.control.v2.DeleteFolderRequest;
@@ -92,6 +96,7 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -835,6 +840,12 @@ class GcsClientImpl implements GcsClient {
         !UriUtil.toDirectoryPath(srcObjectName).equals(dstFolder),
         "Source and destination folders must differ: %s",
         srcFolderId);
+    if (Thread.currentThread().isInterrupted()) {
+      throw new InterruptedIOException(
+          String.format(
+              "Interrupted before renaming folder %s to %s",
+              UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)));
+    }
 
     // request_id stays unset: the generated client populates it.
     RenameFolderRequest request =
@@ -852,13 +863,19 @@ class GcsClientImpl implements GcsClient {
       // Blocks until the rename finishes or fails, or the client library stops polling.
       // TODO: Set polling settings for this operation once the polling policy for long-running
       // folder operations is decided. Until then the client library defaults apply, as in
-      // hadoop-connectors: the first poll is sent up to 5 seconds after the request, and waiting
-      // stops after 5 minutes.
+      // hadoop-connectors: the first poll is sent up to 5 seconds after the request, and the
+      // polling schedule targets up to 5 minutes (transient GetOperation retries can extend
+      // waiting, and defaults may change across client library versions).
       future.get();
     } catch (InterruptedException e) {
-      // Cancelling stops only the client-side polling, not the server-side rename.
-      future.cancel(true);
-      Thread.currentThread().interrupt();
+      // Cancelling stops only the client-side polling, not the server-side rename. Restore the
+      // interrupt flag in finally after cancel(true): GAX can clear an already-set interrupt flag
+      // inside cancel(true).
+      try {
+        future.cancel(true);
+      } finally {
+        Thread.currentThread().interrupt();
+      }
       throw (InterruptedIOException)
           new InterruptedIOException(
                   String.format(
@@ -867,7 +884,28 @@ class GcsClientImpl implements GcsClient {
                       UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)))
               .initCause(e);
     } catch (ExecutionException e) {
-      throw GcsExceptionUtil.translateRenameFolderException(e.getCause(), srcFolderId, dstFolderId);
+      Throwable cause = e.getCause();
+      if (cause instanceof Error) {
+        throw (Error) cause;
+      }
+      if (cause instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+        throw (InterruptedIOException)
+            new InterruptedIOException(
+                    String.format(
+                        "Interrupted while renaming folder %s to %s; the rename may still complete"
+                            + " on the server",
+                        UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)))
+                .initCause(cause);
+      }
+      if (isPollingFailure(future)) {
+        // Once the server has started the operation, a GetOperation NOT_FOUND means the operation
+        // resource (not srcFolderId) was not found; actual operation errors arrive in
+        // Operation.error on an OK poll.
+        throw GcsExceptionUtil.translateRenameFolderPollingException(
+            cause, srcFolderId, dstFolderId);
+      }
+      throw GcsExceptionUtil.translateRenameFolderException(cause, srcFolderId, dstFolderId);
     } catch (CancellationException e) {
       // GAX cancels the polling future once its total polling timeout expires.
       throw new IOException(
@@ -1185,6 +1223,44 @@ class GcsClientImpl implements GcsClient {
    */
   private static String folderResourceName(String bucketName, String objectName) {
     return "projects/_/buckets/" + bucketName + "/folders/" + UriUtil.toDirectoryPath(objectName);
+  }
+
+  /**
+   * Returns {@code true} if the server accepted the long-running operation ({@code initialFuture}
+   * completed normally) and a subsequent {@code GetOperation} poll failed ({@code pollingFuture}
+   * did not complete normally).
+   *
+   * <p>When a poll succeeds with a completed {@code Operation} carrying an {@code Operation.error},
+   * {@code pollingFuture} itself completes normally with that snapshot and {@code
+   * OperationFuture#get()} raises the operation error while transforming the response, so this
+   * method returns {@code false}.
+   */
+  private static boolean isPollingFailure(OperationFuture<?, ?> future) {
+    ApiFuture<OperationSnapshot> initialFuture;
+    RetryingFuture<OperationSnapshot> pollingFuture;
+    try {
+      initialFuture = future.getInitialFuture();
+      pollingFuture = future.getPollingFuture();
+    } catch (UnsupportedOperationException e) {
+      return false;
+    }
+    if (!isDone(initialFuture) || !isDone(pollingFuture)) {
+      return false;
+    }
+    return completedNormally(initialFuture) && !completedNormally(pollingFuture);
+  }
+
+  private static boolean isDone(@Nullable Future<?> future) {
+    return future != null && future.isDone();
+  }
+
+  private static boolean completedNormally(Future<?> future) {
+    try {
+      Uninterruptibles.getUninterruptibly(future);
+      return true;
+    } catch (CancellationException | ExecutionException e) {
+      return false;
+    }
   }
 
   @Override
