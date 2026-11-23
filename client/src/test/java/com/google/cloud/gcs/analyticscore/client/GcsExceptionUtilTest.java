@@ -622,6 +622,177 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void translateDeleteFolderRecursiveException_notFound_returnsFileNotFoundException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursiveException(
+            Mockito.mock(NotFoundException.class), folderId);
+
+    assertThat(exception).isInstanceOf(FileNotFoundException.class);
+    assertThat(exception).hasMessageThat().endsWith(": gs://" + BUCKET + "/dir/");
+  }
+
+  @Test
+  void translateDeleteFolderRecursiveException_permissionDenied_returnsAccessDeniedException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    PermissionDeniedException permissionDenied = Mockito.mock(PermissionDeniedException.class);
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursiveException(permissionDenied, folderId);
+
+    assertThat(exception).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/dir/");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(permissionDenied);
+  }
+
+  @Test
+  void translateDeleteFolderRecursiveException_unauthenticated_returnsAccessDeniedException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursiveException(
+            Mockito.mock(UnauthenticatedException.class), folderId);
+
+    assertThat(exception).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/dir/");
+  }
+
+  @Test
+  void translateDeleteFolderRecursiveException_otherException_returnsIOExceptionNamingFolder() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    RuntimeException failure = new RuntimeException("RPC error");
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursiveException(failure, folderId);
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Failed to delete folder recursively: gs://" + BUCKET + "/dir/");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(failure);
+  }
+
+  @Test
+  void translateDeleteFolderRecursiveException_nonExceptionCause_returnsIOExceptionWithCause() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    Throwable cause = new Throwable("fatal");
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursiveException(cause, folderId);
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  @Test
+  void translateDeleteFolderRecursiveException_nullCause_returnsIOExceptionWithoutCause() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursiveException(null, folderId);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Failed to delete folder recursively: gs://" + BUCKET + "/dir/");
+    assertThat(exception).hasCauseThat().isNull();
+  }
+
+  @Test
+  void translateDeleteFolderRecursiveException_folderWithGeneration_reportsItWithoutGeneration() {
+    GcsItemId folderIdWithGeneration =
+        GcsItemId.builder()
+            .setBucketName(BUCKET)
+            .setObjectName("dir/")
+            .setContentGeneration(7L)
+            .build();
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursiveException(
+            Mockito.mock(NotFoundException.class), folderIdWithGeneration);
+
+    assertThat(exception).hasMessageThat().endsWith(": gs://" + BUCKET + "/dir/");
+  }
+
+  @Test
+  void translateDeleteFolderRecursivePollingException_notFound_returnsGenericIOException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    NotFoundException notFound = Mockito.mock(NotFoundException.class);
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(notFound, folderId);
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed while polling recursive deletion of folder gs://"
+                + BUCKET
+                + "/dir/; the delete may still complete on the server");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(notFound);
+  }
+
+  @Test
+  void translateDeleteFolderRecursivePollingException_permissionDenied_returnsAccessDenied() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    PermissionDeniedException permissionDenied = Mockito.mock(PermissionDeniedException.class);
+    Mockito.when(permissionDenied.getMessage()).thenReturn("Permission denied");
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(permissionDenied, folderId);
+
+    assertThat(exception).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/dir/");
+    assertThat(exception)
+        .hasMessageThat()
+        .contains("polling recursive deletion of folder gs://" + BUCKET + "/dir/");
+    assertThat(exception).hasMessageThat().contains("the delete may still complete on the server");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(permissionDenied);
+  }
+
+  @Test
+  void translateDeleteFolderRecursivePollingException_unauthenticated_returnsAccessDenied() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    UnauthenticatedException unauthenticated = Mockito.mock(UnauthenticatedException.class);
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(unauthenticated, folderId);
+
+    assertThat(exception).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/dir/");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(unauthenticated);
+  }
+
+  @Test
+  void
+      translateDeleteFolderRecursivePollingException_folderWithGeneration_reportsWithoutGeneration() {
+    GcsItemId folderIdWithGeneration =
+        GcsItemId.builder()
+            .setBucketName(BUCKET)
+            .setObjectName("dir/")
+            .setContentGeneration(7L)
+            .build();
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(
+            Mockito.mock(PermissionDeniedException.class), folderIdWithGeneration);
+
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/dir/");
+    assertThat(exception).hasMessageThat().doesNotContain("#7");
+  }
+
+  @Test
+  void translateDeleteFolderRecursivePollingException_nullCause_returnsGenericIOException() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(null, folderId);
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception).hasCauseThat().isNull();
+  }
+
+  @Test
   void createFileAlreadyExistsException_setsFormattedLocationAndCause() {
     GcsItemId itemId =
         GcsItemId.builder()

@@ -20,18 +20,26 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.api.core.ApiFuture;
 import com.google.api.core.ApiFutures;
+import com.google.api.core.ForwardingApiFuture;
 import com.google.api.gax.grpc.GrpcCallContext;
+import com.google.api.gax.longrunning.OperationFuture;
+import com.google.api.gax.longrunning.OperationSnapshot;
+import com.google.api.gax.retrying.RetryingFuture;
 import com.google.api.gax.rpc.ApiCallContext;
 import com.google.api.gax.rpc.ApiException;
 import com.google.api.gax.rpc.ApiExceptionFactory;
 import com.google.api.gax.rpc.Callables;
+import com.google.api.gax.rpc.OperationCallable;
 import com.google.api.gax.rpc.StatusCode;
 import com.google.api.gax.rpc.UnaryCallable;
 import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
 import com.google.protobuf.Empty;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
+import com.google.storage.control.v2.DeleteFolderRecursiveMetadata;
+import com.google.storage.control.v2.DeleteFolderRecursiveRequest;
 import com.google.storage.control.v2.DeleteFolderRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
@@ -55,9 +63,10 @@ import java.util.function.Function;
 /**
  * In-memory {@link StorageControlStub} for hermetic {@link FakeGcsClientImpl} folder operations.
  *
- * <p>Supports {@code CreateFolder}, {@code GetFolder}, {@code DeleteFolder} and {@code
- * ListFolders}; every other call throws {@link UnsupportedOperationException}. There is no bucket
- * registry, so every bucket is treated as an existing bucket with hierarchical namespace.
+ * <p>Supports {@code CreateFolder}, {@code GetFolder}, {@code DeleteFolder}, {@code ListFolders}
+ * and {@code DeleteFolderRecursive}; every other call throws {@link UnsupportedOperationException}.
+ * There is no bucket registry, so every bucket is treated as an existing bucket with hierarchical
+ * namespace.
  *
  * <p>State scope: objects live in {@link FakeGcsClientImpl#storage}, a static singleton shared by
  * every client in the JVM, while folders live in this stub, so each client instance starts with no
@@ -74,6 +83,11 @@ import java.util.function.Function;
  * folder below it, ordered by the UTF-8 bytes of their names, at most 1,000 per page. {@code
  * delimiter}, {@code lexicographic_start} and {@code lexicographic_end} are not supported and are
  * rejected with {@code UNIMPLEMENTED}.
+ *
+ * <p>{@code DeleteFolderRecursive} follows GCS too: it removes the folder with every folder and
+ * object below it (including object-only prefixes where {@code createFolder} was not called
+ * explicitly), and fails with {@code NOT_FOUND} when neither the folder nor any object below it
+ * exists. The returned operation is always finished.
  */
 final class FakeStorageControlStub extends StorageControlStub {
   private static final String BUCKET_PARENT_PREFIX = "projects/_/buckets/";
@@ -103,6 +117,33 @@ final class FakeStorageControlStub extends StorageControlStub {
   @Override
   public UnaryCallable<DeleteFolderRequest, Empty> deleteFolderCallable() {
     return unaryCallable(this::deleteFolder);
+  }
+
+  @Override
+  public OperationCallable<DeleteFolderRecursiveRequest, Empty, DeleteFolderRecursiveMetadata>
+      deleteFolderRecursiveOperationCallable() {
+    return new OperationCallable<
+        DeleteFolderRecursiveRequest, Empty, DeleteFolderRecursiveMetadata>() {
+      @Override
+      public OperationFuture<Empty, DeleteFolderRecursiveMetadata> futureCall(
+          DeleteFolderRecursiveRequest request, ApiCallContext context) {
+        // The delete runs within this call, so the operation is finished when it is returned.
+        return new FinishedOperationFuture<>(
+            unaryCallable(FakeStorageControlStub.this::deleteFolderRecursive)
+                .futureCall(request, context));
+      }
+
+      @Override
+      public OperationFuture<Empty, DeleteFolderRecursiveMetadata> resumeFutureCall(
+          String operationName, ApiCallContext context) {
+        throw new UnsupportedOperationException("Not implemented: resumeFutureCall()");
+      }
+
+      @Override
+      public ApiFuture<Void> cancel(String operationName, ApiCallContext context) {
+        throw new UnsupportedOperationException("Not implemented: cancel()");
+      }
+    };
   }
 
   @Override
@@ -139,7 +180,10 @@ final class FakeStorageControlStub extends StorageControlStub {
 
   private Folder getFolder(GetFolderRequest request) {
     String key = parseFolderResourceName(request.getName());
-    Folder folder = folders.get(key);
+    Folder folder;
+    synchronized (folders) {
+      folder = folders.get(key);
+    }
     if (folder == null) {
       throw apiException(StatusCode.Code.NOT_FOUND, "Folder not found: " + key);
     }
@@ -158,6 +202,33 @@ final class FakeStorageControlStub extends StorageControlStub {
       }
       folders.remove(key);
       return Empty.getDefaultInstance();
+    }
+  }
+
+  /** Deletes a folder with every folder and object below it. */
+  private Empty deleteFolderRecursive(DeleteFolderRecursiveRequest request) {
+    String key = parseFolderResourceName(request.getName());
+    synchronized (folders) {
+      if (!folders.containsKey(key) && !hasChildObject(key)) {
+        throw apiException(StatusCode.Code.NOT_FOUND, "Folder not found: " + key);
+      }
+      folders.keySet().removeIf(existingKey -> existingKey.startsWith(key));
+      deleteObjects(bucketOf(key), folderPathOf(key));
+      return Empty.getDefaultInstance();
+    }
+  }
+
+  /** Deletes every object of the bucket whose name starts with {@code prefix}. */
+  private void deleteObjects(String bucket, String prefix) {
+    // Lists the whole bucket and filters here, for the reason given in hasChildObject.
+    List<BlobId> objects = new ArrayList<>();
+    for (Blob blob : storage.list(bucket).iterateAll()) {
+      if (blob != null && !blob.isDirectory() && blob.getName().startsWith(prefix)) {
+        objects.add(BlobId.of(bucket, blob.getName()));
+      }
+    }
+    for (BlobId object : objects) {
+      storage.delete(object);
     }
   }
 
@@ -258,8 +329,8 @@ final class FakeStorageControlStub extends StorageControlStub {
   }
 
   private boolean hasChildObject(String key) {
-    String bucket = key.substring(BUCKET_PARENT_PREFIX.length(), key.indexOf(FOLDERS_SEGMENT));
-    String prefix = key.substring(key.indexOf(FOLDERS_SEGMENT) + FOLDERS_SEGMENT.length());
+    String bucket = bucketOf(key);
+    String prefix = folderPathOf(key);
     // List the whole bucket and filter here: LocalStorageHelper's FakeStorageRpc strips a leading
     // '/' from the PREFIX option, so it would miss the children of a folder whose name starts with
     // '/'.
@@ -314,6 +385,18 @@ final class FakeStorageControlStub extends StorageControlStub {
 
   private static String folderResourceName(String bucket, String folderPath) {
     return BUCKET_PARENT_PREFIX + bucket + FOLDERS_SEGMENT + folderPath;
+  }
+
+  /** Returns the bucket of a key built by {@link #folderResourceName}. */
+  private static String bucketOf(String key) {
+    return key.substring(
+        BUCKET_PARENT_PREFIX.length(), key.indexOf(FOLDERS_SEGMENT, BUCKET_PARENT_PREFIX.length()));
+  }
+
+  /** Returns the folder path of a key built by {@link #folderResourceName}. */
+  private static String folderPathOf(String key) {
+    return key.substring(
+        key.indexOf(FOLDERS_SEGMENT, BUCKET_PARENT_PREFIX.length()) + FOLDERS_SEGMENT.length());
   }
 
   /** Returns the folder name that {@code pageToken} resumes after, or empty for the first page. */
@@ -382,6 +465,44 @@ final class FakeStorageControlStub extends StorageControlStub {
     @Override
     public Object getTransportCode() {
       return code;
+    }
+  }
+
+  /**
+   * The future of a long-running operation that finished, or failed, within the call that started
+   * it. As for a real operation, {@code get()} reports a failure as an {@link
+   * java.util.concurrent.ExecutionException} whose cause is the {@link ApiException}.
+   */
+  private static final class FinishedOperationFuture<ResponseT, MetadataT>
+      extends ForwardingApiFuture<ResponseT> implements OperationFuture<ResponseT, MetadataT> {
+
+    private FinishedOperationFuture(ApiFuture<ResponseT> result) {
+      super(result);
+    }
+
+    @Override
+    public String getName() {
+      throw new UnsupportedOperationException("Not implemented: getName()");
+    }
+
+    @Override
+    public ApiFuture<OperationSnapshot> getInitialFuture() {
+      throw new UnsupportedOperationException("Not implemented: getInitialFuture()");
+    }
+
+    @Override
+    public RetryingFuture<OperationSnapshot> getPollingFuture() {
+      throw new UnsupportedOperationException("Not implemented: getPollingFuture()");
+    }
+
+    @Override
+    public ApiFuture<MetadataT> peekMetadata() {
+      throw new UnsupportedOperationException("Not implemented: peekMetadata()");
+    }
+
+    @Override
+    public ApiFuture<MetadataT> getMetadata() {
+      throw new UnsupportedOperationException("Not implemented: getMetadata()");
     }
   }
 

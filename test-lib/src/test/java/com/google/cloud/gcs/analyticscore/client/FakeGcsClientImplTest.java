@@ -28,6 +28,7 @@ import com.google.api.gax.rpc.InvalidArgumentException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.UnimplementedException;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
+import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.StorageClass;
@@ -35,6 +36,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.storage.control.v2.CreateFolderRequest;
+import com.google.storage.control.v2.DeleteFolderRecursiveRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.ListFoldersRequest;
@@ -47,6 +49,7 @@ import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -760,6 +763,159 @@ class FakeGcsClientImplTest {
 
     assertThat(folderExists(bucketName, "x//")).isFalse();
     assertThat(folderExists(bucketName, "x/")).isTrue();
+  }
+
+  @Test
+  void deleteFolderRecursive_folderWithSubFoldersAndObjects_deletesEverythingBelowIt()
+      throws IOException {
+    String bucketName = "hns-delete-recursive-bucket";
+    fakeGcsClient.createFolder(id(bucketName, "dir/sub/deep/"), true);
+    fakeGcsClient.createFolder(id(bucketName, "dir2/"), false);
+    putBlob(bucketName, "dir/a.txt", "alpha");
+    putBlob(bucketName, "dir/sub/b.txt", "beta");
+    putBlob(bucketName, "dir2/keep.txt", "gamma");
+
+    try {
+      fakeGcsClient.deleteFolderRecursive(id(bucketName, "dir"));
+
+      GcsItemId bucketId = GcsItemId.builder().setBucketName(bucketName).build();
+      assertThat(folderNames(fakeGcsClient.listFolders(bucketId))).containsExactly("dir2/");
+      assertThat(objectNames(bucketName)).containsExactly("dir2/keep.txt");
+    } finally {
+      // FakeGcsClientImpl.storage is shared across the JVM; don't leak the objects into other
+      // tests.
+      for (String objectName : objectNames(bucketName)) {
+        FakeGcsClientImpl.storage.delete(BlobId.of(bucketName, objectName));
+      }
+    }
+  }
+
+  @Test
+  void deleteFolderRecursive_leadingSpaceFolder_deletesOnlyThatFolder() throws IOException {
+    String bucketName = "hns-delete-recursive-space-bucket";
+    fakeGcsClient.createFolder(id(bucketName, " dir/"), false);
+    fakeGcsClient.createFolder(id(bucketName, "dir/"), false);
+    putBlob(bucketName, " dir/in-space.txt", "space");
+    putBlob(bucketName, "dir/in-plain.txt", "plain");
+
+    try {
+      fakeGcsClient.deleteFolderRecursive(id(bucketName, " dir/"));
+
+      assertThat(folderExists(bucketName, " dir/")).isFalse();
+      assertThat(folderExists(bucketName, "dir/")).isTrue();
+      assertThat(objectNames(bucketName)).containsExactly("dir/in-plain.txt");
+    } finally {
+      // FakeGcsClientImpl.storage is shared across the JVM; don't leak the objects into other
+      // tests.
+      for (String objectName : objectNames(bucketName)) {
+        FakeGcsClientImpl.storage.delete(BlobId.of(bucketName, objectName));
+      }
+    }
+  }
+
+  @Test
+  void deleteFolderRecursive_emptySegmentFolder_deletesThatFolderNotParent() throws IOException {
+    String bucketName = "hns-delete-recursive-empty-segment-bucket";
+    fakeGcsClient
+        .lazyGetStorageControlClient()
+        .createFolder(
+            CreateFolderRequest.newBuilder()
+                .setParent("projects/_/buckets/" + bucketName)
+                .setFolderId("x//")
+                .setRecursive(true)
+                .build());
+    putBlob(bucketName, "x//inner.txt", "inner");
+    putBlob(bucketName, "x/keep.txt", "keep");
+
+    try {
+      fakeGcsClient.deleteFolderRecursive(id(bucketName, "x//"));
+
+      assertThat(folderExists(bucketName, "x//")).isFalse();
+      assertThat(folderExists(bucketName, "x/")).isTrue();
+      assertThat(objectNames(bucketName)).containsExactly("x/keep.txt");
+    } finally {
+      // FakeGcsClientImpl.storage is shared across the JVM; don't leak the objects into other
+      // tests.
+      for (String objectName : objectNames(bucketName)) {
+        FakeGcsClientImpl.storage.delete(BlobId.of(bucketName, objectName));
+      }
+    }
+  }
+
+  @Test
+  void deleteFolderRecursive_missingFolder_returnsNormally() {
+    GcsItemId folderId = id("hns-delete-recursive-missing-bucket", "missing/");
+
+    assertDoesNotThrow(() -> fakeGcsClient.deleteFolderRecursive(folderId));
+  }
+
+  @Test
+  void deleteFolderRecursive_missingFolderRawRequest_failsWithNotFoundException()
+      throws IOException {
+    StorageControlClient controlClient = fakeGcsClient.lazyGetStorageControlClient();
+    DeleteFolderRecursiveRequest request =
+        DeleteFolderRecursiveRequest.newBuilder()
+            .setName("projects/_/buckets/hns-delete-recursive-raw-bucket/folders/missing/")
+            .build();
+
+    ExecutionException e =
+        assertThrows(
+            ExecutionException.class,
+            () -> controlClient.deleteFolderRecursiveAsync(request).get());
+
+    assertThat(e).hasCauseThat().isInstanceOf(NotFoundException.class);
+  }
+
+  @Test
+  void deleteFolderRecursive_bucketNamedFolders_deletesFolderAndObjects() throws IOException {
+    String bucketName = "folders";
+    fakeGcsClient.createFolder(id(bucketName, "dir/sub/"), true);
+    fakeGcsClient.createFolder(id(bucketName, "keep/"), false);
+    putBlob(bucketName, "dir/sub/file.txt", "data");
+    putBlob(bucketName, "keep/stay.txt", "stay");
+
+    try {
+      fakeGcsClient.deleteFolderRecursive(id(bucketName, "dir/"));
+
+      GcsItemId bucketId = GcsItemId.builder().setBucketName(bucketName).build();
+      assertThat(folderNames(fakeGcsClient.listFolders(bucketId))).containsExactly("keep/");
+      assertThat(objectNames(bucketName)).containsExactly("keep/stay.txt");
+    } finally {
+      for (String objectName : objectNames(bucketName)) {
+        FakeGcsClientImpl.storage.delete(BlobId.of(bucketName, objectName));
+      }
+    }
+  }
+
+  @Test
+  void deleteFolderRecursive_implicitFolderWithObjectsOnly_deletesObjectsUnderPrefix()
+      throws IOException {
+    String bucketName = "hns-delete-recursive-implicit-bucket";
+    putBlob(bucketName, "implicit/a.txt", "alpha");
+    putBlob(bucketName, "implicit/sub/b.txt", "beta");
+    putBlob(bucketName, "implicit", "same-name-object");
+    putBlob(bucketName, "implicit2/keep.txt", "gamma");
+
+    try {
+      fakeGcsClient.deleteFolderRecursive(id(bucketName, "implicit/"));
+
+      assertThat(objectNames(bucketName)).containsExactly("implicit", "implicit2/keep.txt");
+    } finally {
+      for (String objectName : objectNames(bucketName)) {
+        FakeGcsClientImpl.storage.delete(BlobId.of(bucketName, objectName));
+      }
+    }
+  }
+
+  /** Returns the names of the objects in the bucket. */
+  private static List<String> objectNames(String bucketName) {
+    List<String> names = new ArrayList<>();
+    for (Blob blob : FakeGcsClientImpl.storage.list(bucketName).iterateAll()) {
+      if (blob != null && !blob.isDirectory()) {
+        names.add(blob.getName());
+      }
+    }
+    return names;
   }
 
   @Test

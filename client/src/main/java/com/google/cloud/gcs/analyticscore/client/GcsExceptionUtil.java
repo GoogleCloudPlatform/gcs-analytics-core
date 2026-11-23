@@ -33,6 +33,7 @@ import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Locale;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /** Centralized utility for classifying GCS transport exceptions. */
 class GcsExceptionUtil {
@@ -324,6 +325,67 @@ class GcsExceptionUtil {
     String message = e.getMessage();
     return message != null
         && message.toLowerCase(Locale.ROOT).contains(FOLDER_NOT_EMPTY_MESSAGE_FRAGMENT);
+  }
+
+  /**
+   * Translates a failure of a Storage Control recursive folder delete into the appropriate {@link
+   * IOException}.
+   *
+   * <p>Callers handle {@link NotFoundException} before calling this method: deleting a missing
+   * folder is a no-op. Folders have no content generation, so the folder is reported without one.
+   *
+   * @param cause the failure, thrown when the delete was started or carried by its long-running
+   *     operation; {@code null} and non-{@link Exception} causes become a generic {@link
+   *     IOException}
+   * @param folderId the folder that was being deleted
+   */
+  static IOException translateDeleteFolderRecursiveException(
+      @Nullable Throwable cause, GcsItemId folderId) {
+    checkNotNull(folderId, "folderId should not be null");
+    String failureMessage =
+        "Failed to delete folder recursively: " + UriUtil.getStringPath(folderId);
+    if (!(cause instanceof Exception)) {
+      return new IOException(failureMessage, cause);
+    }
+    GcsItemId.Builder folderIdWithoutGeneration =
+        GcsItemId.builder().setBucketName(folderId.getBucketName());
+    folderId.getObjectName().ifPresent(folderIdWithoutGeneration::setObjectName);
+    return translateControlException(
+        (Exception) cause, folderIdWithoutGeneration.build(), failureMessage);
+  }
+
+  /**
+   * Translates a failure while polling the long-running operation of a recursive folder delete.
+   *
+   * <p>Once the server accepts {@code DeleteFolderRecursive}, polling calls {@code
+   * google.longrunning.Operations.GetOperation}. Per AIP-151, a {@code NOT_FOUND} from {@code
+   * GetOperation} means the operation resource (or bucket) was not found rather than {@code
+   * folderId} being missing (operation failures arrive in {@code Operation.error} on an {@code OK}
+   * poll), so {@link NotFoundException} maps to a generic {@link IOException} rather than a no-op.
+   *
+   * @param cause the polling failure; {@code null} and non-{@link Exception} causes become a
+   *     generic {@link IOException}
+   * @param folderId the folder that was being deleted
+   */
+  static IOException translateDeleteFolderRecursivePollingException(
+      @Nullable Throwable cause, GcsItemId folderId) {
+    checkNotNull(folderId, "folderId should not be null");
+    String location = UriUtil.getStringPath(folderId);
+    if (cause instanceof PermissionDeniedException || cause instanceof UnauthenticatedException) {
+      return createAccessDeniedException(
+          location,
+          String.format(
+              "polling recursive deletion of folder %s (the delete may still complete on the"
+                  + " server)",
+              location),
+          cause);
+    }
+    return new IOException(
+        String.format(
+            "Failed while polling recursive deletion of folder %s; the delete may still complete"
+                + " on the server",
+            location),
+        cause);
   }
 
   /**

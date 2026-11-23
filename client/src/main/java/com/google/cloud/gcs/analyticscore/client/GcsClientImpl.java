@@ -18,11 +18,13 @@ package com.google.cloud.gcs.analyticscore.client;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.api.core.ApiFuture;
 import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.gax.longrunning.OperationFuture;
-import com.google.api.gax.longrunning.OperationTimedPollAlgorithm;
+import com.google.api.gax.longrunning.OperationSnapshot;
 import com.google.api.gax.paging.Page;
 import com.google.api.gax.retrying.RetrySettings;
+import com.google.api.gax.retrying.RetryingFuture;
 import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.PermissionDeniedException;
@@ -64,6 +66,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.BaseEncoding;
+import com.google.common.util.concurrent.Uninterruptibles;
 import com.google.protobuf.Empty;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
@@ -80,7 +83,6 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -95,6 +97,7 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -112,24 +115,6 @@ class GcsClientImpl implements GcsClient {
       };
   private static final String USER_AGENT_PREFIX = "gcs-analytics-core/";
   private static final String RAPID_STORAGE_CLASS = "RAPID";
-
-  /**
-   * Polling settings for the {@code DeleteFolderRecursive} long-running operation: poll sooner and
-   * wait longer than the client library default (5 s initial delay, 45 s maximum delay, 5 minutes
-   * in total).
-   */
-  @VisibleForTesting
-  static final RetrySettings DELETE_FOLDER_RECURSIVE_POLLING_SETTINGS =
-      RetrySettings.newBuilder()
-          .setInitialRetryDelayDuration(Duration.ofMillis(100))
-          .setRetryDelayMultiplier(1.5)
-          .setMaxRetryDelayDuration(Duration.ofSeconds(5))
-          .setTotalTimeoutDuration(Duration.ofMinutes(60))
-          .setInitialRpcTimeoutDuration(Duration.ZERO)
-          .setRpcTimeoutMultiplier(1.0)
-          .setMaxRpcTimeoutDuration(Duration.ZERO)
-          .build();
-
   private static final ImmutableSet<Integer> IGNORABLE_EMPTY_OBJECT_CREATE_ERROR_CODES =
       ImmutableSet.of(408, 429, 500, 502, 503, 504);
   private static final String UNIVERSE_DOMAIN_ENV_VAR = "GOOGLE_CLOUD_UNIVERSE_DOMAIN";
@@ -573,10 +558,6 @@ class GcsClientImpl implements GcsClient {
         FixedHeaderProvider.create(ImmutableMap.of("User-Agent", getUserAgent())));
     credentials.ifPresent(c -> builder.setCredentialsProvider(FixedCredentialsProvider.create(c)));
     universeDomain.ifPresent(builder::setUniverseDomain);
-    builder
-        .deleteFolderRecursiveOperationSettings()
-        .setPollingAlgorithm(
-            OperationTimedPollAlgorithm.create(DELETE_FOLDER_RECURSIVE_POLLING_SETTINGS));
     return StorageControlClient.create(builder.build());
   }
 
@@ -975,56 +956,6 @@ class GcsClientImpl implements GcsClient {
   }
 
   @Override
-  public void deleteFolderRecursive(GcsItemId folderId) throws IOException {
-    checkNotNull(folderId, "folderId must not be null");
-    checkArgument(folderId.isGcsObject(), "Expected a folder itemId but got: %s", folderId);
-    String objectName = folderId.getObjectName().orElse("");
-    String folderName = UriUtil.removeTrailingSlash(objectName);
-    checkArgument(!folderName.isEmpty(), "Folder name cannot be empty");
-    DeleteFolderRecursiveRequest request =
-        DeleteFolderRecursiveRequest.newBuilder()
-            .setName(FolderName.format("_", folderId.getBucketName(), folderName))
-            .build();
-    String errorMessage = "Failed to delete folder recursively: " + folderId;
-    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future;
-    try {
-      future = lazyGetStorageControlClient().deleteFolderRecursiveAsync(request);
-    } catch (Exception e) {
-      throw GcsExceptionUtil.translateControlException(e, folderId, errorMessage);
-    }
-    try {
-      future.get();
-    } catch (InterruptedException e) {
-      // Stops waiting: cancels local polling, or the initial request if it is still in flight.
-      // GAX never calls CancelOperation, so a delete the server already started keeps running.
-      future.cancel(true);
-      Thread.currentThread().interrupt();
-      throw (InterruptedIOException)
-          new InterruptedIOException(
-                  "Interrupted while waiting to delete folder recursively: "
-                      + folderId
-                      + "; the delete may still complete on the server")
-              .initCause(e);
-    } catch (ExecutionException e) {
-      Throwable cause = e.getCause();
-      if (cause instanceof Error) {
-        throw (Error) cause;
-      }
-      if (cause instanceof Exception) {
-        throw GcsExceptionUtil.translateControlException((Exception) cause, folderId, errorMessage);
-      }
-      throw new IOException(errorMessage, cause);
-    } catch (CancellationException e) {
-      // The client library cancels polling when DELETE_FOLDER_RECURSIVE_POLLING_SETTINGS times out.
-      throw new IOException(
-          "Timed out waiting to delete folder recursively: "
-              + folderId
-              + "; the delete may still complete on the server",
-          e);
-    }
-  }
-
-  @Override
   public void createEmptyObject(GcsItemId itemId) throws IOException {
     GcsWriteOptions configuredWriteOptions = clientOptions.getGcsWriteOptions();
     GcsWriteOptions.Builder optionsBuilder = GcsWriteOptions.builder();
@@ -1173,6 +1104,98 @@ class GcsClientImpl implements GcsClient {
     }
   }
 
+  @Override
+  public void deleteFolderRecursive(GcsItemId folderId) throws IOException {
+    checkNotNull(folderId, "folderId must not be null");
+    checkArgument(
+        folderId.isGcsObject(),
+        "folderId must have a bucket and a folder path, but got: %s",
+        folderId);
+    String objectName = folderId.getObjectName().orElse("");
+    checkArgument(
+        !UriUtil.removeTrailingSlash(objectName).isEmpty(), "Folder name cannot be empty");
+    if (Thread.currentThread().isInterrupted()) {
+      throw new InterruptedIOException(
+          "Interrupted before deleting folder recursively: " + UriUtil.getStringPath(folderId));
+    }
+    DeleteFolderRecursiveRequest request =
+        DeleteFolderRecursiveRequest.newBuilder()
+            .setName(folderResourceName(folderId.getBucketName(), objectName))
+            .build();
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future;
+    try {
+      future = lazyGetStorageControlClient().deleteFolderRecursiveAsync(request);
+    } catch (NotFoundException e) {
+      // A missing folder is not an error, as when the operation reports it below.
+      LOG.debug("Folder to delete recursively was not found: {}", folderId);
+      return;
+    } catch (Exception e) {
+      throw GcsExceptionUtil.translateDeleteFolderRecursiveException(e, folderId);
+    }
+    try {
+      // TODO: Set polling settings for this operation once the polling policy for long-running
+      // folder operations is decided. Until then the client library defaults apply: the first poll
+      // is sent up to 5 seconds after the request, and the polling schedule targets up to 5 minutes
+      // (transient GetOperation retries can extend waiting, and defaults may change across client
+      // library versions).
+      future.get();
+    } catch (InterruptedException e) {
+      // Stops waiting: cancels local polling, or the initial request if it is still in flight.
+      // GAX never calls CancelOperation, so a delete the server already started keeps running.
+      // Restore the interrupt flag in finally after cancel(true): GAX can clear an already-set
+      // interrupt flag inside cancel(true).
+      try {
+        future.cancel(true);
+      } finally {
+        Thread.currentThread().interrupt();
+      }
+      throw (InterruptedIOException)
+          new InterruptedIOException(
+                  String.format(
+                      "Interrupted while waiting to delete folder recursively: %s; the delete may"
+                          + " still complete on the server",
+                      UriUtil.getStringPath(folderId)))
+              .initCause(e);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof Error) {
+        throw (Error) cause;
+      }
+      if (cause instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+        throw (InterruptedIOException)
+            new InterruptedIOException(
+                    String.format(
+                        "Interrupted while waiting to delete folder recursively: %s; the delete may"
+                            + " still complete on the server",
+                        UriUtil.getStringPath(folderId)))
+                .initCause(cause);
+      }
+      if (isPollingFailure(future)) {
+        // Once the server has started the operation, a GetOperation NOT_FOUND means the operation
+        // resource (not folderId) was not found; actual operation errors arrive in Operation.error
+        // on an OK poll, so polling NOT_FOUND must not be treated as a no-op.
+        throw GcsExceptionUtil.translateDeleteFolderRecursivePollingException(cause, folderId);
+      }
+      if (cause instanceof NotFoundException) {
+        // A missing folder is not an error: there is nothing to delete. A call also ends this way
+        // when an earlier delete of the same folder is still running or has just finished, for
+        // example after a wait that was interrupted or timed out.
+        LOG.debug("Folder to delete recursively was not found: {}", folderId);
+        return;
+      }
+      throw GcsExceptionUtil.translateDeleteFolderRecursiveException(cause, folderId);
+    } catch (CancellationException e) {
+      // The client library cancels the future once its total polling timeout expires.
+      throw new IOException(
+          String.format(
+              "Timed out waiting to delete folder recursively: %s; the delete may still complete on"
+                  + " the server",
+              UriUtil.getStringPath(folderId)),
+          e);
+    }
+  }
+
   /**
    * Builds the {@code projects/_/buckets/<bucket>/folders/<folder>/} resource name, keeping the
    * folder name verbatim and adding a trailing {@code /} only when it is missing.
@@ -1184,6 +1207,44 @@ class GcsClientImpl implements GcsClient {
    */
   private static String folderResourceName(String bucketName, String objectName) {
     return "projects/_/buckets/" + bucketName + "/folders/" + UriUtil.toDirectoryPath(objectName);
+  }
+
+  /**
+   * Returns {@code true} if the server accepted the long-running operation ({@code initialFuture}
+   * completed normally) and a subsequent {@code GetOperation} poll failed ({@code pollingFuture}
+   * did not complete normally).
+   *
+   * <p>When a poll succeeds with a completed {@code Operation} carrying an {@code Operation.error},
+   * {@code pollingFuture} itself completes normally with that snapshot and {@code
+   * OperationFuture#get()} raises the operation error while transforming the response, so this
+   * method returns {@code false}.
+   */
+  private static boolean isPollingFailure(OperationFuture<?, ?> future) {
+    ApiFuture<OperationSnapshot> initialFuture;
+    RetryingFuture<OperationSnapshot> pollingFuture;
+    try {
+      initialFuture = future.getInitialFuture();
+      pollingFuture = future.getPollingFuture();
+    } catch (UnsupportedOperationException e) {
+      return false;
+    }
+    if (!isDone(initialFuture) || !isDone(pollingFuture)) {
+      return false;
+    }
+    return completedNormally(initialFuture) && !completedNormally(pollingFuture);
+  }
+
+  private static boolean isDone(@Nullable Future<?> future) {
+    return future != null && future.isDone();
+  }
+
+  private static boolean completedNormally(Future<?> future) {
+    try {
+      Uninterruptibles.getUninterruptibly(future);
+      return true;
+    } catch (CancellationException | ExecutionException e) {
+      return false;
+    }
   }
 
   @Override
