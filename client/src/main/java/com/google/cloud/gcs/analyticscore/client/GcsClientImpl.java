@@ -1162,21 +1162,12 @@ class GcsClientImpl implements GcsClient {
       if (cause instanceof Error) {
         throw (Error) cause;
       }
-      if (cause instanceof InterruptedException) {
-        Thread.currentThread().interrupt();
-        throw (InterruptedIOException)
-            new InterruptedIOException(
-                    String.format(
-                        "Interrupted while waiting to delete folder recursively: %s; the delete may"
-                            + " still complete on the server%s",
-                        UriUtil.getStringPath(folderId),
-                        GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))))
-                .initCause(cause);
-      }
       if (isPollingFailure(future)) {
         // Once the server has started the operation, a GetOperation NOT_FOUND means the operation
         // resource (not folderId) was not found; actual operation errors arrive in Operation.error
-        // on an OK poll, so polling NOT_FOUND must not be treated as a no-op.
+        // on an OK poll, so polling NOT_FOUND must not be treated as a no-op. An
+        // InterruptedException here was raised on a polling thread of the client library, not by
+        // an interrupt of the caller, so the caller's interrupt flag is left alone.
         throw GcsExceptionUtil.translateDeleteFolderRecursivePollingException(
             cause, folderId, acceptedOperationName(future));
       }

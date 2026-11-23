@@ -4544,30 +4544,78 @@ class GcsClientImplTest {
   }
 
   @Test
-  void
-      deleteFolderRecursive_executionExceptionWithInterruptedCause_restoresInterruptAndThrowsInterruptedIOException()
-          throws Exception {
-    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+  void deleteFolderRecursive_pollingThreadInterrupted_throwsIOExceptionWithoutInterruptingCaller() {
+    String operationName = "projects/_/buckets/" + TEST_BUCKET_NAME + "/operations/delete-1";
+    InterruptedException interrupted = new InterruptedException("polling thread interrupted");
     OperationFuture<Empty, DeleteFolderRecursiveMetadata> future =
-        stubDeleteFolderRecursiveAsync(mockControlClient);
-    InterruptedException interrupted = new InterruptedException("interrupted");
-    when(future.get()).thenThrow(new ExecutionException(interrupted));
+        deleteFolderRecursiveOperationFuture(
+            deleteFolderRecursiveAcceptedOperation(operationName),
+            ApiFutures.immediateFailedFuture(interrupted),
+            snapshot -> Empty.getDefaultInstance());
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.deleteFolderRecursiveAsync(any(DeleteFolderRecursiveRequest.class)))
+        .thenReturn(future);
     GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
 
-    InterruptedIOException e;
-    boolean interruptFlagRestored;
+    IOException e;
+    boolean callerInterrupted;
     try {
       e =
           assertThrows(
-              InterruptedIOException.class,
+              IOException.class,
               () -> clientWithMockControl.deleteFolderRecursive(TEST_DIR_ITEM_ID));
     } finally {
-      interruptFlagRestored = Thread.interrupted();
+      // Reads and clears the flag so that it does not leak into other tests.
+      callerInterrupted = Thread.interrupted();
     }
 
-    assertThat(interruptFlagRestored).isTrue();
+    assertThat(callerInterrupted).isFalse();
+    assertThat(e.getClass()).isEqualTo(IOException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed while polling recursive deletion of folder gs://"
+                + TEST_BUCKET_NAME
+                + "/"
+                + TEST_DIR
+                + "; the delete may still complete on the server (operation: "
+                + operationName
+                + ")");
     assertThat(e).hasCauseThat().isSameInstanceAs(interrupted);
-    assertThat(e).hasMessageThat().contains("the delete may still complete on the server");
+  }
+
+  @Test
+  void deleteFolderRecursive_startRequestInterrupted_throwsIOExceptionWithoutInterruptingCaller() {
+    InterruptedException interrupted = new InterruptedException("start interrupted");
+    OperationFuture<Empty, DeleteFolderRecursiveMetadata> future =
+        deleteFolderRecursiveOperationFuture(
+            ApiFutures.immediateFailedFuture(interrupted),
+            ApiFutures.immediateFailedFuture(interrupted),
+            snapshot -> Empty.getDefaultInstance());
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.deleteFolderRecursiveAsync(any(DeleteFolderRecursiveRequest.class)))
+        .thenReturn(future);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e;
+    boolean callerInterrupted;
+    try {
+      e =
+          assertThrows(
+              IOException.class,
+              () -> clientWithMockControl.deleteFolderRecursive(TEST_DIR_ITEM_ID));
+    } finally {
+      // Reads and clears the flag so that it does not leak into other tests.
+      callerInterrupted = Thread.interrupted();
+    }
+
+    assertThat(callerInterrupted).isFalse();
+    assertThat(e.getClass()).isEqualTo(IOException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed to delete folder recursively: gs://" + TEST_BUCKET_NAME + "/" + TEST_DIR);
+    assertThat(e).hasCauseThat().isSameInstanceAs(interrupted);
   }
 
   @Test
