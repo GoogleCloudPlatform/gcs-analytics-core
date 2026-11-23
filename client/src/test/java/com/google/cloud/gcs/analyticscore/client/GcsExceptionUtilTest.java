@@ -720,7 +720,8 @@ class GcsExceptionUtilTest {
     NotFoundException notFound = Mockito.mock(NotFoundException.class);
 
     IOException exception =
-        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(notFound, folderId);
+        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(
+            notFound, folderId, /* operationName= */ null);
 
     assertThat(exception.getClass()).isEqualTo(IOException.class);
     assertThat(exception)
@@ -739,7 +740,8 @@ class GcsExceptionUtilTest {
     Mockito.when(permissionDenied.getMessage()).thenReturn("Permission denied");
 
     IOException exception =
-        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(permissionDenied, folderId);
+        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(
+            permissionDenied, folderId, /* operationName= */ null);
 
     assertThat(exception).isInstanceOf(AccessDeniedException.class);
     assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/dir/");
@@ -756,7 +758,8 @@ class GcsExceptionUtilTest {
     UnauthenticatedException unauthenticated = Mockito.mock(UnauthenticatedException.class);
 
     IOException exception =
-        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(unauthenticated, folderId);
+        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(
+            unauthenticated, folderId, /* operationName= */ null);
 
     assertThat(exception).isInstanceOf(AccessDeniedException.class);
     assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/dir/");
@@ -775,7 +778,9 @@ class GcsExceptionUtilTest {
 
     IOException exception =
         GcsExceptionUtil.translateDeleteFolderRecursivePollingException(
-            Mockito.mock(PermissionDeniedException.class), folderIdWithGeneration);
+            Mockito.mock(PermissionDeniedException.class),
+            folderIdWithGeneration,
+            /* operationName= */ null);
 
     assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/dir/");
     assertThat(exception).hasMessageThat().doesNotContain("#7");
@@ -786,10 +791,49 @@ class GcsExceptionUtilTest {
     GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
 
     IOException exception =
-        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(null, folderId);
+        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(
+            /* cause= */ null, folderId, /* operationName= */ null);
 
     assertThat(exception.getClass()).isEqualTo(IOException.class);
     assertThat(exception).hasCauseThat().isNull();
+  }
+
+  @Test
+  void translateDeleteFolderRecursivePollingException_operationName_namesOperationInMessage() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    String operationName = "projects/_/buckets/" + BUCKET + "/operations/delete-1";
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(
+            Mockito.mock(NotFoundException.class), folderId, operationName);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed while polling recursive deletion of folder gs://"
+                + BUCKET
+                + "/dir/; the delete may still complete on the server (operation: "
+                + operationName
+                + ")");
+  }
+
+  @Test
+  void translateDeleteFolderRecursivePollingException_deniedWithOperationName_namesOperation() {
+    GcsItemId folderId = GcsItemId.builder().setBucketName(BUCKET).setObjectName("dir/").build();
+    String operationName = "projects/_/buckets/" + BUCKET + "/operations/delete-1";
+    PermissionDeniedException permissionDenied = Mockito.mock(PermissionDeniedException.class);
+    Mockito.when(permissionDenied.getMessage()).thenReturn("Permission denied");
+
+    IOException exception =
+        GcsExceptionUtil.translateDeleteFolderRecursivePollingException(
+            permissionDenied, folderId, operationName);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .contains(
+            "(the delete may still complete on the server) (operation: "
+                + operationName
+                + "): Permission denied");
   }
 
   @Test
@@ -1090,6 +1134,27 @@ class GcsExceptionUtilTest {
     Constructor<GcsExceptionUtil> constructor = GcsExceptionUtil.class.getDeclaredConstructor();
 
     assertThat(Modifier.isPrivate(constructor.getModifiers())).isTrue();
+  }
+
+  @Test
+  void operationNameSuffix_operationName_returnsNameInParentheses() {
+    String suffix = GcsExceptionUtil.operationNameSuffix("projects/_/buckets/b/operations/op-1");
+
+    assertThat(suffix).isEqualTo(" (operation: projects/_/buckets/b/operations/op-1)");
+  }
+
+  @Test
+  void operationNameSuffix_nullOperationName_returnsEmptyString() {
+    String suffix = GcsExceptionUtil.operationNameSuffix(/* operationName= */ null);
+
+    assertThat(suffix).isEmpty();
+  }
+
+  @Test
+  void operationNameSuffix_emptyOperationName_returnsEmptyString() {
+    String suffix = GcsExceptionUtil.operationNameSuffix("");
+
+    assertThat(suffix).isEmpty();
   }
 
   private static GcsItemId objectId(Long generation) {

@@ -366,9 +366,11 @@ class GcsExceptionUtil {
    * @param cause the polling failure; {@code null} and non-{@link Exception} causes become a
    *     generic {@link IOException}
    * @param folderId the folder that was being deleted
+   * @param operationName the name of the long-running operation, which the message then names, or
+   *     {@code null} if it is not known
    */
   static IOException translateDeleteFolderRecursivePollingException(
-      @Nullable Throwable cause, GcsItemId folderId) {
+      @Nullable Throwable cause, GcsItemId folderId, @Nullable String operationName) {
     checkNotNull(folderId, "folderId should not be null");
     String location = UriUtil.getStringPath(folderId);
     if (cause instanceof PermissionDeniedException || cause instanceof UnauthenticatedException) {
@@ -376,15 +378,15 @@ class GcsExceptionUtil {
           location,
           String.format(
               "polling recursive deletion of folder %s (the delete may still complete on the"
-                  + " server)",
-              location),
+                  + " server)%s",
+              location, operationNameSuffix(operationName)),
           cause);
     }
     return new IOException(
         String.format(
             "Failed while polling recursive deletion of folder %s; the delete may still complete"
-                + " on the server",
-            location),
+                + " on the server%s",
+            location, operationNameSuffix(operationName)),
         cause);
   }
 
@@ -585,6 +587,21 @@ class GcsExceptionUtil {
                 null,
                 String.format("Access denied during %s: %s", context, cause.getMessage()))
             .initCause(cause);
+  }
+
+  /**
+   * Returns the text that names a long-running operation at the end of an error message, so that an
+   * operation that may still be running on the server can be looked up.
+   *
+   * @param operationName the name of the long-running operation, or {@code null} if it is not known
+   * @return {@code " (operation: <operationName>)"}, or an empty string if {@code operationName} is
+   *     {@code null} or empty
+   */
+  static String operationNameSuffix(@Nullable String operationName) {
+    if (operationName == null || operationName.isEmpty()) {
+      return "";
+    }
+    return " (operation: " + operationName + ")";
   }
 
   private static String formatLocation(GcsItemId itemId) {

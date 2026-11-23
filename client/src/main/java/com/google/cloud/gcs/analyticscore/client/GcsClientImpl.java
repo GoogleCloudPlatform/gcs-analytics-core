@@ -1153,8 +1153,9 @@ class GcsClientImpl implements GcsClient {
           new InterruptedIOException(
                   String.format(
                       "Interrupted while waiting to delete folder recursively: %s; the delete may"
-                          + " still complete on the server",
-                      UriUtil.getStringPath(folderId)))
+                          + " still complete on the server%s",
+                      UriUtil.getStringPath(folderId),
+                      GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))))
               .initCause(e);
     } catch (ExecutionException e) {
       Throwable cause = e.getCause();
@@ -1167,15 +1168,17 @@ class GcsClientImpl implements GcsClient {
             new InterruptedIOException(
                     String.format(
                         "Interrupted while waiting to delete folder recursively: %s; the delete may"
-                            + " still complete on the server",
-                        UriUtil.getStringPath(folderId)))
+                            + " still complete on the server%s",
+                        UriUtil.getStringPath(folderId),
+                        GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))))
                 .initCause(cause);
       }
       if (isPollingFailure(future)) {
         // Once the server has started the operation, a GetOperation NOT_FOUND means the operation
         // resource (not folderId) was not found; actual operation errors arrive in Operation.error
         // on an OK poll, so polling NOT_FOUND must not be treated as a no-op.
-        throw GcsExceptionUtil.translateDeleteFolderRecursivePollingException(cause, folderId);
+        throw GcsExceptionUtil.translateDeleteFolderRecursivePollingException(
+            cause, folderId, acceptedOperationName(future));
       }
       if (cause instanceof NotFoundException) {
         // A missing folder is not an error: there is nothing to delete. A call also ends this way
@@ -1190,8 +1193,9 @@ class GcsClientImpl implements GcsClient {
       throw new IOException(
           String.format(
               "Timed out waiting to delete folder recursively: %s; the delete may still complete on"
-                  + " the server",
-              UriUtil.getStringPath(folderId)),
+                  + " the server%s",
+              UriUtil.getStringPath(folderId),
+              GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))),
           e);
     }
   }
@@ -1244,6 +1248,32 @@ class GcsClientImpl implements GcsClient {
       return true;
     } catch (CancellationException | ExecutionException e) {
       return false;
+    }
+  }
+
+  /**
+   * Returns the name of the long-running operation behind {@code future} if the server has accepted
+   * it ({@code initialFuture} completed normally), so that error messages can name an operation
+   * that may still be running. Returns {@code null} if the operation was not accepted, if the
+   * request that starts it is still in flight, or if {@code future} does not expose its initial
+   * future. Never blocks.
+   */
+  @Nullable
+  private static String acceptedOperationName(OperationFuture<?, ?> future) {
+    ApiFuture<OperationSnapshot> initialFuture;
+    try {
+      initialFuture = future.getInitialFuture();
+    } catch (UnsupportedOperationException e) {
+      return null;
+    }
+    if (!isDone(initialFuture)) {
+      return null;
+    }
+    try {
+      OperationSnapshot snapshot = Uninterruptibles.getUninterruptibly(initialFuture);
+      return snapshot == null ? null : snapshot.getName();
+    } catch (CancellationException | ExecutionException e) {
+      return null;
     }
   }
 

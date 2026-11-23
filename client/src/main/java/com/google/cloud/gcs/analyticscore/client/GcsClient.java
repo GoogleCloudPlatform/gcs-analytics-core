@@ -296,8 +296,10 @@ public interface GcsClient {
    * until the operation finishes, polling with the client library's default settings (currently the
    * first poll within 5 seconds and up to 45 seconds between polls, targeting up to 5 minutes in
    * total; transient {@code GetOperation} retries can extend waiting, and defaults may change
-   * across client library versions). If waiting stops early, the delete may still complete on the
-   * server. The delete is not atomic: if it fails, part of the folder may already be deleted.
+   * across client library versions). If waiting stops early (an interrupt, a timeout or a failed
+   * poll), the delete may still complete on the server; the exception message then names the
+   * long-running operation, if the server had accepted it. The delete is not atomic: if it fails,
+   * part of the folder may already be deleted.
    *
    * <p>Any {@link GcsItemId#getContentGeneration()} on {@code folderId} is ignored, as GCS folders
    * do not support content generations.
