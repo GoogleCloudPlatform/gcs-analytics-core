@@ -177,6 +177,7 @@ public final class PrefetchBufferCache {
     checkNotNull(ranges, "ranges cannot be null");
     checkNotNull(allocate, "allocate cannot be null");
     checkNotNull(onDownloadFailed, "onDownloadFailed cannot be null");
+    ranges.forEach(range -> checkNotNull(range, "range cannot be null"));
     ItemState state = itemStates.get(itemId);
     List<GcsObjectRange> unservedRanges = new ArrayList<>();
     for (GcsObjectRange range : ranges) {

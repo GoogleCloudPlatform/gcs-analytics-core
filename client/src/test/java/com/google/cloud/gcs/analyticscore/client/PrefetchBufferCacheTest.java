@@ -27,6 +27,7 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.common.collect.ImmutableList;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -1150,6 +1151,39 @@ class PrefetchBufferCacheTest {
     serveVectored(cache, range);
 
     assertThat(promotions.get()).isEqualTo(0);
+  }
+
+  @Test
+  void serveVectoredFromCache_nullRange_throwsNullPointerException() {
+    PrefetchBufferCache cache = newCache();
+    List<GcsObjectRange> ranges = Arrays.asList(vectoredRange(FIRST_RANGE_OFFSET, 4), null);
+
+    NullPointerException exception =
+        assertThrows(
+            NullPointerException.class,
+            () ->
+                cache.serveVectoredFromCache(
+                    itemId("object"), ranges, ByteBuffer::allocate, failedRange -> {}));
+
+    assertThat(exception).hasMessageThat().isEqualTo("range cannot be null");
+  }
+
+  @Test
+  void serveVectoredFromCache_nullRangeAfterCachedRange_servesNoRange() {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    GcsObjectRange cachedRange = vectoredRange(FIRST_RANGE_OFFSET, 4);
+
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            cache.serveVectoredFromCache(
+                itemId("object"),
+                Arrays.asList(cachedRange, null),
+                ByteBuffer::allocate,
+                failedRange -> {}));
+
+    assertThat(cachedRange.getByteBufferFuture().isDone()).isFalse();
   }
 
   @Test
