@@ -21,7 +21,9 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.List;
 import java.util.Optional;
 
 @VisibleForTesting
@@ -44,6 +46,44 @@ public interface GcsClient {
    */
   WritableByteChannel createWriteChannel(GcsItemId itemId, GcsWriteOptions options)
       throws IOException;
+
+  /**
+   * Moves an object to a new name in the same bucket (GCS {@code objects.move}).
+   *
+   * <p>The move is a server-side, metadata-only operation: no object bytes are copied. The object
+   * keeps its encryption, including a customer-supplied key: a move never re-encrypts.
+   *
+   * <p>The content generation of {@code srcId}, if present, is sent as a source generation
+   * precondition. The content generation of {@code dstId}, if present, is sent as a destination
+   * generation precondition, where {@code 0} means the destination object must not exist. Without a
+   * destination generation, an existing destination object is replaced.
+   *
+   * <p>The client library retries a move only when {@code dstId} has a generation. If an attempt
+   * moved the object but its response was lost, the retry finds no source object, so this method
+   * throws {@link FileNotFoundException} although the move succeeded. If the source name was
+   * re-created in between, the retry fails a generation precondition instead. A caller that needs
+   * to know whether the move happened must check the destination object, for example by comparing
+   * its checksum with the source's. A move without a destination generation is never retried.
+   *
+   * @param srcId the object to move
+   * @param dstId the new name of the object. It must be in the same bucket as {@code srcId}: the
+   *     GCS {@code objects.move} API only moves an object within its bucket.
+   * @throws IllegalArgumentException if {@code srcId} or {@code dstId} is not a GCS object, the two
+   *     IDs name different buckets or the same object, the source generation is not positive, or
+   *     the destination generation is negative
+   * @throws FileNotFoundException if the source object does not exist
+   * @throws FileAlreadyExistsException if {@code dstId} has generation {@code 0}, the destination
+   *     exists, and {@code srcId} has no generation. If {@code srcId} also has a generation, GCS
+   *     does not say which check failed, so a plain {@link IOException} is thrown.
+   * @throws AccessDeniedException if the caller is not allowed to move the object
+   * @throws IOException if any other generation precondition fails or the move fails for another
+   *     reason
+   * @see <a href="https://cloud.google.com/storage/docs/json_api/v1/objects/move">objects.move</a>
+   */
+  default void moveObject(GcsItemId srcId, GcsItemId dstId) throws IOException {
+    throw new UnsupportedOperationException(
+        "moveObject is not implemented by " + getClass().getName());
+  }
 
   /**
    * Fetches metadata for the given GCS object.
@@ -112,10 +152,74 @@ public interface GcsClient {
   GcsItemInfo getFolderInfo(GcsItemId itemId) throws IOException;
 
   /**
-   * Fetches metadata for at most one object matching the given prefix without pagination. Optimized
-   * for fast directory emptiness checks.
+   * Lists native folders in a Hierarchical Namespace (HNS) bucket.
+   *
+   * <p>Returns every folder whose name starts with the directory form of {@code prefixId}'s object
+   * name (for example, {@code dir} lists {@code dir/} and all folders below it), or every folder in
+   * the bucket when {@code prefixId} is a bucket. All result pages under the prefix are fetched and
+   * returned together. The folder named exactly by the prefix is included when it exists, and
+   * folders keep the order returned by GCS. Any {@link GcsItemId#getContentGeneration()} on {@code
+   * prefixId} is ignored.
+   *
+   * @param prefixId the bucket or folder to list folders under
+   * @return an unmodifiable list of {@link GcsItemInfo.ItemType#NATIVE_FOLDER} items whose item IDs
+   *     are in directory form (ending in {@code /}), or an empty list if no folder matches
+   * @throws IllegalArgumentException if {@code prefixId} is the root or has an empty bucket name
+   * @throws FileNotFoundException if the bucket does not exist
+   * @throws AccessDeniedException if listing is denied (401/403)
+   * @throws IOException if the folders cannot be listed, including when the bucket is a flat
+   *     (non-HNS) bucket
+   */
+  default List<GcsItemInfo> listFolders(GcsItemId prefixId) throws IOException {
+    throw new UnsupportedOperationException(
+        "listFolders is not implemented by " + getClass().getName());
+  }
+
+  /**
+   * Fetches metadata for the first object in unsigned UTF-8 byte order matching {@code prefixId}:
+   * returns the placeholder directory object itself (for example, {@code "b/"}) if it exists,
+   * otherwise the first nested object under that prefix (for example, {@code "b/c/obj"}), or {@link
+   * Optional#empty()} if no object matches. Any {@link GcsItemId#getContentGeneration()} on {@code
+   * prefixId} is ignored.
    */
   Optional<GcsItemInfo> listFirstObjectWithPrefix(GcsItemId prefixId) throws IOException;
+
+  /**
+   * Lists a single page of GCS objects and collapsed prefixes under {@code prefixId} (either a
+   * bucket root {@code gs://bucket} or an object/directory prefix such as {@code gs://bucket/dir/})
+   * in a single RPC (retried automatically per {@link GcsRetryOptions}), requesting up to {@link
+   * GcsListOptions#DEFAULT_MAX_LIST_ITEMS_PER_CALL} ({@code 5,000}) entries when {@link
+   * GcsListOptions#getPageSize()} is empty.
+   *
+   * <p>Results preserve GCS unsigned UTF-8 ordering. Collapsed prefixes matching a placeholder
+   * object in {@link GcsListPage#getItems()} or the listed directory prefix itself are omitted from
+   * {@link GcsListPage#getPrefixes()}. No synthetic self-directory is fabricated: when {@link
+   * GcsListOptions#isIncludePrefixObject()} is {@code false}, a real self-marker object is surfaced
+   * via {@link GcsListPage#getPrefixObject()} rather than {@link GcsListPage#getItems()}. A missing
+   * prefix returns an empty page. Any {@link GcsItemId#getContentGeneration()} on {@code prefixId}
+   * is ignored.
+   *
+   * <p>When {@link GcsListOptions#getFields()} omits optional metadata fields, unprojected fields
+   * are reported as absent or {@code 0} on returned items. In particular, omitting {@link
+   * GcsListOptions.ListField#SIZE} yields items with {@link GcsItemInfo#getSize()} equal to {@code
+   * 0L} (with {@link GcsItemInfo#exists()} {@code true}); callers must not pass such partial {@link
+   * GcsItemInfo} instances to {@link #openReadChannel(GcsItemInfo, GcsReadOptions)} or file-sizing
+   * paths.
+   *
+   * @param prefixId bucket or object/directory prefix to list (must have a non-empty bucket name;
+   *     any content generation is ignored)
+   * @param options listing options controlling delimiter, projection, filters, and pagination
+   * @return a single {@link GcsListPage} of object metadata and deduplicated prefix IDs
+   * @throws IllegalArgumentException if {@code prefixId} has an empty bucket name (including root)
+   * @throws FileNotFoundException if the target bucket does not exist ({@code 404})
+   * @throws AccessDeniedException if listing is denied ({@code 401}/{@code 403})
+   * @throws IOException if an I/O error occurs while listing
+   */
+  default GcsListPage<GcsItemInfo> listObjectsPage(GcsItemId prefixId, GcsListOptions options)
+      throws IOException {
+    throw new UnsupportedOperationException(
+        "listObjectsPage is not implemented by " + getClass().getName());
+  }
 
   /**
    * Creates a GCS bucket with {@link GcsCreateBucketOptions#DEFAULT}.
@@ -187,6 +291,34 @@ public interface GcsClient {
   void createFolder(GcsItemId itemId, boolean recursive) throws IOException;
 
   /**
+   * Deletes a single empty native folder in a Hierarchical Namespace (HNS) enabled bucket.
+   *
+   * <p>The folder must be empty: objects and subfolders under it are not deleted. {@code folderId}
+   * may name the folder with or without a trailing slash. Any {@link
+   * GcsItemId#getContentGeneration()} on {@code folderId} is ignored, as GCS folders do not support
+   * content generations.
+   *
+   * <p>Deleting a folder that does not exist is a no-op, so retries and concurrent deletes of the
+   * same folder succeed. Callers that must report a missing path should check that it exists first.
+   *
+   * <p>The default implementation throws {@link UnsupportedOperationException}.
+   *
+   * @param folderId the identity of the folder to delete
+   * @throws IllegalArgumentException if {@code folderId} is not an object path (for example the
+   *     root or a bucket) or its folder name is empty (object name {@code "/"})
+   * @throws AccessDeniedException if the caller is unauthenticated or not allowed to delete the
+   *     folder
+   * @throws DirectoryNotEmptyException if the folder is not empty (the original {@code
+   *     FAILED_PRECONDITION} exception is kept as the cause)
+   * @throws IOException if the folder cannot be deleted for another reason, such as another {@code
+   *     FAILED_PRECONDITION} or RPC error (the original exception is kept as the cause)
+   */
+  default void deleteFolder(GcsItemId folderId) throws IOException {
+    throw new UnsupportedOperationException(
+        "deleteFolder is not implemented by " + getClass().getName());
+  }
+
+  /**
    * Fetches bucket capability properties (such as HNS and Rapid storage class).
    *
    * <p>If bucket metadata cannot be retrieved because the caller lacks bucket-level permissions
@@ -197,6 +329,54 @@ public interface GcsClient {
    * @throws IOException if the bucket properties cannot be fetched
    */
   BucketProperties getBucketProperties(String bucketName) throws IOException;
+
+  /**
+   * Deletes the GCS object identified by {@code itemId}.
+   *
+   * <p>When {@link GcsItemId#getContentGeneration()} is present, deletion requires the live
+   * object's generation to match ({@code ifGenerationMatch}).
+   *
+   * <p>Deleting an object that does not exist is a no-op, so retries and concurrent deletes of the
+   * same object succeed. Callers that must report a missing path should check that it exists first.
+   *
+   * <p>The default implementation throws {@link UnsupportedOperationException}, so that
+   * implementations written against earlier versions of this interface keep compiling.
+   *
+   * @param itemId the identity of the GCS object to delete
+   * @throws IllegalArgumentException if {@code itemId} does not denote a GCS object or specifies a
+   *     non-positive content generation
+   * @throws AccessDeniedException if the caller lacks permission to delete the object
+   * @throws UnsupportedOperationException if this implementation does not support deleting objects
+   * @throws IOException if a generation mismatch or other I/O error occurs while deleting the
+   *     object
+   */
+  default void deleteObject(GcsItemId itemId) throws IOException {
+    throw new UnsupportedOperationException(
+        "deleteObject is not implemented by " + getClass().getName());
+  }
+
+  /**
+   * Deletes the empty GCS bucket identified by {@code itemId}.
+   *
+   * <p>Any {@link GcsItemId#getContentGeneration()} on {@code itemId} is ignored, as GCS buckets do
+   * not support content generations. The default implementation throws {@link
+   * UnsupportedOperationException}, so that implementations written against earlier versions of
+   * this interface keep compiling.
+   *
+   * @param itemId the identity of the GCS bucket to delete
+   * @throws IllegalArgumentException if {@code itemId} does not denote a bucket
+   * @throws FileNotFoundException if the target bucket does not exist. This can also happen when
+   *     the client library automatically retries the request (for example after a timeout) and
+   *     finds that an earlier attempt already deleted the bucket.
+   * @throws AccessDeniedException if the caller lacks permission to delete the bucket
+   * @throws DirectoryNotEmptyException if the target bucket is not empty
+   * @throws UnsupportedOperationException if this implementation does not support deleting buckets
+   * @throws IOException if an I/O error occurs while deleting the bucket
+   */
+  default void deleteBucket(GcsItemId itemId) throws IOException {
+    throw new UnsupportedOperationException(
+        "deleteBucket is not implemented by " + getClass().getName());
+  }
 
   /** Close the client. */
   void close();
