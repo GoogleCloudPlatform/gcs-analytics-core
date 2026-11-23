@@ -1654,6 +1654,12 @@ class PrefetchBufferCacheTest {
       CompletableFuture<ByteBuffer> future = new CompletableFuture<>();
       try (RegisteredStream stream = cache.registerStream(itemId)) {
         stream.registerRange(offset, 4, future, NO_PROMOTION);
+        List<GcsObjectRange> unusedUnservedRanges =
+            cache.serveVectoredFromCache(
+                itemId,
+                ImmutableList.of(vectoredRange(offset, 2 + iteration % 5)),
+                ByteBuffer::allocate,
+                failedRange -> {});
         if (iteration % 7 == 0) {
           future.completeExceptionally(new RuntimeException("network error"));
         } else {
