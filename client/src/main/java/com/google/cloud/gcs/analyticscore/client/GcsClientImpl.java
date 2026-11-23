@@ -890,22 +890,12 @@ class GcsClientImpl implements GcsClient {
       if (cause instanceof Error) {
         throw (Error) cause;
       }
-      if (cause instanceof InterruptedException) {
-        Thread.currentThread().interrupt();
-        throw (InterruptedIOException)
-            new InterruptedIOException(
-                    String.format(
-                        "Interrupted while renaming folder %s to %s; the rename may still complete"
-                            + " on the server%s",
-                        UriUtil.getStringPath(srcFolderId),
-                        UriUtil.getStringPath(dstFolderId),
-                        GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))))
-                .initCause(cause);
-      }
       if (isPollingFailure(future)) {
         // Once the server has started the operation, a GetOperation NOT_FOUND means the operation
         // resource (not srcFolderId) was not found; actual operation errors arrive in
-        // Operation.error on an OK poll.
+        // Operation.error on an OK poll. An InterruptedException here was raised on a polling
+        // thread of the client library, not by an interrupt of the caller, so the caller's
+        // interrupt flag is left alone.
         throw GcsExceptionUtil.translateRenameFolderPollingException(
             cause, srcFolderId, dstFolderId, acceptedOperationName(future));
       }

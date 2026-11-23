@@ -2270,29 +2270,84 @@ class GcsClientImplTest {
   }
 
   @Test
-  void
-      renameFolder_executionExceptionWithInterruptedCause_restoresInterruptAndThrowsInterruptedIOException()
-          throws Exception {
-    InterruptedException interrupted = new InterruptedException("interrupted");
-    GcsClientImpl clientWithMockControl =
-        renameFolderClientFailingWith(new ExecutionException(interrupted));
+  void renameFolder_pollingThreadInterrupted_throwsPollingIOExceptionWithoutInterruptingCaller() {
+    String operationName = "projects/_/buckets/" + TEST_BUCKET + "/operations/rename-1";
+    InterruptedException interrupted = new InterruptedException("polling thread interrupted");
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderOperationFuture(
+            renameFolderAcceptedOperation(operationName),
+            ApiFutures.immediateFailedFuture(interrupted),
+            snapshot -> Folder.getDefaultInstance());
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.renameFolderAsync(any(RenameFolderRequest.class))).thenReturn(future);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
 
-    InterruptedIOException e;
-    boolean interruptFlagRestored;
+    IOException e;
+    boolean callerInterrupted;
     try {
       e =
           assertThrows(
-              InterruptedIOException.class,
+              IOException.class,
               () ->
                   clientWithMockControl.renameFolder(
                       renameFolderTestId("src/"), renameFolderTestId("dst/")));
     } finally {
-      interruptFlagRestored = Thread.interrupted();
+      // Reads and clears the flag so that it cannot leak into later tests.
+      callerInterrupted = Thread.interrupted();
     }
 
-    assertThat(interruptFlagRestored).isTrue();
+    assertThat(callerInterrupted).isFalse();
+    assertThat(e.getClass()).isEqualTo(IOException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed while polling rename of folder gs://"
+                + TEST_BUCKET
+                + "/src/ to gs://"
+                + TEST_BUCKET
+                + "/dst/; the rename may still complete on the server (operation: "
+                + operationName
+                + ")");
     assertThat(e).hasCauseThat().isSameInstanceAs(interrupted);
-    assertThat(e).hasMessageThat().contains("the rename may still complete on the server");
+  }
+
+  @Test
+  void renameFolder_startRequestFailedWithInterrupt_throwsIOExceptionWithoutInterruptingCaller() {
+    InterruptedException interrupted = new InterruptedException("start interrupted");
+    OperationFuture<Folder, RenameFolderMetadata> future =
+        renameFolderOperationFuture(
+            ApiFutures.immediateFailedFuture(interrupted),
+            ApiFutures.immediateFailedFuture(interrupted),
+            snapshot -> Folder.getDefaultInstance());
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.renameFolderAsync(any(RenameFolderRequest.class))).thenReturn(future);
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+
+    IOException e;
+    boolean callerInterrupted;
+    try {
+      e =
+          assertThrows(
+              IOException.class,
+              () ->
+                  clientWithMockControl.renameFolder(
+                      renameFolderTestId("src/"), renameFolderTestId("dst/")));
+    } finally {
+      // Reads and clears the flag so that it cannot leak into later tests.
+      callerInterrupted = Thread.interrupted();
+    }
+
+    assertThat(callerInterrupted).isFalse();
+    assertThat(e.getClass()).isEqualTo(IOException.class);
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed to rename folder gs://"
+                + TEST_BUCKET
+                + "/src/ to gs://"
+                + TEST_BUCKET
+                + "/dst/");
+    assertThat(e).hasCauseThat().isSameInstanceAs(interrupted);
   }
 
   @Test
