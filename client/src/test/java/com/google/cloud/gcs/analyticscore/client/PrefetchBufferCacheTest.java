@@ -48,6 +48,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class PrefetchBufferCacheTest {
 
@@ -1108,6 +1109,18 @@ class PrefetchBufferCacheTest {
     PrefetchBufferCache cache = newCache();
     registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
     GcsObjectRange range = vectoredRange(1, 0);
+
+    List<GcsObjectRange> unservedRanges = serveVectored(cache, range);
+
+    assertThat(unservedRanges).containsExactly(range);
+  }
+
+  @ParameterizedTest
+  @ValueSource(longs = {Long.MAX_VALUE - 2, Long.MAX_VALUE})
+  void serveVectoredFromCache_rangeEndsPastLongMaxValue_returnsRange(long offset) {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), Long.MAX_VALUE - 4, FIRST_RANGE);
+    GcsObjectRange range = vectoredRange(offset, 10);
 
     List<GcsObjectRange> unservedRanges = serveVectored(cache, range);
 

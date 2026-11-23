@@ -365,10 +365,10 @@ public final class PrefetchBufferCache {
    */
   @Nullable
   private static List<Segment> findSegments(ItemState state, GcsObjectRange range) {
-    if (range.getLength() <= 0) {
+    if (range.getLength() <= 0 || range.getOffset() > Long.MAX_VALUE - range.getLength()) {
       return null;
     }
-    long endOffset = LongMath.saturatedAdd(range.getOffset(), range.getLength());
+    long endOffset = range.getOffset() + range.getLength();
     List<Segment> segments = new ArrayList<>();
     long cursor = range.getOffset();
     while (cursor < endOffset) {
