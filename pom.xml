@@ -78,7 +78,7 @@ limitations under the License.
           upgrades to 26.91.0 or later.
         -->
         <google.api-client.bom.version>2.9.2</google.api-client.bom.version>
-        <google.guava.version>33.6.0-jre</google.guava.version>
+        <google.guava.version>33.7.1-jre</google.guava.version>
         <google.java-format.version>1.17.0</google.java-format.version>
         <google.error-prone.version>2.16</google.error-prone.version>
         <jmh.version>1.37</jmh.version>
