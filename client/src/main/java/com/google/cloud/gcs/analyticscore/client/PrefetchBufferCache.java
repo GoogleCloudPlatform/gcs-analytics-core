@@ -395,8 +395,13 @@ public final class PrefetchBufferCache {
       IntFunction<ByteBuffer> allocate,
       Consumer<GcsObjectRange> onDownloadFailed) {
     List<CompletableFuture<ByteBuffer>> slices = new ArrayList<>(segments.size());
-    for (Segment segment : segments) {
-      slices.add(segment.entry.range.sliceAsync(segment.offset, segment.length));
+    try {
+      for (Segment segment : segments) {
+        slices.add(segment.entry.range.sliceAsync(segment.offset, segment.length));
+      }
+    } catch (Throwable t) {
+      range.getByteBufferFuture().completeExceptionally(t);
+      return;
     }
     CompletableFuture<?> unused =
         whenAllDownloaded(slices)

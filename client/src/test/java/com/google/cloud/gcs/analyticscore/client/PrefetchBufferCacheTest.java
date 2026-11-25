@@ -1225,6 +1225,68 @@ class PrefetchBufferCacheTest {
     assertThat(promotions.get()).isEqualTo(1);
   }
 
+  @Test
+  void serveVectoredFromCache_initialPromotionThrows_failsRangeWithThatException() {
+    PrefetchBufferCache cache = newCache();
+    RejectedExecutionException promotionError = new RejectedExecutionException("pool shut down");
+    cache
+        .registerStream(itemId("object"))
+        .registerRange(
+            FIRST_RANGE_OFFSET,
+            4,
+            new CompletableFuture<>(),
+            () -> {
+              throw promotionError;
+            });
+    GcsObjectRange range = vectoredRange(FIRST_RANGE_OFFSET, 4);
+
+    serveVectored(cache, range);
+
+    CompletionException thrown =
+        assertThrows(CompletionException.class, () -> range.getByteBufferFuture().getNow(null));
+    assertThat(thrown).hasCauseThat().isSameInstanceAs(promotionError);
+  }
+
+  @Test
+  void serveVectoredFromCache_initialPromotionThrows_servesLaterCachedRange() throws Exception {
+    PrefetchBufferCache cache = newCache();
+    RegisteredStream stream = cache.registerStream(itemId("object"));
+    stream.registerRange(
+        FIRST_RANGE_OFFSET,
+        4,
+        new CompletableFuture<>(),
+        () -> {
+          throw new RejectedExecutionException("pool shut down");
+        });
+    registerCompleted(stream, SECOND_RANGE_OFFSET, SECOND_RANGE);
+    GcsObjectRange cachedRange = vectoredRange(SECOND_RANGE_OFFSET, 4);
+
+    serveVectored(cache, vectoredRange(FIRST_RANGE_OFFSET, 4), cachedRange);
+
+    assertThat(readBytes(cachedRange)).isEqualTo(SECOND_RANGE);
+  }
+
+  @Test
+  void serveVectoredFromCache_initialPromotionThrows_returnsUncachedRanges() {
+    PrefetchBufferCache cache = newCache();
+    cache
+        .registerStream(itemId("object"))
+        .registerRange(
+            FIRST_RANGE_OFFSET,
+            4,
+            new CompletableFuture<>(),
+            () -> {
+              throw new RejectedExecutionException("pool shut down");
+            });
+    GcsObjectRange uncachedBefore = vectoredRange(SECOND_RANGE_OFFSET, 4);
+    GcsObjectRange uncachedAfter = vectoredRange(SECOND_RANGE_OFFSET + 4, 4);
+
+    List<GcsObjectRange> unservedRanges =
+        serveVectored(cache, uncachedBefore, vectoredRange(FIRST_RANGE_OFFSET, 4), uncachedAfter);
+
+    assertThat(unservedRanges).containsExactly(uncachedBefore, uncachedAfter).inOrder();
+  }
+
   @ParameterizedTest
   @MethodSource("badDownloads")
   void serveVectoredFromCache_badDownload_passesRangeToFallback(
