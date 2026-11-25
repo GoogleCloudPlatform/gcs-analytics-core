@@ -1620,6 +1620,46 @@ class PrefetchBufferCacheTest {
   }
 
   @Test
+  void serveVectoredFromCache_disjointSubRangesInOneCachedRange_completesBothRanges()
+      throws Exception {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    GcsObjectRange first = vectoredRange(FIRST_RANGE_OFFSET, 2);
+    GcsObjectRange second = vectoredRange(FIRST_RANGE_OFFSET + 2, 2);
+
+    serveVectored(cache, first, second);
+
+    assertThat(readBytes(first)).isEqualTo(new byte[] {1, 2});
+    assertThat(readBytes(second)).isEqualTo(new byte[] {3, 4});
+  }
+
+  @Test
+  void serveVectoredFromCache_disjointSubRangesInOneCachedRange_recordsHitPerRange() {
+    RecordingOperationListener listener = new RecordingOperationListener();
+    PrefetchBufferCache cache = newCache(listener);
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+
+    serveVectored(
+        cache, vectoredRange(FIRST_RANGE_OFFSET, 2), vectoredRange(FIRST_RANGE_OFFSET + 2, 2));
+
+    assertThat(listener.getTotal(GcsAnalyticsCoreTelemetryConstants.Metric.PREFETCH_CACHE_HIT))
+        .isEqualTo(2);
+  }
+
+  @Test
+  void serveVectoredFromCache_disjointSubRangesInOneCachedRange_evictsRangeAfterAllBytesRead() {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+
+    List<GcsObjectRange> unservedRanges =
+        serveVectored(
+            cache, vectoredRange(FIRST_RANGE_OFFSET, 2), vectoredRange(FIRST_RANGE_OFFSET + 2, 2));
+
+    assertThat(unservedRanges).isEmpty();
+    assertThat(cache.isCovered(itemId("object"), FIRST_RANGE_OFFSET, 1)).isFalse();
+  }
+
+  @Test
   void serveVectoredFromCache_downloadNotFinished_keepsRange() {
     PrefetchBufferCache cache = newCache();
     registerInFlight(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, 4);
