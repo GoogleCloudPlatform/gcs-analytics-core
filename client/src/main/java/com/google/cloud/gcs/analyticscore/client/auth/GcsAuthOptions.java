@@ -65,6 +65,8 @@ public abstract class GcsAuthOptions {
   private static final Duration DEFAULT_HTTP_READ_TIMEOUT = Duration.ofSeconds(5);
   private static final long MAX_HTTP_TIMEOUT_MILLIS = Integer.MAX_VALUE;
   static final Duration MAX_HTTP_TIMEOUT = Duration.ofMillis(MAX_HTTP_TIMEOUT_MILLIS);
+  private static final int MIN_PROXY_PORT = 1;
+  private static final int MAX_PROXY_PORT = 65535;
 
   /**
    * Returns the configured authentication type, or empty if not explicitly set (in which case
@@ -234,7 +236,7 @@ public abstract class GcsAuthOptions {
    * @param proxyAddress The proxy address string to validate, or {@code null}.
    * @return The parsed {@link URI}, or {@code null} if {@code proxyAddress} is null or empty.
    * @throws IllegalArgumentException If the proxy address does not match {@code
-   *     [https?://]hostname:port}.
+   *     [https?://]hostname:port} with a port between 1 and 65535.
    */
   @Nullable
   static URI parseProxyAddress(@Nullable String proxyAddress) {
@@ -254,6 +256,11 @@ public abstract class GcsAuthOptions {
           scheme);
       checkArgument(!isNullOrEmpty(host), "Proxy address '%s' has no host.", proxyAddress);
       checkArgument(port != -1, "Proxy address '%s' has no port.", proxyAddress);
+      checkArgument(
+          port >= MIN_PROXY_PORT && port <= MAX_PROXY_PORT,
+          "Proxy address '%s' has invalid port '%s'; port must be between 1 and 65535.",
+          proxyAddress,
+          port);
       checkArgument(
           uri.equals(new URI(scheme, null, host, port, null, null, null)),
           "Invalid proxy address '%s'.",
