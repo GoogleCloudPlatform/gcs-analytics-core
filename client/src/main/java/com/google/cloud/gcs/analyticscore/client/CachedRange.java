@@ -27,7 +27,6 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.function.IntFunction;
 import javax.annotation.Nullable;
 
 /**
@@ -167,24 +166,6 @@ public final class CachedRange {
   }
 
   /**
-   * Returns a future that copies {@code [offset, offset + length)} from this range's buffer into a
-   * buffer allocated via {@code allocate}. The future fails if this range's buffer does not hold
-   * the whole range or if {@code allocate} returns {@code null}.
-   */
-  CompletableFuture<ByteBuffer> copyIntoAsync(
-      long offset, int length, IntFunction<ByteBuffer> allocate) {
-    checkNotNull(allocate, "allocate cannot be null");
-    int relativeOffset = relativeOffsetOf(offset, length);
-    promoteIfInFlight();
-    return future.thenApply(
-        buffer ->
-            copyToAllocated(
-                sliceBuffer(checkHoldsWholeRange(buffer), relativeOffset, length),
-                length,
-                allocate));
-  }
-
-  /**
    * Returns a future holding a read-only view of {@code [offset, offset + length)} within this
    * range's buffer. The future fails if this range's buffer does not hold the whole range.
    */
@@ -232,14 +213,5 @@ public final class CachedRange {
     view.position(view.position() + relativeOffset);
     view.limit(view.position() + length);
     return view.slice();
-  }
-
-  private static ByteBuffer copyToAllocated(
-      ByteBuffer source, int length, IntFunction<ByteBuffer> allocate) {
-    ByteBuffer target = allocate.apply(length);
-    checkArgument(target != null, "Buffer allocation returned null for %s bytes", length);
-    target.put(source);
-    target.flip();
-    return target;
   }
 }

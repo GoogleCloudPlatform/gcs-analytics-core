@@ -373,177 +373,6 @@ class CachedRangeTest {
   }
 
   @Test
-  void copyIntoAsync_exactMatchOfReadOnlyBuffer_copiesIntoAllocatedBuffer() {
-    CachedRange range =
-        rangeOf(CompletableFuture.completedFuture(bufferOf(BYTES).asReadOnlyBuffer()));
-    ByteBuffer allocated = ByteBuffer.allocate(BYTES.length);
-
-    ByteBuffer result = range.copyIntoAsync(RANGE_OFFSET, BYTES.length, length -> allocated).join();
-
-    assertThat(result).isSameInstanceAs(allocated);
-  }
-
-  @Test
-  void copyIntoAsync_exactMatchOfDirectBuffer_copiesIntoAllocatedBuffer() {
-    ByteBuffer direct = ByteBuffer.allocateDirect(BYTES.length).put(BYTES).flip();
-    CachedRange range = rangeOf(CompletableFuture.completedFuture(direct));
-    ByteBuffer allocated = ByteBuffer.allocate(BYTES.length);
-
-    ByteBuffer result = range.copyIntoAsync(RANGE_OFFSET, BYTES.length, length -> allocated).join();
-
-    assertThat(result).isSameInstanceAs(allocated);
-  }
-
-  @Test
-  void copyIntoAsync_exactMatchOfBufferWithArrayOffset_copiesIntoAllocatedBuffer() {
-    ByteBuffer offsetSlice = ByteBuffer.wrap(new byte[] {0, 1, 2, 3, 4}, 1, BYTES.length).slice();
-    CachedRange range = rangeOf(CompletableFuture.completedFuture(offsetSlice));
-    ByteBuffer allocated = ByteBuffer.allocate(BYTES.length);
-
-    ByteBuffer result = range.copyIntoAsync(RANGE_OFFSET, BYTES.length, length -> allocated).join();
-
-    assertThat(result).isSameInstanceAs(allocated);
-  }
-
-  @Test
-  void copyIntoAsync_allocatorReturnsNull_failsWithIllegalArgumentException() {
-    CachedRange range = rangeOf(CompletableFuture.completedFuture(bufferOf(BYTES)));
-    CompletableFuture<ByteBuffer> result = range.copyIntoAsync(RANGE_OFFSET + 1, 2, length -> null);
-
-    CompletionException exception = assertThrows(CompletionException.class, result::join);
-
-    assertThat(exception)
-        .hasCauseThat()
-        .hasMessageThat()
-        .isEqualTo("Buffer allocation returned null for 2 bytes");
-  }
-
-  @Test
-  void copyIntoAsync_exactMatchOfWritableHeapBuffer_copiesIntoAllocatedBuffer() {
-    CachedRange range = rangeOf(CompletableFuture.completedFuture(bufferOf(BYTES)));
-    ByteBuffer allocated = ByteBuffer.allocate(BYTES.length);
-
-    ByteBuffer result = range.copyIntoAsync(RANGE_OFFSET, BYTES.length, length -> allocated).join();
-
-    assertThat(result).isSameInstanceAs(allocated);
-  }
-
-  @Test
-  void copyIntoAsync_writeToResult_leavesCachedBytesUnchanged() {
-    ByteBuffer cached = bufferOf(BYTES);
-    CachedRange range = rangeOf(CompletableFuture.completedFuture(cached));
-    ByteBuffer result =
-        range.copyIntoAsync(RANGE_OFFSET, BYTES.length, ByteBuffer::allocate).join();
-
-    result.put(0, (byte) 99);
-
-    assertThat(cached.get(0)).isEqualTo(BYTES[0]);
-  }
-
-  @Test
-  void copyIntoAsync_wholeRange_completesWithRangeBytes() {
-    CachedRange range = rangeOf(CompletableFuture.completedFuture(bufferOf(BYTES)));
-
-    ByteBuffer result =
-        range.copyIntoAsync(RANGE_OFFSET, BYTES.length, ByteBuffer::allocate).join();
-
-    assertThat(bytesOf(result)).isEqualTo(BYTES);
-  }
-
-  @Test
-  void copyIntoAsync_subRange_completesWithRequestedBytes() {
-    CachedRange range = rangeOf(CompletableFuture.completedFuture(bufferOf(BYTES)));
-
-    ByteBuffer result = range.copyIntoAsync(RANGE_OFFSET + 1, 2, ByteBuffer::allocate).join();
-
-    assertThat(bytesOf(result)).isEqualTo(new byte[] {2, 3});
-  }
-
-  @Test
-  void copyIntoAsync_bufferInsideLargerArray_completesWithOnlyRangeBytes() {
-    CachedRange range = rangeOf(CompletableFuture.completedFuture(bufferInsideLargerArray()));
-
-    ByteBuffer result =
-        range.copyIntoAsync(RANGE_OFFSET, BYTES.length, ByteBuffer::allocate).join();
-
-    assertThat(bytesOf(result)).isEqualTo(BYTES);
-  }
-
-  @Test
-  void copyIntoAsync_futureCompletesLater_completesWithRangeBytes() {
-    CompletableFuture<ByteBuffer> future = new CompletableFuture<>();
-    CachedRange range = rangeOf(future);
-    CompletableFuture<ByteBuffer> result =
-        range.copyIntoAsync(RANGE_OFFSET, BYTES.length, ByteBuffer::allocate);
-
-    future.complete(bufferOf(BYTES));
-
-    assertThat(bytesOf(result.join())).isEqualTo(BYTES);
-  }
-
-  @Test
-  void copyIntoAsync_inFlightFuture_runsPromotionAction() {
-    AtomicInteger promotions = new AtomicInteger();
-    CachedRange range = rangeOf(new CompletableFuture<>(), promotions::incrementAndGet);
-
-    CompletableFuture<ByteBuffer> unusedResult =
-        range.copyIntoAsync(RANGE_OFFSET, BYTES.length, ByteBuffer::allocate);
-
-    assertThat(promotions.get()).isEqualTo(1);
-  }
-
-  @Test
-  void copyIntoAsync_offsetBeforeRange_throwsIllegalArgumentException() {
-    CachedRange range = rangeOf(CompletableFuture.completedFuture(bufferOf(BYTES)));
-
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> range.copyIntoAsync(RANGE_OFFSET - 1, 2, ByteBuffer::allocate));
-
-    assertThat(exception)
-        .hasMessageThat()
-        .isEqualTo("2 bytes at offset 9 must be within range [10, 14)");
-  }
-
-  @Test
-  void copyIntoAsync_endAfterRange_throwsIllegalArgumentException() {
-    CachedRange range = rangeOf(CompletableFuture.completedFuture(bufferOf(BYTES)));
-
-    IllegalArgumentException exception =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> range.copyIntoAsync(RANGE_OFFSET + 2, BYTES.length, ByteBuffer::allocate));
-
-    assertThat(exception)
-        .hasMessageThat()
-        .isEqualTo("4 bytes at offset 12 must be within range [10, 14)");
-  }
-
-  @Test
-  void copyIntoAsync_nullAllocator_throwsNullPointerException() {
-    CachedRange range = rangeOf(CompletableFuture.completedFuture(bufferOf(BYTES)));
-
-    NullPointerException exception =
-        assertThrows(
-            NullPointerException.class,
-            () -> range.copyIntoAsync(RANGE_OFFSET, BYTES.length, null));
-
-    assertThat(exception).hasMessageThat().isEqualTo("allocate cannot be null");
-  }
-
-  @Test
-  void copyIntoAsync_bufferShorterThanRange_failsWithIllegalStateException() {
-    CachedRange range = rangeOf(CompletableFuture.completedFuture(bufferOf(new byte[] {1, 2})));
-    CompletableFuture<ByteBuffer> result =
-        range.copyIntoAsync(RANGE_OFFSET, BYTES.length, ByteBuffer::allocate);
-
-    CompletionException exception = assertThrows(CompletionException.class, result::join);
-
-    assertThat(exception).hasCauseThat().isInstanceOf(IllegalStateException.class);
-  }
-
-  @Test
   void sliceAsync_subRange_completesWithRequestedBytes() {
     CachedRange range = rangeOf(CompletableFuture.completedFuture(bufferOf(BYTES)));
 
@@ -578,6 +407,18 @@ class CachedRangeTest {
     CompletableFuture<ByteBuffer> unusedResult = range.sliceAsync(RANGE_OFFSET, BYTES.length);
 
     assertThat(promotions.get()).isEqualTo(1);
+  }
+
+  @Test
+  void sliceAsync_offsetBeforeRange_throwsIllegalArgumentException() {
+    CachedRange range = rangeOf(CompletableFuture.completedFuture(bufferOf(BYTES)));
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, () -> range.sliceAsync(RANGE_OFFSET - 1, 2));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("2 bytes at offset 9 must be within range [10, 14)");
   }
 
   @Test
