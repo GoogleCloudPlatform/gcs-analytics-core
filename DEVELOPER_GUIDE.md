@@ -209,6 +209,14 @@ try (GoogleCloudStorageInputStream stream = GoogleCloudStorageInputStream.create
 // GoogleCloudStorageInputStream stream = GoogleCloudStorageInputStream.create(gcsFileSystem, myGcsFileInfo);
 ```
 
+**Object names in URIs:** The library reads and builds `gs://` URIs as hadoop-connectors does: the bucket is the authority, and the object name is the percent-decoded path. `gs://my-bucket/data/my%20report.csv` names the object `data/my report.csv`. In an object name, write `%` as `%25`, `?` as `%3F` and `#` as `%23`; a URI with a query or a fragment is rejected. `GcsItemId#toUri()` builds the URI of a name, and `GcsItemId.fromUri(URI)` reads it back:
+
+```java
+URI reportUri =
+    GcsItemId.builder().setBucketName("my-bucket").setObjectName("data/my report.csv").build().toUri();
+// reportUri is gs://my-bucket/data/my%20report.csv
+```
+
 ## 7. Performance Tuning & Best Practices
 
 To extract the maximum performance from `gcs-analytics-core`, consider the following tuning guidelines based on your specific deployment environment:
