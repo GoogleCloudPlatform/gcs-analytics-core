@@ -172,6 +172,25 @@ class CachedRangeTest {
   }
 
   @Test
+  void recordBytesConsumed_offsetPlusLengthOverflowsLong_clampsToEndOffset() {
+    CachedRange range =
+        CachedRange.create(Long.MAX_VALUE - 4, Long.MAX_VALUE, new CompletableFuture<>(), () -> {});
+
+    int newlyConsumed = range.recordBytesConsumed(Long.MAX_VALUE - 2, 8);
+
+    assertThat(newlyConsumed).isEqualTo(2);
+  }
+
+  @Test
+  void recordBytesConsumed_negativeLengthNearLongMinValue_returnsZero() {
+    CachedRange range = CachedRange.create(0, 4, new CompletableFuture<>(), () -> {});
+
+    int newlyConsumed = range.recordBytesConsumed(Long.MIN_VALUE, -1);
+
+    assertThat(newlyConsumed).isEqualTo(0);
+  }
+
+  @Test
   void isFullyConsumed_partOfRangeConsumed_returnsFalse() {
     CachedRange range = rangeOf(new CompletableFuture<>());
     range.recordBytesConsumed(RANGE_OFFSET, BYTES.length - 1);
