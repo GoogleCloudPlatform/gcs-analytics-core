@@ -33,6 +33,7 @@ import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.Locale;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /** Centralized utility for classifying GCS transport exceptions. */
 class GcsExceptionUtil {
@@ -356,6 +357,82 @@ class GcsExceptionUtil {
   }
 
   /**
+   * Translates a failure of a Storage Control folder rename into the appropriate {@link
+   * IOException}.
+   *
+   * <p>An {@link AlreadyExistsException} is reported for the destination folder; every other
+   * failure is reported for the source folder. Folders have no content generation, so both are
+   * reported without one.
+   *
+   * @param cause the failure, thrown when the rename was started or carried by its long-running
+   *     operation; {@code null} and non-{@link Exception} causes become a generic {@link
+   *     IOException}
+   * @param srcFolderId the folder that was being renamed
+   * @param dstFolderId the new name of the folder
+   */
+  static IOException translateRenameFolderException(
+      @Nullable Throwable cause, GcsItemId srcFolderId, GcsItemId dstFolderId) {
+    checkNotNull(srcFolderId, "srcFolderId should not be null");
+    checkNotNull(dstFolderId, "dstFolderId should not be null");
+    String failureMessage =
+        String.format(
+            "Failed to rename folder %s to %s",
+            UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId));
+    if (!(cause instanceof Exception)) {
+      return new IOException(failureMessage, cause);
+    }
+    // ALREADY_EXISTS refers to the destination; every other failure is reported for the source.
+    GcsItemId folderId = cause instanceof AlreadyExistsException ? dstFolderId : srcFolderId;
+    GcsItemId.Builder folderIdWithoutGeneration =
+        GcsItemId.builder().setBucketName(folderId.getBucketName());
+    folderId.getObjectName().ifPresent(folderIdWithoutGeneration::setObjectName);
+    return translateControlException(
+        (Exception) cause, folderIdWithoutGeneration.build(), failureMessage);
+  }
+
+  /**
+   * Translates a failure while polling the long-running operation of a folder rename.
+   *
+   * <p>Once the server accepts {@code RenameFolder}, polling calls {@code
+   * google.longrunning.Operations.GetOperation}. Per AIP-151, a {@code NOT_FOUND} from {@code
+   * GetOperation} means the operation resource (or bucket) was not found rather than {@code
+   * srcFolderId} being missing (operation failures arrive in {@code Operation.error} on an {@code
+   * OK} poll), so {@link NotFoundException} maps to a generic {@link IOException} instead of {@link
+   * FileNotFoundException}.
+   *
+   * @param cause the polling failure; {@code null} and non-{@link Exception} causes become a
+   *     generic {@link IOException}
+   * @param srcFolderId the folder that was being renamed
+   * @param dstFolderId the new name of the folder
+   * @param operationName the name of the long-running operation, which the message then names, or
+   *     {@code null} if it is not known
+   */
+  static IOException translateRenameFolderPollingException(
+      @Nullable Throwable cause,
+      GcsItemId srcFolderId,
+      GcsItemId dstFolderId,
+      @Nullable String operationName) {
+    checkNotNull(srcFolderId, "srcFolderId should not be null");
+    checkNotNull(dstFolderId, "dstFolderId should not be null");
+    String srcLocation = UriUtil.getStringPath(srcFolderId);
+    String dstLocation = UriUtil.getStringPath(dstFolderId);
+    if (cause instanceof PermissionDeniedException || cause instanceof UnauthenticatedException) {
+      return createAccessDeniedException(
+          srcLocation,
+          String.format(
+              "polling rename of folder %s to %s (the rename may still complete on the server)%s",
+              srcLocation, dstLocation, operationNameSuffix(operationName)),
+          cause);
+    }
+    return new IOException(
+        String.format(
+            "Failed while polling rename of folder %s to %s; the rename may still complete on the"
+                + " server%s",
+            srcLocation, dstLocation, operationNameSuffix(operationName)),
+        cause);
+  }
+
+  /**
    * Creates a {@link FileAlreadyExistsException} for the given {@link GcsItemId}, setting {@link
    * FileAlreadyExistsException#getFile()} to the formatted {@code gs://} URI and attaching {@code
    * cause}.
@@ -523,6 +600,21 @@ class GcsExceptionUtil {
                 null,
                 String.format("Access denied during %s: %s", context, cause.getMessage()))
             .initCause(cause);
+  }
+
+  /**
+   * Returns the text that names a long-running operation at the end of an error message, so that an
+   * operation that may still be running on the server can be looked up.
+   *
+   * @param operationName the name of the long-running operation, or {@code null} if it is not known
+   * @return {@code " (operation: <operationName>)"}, or an empty string if {@code operationName} is
+   *     {@code null} or empty
+   */
+  static String operationNameSuffix(@Nullable String operationName) {
+    if (operationName == null || operationName.isEmpty()) {
+      return "";
+    }
+    return " (operation: " + operationName + ")";
   }
 
   private static String formatLocation(GcsItemId itemId) {
