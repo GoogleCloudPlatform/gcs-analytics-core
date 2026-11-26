@@ -15,6 +15,7 @@
  */
 package com.google.cloud.gcs.analyticscore.client;
 
+import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.storage.BlobId;
@@ -644,6 +645,177 @@ class GcsFileSystemImplIntegrationTest {
             assertThat(exception.getFile()).isEqualTo(ctx.uri.toString() + "/subdir/");
             assertThat(exception.getOtherFile()).isEqualTo(ctx.uri.toString());
         }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void deleteFolderRecursive_folderWithSubFoldersAndObjects_deletesEverythingBelowIt()
+            throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        String foldersPrefix = "projects/_/buckets/" + bucketName + "/folders/";
+        String rootFolder = "test-delete-folder-recursive-" + UUID.randomUUID() + "/";
+        String treeFolder = rootFolder + "tree/";
+        String subFolder = treeFolder + "sub/";
+        BlobId topObject = BlobId.of(bucketName, treeFolder + "a.txt");
+        BlobId subObject = BlobId.of(bucketName, subFolder + "b.txt");
+        // Registered so that cleanup removes whatever a failed delete leaves behind.
+        foldersToDelete.add(foldersPrefix + rootFolder);
+        foldersToDelete.add(foldersPrefix + treeFolder);
+        foldersToDelete.add(foldersPrefix + subFolder);
+        blobsToDelete.add(topObject);
+        blobsToDelete.add(subObject);
+        GcsItemId rootFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(rootFolder).build();
+        GcsItemId treeFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(treeFolder).build();
+        GcsItemId subFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(subFolder).build();
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+                .setHnsApiEnabled(true)
+                .build();
+        try (GcsFileSystemImpl hnsFileSystem = new GcsFileSystemImpl(options)) {
+            GcsClient gcsClient = hnsFileSystem.getGcsClient();
+            gcsClient.createFolder(subFolderId, true);
+            storage.create(BlobInfo.newBuilder(topObject).build(), TEST_FILE_CONTENT);
+            storage.create(BlobInfo.newBuilder(subObject).build(), TEST_FILE_CONTENT);
+
+            gcsClient.deleteFolderRecursive(treeFolderId);
+
+            assertThrows(FileNotFoundException.class, () -> gcsClient.getFolderInfo(treeFolderId));
+            assertThrows(FileNotFoundException.class, () -> gcsClient.getFolderInfo(subFolderId));
+            assertThat(storage.get(topObject)).isNull();
+            assertThat(storage.get(subObject)).isNull();
+            // The parent of the deleted folder is still there.
+            assertThat(gcsClient.getFolderInfo(rootFolderId).getItemId()).isEqualTo(rootFolderId);
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void deleteFolderRecursive_folderNameWithLeadingSpace_deletesOnlyThatFolder()
+            throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        String foldersPrefix = "projects/_/buckets/" + bucketName + "/folders/";
+        String rootFolder = "test-delete-folder-recursive-" + UUID.randomUUID();
+        String spaceFolder = rootFolder + "/ dir/";
+        String plainFolder = rootFolder + "/dir/";
+        BlobId spaceObject = BlobId.of(bucketName, spaceFolder + "in-space.txt");
+        BlobId plainObject = BlobId.of(bucketName, plainFolder + "in-plain.txt");
+        foldersToDelete.add(foldersPrefix + rootFolder);
+        foldersToDelete.add(foldersPrefix + spaceFolder);
+        foldersToDelete.add(foldersPrefix + plainFolder);
+        blobsToDelete.add(spaceObject);
+        blobsToDelete.add(plainObject);
+        GcsItemId spaceFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(spaceFolder).build();
+        GcsItemId plainFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(plainFolder).build();
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+                .setHnsApiEnabled(true)
+                .build();
+        try (GcsFileSystemImpl hnsFileSystem = new GcsFileSystemImpl(options)) {
+            GcsClient gcsClient = hnsFileSystem.getGcsClient();
+            gcsClient.createFolder(spaceFolderId, true);
+            gcsClient.createFolder(plainFolderId, true);
+            storage.create(BlobInfo.newBuilder(spaceObject).build(), TEST_FILE_CONTENT);
+            storage.create(BlobInfo.newBuilder(plainObject).build(), TEST_FILE_CONTENT);
+
+            gcsClient.deleteFolderRecursive(spaceFolderId);
+
+            try (StorageControlClient controlClient = StorageControlClient.create()) {
+                assertThrows(
+                        NotFoundException.class,
+                        () -> controlClient.getFolder(
+                                GetFolderRequest.newBuilder()
+                                        .setName(foldersPrefix + spaceFolder)
+                                        .build()));
+                assertThat(
+                                controlClient
+                                        .getFolder(
+                                                GetFolderRequest.newBuilder()
+                                                        .setName(foldersPrefix + plainFolder)
+                                                        .build())
+                                        .getName())
+                        .isEqualTo(foldersPrefix + plainFolder);
+            }
+            assertThat(storage.get(spaceObject)).isNull();
+            assertThat(storage.get(plainObject)).isNotNull();
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void deleteFolderRecursive_missingFolder_returnsNormally() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        GcsItemId missingFolderId =
+                GcsItemId.builder()
+                        .setBucketName(bucketName)
+                        .setObjectName("test-delete-folder-recursive-" + UUID.randomUUID() + "/")
+                        .build();
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+                .setHnsApiEnabled(true)
+                .build();
+        try (GcsFileSystemImpl hnsFileSystem = new GcsFileSystemImpl(options)) {
+            GcsClient gcsClient = hnsFileSystem.getGcsClient();
+
+            assertDoesNotThrow(() -> gcsClient.deleteFolderRecursive(missingFolderId));
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void deleteFolderRecursive_implicitFolderCreatedByObjectWrite_deletesFolderAndObjects()
+            throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        String foldersPrefix = "projects/_/buckets/" + bucketName + "/folders/";
+        String rootFolder = "test-delete-folder-recursive-" + UUID.randomUUID() + "/";
+        String implicitFolder = rootFolder + "implicit/";
+        String subFolder = implicitFolder + "sub/";
+        BlobId nestedObject = BlobId.of(bucketName, subFolder + "file.txt");
+        foldersToDelete.add(foldersPrefix + rootFolder);
+        foldersToDelete.add(foldersPrefix + implicitFolder);
+        foldersToDelete.add(foldersPrefix + subFolder);
+        blobsToDelete.add(nestedObject);
+        GcsItemId rootFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(rootFolder).build();
+        GcsItemId implicitFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(implicitFolder).build();
+        // Writing an object without createFolder creates implicit parent folders on HNS.
+        storage.create(BlobInfo.newBuilder(nestedObject).build(), TEST_FILE_CONTENT);
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+                .setHnsApiEnabled(true)
+                .build();
+        try (GcsFileSystemImpl hnsFileSystem = new GcsFileSystemImpl(options)) {
+            GcsClient gcsClient = hnsFileSystem.getGcsClient();
+
+            gcsClient.deleteFolderRecursive(implicitFolderId);
+
+            assertThrows(FileNotFoundException.class, () -> gcsClient.getFolderInfo(implicitFolderId));
+            assertThat(storage.get(nestedObject)).isNull();
+            assertThat(gcsClient.getFolderInfo(rootFolderId).getItemId()).isEqualTo(rootFolderId);
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
+    void deleteFolderRecursive_flatBucket_throwsIOExceptionWithFailedPreconditionCause() {
+        String bucketName = System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY);
+        String prefix = "test-delete-folder-recursive-" + UUID.randomUUID() + "/";
+        BlobId childObject = BlobId.of(bucketName, prefix + "file.txt");
+        blobsToDelete.add(childObject);
+        storage.create(BlobInfo.newBuilder(childObject).build(), TEST_FILE_CONTENT);
+        GcsItemId folderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(prefix).build();
+
+        IOException e =
+                assertThrows(
+                        IOException.class,
+                        () -> gcsFileSystem.getGcsClient().deleteFolderRecursive(folderId));
+
+        assertThat(e.getClass()).isEqualTo(IOException.class);
+        assertThat(e).hasCauseThat().isInstanceOf(FailedPreconditionException.class);
+        assertThat(e).hasMessageThat().contains("gs://" + bucketName + "/" + prefix);
+        assertThat(storage.get(childObject)).isNotNull();
     }
 
     @Test

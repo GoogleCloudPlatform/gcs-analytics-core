@@ -328,6 +328,56 @@ class GcsExceptionUtil {
   }
 
   /**
+   * Translates a failure of a Storage Control recursive folder delete into the appropriate {@link
+   * IOException}.
+   *
+   * <p>Callers handle {@link NotFoundException} before calling this method: deleting a missing
+   * folder is a no-op. Folders have no content generation, so the folder is reported without one.
+   *
+   * @param cause the failure, thrown when the delete was started or carried by its long-running
+   *     operation; {@code null} and non-{@link Exception} causes become a generic {@link
+   *     IOException}
+   * @param folderId the folder that was being deleted
+   */
+  static IOException translateDeleteFolderRecursiveException(
+      @Nullable Throwable cause, GcsItemId folderId) {
+    checkNotNull(folderId, "folderId should not be null");
+    String failureMessage =
+        "Failed to delete folder recursively: " + UriUtil.getStringPath(folderId);
+    if (!(cause instanceof Exception)) {
+      return new IOException(failureMessage, cause);
+    }
+    GcsItemId.Builder folderIdWithoutGeneration =
+        GcsItemId.builder().setBucketName(folderId.getBucketName());
+    folderId.getObjectName().ifPresent(folderIdWithoutGeneration::setObjectName);
+    return translateControlException(
+        (Exception) cause, folderIdWithoutGeneration.build(), failureMessage);
+  }
+
+  /**
+   * Translates a failure while polling the long-running operation of a recursive folder delete.
+   *
+   * <p>Once the server accepts {@code DeleteFolderRecursive}, polling calls {@code
+   * google.longrunning.Operations.GetOperation}. Per AIP-151, a {@code NOT_FOUND} from {@code
+   * GetOperation} means the operation resource (or bucket) was not found rather than {@code
+   * folderId} being missing (operation failures arrive in {@code Operation.error} on an {@code OK}
+   * poll), so {@link NotFoundException} maps to a generic {@link IOException} rather than a no-op.
+   *
+   * @param cause the polling failure; {@code null} and non-{@link Exception} causes become a
+   *     generic {@link IOException}
+   * @param folderId the folder that was being deleted
+   * @param operationName the name of the long-running operation, which the message then names, or
+   *     {@code null} if it is not known
+   */
+  static IOException translateDeleteFolderRecursivePollingException(
+      @Nullable Throwable cause, GcsItemId folderId, @Nullable String operationName) {
+    checkNotNull(folderId, "folderId should not be null");
+    String location = UriUtil.getStringPath(folderId);
+    return translateFolderOperationPollingException(
+        cause, location, "recursive deletion of folder " + location, "delete", operationName);
+  }
+
+  /**
    * Translates an exception thrown by the Storage Control API into the appropriate {@link
    * IOException} subtype ({@link FileAlreadyExistsException}, {@link FileNotFoundException}, {@link
    * AccessDeniedException}, or a generic {@link IOException} with {@code fallbackMessage}).
@@ -416,19 +466,50 @@ class GcsExceptionUtil {
     checkNotNull(dstFolderId, "dstFolderId should not be null");
     String srcLocation = UriUtil.getStringPath(srcFolderId);
     String dstLocation = UriUtil.getStringPath(dstFolderId);
+    return translateFolderOperationPollingException(
+        cause,
+        srcLocation,
+        String.format("rename of folder %s to %s", srcLocation, dstLocation),
+        "rename",
+        operationName);
+  }
+
+  /**
+   * Translates a failure while polling the long-running operation of a folder operation, for {@link
+   * #translateRenameFolderPollingException} and {@link
+   * #translateDeleteFolderRecursivePollingException}.
+   *
+   * <p>A permission error becomes an {@link AccessDeniedException} for {@code location}. Every
+   * other failure, including {@link NotFoundException}, becomes a generic {@link IOException}. Both
+   * messages say that the operation may still complete on the server.
+   *
+   * @param cause the polling failure, or {@code null} if it is not known
+   * @param location the {@code gs://} path of the folder that a permission error is reported for
+   * @param operation what was being polled, for example {@code "rename of folder gs://b/a/ to
+   *     gs://b/c/"}
+   * @param action the name of the action that may still complete, for example {@code "rename"}
+   * @param operationName the name of the long-running operation, which the message then names, or
+   *     {@code null} if it is not known
+   */
+  private static IOException translateFolderOperationPollingException(
+      @Nullable Throwable cause,
+      String location,
+      String operation,
+      String action,
+      @Nullable String operationName) {
+    String operationSuffix = operationNameSuffix(operationName);
     if (cause instanceof PermissionDeniedException || cause instanceof UnauthenticatedException) {
       return createAccessDeniedException(
-          srcLocation,
+          location,
           String.format(
-              "polling rename of folder %s to %s (the rename may still complete on the server)%s",
-              srcLocation, dstLocation, operationNameSuffix(operationName)),
+              "polling %s (the %s may still complete on the server)%s",
+              operation, action, operationSuffix),
           cause);
     }
     return new IOException(
         String.format(
-            "Failed while polling rename of folder %s to %s; the rename may still complete on the"
-                + " server%s",
-            srcLocation, dstLocation, operationNameSuffix(operationName)),
+            "Failed while polling %s; the %s may still complete on the server%s",
+            operation, action, operationSuffix),
         cause);
   }
 

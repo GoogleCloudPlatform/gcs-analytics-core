@@ -322,6 +322,45 @@ public interface GcsClient {
   }
 
   /**
+   * Deletes a folder and every object and subfolder under it on the server, using the Storage
+   * Control {@code DeleteFolderRecursive} long-running operation.
+   *
+   * <p>This operation only applies to buckets with Hierarchical Namespace (HNS) enabled. It blocks
+   * until the operation finishes, polling with the client library's default settings (currently the
+   * first poll within 5 seconds and up to 45 seconds between polls, targeting up to 5 minutes in
+   * total; transient {@code GetOperation} retries can extend waiting, and defaults may change
+   * across client library versions). If waiting stops early (an interrupt, a timeout or a failed
+   * poll), the delete may still complete on the server; the exception message then names the
+   * long-running operation, if the server had accepted it. The delete is not atomic: if it fails,
+   * part of the folder may already be deleted.
+   *
+   * <p>Any {@link GcsItemId#getContentGeneration()} on {@code folderId} is ignored, as GCS folders
+   * do not support content generations.
+   *
+   * <p>Deleting a folder that does not exist is a no-op, so retries and concurrent deletes of the
+   * same folder succeed. Callers that must report a missing path should check that it exists first.
+   * Because GCS also returns {@code NOT_FOUND} while an earlier {@code DeleteFolderRecursive} of
+   * the same folder is still running, a normal return does not guarantee that every object under
+   * the folder is already gone if another recursive delete is in flight; callers that immediately
+   * reuse the path should check that it is empty or wait for the earlier delete to finish.
+   *
+   * <p>The default implementation throws {@link UnsupportedOperationException}.
+   *
+   * @param folderId the folder to delete, with or without a trailing slash
+   * @throws IllegalArgumentException if {@code folderId} is not an object path (for example, a
+   *     bucket or the root) or its folder name is empty
+   * @throws AccessDeniedException if the request is unauthenticated or not permitted
+   * @throws InterruptedIOException if the calling thread is already interrupted or is interrupted
+   *     while waiting; if the request was sent, the delete may still complete on the server
+   * @throws IOException if waiting for the delete times out, polling fails, or the delete fails for
+   *     another reason
+   */
+  default void deleteFolderRecursive(GcsItemId folderId) throws IOException {
+    throw new UnsupportedOperationException(
+        "deleteFolderRecursive is not implemented by " + getClass().getName());
+  }
+
+  /**
    * Fetches bucket capability properties (such as HNS and Rapid storage class).
    *
    * <p>If bucket metadata cannot be retrieved because the caller lacks bucket-level permissions

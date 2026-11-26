@@ -38,6 +38,8 @@ import com.google.cloud.storage.Storage;
 import com.google.protobuf.Empty;
 import com.google.protobuf.Timestamp;
 import com.google.storage.control.v2.CreateFolderRequest;
+import com.google.storage.control.v2.DeleteFolderRecursiveMetadata;
+import com.google.storage.control.v2.DeleteFolderRecursiveRequest;
 import com.google.storage.control.v2.DeleteFolderRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
@@ -64,9 +66,10 @@ import java.util.function.Function;
 /**
  * In-memory {@link StorageControlStub} for hermetic {@link FakeGcsClientImpl} folder operations.
  *
- * <p>Supports {@code CreateFolder}, {@code GetFolder}, {@code DeleteFolder}, {@code ListFolders}
- * and {@code RenameFolder}; every other call throws {@link UnsupportedOperationException}. There is
- * no bucket registry, so every bucket is treated as an existing bucket with hierarchical namespace.
+ * <p>Supports {@code CreateFolder}, {@code GetFolder}, {@code DeleteFolder}, {@code ListFolders},
+ * {@code RenameFolder} and {@code DeleteFolderRecursive}; every other call throws {@link
+ * UnsupportedOperationException}. There is no bucket registry, so every bucket is treated as an
+ * existing bucket with hierarchical namespace.
  *
  * <p>State scope: objects live in {@link FakeGcsClientImpl#storage}, a static singleton shared by
  * every client in the JVM, while folders live in this stub, so each client instance starts with no
@@ -93,6 +96,11 @@ import java.util.function.Function;
  * operation is always finished. Unlike GCS, the source folder must have been created explicitly
  * with {@code createFolder} (writing objects alone does not create implicit folders), and the
  * objects are moved one at a time, as a copy and a delete, so their generations can change.
+ *
+ * <p>{@code DeleteFolderRecursive} follows GCS too: it removes the folder with every folder and
+ * object below it (including object-only prefixes where {@code createFolder} was not called
+ * explicitly), and fails with {@code NOT_FOUND} when neither the folder nor any object below it
+ * exists. The returned operation is always finished.
  */
 final class FakeStorageControlStub extends StorageControlStub {
   private static final String BUCKET_PARENT_PREFIX = "projects/_/buckets/";
@@ -128,6 +136,33 @@ final class FakeStorageControlStub extends StorageControlStub {
   @Override
   public UnaryCallable<DeleteFolderRequest, Empty> deleteFolderCallable() {
     return unaryCallable(this::deleteFolder);
+  }
+
+  @Override
+  public OperationCallable<DeleteFolderRecursiveRequest, Empty, DeleteFolderRecursiveMetadata>
+      deleteFolderRecursiveOperationCallable() {
+    return new OperationCallable<
+        DeleteFolderRecursiveRequest, Empty, DeleteFolderRecursiveMetadata>() {
+      @Override
+      public OperationFuture<Empty, DeleteFolderRecursiveMetadata> futureCall(
+          DeleteFolderRecursiveRequest request, ApiCallContext context) {
+        // The delete runs within this call, so the operation is finished when it is returned.
+        return new FinishedOperationFuture<>(
+            unaryCallable(FakeStorageControlStub.this::deleteFolderRecursive)
+                .futureCall(request, context));
+      }
+
+      @Override
+      public OperationFuture<Empty, DeleteFolderRecursiveMetadata> resumeFutureCall(
+          String operationName, ApiCallContext context) {
+        throw new UnsupportedOperationException("Not implemented: resumeFutureCall()");
+      }
+
+      @Override
+      public ApiFuture<Void> cancel(String operationName, ApiCallContext context) {
+        throw new UnsupportedOperationException("Not implemented: cancel()");
+      }
+    };
   }
 
   @Override
@@ -211,6 +246,33 @@ final class FakeStorageControlStub extends StorageControlStub {
       }
       folders.remove(key);
       return Empty.getDefaultInstance();
+    }
+  }
+
+  /** Deletes a folder with every folder and object below it. */
+  private Empty deleteFolderRecursive(DeleteFolderRecursiveRequest request) {
+    String key = parseFolderResourceName(request.getName());
+    synchronized (folders) {
+      if (!folders.containsKey(key) && !hasChildObject(key)) {
+        throw apiException(StatusCode.Code.NOT_FOUND, "Folder not found: " + key);
+      }
+      folders.keySet().removeIf(existingKey -> existingKey.startsWith(key));
+      deleteObjects(bucketOf(key), folderPathOf(key));
+      return Empty.getDefaultInstance();
+    }
+  }
+
+  /** Deletes every object of the bucket whose name starts with {@code prefix}. */
+  private void deleteObjects(String bucket, String prefix) {
+    // Lists the whole bucket and filters here, for the reason given in hasChildObject.
+    List<BlobId> objects = new ArrayList<>();
+    for (Blob blob : storage.list(bucket).iterateAll()) {
+      if (blob != null && !blob.isDirectory() && blob.getName().startsWith(prefix)) {
+        objects.add(BlobId.of(bucket, blob.getName()));
+      }
+    }
+    for (BlobId object : objects) {
+      storage.delete(object);
     }
   }
 
