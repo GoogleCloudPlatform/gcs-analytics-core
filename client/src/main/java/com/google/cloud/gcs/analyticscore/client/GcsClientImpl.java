@@ -100,6 +100,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.function.BiFunction;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -863,56 +864,23 @@ class GcsClientImpl implements GcsClient {
       throw GcsExceptionUtil.translateRenameFolderException(e, srcFolderId, dstFolderId);
     }
     try {
-      // Blocks until the rename finishes or fails, or the client library stops polling.
-      // TODO: Set polling settings for this operation once the polling policy for long-running
-      // folder operations is decided. Until then the client library defaults apply, as in
-      // hadoop-connectors: the first poll is sent up to 5 seconds after the request, and the
-      // polling schedule targets up to 5 minutes (transient GetOperation retries can extend
-      // waiting, and defaults may change across client library versions).
-      future.get();
-    } catch (InterruptedException e) {
-      // Cancelling stops only the client-side polling, not the server-side rename. Restore the
-      // interrupt flag in finally after cancel(true): GAX can clear an already-set interrupt flag
-      // inside cancel(true).
-      try {
-        future.cancel(true);
-      } finally {
-        Thread.currentThread().interrupt();
-      }
-      throw (InterruptedIOException)
-          new InterruptedIOException(
-                  String.format(
-                      "Interrupted while renaming folder %s to %s; the rename may still complete"
-                          + " on the server%s",
-                      UriUtil.getStringPath(srcFolderId),
-                      UriUtil.getStringPath(dstFolderId),
-                      GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))))
-              .initCause(e);
+      awaitFolderOperation(
+          future,
+          () ->
+              String.format(
+                  "Interrupted while renaming folder %s to %s; the rename may still complete on"
+                      + " the server",
+                  UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)),
+          () ->
+              String.format(
+                  "Timed out waiting to rename folder %s to %s; the rename may still complete on"
+                      + " the server",
+                  UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)),
+          (cause, operationName) ->
+              GcsExceptionUtil.translateRenameFolderPollingException(
+                  cause, srcFolderId, dstFolderId, operationName));
     } catch (ExecutionException e) {
-      Throwable cause = e.getCause();
-      if (cause instanceof Error) {
-        throw (Error) cause;
-      }
-      if (isPollingFailure(future)) {
-        // Once the server has started the operation, a GetOperation NOT_FOUND means the operation
-        // resource (not srcFolderId) was not found; actual operation errors arrive in
-        // Operation.error on an OK poll. An InterruptedException here was raised on a polling
-        // thread of the client library, not by an interrupt of the caller, so the caller's
-        // interrupt flag is left alone.
-        throw GcsExceptionUtil.translateRenameFolderPollingException(
-            cause, srcFolderId, dstFolderId, acceptedOperationName(future));
-      }
-      throw GcsExceptionUtil.translateRenameFolderException(cause, srcFolderId, dstFolderId);
-    } catch (CancellationException e) {
-      // GAX cancels the polling future once its total polling timeout expires.
-      throw new IOException(
-          String.format(
-              "Timed out waiting to rename folder %s to %s; the rename may still complete on the"
-                  + " server%s",
-              UriUtil.getStringPath(srcFolderId),
-              UriUtil.getStringPath(dstFolderId),
-              GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))),
-          e);
+      throw GcsExceptionUtil.translateRenameFolderException(e.getCause(), srcFolderId, dstFolderId);
     }
   }
 
@@ -1240,61 +1208,33 @@ class GcsClientImpl implements GcsClient {
       throw GcsExceptionUtil.translateDeleteFolderRecursiveException(e, folderId);
     }
     try {
-      // TODO: Set polling settings for this operation once the polling policy for long-running
-      // folder operations is decided. Until then the client library defaults apply: the first poll
-      // is sent up to 5 seconds after the request, and the polling schedule targets up to 5 minutes
-      // (transient GetOperation retries can extend waiting, and defaults may change across client
-      // library versions).
-      future.get();
-    } catch (InterruptedException e) {
-      // Stops waiting: cancels local polling, or the initial request if it is still in flight.
-      // GAX never calls CancelOperation, so a delete the server already started keeps running.
-      // Restore the interrupt flag in finally after cancel(true): GAX can clear an already-set
-      // interrupt flag inside cancel(true).
-      try {
-        future.cancel(true);
-      } finally {
-        Thread.currentThread().interrupt();
-      }
-      throw (InterruptedIOException)
-          new InterruptedIOException(
-                  String.format(
-                      "Interrupted while waiting to delete folder recursively: %s; the delete may"
-                          + " still complete on the server%s",
-                      UriUtil.getStringPath(folderId),
-                      GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))))
-              .initCause(e);
+      awaitFolderOperation(
+          future,
+          () ->
+              String.format(
+                  "Interrupted while waiting to delete folder recursively: %s; the delete may"
+                      + " still complete on the server",
+                  UriUtil.getStringPath(folderId)),
+          () ->
+              String.format(
+                  "Timed out waiting to delete folder recursively: %s; the delete may still"
+                      + " complete on the server",
+                  UriUtil.getStringPath(folderId)),
+          (cause, operationName) ->
+              GcsExceptionUtil.translateDeleteFolderRecursivePollingException(
+                  cause, folderId, operationName));
     } catch (ExecutionException e) {
       Throwable cause = e.getCause();
-      if (cause instanceof Error) {
-        throw (Error) cause;
-      }
-      if (isPollingFailure(future)) {
-        // Once the server has started the operation, a GetOperation NOT_FOUND means the operation
-        // resource (not folderId) was not found; actual operation errors arrive in Operation.error
-        // on an OK poll, so polling NOT_FOUND must not be treated as a no-op. An
-        // InterruptedException here was raised on a polling thread of the client library, not by
-        // an interrupt of the caller, so the caller's interrupt flag is left alone.
-        throw GcsExceptionUtil.translateDeleteFolderRecursivePollingException(
-            cause, folderId, acceptedOperationName(future));
-      }
       if (cause instanceof NotFoundException) {
         // A missing folder is not an error: there is nothing to delete. A call also ends this way
         // when an earlier delete of the same folder is still running or has just finished, for
-        // example after a wait that was interrupted or timed out.
+        // example after a wait that was interrupted or timed out. A NOT_FOUND from polling does
+        // not get here: awaitFolderOperation throws it, because it means that the operation, not
+        // the folder, was not found.
         LOG.debug("Folder to delete recursively was not found: {}", folderId);
         return;
       }
       throw GcsExceptionUtil.translateDeleteFolderRecursiveException(cause, folderId);
-    } catch (CancellationException e) {
-      // The client library cancels the future once its total polling timeout expires.
-      throw new IOException(
-          String.format(
-              "Timed out waiting to delete folder recursively: %s; the delete may still complete on"
-                  + " the server%s",
-              UriUtil.getStringPath(folderId),
-              GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))),
-          e);
     }
   }
 
@@ -1309,6 +1249,83 @@ class GcsClientImpl implements GcsClient {
    */
   private static String folderResourceName(String bucketName, String objectName) {
     return "projects/_/buckets/" + bucketName + "/folders/" + UriUtil.toDirectoryPath(objectName);
+  }
+
+  /**
+   * Blocks until the long-running folder operation behind {@code future} finishes or fails, or
+   * until the client library stops polling.
+   *
+   * <p>A failure of the wait itself is thrown as an {@link IOException}: an interrupt of the
+   * calling thread, a failed {@code GetOperation} poll, or a polling timeout. In each of these
+   * cases the operation may still complete on the server, and the exception names the operation if
+   * the server accepted it. A failure of the operation is rethrown as the {@link
+   * ExecutionException} of {@code future}, for the caller to translate.
+   *
+   * @param future the operation to wait for
+   * @param interruptedMessage supplies the message, without the operation name, of the {@link
+   *     InterruptedIOException} thrown when the calling thread is interrupted
+   * @param timedOutMessage supplies the message, without the operation name, of the {@link
+   *     IOException} thrown when the client library stops polling
+   * @param pollingFailureTranslator translates the cause of a failed poll and the name of the
+   *     operation ({@code null} if it is not known) into the exception to throw
+   * @throws InterruptedIOException if the calling thread is interrupted while waiting; its
+   *     interrupt flag stays set
+   * @throws IOException if a poll fails or the client library stops polling
+   * @throws ExecutionException if the operation failed: its cause is the failure of the request
+   *     that starts the operation or the error that the finished operation carries. An {@link
+   *     Error} is never wrapped this way; it is rethrown as is
+   */
+  // Takes the JDK Supplier by its full name, because Supplier is Guava's in this file.
+  private static void awaitFolderOperation(
+      OperationFuture<?, ?> future,
+      java.util.function.Supplier<String> interruptedMessage,
+      java.util.function.Supplier<String> timedOutMessage,
+      BiFunction<Throwable, String, IOException> pollingFailureTranslator)
+      throws IOException, ExecutionException {
+    try {
+      // TODO(https://github.com/GoogleCloudPlatform/gcs-analytics-core/issues/520): Set polling
+      // settings for long-running folder operations once their polling policy is decided. Until
+      // then the client library defaults apply, as for folder renames in hadoop-connectors: the
+      // first poll is sent up to 5 seconds after the request, and the polling schedule targets up
+      // to 5 minutes (transient GetOperation retries can extend waiting, and defaults may change
+      // across client library versions).
+      future.get();
+    } catch (InterruptedException e) {
+      // Stops waiting: cancels local polling, or the initial request if it is still in flight.
+      // GAX never calls CancelOperation, so an operation the server already started keeps running.
+      // Restore the interrupt flag in finally after cancel(true): GAX can clear an already-set
+      // interrupt flag inside cancel(true).
+      try {
+        future.cancel(true);
+      } finally {
+        Thread.currentThread().interrupt();
+      }
+      throw (InterruptedIOException)
+          new InterruptedIOException(
+                  interruptedMessage.get()
+                      + GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future)))
+              .initCause(e);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof Error) {
+        throw (Error) cause;
+      }
+      if (isPollingFailure(future)) {
+        // Once the server has started the operation, a GetOperation NOT_FOUND means the operation
+        // resource (not the folder) was not found; actual operation errors arrive in
+        // Operation.error on an OK poll. An InterruptedException here was raised on a polling
+        // thread of the client library, not by an interrupt of the caller, so the caller's
+        // interrupt flag is left alone.
+        throw pollingFailureTranslator.apply(cause, acceptedOperationName(future));
+      }
+      throw e;
+    } catch (CancellationException e) {
+      // The client library cancels the future once its total polling timeout expires.
+      throw new IOException(
+          timedOutMessage.get()
+              + GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future)),
+          e);
+    }
   }
 
   /**

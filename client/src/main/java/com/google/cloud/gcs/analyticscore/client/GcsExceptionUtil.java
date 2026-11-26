@@ -373,21 +373,8 @@ class GcsExceptionUtil {
       @Nullable Throwable cause, GcsItemId folderId, @Nullable String operationName) {
     checkNotNull(folderId, "folderId should not be null");
     String location = UriUtil.getStringPath(folderId);
-    if (cause instanceof PermissionDeniedException || cause instanceof UnauthenticatedException) {
-      return createAccessDeniedException(
-          location,
-          String.format(
-              "polling recursive deletion of folder %s (the delete may still complete on the"
-                  + " server)%s",
-              location, operationNameSuffix(operationName)),
-          cause);
-    }
-    return new IOException(
-        String.format(
-            "Failed while polling recursive deletion of folder %s; the delete may still complete"
-                + " on the server%s",
-            location, operationNameSuffix(operationName)),
-        cause);
+    return translateFolderOperationPollingException(
+        cause, location, "recursive deletion of folder " + location, "delete", operationName);
   }
 
   /**
@@ -479,19 +466,50 @@ class GcsExceptionUtil {
     checkNotNull(dstFolderId, "dstFolderId should not be null");
     String srcLocation = UriUtil.getStringPath(srcFolderId);
     String dstLocation = UriUtil.getStringPath(dstFolderId);
+    return translateFolderOperationPollingException(
+        cause,
+        srcLocation,
+        String.format("rename of folder %s to %s", srcLocation, dstLocation),
+        "rename",
+        operationName);
+  }
+
+  /**
+   * Translates a failure while polling the long-running operation of a folder operation, for {@link
+   * #translateRenameFolderPollingException} and {@link
+   * #translateDeleteFolderRecursivePollingException}.
+   *
+   * <p>A permission error becomes an {@link AccessDeniedException} for {@code location}. Every
+   * other failure, including {@link NotFoundException}, becomes a generic {@link IOException}. Both
+   * messages say that the operation may still complete on the server.
+   *
+   * @param cause the polling failure, or {@code null} if it is not known
+   * @param location the {@code gs://} path of the folder that a permission error is reported for
+   * @param operation what was being polled, for example {@code "rename of folder gs://b/a/ to
+   *     gs://b/c/"}
+   * @param action the name of the action that may still complete, for example {@code "rename"}
+   * @param operationName the name of the long-running operation, which the message then names, or
+   *     {@code null} if it is not known
+   */
+  private static IOException translateFolderOperationPollingException(
+      @Nullable Throwable cause,
+      String location,
+      String operation,
+      String action,
+      @Nullable String operationName) {
+    String operationSuffix = operationNameSuffix(operationName);
     if (cause instanceof PermissionDeniedException || cause instanceof UnauthenticatedException) {
       return createAccessDeniedException(
-          srcLocation,
+          location,
           String.format(
-              "polling rename of folder %s to %s (the rename may still complete on the server)%s",
-              srcLocation, dstLocation, operationNameSuffix(operationName)),
+              "polling %s (the %s may still complete on the server)%s",
+              operation, action, operationSuffix),
           cause);
     }
     return new IOException(
         String.format(
-            "Failed while polling rename of folder %s to %s; the rename may still complete on the"
-                + " server%s",
-            srcLocation, dstLocation, operationNameSuffix(operationName)),
+            "Failed while polling %s; the %s may still complete on the server%s",
+            operation, action, operationSuffix),
         cause);
   }
 
