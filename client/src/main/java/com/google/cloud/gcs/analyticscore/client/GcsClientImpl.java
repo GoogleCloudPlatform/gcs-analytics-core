@@ -74,7 +74,6 @@ import com.google.storage.control.v2.DeleteFolderRecursiveMetadata;
 import com.google.storage.control.v2.DeleteFolderRecursiveRequest;
 import com.google.storage.control.v2.DeleteFolderRequest;
 import com.google.storage.control.v2.Folder;
-import com.google.storage.control.v2.FolderName;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.ListFoldersRequest;
 import com.google.storage.control.v2.RenameFolderMetadata;
@@ -434,12 +433,12 @@ class GcsClientImpl implements GcsClient {
     }
     checkArgument(itemId.isGcsObject(), "Expected a folder itemId");
     String objectName = itemId.getObjectName().orElse("");
-    String folderName = UriUtil.removeTrailingSlash(objectName);
-    checkArgument(!folderName.isEmpty(), "Folder name cannot be empty");
+    checkArgument(
+        !UriUtil.removeTrailingSlash(objectName).isEmpty(), "Folder name cannot be empty");
 
     GetFolderRequest request =
         GetFolderRequest.newBuilder()
-            .setName(FolderName.format("_", itemId.getBucketName(), folderName))
+            .setName(folderResourceName(itemId.getBucketName(), objectName))
             .build();
     try {
       Folder folder = lazyGetStorageControlClient().getFolder(request);

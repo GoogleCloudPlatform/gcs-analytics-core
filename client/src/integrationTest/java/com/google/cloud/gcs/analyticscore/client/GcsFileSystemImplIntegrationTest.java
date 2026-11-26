@@ -864,6 +864,66 @@ class GcsFileSystemImplIntegrationTest {
 
     @Test
     @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void getFolderInfo_folderNameWithLeadingSpace_returnsThatFolder() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        String rootFolder = "test-get-folder-info-" + UUID.randomUUID();
+        String spaceFolder = rootFolder + "/ dir/";
+        foldersToDelete.add("projects/_/buckets/" + bucketName + "/folders/" + rootFolder);
+        foldersToDelete.add("projects/_/buckets/" + bucketName + "/folders/" + spaceFolder);
+        GcsItemId spaceFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(spaceFolder).build();
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+                .setHnsApiEnabled(true)
+                .build();
+        try (GcsFileSystemImpl hnsFileSystem = new GcsFileSystemImpl(options)) {
+            GcsClient gcsClient = hnsFileSystem.getGcsClient();
+            gcsClient.createFolder(spaceFolderId, true);
+
+            GcsItemInfo folderInfo = gcsClient.getFolderInfo(spaceFolderId);
+
+            assertThat(folderInfo.getItemId()).isEqualTo(spaceFolderId);
+            assertThat(folderInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void getFolderInfo_missingFolderWhoseNameIsCloseToExistingFolder_throwsFileNotFoundException()
+            throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        String rootFolder = "test-get-folder-info-" + UUID.randomUUID();
+        String plainFolder = rootFolder + "/dir/";
+        foldersToDelete.add("projects/_/buckets/" + bucketName + "/folders/" + rootFolder);
+        foldersToDelete.add("projects/_/buckets/" + bucketName + "/folders/" + plainFolder);
+        GcsItemId plainFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(plainFolder).build();
+        // Neither of these two folders exists. Trimming the space of the first name, or cutting
+        // one more trailing slash off the second, would name the existing folder "dir/".
+        GcsItemId spaceFolderId =
+                GcsItemId.builder()
+                        .setBucketName(bucketName)
+                        .setObjectName(rootFolder + "/ dir/")
+                        .build();
+        GcsItemId doubleSlashFolderId =
+                GcsItemId.builder()
+                        .setBucketName(bucketName)
+                        .setObjectName(rootFolder + "/dir//")
+                        .build();
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+                .setHnsApiEnabled(true)
+                .build();
+        try (GcsFileSystemImpl hnsFileSystem = new GcsFileSystemImpl(options)) {
+            GcsClient gcsClient = hnsFileSystem.getGcsClient();
+            gcsClient.createFolder(plainFolderId, true);
+
+            assertThrows(FileNotFoundException.class, () -> gcsClient.getFolderInfo(spaceFolderId));
+            assertThrows(
+                    FileNotFoundException.class, () -> gcsClient.getFolderInfo(doubleSlashFolderId));
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
     void renameFolder_folderNameWithLeadingSpace_renamesOnlyThatFolder() throws IOException {
         String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
         String foldersPrefix = "projects/_/buckets/" + bucketName + "/folders/";
