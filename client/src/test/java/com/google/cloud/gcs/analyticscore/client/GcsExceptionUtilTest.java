@@ -1130,6 +1130,262 @@ class GcsExceptionUtilTest {
   }
 
   @Test
+  void translateRenameFolderException_alreadyExists_returnsFileAlreadyExistsForDestination() {
+    AlreadyExistsException alreadyExists = Mockito.mock(AlreadyExistsException.class);
+
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderException(
+            alreadyExists, renameFolderId("src/"), renameFolderId("dst/"));
+
+    assertThat(exception).isInstanceOf(FileAlreadyExistsException.class);
+    assertThat(((FileAlreadyExistsException) exception).getFile())
+        .isEqualTo("gs://" + BUCKET + "/dst/");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(alreadyExists);
+  }
+
+  @Test
+  void translateRenameFolderException_notFound_returnsFileNotFoundExceptionForSource() {
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderException(
+            Mockito.mock(NotFoundException.class), renameFolderId("src/"), renameFolderId("dst/"));
+
+    assertThat(exception).isInstanceOf(FileNotFoundException.class);
+    assertThat(exception).hasMessageThat().endsWith(": gs://" + BUCKET + "/src/");
+  }
+
+  @Test
+  void translateRenameFolderException_permissionDenied_returnsAccessDeniedExceptionForSource() {
+    PermissionDeniedException permissionDenied = Mockito.mock(PermissionDeniedException.class);
+
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderException(
+            permissionDenied, renameFolderId("src/"), renameFolderId("dst/"));
+
+    assertThat(exception).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/src/");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(permissionDenied);
+  }
+
+  @Test
+  void translateRenameFolderException_unauthenticated_returnsAccessDeniedExceptionForSource() {
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderException(
+            Mockito.mock(UnauthenticatedException.class),
+            renameFolderId("src/"),
+            renameFolderId("dst/"));
+
+    assertThat(exception).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/src/");
+  }
+
+  @Test
+  void translateRenameFolderException_otherException_returnsIOExceptionNamingBothFolders() {
+    RuntimeException failure = new RuntimeException("RPC error");
+
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderException(
+            failure, renameFolderId("src/"), renameFolderId("dst/"));
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Failed to rename folder gs://" + BUCKET + "/src/ to gs://" + BUCKET + "/dst/");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(failure);
+  }
+
+  @Test
+  void translateRenameFolderException_nonExceptionCause_returnsIOExceptionWithCause() {
+    Throwable cause = new Throwable("fatal");
+
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderException(
+            cause, renameFolderId("src/"), renameFolderId("dst/"));
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception).hasCauseThat().isSameInstanceAs(cause);
+  }
+
+  @Test
+  void translateRenameFolderException_nullCause_returnsIOExceptionWithoutCause() {
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderException(
+            null, renameFolderId("src/"), renameFolderId("dst/"));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Failed to rename folder gs://" + BUCKET + "/src/ to gs://" + BUCKET + "/dst/");
+    assertThat(exception).hasCauseThat().isNull();
+  }
+
+  @Test
+  void translateRenameFolderException_sourceWithGeneration_reportsSourceWithoutGeneration() {
+    GcsItemId srcFolderId =
+        GcsItemId.builder()
+            .setBucketName(BUCKET)
+            .setObjectName("src/")
+            .setContentGeneration(7L)
+            .build();
+
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderException(
+            Mockito.mock(PermissionDeniedException.class), srcFolderId, renameFolderId("dst/"));
+
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/src/");
+  }
+
+  @Test
+  void translateRenameFolderException_destinationWithGeneration_reportsItWithoutGeneration() {
+    GcsItemId dstFolderId =
+        GcsItemId.builder()
+            .setBucketName(BUCKET)
+            .setObjectName("dst/")
+            .setContentGeneration(7L)
+            .build();
+
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderException(
+            Mockito.mock(AlreadyExistsException.class), renameFolderId("src/"), dstFolderId);
+
+    assertThat(((FileAlreadyExistsException) exception).getFile())
+        .isEqualTo("gs://" + BUCKET + "/dst/");
+  }
+
+  @Test
+  void translateRenameFolderPollingException_notFound_returnsGenericIOException() {
+    NotFoundException notFound = Mockito.mock(NotFoundException.class);
+
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderPollingException(
+            notFound, renameFolderId("src/"), renameFolderId("dst/"), /* operationName= */ null);
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed while polling rename of folder gs://"
+                + BUCKET
+                + "/src/ to gs://"
+                + BUCKET
+                + "/dst/; the rename may still complete on the server");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(notFound);
+  }
+
+  @Test
+  void translateRenameFolderPollingException_permissionDenied_returnsAccessDeniedForSource() {
+    PermissionDeniedException permissionDenied = Mockito.mock(PermissionDeniedException.class);
+    Mockito.when(permissionDenied.getMessage()).thenReturn("Permission denied");
+
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderPollingException(
+            permissionDenied,
+            renameFolderId("src/"),
+            renameFolderId("dst/"),
+            /* operationName= */ null);
+
+    assertThat(exception).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/src/");
+    assertThat(exception)
+        .hasMessageThat()
+        .contains("polling rename of folder gs://" + BUCKET + "/src/ to gs://" + BUCKET + "/dst/");
+    assertThat(exception).hasMessageThat().contains("the rename may still complete on the server");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(permissionDenied);
+  }
+
+  @Test
+  void translateRenameFolderPollingException_unauthenticated_returnsAccessDeniedForSource() {
+    UnauthenticatedException unauthenticated = Mockito.mock(UnauthenticatedException.class);
+
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderPollingException(
+            unauthenticated,
+            renameFolderId("src/"),
+            renameFolderId("dst/"),
+            /* operationName= */ null);
+
+    assertThat(exception).isInstanceOf(AccessDeniedException.class);
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/src/");
+    assertThat(exception).hasCauseThat().isSameInstanceAs(unauthenticated);
+  }
+
+  @Test
+  void translateRenameFolderPollingException_sourceWithGeneration_reportsWithoutGeneration() {
+    GcsItemId srcFolderId =
+        GcsItemId.builder()
+            .setBucketName(BUCKET)
+            .setObjectName("src/")
+            .setContentGeneration(7L)
+            .build();
+
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderPollingException(
+            Mockito.mock(PermissionDeniedException.class),
+            srcFolderId,
+            renameFolderId("dst/"),
+            /* operationName= */ null);
+
+    assertThat(((AccessDeniedException) exception).getFile()).isEqualTo("gs://" + BUCKET + "/src/");
+    assertThat(exception).hasMessageThat().doesNotContain("#7");
+  }
+
+  @Test
+  void translateRenameFolderPollingException_nullCause_returnsGenericIOExceptionWithoutCause() {
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderPollingException(
+            /* cause= */ null,
+            renameFolderId("src/"),
+            renameFolderId("dst/"),
+            /* operationName= */ null);
+
+    assertThat(exception.getClass()).isEqualTo(IOException.class);
+    assertThat(exception).hasCauseThat().isNull();
+  }
+
+  @Test
+  void translateRenameFolderPollingException_operationName_namesOperationInMessage() {
+    String operationName = "projects/_/buckets/" + BUCKET + "/operations/rename-1";
+
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderPollingException(
+            Mockito.mock(NotFoundException.class),
+            renameFolderId("src/"),
+            renameFolderId("dst/"),
+            operationName);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "Failed while polling rename of folder gs://"
+                + BUCKET
+                + "/src/ to gs://"
+                + BUCKET
+                + "/dst/; the rename may still complete on the server (operation: "
+                + operationName
+                + ")");
+  }
+
+  @Test
+  void translateRenameFolderPollingException_permissionDeniedWithOperationName_namesOperation() {
+    String operationName = "projects/_/buckets/" + BUCKET + "/operations/rename-1";
+    PermissionDeniedException permissionDenied = Mockito.mock(PermissionDeniedException.class);
+    Mockito.when(permissionDenied.getMessage()).thenReturn("Permission denied");
+
+    IOException exception =
+        GcsExceptionUtil.translateRenameFolderPollingException(
+            permissionDenied, renameFolderId("src/"), renameFolderId("dst/"), operationName);
+
+    assertThat(exception)
+        .hasMessageThat()
+        .contains(
+            "(the rename may still complete on the server) (operation: "
+                + operationName
+                + "): Permission denied");
+  }
+
+  private static GcsItemId renameFolderId(String objectName) {
+    return GcsItemId.builder().setBucketName(BUCKET).setObjectName(objectName).build();
+  }
+
+  @Test
   void constructor_isPrivate() throws Exception {
     Constructor<GcsExceptionUtil> constructor = GcsExceptionUtil.class.getDeclaredConstructor();
 

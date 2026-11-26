@@ -77,6 +77,8 @@ import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.FolderName;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.ListFoldersRequest;
+import com.google.storage.control.v2.RenameFolderMetadata;
+import com.google.storage.control.v2.RenameFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
 import com.google.storage.control.v2.StorageControlSettings;
 import java.io.IOException;
@@ -807,6 +809,111 @@ class GcsClientImpl implements GcsClient {
     return timestamp != null
         ? Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos()).toEpochMilli()
         : 0L;
+  }
+
+  @Override
+  public void renameFolder(GcsItemId srcFolderId, GcsItemId dstFolderId) throws IOException {
+    checkNotNull(srcFolderId, "srcFolderId must not be null");
+    checkNotNull(dstFolderId, "dstFolderId must not be null");
+    checkArgument(
+        srcFolderId.isGcsObject(),
+        "srcFolderId must have a bucket and a folder path, but got: %s",
+        srcFolderId);
+    checkArgument(
+        dstFolderId.isGcsObject(),
+        "dstFolderId must have a bucket and a folder path, but got: %s",
+        dstFolderId);
+    String bucketName = srcFolderId.getBucketName();
+    checkArgument(
+        bucketName.equals(dstFolderId.getBucketName()),
+        "Source and destination folders must be in the same bucket: %s, %s",
+        srcFolderId,
+        dstFolderId);
+    String srcObjectName = srcFolderId.getObjectName().get();
+    String dstObjectName = dstFolderId.getObjectName().get();
+    checkArgument(
+        !UriUtil.removeTrailingSlash(srcObjectName).isEmpty(),
+        "Source folder name cannot be empty");
+    checkArgument(
+        !UriUtil.removeTrailingSlash(dstObjectName).isEmpty(),
+        "Destination folder name cannot be empty");
+    // Like the source name, the destination is sent verbatim with a trailing slash.
+    String dstFolder = UriUtil.toDirectoryPath(dstObjectName);
+    checkArgument(
+        !UriUtil.toDirectoryPath(srcObjectName).equals(dstFolder),
+        "Source and destination folders must differ: %s",
+        srcFolderId);
+    if (Thread.currentThread().isInterrupted()) {
+      throw new InterruptedIOException(
+          String.format(
+              "Interrupted before renaming folder %s to %s",
+              UriUtil.getStringPath(srcFolderId), UriUtil.getStringPath(dstFolderId)));
+    }
+
+    // request_id stays unset: the generated client populates it.
+    RenameFolderRequest request =
+        RenameFolderRequest.newBuilder()
+            .setName(folderResourceName(bucketName, srcObjectName))
+            .setDestinationFolderId(dstFolder)
+            .build();
+    OperationFuture<Folder, RenameFolderMetadata> future;
+    try {
+      future = lazyGetStorageControlClient().renameFolderAsync(request);
+    } catch (Exception e) {
+      throw GcsExceptionUtil.translateRenameFolderException(e, srcFolderId, dstFolderId);
+    }
+    try {
+      // Blocks until the rename finishes or fails, or the client library stops polling.
+      // TODO: Set polling settings for this operation once the polling policy for long-running
+      // folder operations is decided. Until then the client library defaults apply, as in
+      // hadoop-connectors: the first poll is sent up to 5 seconds after the request, and the
+      // polling schedule targets up to 5 minutes (transient GetOperation retries can extend
+      // waiting, and defaults may change across client library versions).
+      future.get();
+    } catch (InterruptedException e) {
+      // Cancelling stops only the client-side polling, not the server-side rename. Restore the
+      // interrupt flag in finally after cancel(true): GAX can clear an already-set interrupt flag
+      // inside cancel(true).
+      try {
+        future.cancel(true);
+      } finally {
+        Thread.currentThread().interrupt();
+      }
+      throw (InterruptedIOException)
+          new InterruptedIOException(
+                  String.format(
+                      "Interrupted while renaming folder %s to %s; the rename may still complete"
+                          + " on the server%s",
+                      UriUtil.getStringPath(srcFolderId),
+                      UriUtil.getStringPath(dstFolderId),
+                      GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))))
+              .initCause(e);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof Error) {
+        throw (Error) cause;
+      }
+      if (isPollingFailure(future)) {
+        // Once the server has started the operation, a GetOperation NOT_FOUND means the operation
+        // resource (not srcFolderId) was not found; actual operation errors arrive in
+        // Operation.error on an OK poll. An InterruptedException here was raised on a polling
+        // thread of the client library, not by an interrupt of the caller, so the caller's
+        // interrupt flag is left alone.
+        throw GcsExceptionUtil.translateRenameFolderPollingException(
+            cause, srcFolderId, dstFolderId, acceptedOperationName(future));
+      }
+      throw GcsExceptionUtil.translateRenameFolderException(cause, srcFolderId, dstFolderId);
+    } catch (CancellationException e) {
+      // GAX cancels the polling future once its total polling timeout expires.
+      throw new IOException(
+          String.format(
+              "Timed out waiting to rename folder %s to %s; the rename may still complete on the"
+                  + " server%s",
+              UriUtil.getStringPath(srcFolderId),
+              UriUtil.getStringPath(dstFolderId),
+              GcsExceptionUtil.operationNameSuffix(acceptedOperationName(future))),
+          e);
+    }
   }
 
   @Override

@@ -23,10 +23,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 
+import com.google.api.gax.rpc.AlreadyExistsException;
 import com.google.api.gax.rpc.FailedPreconditionException;
 import com.google.api.gax.rpc.InvalidArgumentException;
 import com.google.api.gax.rpc.NotFoundException;
 import com.google.api.gax.rpc.UnimplementedException;
+import com.google.auth.Credentials;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
@@ -40,6 +42,7 @@ import com.google.storage.control.v2.DeleteFolderRecursiveRequest;
 import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.ListFoldersRequest;
+import com.google.storage.control.v2.RenameFolderRequest;
 import com.google.storage.control.v2.StorageControlClient;
 import com.google.storage.control.v2.StorageControlClient.ListFoldersPagedResponse;
 import java.io.FileNotFoundException;
@@ -47,10 +50,18 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DynamicTest;
@@ -1122,6 +1133,252 @@ class FakeGcsClientImplTest {
       return true;
     } catch (NotFoundException e) {
       return false;
+    }
+  }
+
+  @Test
+  void renameFolder_folderWithSubFoldersAndObjects_movesEverythingBelowIt() throws IOException {
+    String bucketName = "hns-rename-bucket";
+    fakeGcsClient.createFolder(id(bucketName, "src/sub/deep/"), true);
+    putBlob(bucketName, "src/a.txt", "alpha");
+    putBlob(bucketName, "src/sub/b.txt", "beta");
+
+    try {
+      fakeGcsClient.renameFolder(id(bucketName, "src"), id(bucketName, "dst"));
+
+      GcsItemId bucketId = GcsItemId.builder().setBucketName(bucketName).build();
+      assertThat(folderNames(fakeGcsClient.listFolders(bucketId)))
+          .containsExactly("dst/", "dst/sub/", "dst/sub/deep/")
+          .inOrder();
+      assertThat(objectContents(bucketName))
+          .containsExactly("dst/a.txt", "alpha", "dst/sub/b.txt", "beta");
+    } finally {
+      // FakeGcsClientImpl.storage is shared across the JVM; don't leak the objects into other
+      // tests.
+      deleteObjects(bucketName);
+    }
+  }
+
+  @Test
+  void renameFolder_leadingSpaceFolder_renamesOnlyThatFolder() throws IOException {
+    String bucketName = "hns-rename-space-bucket";
+    fakeGcsClient.createFolder(id(bucketName, " dir/"), false);
+    fakeGcsClient.createFolder(id(bucketName, "dir/"), false);
+
+    fakeGcsClient.renameFolder(id(bucketName, " dir/"), id(bucketName, "moved/"));
+
+    GcsItemId bucketId = GcsItemId.builder().setBucketName(bucketName).build();
+    assertThat(folderNames(fakeGcsClient.listFolders(bucketId))).containsExactly("dir/", "moved/");
+  }
+
+  @Test
+  void renameFolder_renamedFolder_keepsCreationTimeAndMetageneration() throws IOException {
+    String bucketName = "hns-rename-metadata-bucket";
+    Instant creationInstant = Instant.ofEpochSecond(1_700_000_000L);
+    Instant renameInstant = creationInstant.plusSeconds(60L);
+    AtomicReference<Instant> currentInstant = new AtomicReference<>(creationInstant);
+    Clock clock =
+        new Clock() {
+          @Override
+          public ZoneId getZone() {
+            return ZoneOffset.UTC;
+          }
+
+          @Override
+          public Clock withZone(ZoneId zone) {
+            return this;
+          }
+
+          @Override
+          public Instant instant() {
+            return currentInstant.get();
+          }
+        };
+    GcsFileSystemOptions options = GcsFileSystemOptions.builder().build();
+    FakeGcsClientImpl clockedClient =
+        new FakeGcsClientImpl(
+            options.getGcsClientOptions(),
+            Suppliers.ofInstance(Executors.newSingleThreadExecutor()),
+            new Telemetry(ImmutableList.of()),
+            new AnalyticsCacheManager(options.getGcsCacheOptions()).getBucketPropertiesCache()) {
+          @Override
+          protected StorageControlClient createStorageControlClient(
+              Optional<Credentials> credentials) {
+            return StorageControlClient.create(new FakeStorageControlStub(storage, clock));
+          }
+        };
+    try {
+      clockedClient.createFolder(id(bucketName, "src/"), false);
+      GcsItemInfo before = clockedClient.getFolderInfo(id(bucketName, "src/"));
+
+      currentInstant.set(renameInstant);
+      clockedClient.renameFolder(id(bucketName, "src/"), id(bucketName, "dst/"));
+
+      GcsItemInfo after = clockedClient.getFolderInfo(id(bucketName, "dst/"));
+      assertThat(after.getCreationTime()).isEqualTo(creationInstant.toEpochMilli());
+      assertThat(after.getCreationTime()).isEqualTo(before.getCreationTime());
+      assertThat(after.getMetaGeneration()).isEqualTo(before.getMetaGeneration());
+      assertThat(after.getModificationTime()).isEqualTo(renameInstant.toEpochMilli());
+      assertThat(after.getModificationTime()).isGreaterThan(before.getModificationTime());
+    } finally {
+      clockedClient.close();
+    }
+  }
+
+  @Test
+  void renameFolder_bucketNamedFolders_renamesFolderAndObjects() throws IOException {
+    String bucketName = "folders";
+    fakeGcsClient.createFolder(id(bucketName, "src/sub/"), true);
+    putBlob(bucketName, "src/sub/file.txt", "data");
+
+    try {
+      fakeGcsClient.renameFolder(id(bucketName, "src/"), id(bucketName, "dst/"));
+
+      GcsItemId bucketId = GcsItemId.builder().setBucketName(bucketName).build();
+      assertThat(folderNames(fakeGcsClient.listFolders(bucketId)))
+          .containsExactly("dst/", "dst/sub/")
+          .inOrder();
+      assertThat(objectContents(bucketName)).containsExactly("dst/sub/file.txt", "data");
+    } finally {
+      deleteObjects(bucketName);
+    }
+  }
+
+  @Test
+  void renameFolder_objectNamedLikeDestination_renamesFolderAndKeepsObject() throws IOException {
+    String bucketName = "hns-rename-object-name-bucket";
+    fakeGcsClient.createFolder(id(bucketName, "src/"), false);
+    putBlob(bucketName, "dst", "data");
+
+    try {
+      fakeGcsClient.renameFolder(id(bucketName, "src/"), id(bucketName, "dst/"));
+
+      assertThat(folderExists(bucketName, "dst/")).isTrue();
+      assertThat(objectContents(bucketName)).containsExactly("dst", "data");
+    } finally {
+      // FakeGcsClientImpl.storage is shared across the JVM; don't leak the object into other tests.
+      deleteObjects(bucketName);
+    }
+  }
+
+  @Test
+  void renameFolder_missingSource_throwsFileNotFoundException() {
+    String bucketName = "hns-rename-missing-bucket";
+
+    FileNotFoundException e =
+        assertThrows(
+            FileNotFoundException.class,
+            () -> fakeGcsClient.renameFolder(id(bucketName, "missing/"), id(bucketName, "dst/")));
+
+    assertThat(e).hasMessageThat().contains("gs://hns-rename-missing-bucket/missing/");
+  }
+
+  @Test
+  void renameFolder_existingDestination_throwsFileAlreadyExistsExceptionAndKeepsBothFolders()
+      throws IOException {
+    String bucketName = "hns-rename-exists-bucket";
+    fakeGcsClient.createFolder(id(bucketName, "src/"), false);
+    fakeGcsClient.createFolder(id(bucketName, "dst/"), false);
+
+    FileAlreadyExistsException e =
+        assertThrows(
+            FileAlreadyExistsException.class,
+            () -> fakeGcsClient.renameFolder(id(bucketName, "src/"), id(bucketName, "dst/")));
+
+    assertThat(e.getFile()).isEqualTo("gs://hns-rename-exists-bucket/dst/");
+    assertThat(folderExists(bucketName, "src/")).isTrue();
+    assertThat(folderExists(bucketName, "dst/")).isTrue();
+  }
+
+  @Test
+  void renameFolder_missingDestinationParent_throwsIOExceptionAndKeepsSource() throws IOException {
+    String bucketName = "hns-rename-no-parent-bucket";
+    fakeGcsClient.createFolder(id(bucketName, "src/"), false);
+
+    IOException e =
+        assertThrows(
+            IOException.class,
+            () ->
+                fakeGcsClient.renameFolder(id(bucketName, "src/"), id(bucketName, "missing/dst/")));
+
+    assertThat(e).hasCauseThat().isInstanceOf(FailedPreconditionException.class);
+    assertThat(folderExists(bucketName, "src/")).isTrue();
+  }
+
+  @TestFactory
+  Stream<DynamicTest> renameFolder_invalidRequest_failsWithExpectedException() throws IOException {
+    String bucketName = "hns-rename-invalid-bucket";
+    fakeGcsClient.createFolder(id(bucketName, "existing/"), false);
+    fakeGcsClient.createFolder(id(bucketName, "other/"), false);
+    return Stream.of(
+        renameFolderFails(
+            "sameSourceAndDestination",
+            InvalidArgumentException.class,
+            renameFolderRequest(bucketName, "missing/", "missing/")),
+        renameFolderFails(
+            "destinationInsideMissingSource",
+            InvalidArgumentException.class,
+            renameFolderRequest(bucketName, "missing/", "missing/sub/")),
+        renameFolderFails(
+            "emptyDestination",
+            InvalidArgumentException.class,
+            renameFolderRequest(bucketName, "existing/", "")),
+        renameFolderFails(
+            "missingSourceAndExistingDestination",
+            NotFoundException.class,
+            renameFolderRequest(bucketName, "missing/", "existing/")),
+        renameFolderFails(
+            "missingSourceAndMissingDestinationParent",
+            NotFoundException.class,
+            renameFolderRequest(bucketName, "missing/", "absent/dst/")),
+        renameFolderFails(
+            "existingDestination",
+            AlreadyExistsException.class,
+            renameFolderRequest(bucketName, "existing/", "other/")),
+        renameFolderFails(
+            "missingDestinationParent",
+            FailedPreconditionException.class,
+            renameFolderRequest(bucketName, "existing/", "absent/dst/")));
+  }
+
+  /** Sends {@code request} to the fake Storage Control service, bypassing GcsClient checks. */
+  private DynamicTest renameFolderFails(
+      String name, Class<? extends Throwable> type, RenameFolderRequest request) {
+    return dynamicTest(
+        name,
+        () -> {
+          StorageControlClient controlClient = fakeGcsClient.lazyGetStorageControlClient();
+
+          ExecutionException e =
+              assertThrows(
+                  ExecutionException.class, () -> controlClient.renameFolderAsync(request).get());
+
+          assertThat(e).hasCauseThat().isInstanceOf(type);
+        });
+  }
+
+  private static RenameFolderRequest renameFolderRequest(
+      String bucketName, String srcFolderPath, String dstFolderId) {
+    return RenameFolderRequest.newBuilder()
+        .setName("projects/_/buckets/" + bucketName + "/folders/" + srcFolderPath)
+        .setDestinationFolderId(dstFolderId)
+        .build();
+  }
+
+  /** Returns the content of every object in the bucket, by object name. */
+  private static Map<String, String> objectContents(String bucketName) {
+    Map<String, String> contents = new HashMap<>();
+    for (Blob blob : FakeGcsClientImpl.storage.list(bucketName).iterateAll()) {
+      byte[] content =
+          FakeGcsClientImpl.storage.readAllBytes(BlobId.of(bucketName, blob.getName()));
+      contents.put(blob.getName(), new String(content, StandardCharsets.UTF_8));
+    }
+    return contents;
+  }
+
+  private static void deleteObjects(String bucketName) {
+    for (Blob blob : FakeGcsClientImpl.storage.list(bucketName).iterateAll()) {
+      FakeGcsClientImpl.storage.delete(BlobId.of(bucketName, blob.getName()));
     }
   }
 

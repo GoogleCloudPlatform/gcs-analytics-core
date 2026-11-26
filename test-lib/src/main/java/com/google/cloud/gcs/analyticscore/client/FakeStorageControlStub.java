@@ -45,11 +45,14 @@ import com.google.storage.control.v2.Folder;
 import com.google.storage.control.v2.GetFolderRequest;
 import com.google.storage.control.v2.ListFoldersRequest;
 import com.google.storage.control.v2.ListFoldersResponse;
+import com.google.storage.control.v2.RenameFolderMetadata;
+import com.google.storage.control.v2.RenameFolderRequest;
 import com.google.storage.control.v2.StorageControlClient.ListFoldersPagedResponse;
 import com.google.storage.control.v2.stub.StorageControlStub;
 import com.google.storage.control.v2.stub.StorageControlStubSettings;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -63,10 +66,10 @@ import java.util.function.Function;
 /**
  * In-memory {@link StorageControlStub} for hermetic {@link FakeGcsClientImpl} folder operations.
  *
- * <p>Supports {@code CreateFolder}, {@code GetFolder}, {@code DeleteFolder}, {@code ListFolders}
- * and {@code DeleteFolderRecursive}; every other call throws {@link UnsupportedOperationException}.
- * There is no bucket registry, so every bucket is treated as an existing bucket with hierarchical
- * namespace.
+ * <p>Supports {@code CreateFolder}, {@code GetFolder}, {@code DeleteFolder}, {@code ListFolders},
+ * {@code RenameFolder} and {@code DeleteFolderRecursive}; every other call throws {@link
+ * UnsupportedOperationException}. There is no bucket registry, so every bucket is treated as an
+ * existing bucket with hierarchical namespace.
  *
  * <p>State scope: objects live in {@link FakeGcsClientImpl#storage}, a static singleton shared by
  * every client in the JVM, while folders live in this stub, so each client instance starts with no
@@ -84,6 +87,16 @@ import java.util.function.Function;
  * delimiter}, {@code lexicographic_start} and {@code lexicographic_end} are not supported and are
  * rejected with {@code UNIMPLEMENTED}.
  *
+ * <p>{@code RenameFolder} follows GCS too: it moves the folder with every folder and object below
+ * it, keeps the creation time and metageneration of the moved folders, and sets their update time.
+ * It fails, in this order, with {@code INVALID_ARGUMENT} when the destination is the source or lies
+ * inside it, {@code NOT_FOUND} when the source folder does not exist, {@code ALREADY_EXISTS} when
+ * the destination folder exists, and {@code FAILED_PRECONDITION} when the parent of the destination
+ * does not exist. An object named like the destination does not block the rename. The returned
+ * operation is always finished. Unlike GCS, the source folder must have been created explicitly
+ * with {@code createFolder} (writing objects alone does not create implicit folders), and the
+ * objects are moved one at a time, as a copy and a delete, so their generations can change.
+ *
  * <p>{@code DeleteFolderRecursive} follows GCS too: it removes the folder with every folder and
  * object below it (including object-only prefixes where {@code createFolder} was not called
  * explicitly), and fails with {@code NOT_FOUND} when neither the folder nor any object below it
@@ -97,11 +110,17 @@ final class FakeStorageControlStub extends StorageControlStub {
   private static final int MAX_LIST_FOLDERS_PAGE_SIZE = 1000;
 
   private final Storage storage;
+  private final Clock clock;
   private final Map<String, Folder> folders = new ConcurrentHashMap<>();
   private volatile boolean closed = false;
 
   FakeStorageControlStub(Storage storage) {
+    this(storage, Clock.systemUTC());
+  }
+
+  FakeStorageControlStub(Storage storage, Clock clock) {
     this.storage = checkNotNull(storage, "storage must not be null");
+    this.clock = checkNotNull(clock, "clock must not be null");
   }
 
   @Override
@@ -160,6 +179,31 @@ final class FakeStorageControlStub extends StorageControlStub {
             listFoldersCallable(),
             StorageControlStubSettings.newBuilder().listFoldersSettings().build())
         .withDefaultCallContext(GrpcCallContext.createDefault());
+  }
+
+  @Override
+  public OperationCallable<RenameFolderRequest, Folder, RenameFolderMetadata>
+      renameFolderOperationCallable() {
+    return new OperationCallable<RenameFolderRequest, Folder, RenameFolderMetadata>() {
+      @Override
+      public OperationFuture<Folder, RenameFolderMetadata> futureCall(
+          RenameFolderRequest request, ApiCallContext context) {
+        // The rename runs within this call, so the operation is finished when it is returned.
+        return new FinishedOperationFuture<>(
+            unaryCallable(FakeStorageControlStub.this::renameFolder).futureCall(request, context));
+      }
+
+      @Override
+      public OperationFuture<Folder, RenameFolderMetadata> resumeFutureCall(
+          String operationName, ApiCallContext context) {
+        throw new UnsupportedOperationException("Not implemented: resumeFutureCall()");
+      }
+
+      @Override
+      public ApiFuture<Void> cancel(String operationName, ApiCallContext context) {
+        throw new UnsupportedOperationException("Not implemented: cancel()");
+      }
+    };
   }
 
   private Folder createFolder(CreateFolderRequest request) {
@@ -229,6 +273,76 @@ final class FakeStorageControlStub extends StorageControlStub {
     }
     for (BlobId object : objects) {
       storage.delete(object);
+    }
+  }
+
+  /**
+   * Renames a folder, moving every folder and object below it, and returns the renamed folder. The
+   * checks run in the order GCS applies them: the names first, then the source, then the
+   * destination and its parent.
+   */
+  private Folder renameFolder(RenameFolderRequest request) {
+    String srcKey = parseFolderResourceName(request.getName());
+    String bucket = bucketOf(srcKey);
+    String srcPath = folderPathOf(srcKey);
+    String dstPath = toFolderPath(request.getDestinationFolderId());
+    String dstKey = folderResourceName(bucket, dstPath);
+    if (dstKey.equals(srcKey)) {
+      throw apiException(
+          StatusCode.Code.INVALID_ARGUMENT,
+          "Source and destination folder names are the same: '" + srcPath + "'");
+    }
+    if (dstKey.startsWith(srcKey)) {
+      throw apiException(
+          StatusCode.Code.INVALID_ARGUMENT,
+          String.format(
+              "Destination folder '%s' is a sub-folder of the source folder '%s'.",
+              dstPath, srcPath));
+    }
+    Timestamp now = currentTimestamp();
+    synchronized (folders) {
+      if (!folders.containsKey(srcKey)) {
+        throw apiException(StatusCode.Code.NOT_FOUND, "Folder not found: " + srcKey);
+      }
+      if (folders.containsKey(dstKey)) {
+        throw apiException(StatusCode.Code.ALREADY_EXISTS, "Folder already exists: " + dstKey);
+      }
+      ensureParentFolders(bucket, dstPath, false, now);
+      // GCS keeps the creation time and metageneration of each moved folder and sets its update
+      // time.
+      for (String key : new ArrayList<>(folders.keySet())) {
+        if (key.startsWith(srcKey)) {
+          String renamedKey = dstKey + key.substring(srcKey.length());
+          Folder folder = folders.remove(key);
+          folders.put(
+              renamedKey, folder.toBuilder().setName(renamedKey).setUpdateTime(now).build());
+        }
+      }
+      moveObjects(bucket, srcPath, dstPath);
+      return folders.get(dstKey);
+    }
+  }
+
+  /** Moves every object named below {@code srcPath} to the same name below {@code dstPath}. */
+  private void moveObjects(String bucket, String srcPath, String dstPath) {
+    // Lists the whole bucket and filters here, for the reason given in hasChildObject.
+    List<Blob> objects = new ArrayList<>();
+    for (Blob blob : storage.list(bucket).iterateAll()) {
+      if (blob != null && !blob.isDirectory() && blob.getName().startsWith(srcPath)) {
+        objects.add(blob);
+      }
+    }
+    for (Blob object : objects) {
+      BlobId source = BlobId.of(bucket, object.getName());
+      BlobId target = BlobId.of(bucket, dstPath + object.getName().substring(srcPath.length()));
+      storage
+          .copy(
+              Storage.CopyRequest.newBuilder()
+                  .setSource(source)
+                  .setTarget(object.toBuilder().setBlobId(target).build())
+                  .build())
+          .getResult();
+      storage.delete(source);
     }
   }
 
@@ -424,8 +538,8 @@ final class FakeStorageControlStub extends StorageControlStub {
         .build();
   }
 
-  private static Timestamp currentTimestamp() {
-    Instant now = Instant.now();
+  private Timestamp currentTimestamp() {
+    Instant now = clock.instant();
     return Timestamp.newBuilder().setSeconds(now.getEpochSecond()).setNanos(now.getNano()).build();
   }
 

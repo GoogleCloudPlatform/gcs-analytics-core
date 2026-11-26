@@ -863,6 +863,106 @@ class GcsFileSystemImplIntegrationTest {
     }
 
     @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void renameFolder_folderNameWithLeadingSpace_renamesOnlyThatFolder() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        String foldersPrefix = "projects/_/buckets/" + bucketName + "/folders/";
+        String rootFolder = "test-rename-folder-" + UUID.randomUUID();
+        String spaceFolder = rootFolder + "/ dir/";
+        String plainFolder = rootFolder + "/dir/";
+        String renamedFolder = rootFolder + "/renamed/";
+        BlobId spaceChild = BlobId.of(bucketName, spaceFolder + "child.txt");
+        BlobId renamedChild = BlobId.of(bucketName, renamedFolder + "child.txt");
+        BlobId plainChild = BlobId.of(bucketName, plainFolder + "child.txt");
+        byte[] plainContent = "plain folder content".getBytes(StandardCharsets.UTF_8);
+        // The renamed folder and its child object are registered under both names, so that cleanup
+        // removes them whether or not the rename happened.
+        blobsToDelete.add(spaceChild);
+        blobsToDelete.add(renamedChild);
+        blobsToDelete.add(plainChild);
+        foldersToDelete.add(foldersPrefix + rootFolder);
+        foldersToDelete.add(foldersPrefix + spaceFolder);
+        foldersToDelete.add(foldersPrefix + plainFolder);
+        foldersToDelete.add(foldersPrefix + renamedFolder);
+        GcsItemId spaceFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(spaceFolder).build();
+        GcsItemId plainFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(plainFolder).build();
+        GcsItemId renamedFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(renamedFolder).build();
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+                .setHnsApiEnabled(true)
+                .build();
+        try (GcsFileSystemImpl hnsFileSystem = new GcsFileSystemImpl(options)) {
+            GcsClient gcsClient = hnsFileSystem.getGcsClient();
+            gcsClient.createFolder(spaceFolderId, true);
+            gcsClient.createFolder(plainFolderId, true);
+            storage.create(BlobInfo.newBuilder(spaceChild).build(), TEST_FILE_CONTENT);
+            storage.create(BlobInfo.newBuilder(plainChild).build(), plainContent);
+
+            gcsClient.renameFolder(spaceFolderId, renamedFolderId);
+
+            assertThat(storage.get(spaceChild)).isNull();
+            assertThat(storage.readAllBytes(renamedChild)).isEqualTo(TEST_FILE_CONTENT);
+            assertThat(storage.readAllBytes(plainChild)).isEqualTo(plainContent);
+            try (StorageControlClient controlClient = StorageControlClient.create()) {
+                assertThrows(
+                        NotFoundException.class,
+                        () -> controlClient.getFolder(
+                                GetFolderRequest.newBuilder()
+                                        .setName(foldersPrefix + spaceFolder)
+                                        .build()));
+                for (String folder : List.of(plainFolder, renamedFolder)) {
+                    assertThat(
+                                    controlClient
+                                            .getFolder(
+                                                    GetFolderRequest.newBuilder()
+                                                            .setName(foldersPrefix + folder)
+                                                            .build())
+                                            .getName())
+                            .isEqualTo(foldersPrefix + folder);
+                }
+            }
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY, matches = ".+")
+    void renameFolder_destinationExists_throwsFileAlreadyExistsException() throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_HNS_TEST_BUCKET_PROPERTY);
+        String foldersPrefix = "projects/_/buckets/" + bucketName + "/folders/";
+        String rootFolder = "test-rename-folder-" + UUID.randomUUID();
+        String srcFolder = rootFolder + "/src/";
+        String dstFolder = rootFolder + "/dst/";
+        foldersToDelete.add(foldersPrefix + rootFolder);
+        foldersToDelete.add(foldersPrefix + srcFolder);
+        foldersToDelete.add(foldersPrefix + dstFolder);
+        GcsItemId srcFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(srcFolder).build();
+        GcsItemId dstFolderId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(dstFolder).build();
+        GcsFileSystemOptions options = GcsFileSystemOptions.builder()
+                .setHnsApiEnabled(true)
+                .build();
+        try (GcsFileSystemImpl hnsFileSystem = new GcsFileSystemImpl(options)) {
+            GcsClient gcsClient = hnsFileSystem.getGcsClient();
+            gcsClient.createFolder(srcFolderId, true);
+            gcsClient.createFolder(dstFolderId, true);
+
+            FileAlreadyExistsException exception =
+                    assertThrows(
+                            FileAlreadyExistsException.class,
+                            () -> gcsClient.renameFolder(srcFolderId, dstFolderId));
+
+            assertThat(exception.getFile()).isEqualTo("gs://" + bucketName + "/" + dstFolder);
+            // Both folders are still there.
+            for (GcsItemId folderId : List.of(srcFolderId, dstFolderId)) {
+                assertThat(gcsClient.getFolderInfo(folderId).getItemId()).isEqualTo(folderId);
+            }
+        }
+    }
+
+    @Test
     @EnabledIfSystemProperty(named = "gcs.integration.test.project-id", matches = ".+")
     void mkdirs_newBucket_createsBucket_success() throws IOException {
         String bucketName = "test-mkdirs-bucket-" + UUID.randomUUID();

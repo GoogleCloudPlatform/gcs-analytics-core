@@ -248,6 +248,39 @@ public interface GcsClient {
   void createEmptyObject(GcsItemId itemId, GcsWriteOptions options) throws IOException;
 
   /**
+   * Renames a native folder in a Hierarchical Namespace (HNS) enabled bucket.
+   *
+   * <p>This operation only applies to buckets with Hierarchical Namespace enabled. The server
+   * renames the folder and everything under it atomically. Both IDs must be in the same bucket and
+   * may name the folder with or without a trailing slash. Any {@link
+   * GcsItemId#getContentGeneration()} on {@code srcFolderId} or {@code dstFolderId} is ignored, as
+   * GCS folders do not support content generations.
+   *
+   * <p>This method blocks until the long-running rename operation finishes, polling with the client
+   * library's default settings (currently the first poll within 5 seconds and up to 45 seconds
+   * between polls, targeting up to 5 minutes in total; transient {@code GetOperation} retries can
+   * extend waiting, and defaults may change across client library versions). If waiting stops early
+   * (an interrupt, a timeout or a failed poll), the rename may still complete on the server; the
+   * exception message then names the long-running operation, if the server had accepted it.
+   *
+   * @param srcFolderId the folder to rename
+   * @param dstFolderId the new name of the folder
+   * @throws IllegalArgumentException if either ID is not an object path or has an empty folder
+   *     name, if the IDs are in different buckets, or if both name the same folder
+   * @throws FileNotFoundException if the source folder does not exist
+   * @throws FileAlreadyExistsException if the destination already exists
+   * @throws AccessDeniedException if the request is unauthenticated or not permitted
+   * @throws InterruptedIOException if the thread is already interrupted or is interrupted while
+   *     waiting for the rename
+   * @throws IOException if waiting for the rename times out, polling fails, or the rename fails for
+   *     another reason
+   */
+  default void renameFolder(GcsItemId srcFolderId, GcsItemId dstFolderId) throws IOException {
+    throw new UnsupportedOperationException(
+        "renameFolder is not implemented by " + getClass().getName());
+  }
+
+  /**
    * Creates a native folder resource in a Hierarchical Namespace (HNS) enabled bucket.
    *
    * <p>This operation only applies to buckets with Hierarchical Namespace enabled.
