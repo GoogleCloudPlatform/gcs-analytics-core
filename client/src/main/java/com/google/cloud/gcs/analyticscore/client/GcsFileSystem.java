@@ -118,8 +118,8 @@ public interface GcsFileSystem extends AutoCloseable {
    * Lists the object, or the immediate children of the directory or bucket, at the given {@code
    * gs://} path.
    *
-   * <p>Semantics follow {@link #listFileInfo(GcsItemId)}. Consistent with {@link
-   * #getFileInfo(URI)}, {@code path.toString()} is parsed literally without percent-decoding.
+   * <p>Semantics follow {@link #listFileInfo(GcsItemId)}. {@code path} is parsed as in {@link
+   * #getFileInfo(URI)}: its path is percent-decoded.
    *
    * <p>The default implementation parses {@code path} and calls {@link #listFileInfo(GcsItemId)}.
    *
@@ -127,8 +127,7 @@ public interface GcsFileSystem extends AutoCloseable {
    * @return an unmodifiable list of the listed items, as described in {@link
    *     #listFileInfo(GcsItemId)}
    * @throws IllegalArgumentException if {@code path} is not a valid {@code gs://} URI (for example,
-   *     {@code gs:///} or consecutive slashes), or if a listed item can't be returned as described
-   *     in {@link #listFileInfo(GcsItemId)}
+   *     {@code gs:///} or consecutive slashes), or if it has a query or a fragment
    * @throws FileNotFoundException if neither an object nor a directory exists at {@code path}, or
    *     if the bucket does not exist
    * @throws AccessDeniedException if the caller lacks permission to read or list {@code path}
@@ -162,25 +161,15 @@ public interface GcsFileSystem extends AutoCloseable {
    *
    * <p>The placeholder object of the listed directory itself is not returned, so an existing empty
    * directory or bucket gives an empty list. The children are sorted by {@link
-   * GcsFileInfo#getUri()}: shorter URI strings first, then in lexicographic order.
+   * GcsFileInfo#getUri()}: shorter URI strings first, then in lexicographic order. Each item's URI
+   * holds its object name percent-encoded where needed (for example, a space as {@code %20}), as
+   * described in {@link GcsFileInfo#getUri()}.
    *
    * <p>A bucket is listed as an HNS bucket only when {@link GcsFileSystemOptions#isHnsApiEnabled()}
    * is {@code true} and the bucket metadata lookup ({@code storage.buckets.get}) succeeds; {@code
    * 401}/{@code 403} falls back to flat. When an HNS bucket is listed as a flat bucket, a folder
    * with no objects under it is not returned, and listing such a folder throws {@link
    * FileNotFoundException}.
-   *
-   * <p>Consistent with {@link #getFileInfo(GcsItemId)}, each item's {@link GcsFileInfo#getUri()} is
-   * built literally from its GCS object name without percent-encoding. As a result:
-   *
-   * <ul>
-   *   <li>If the name of a listed item cannot be written as a {@link URI} (for example, because it
-   *       contains a space), the call throws {@link IllegalArgumentException} with no partial
-   *       result. {@link GcsClient#listObjectsPage} can list such names.
-   *   <li>If an object name contains URI syntax characters such as {@code %XX}, {@code #} or {@code
-   *       ?}, {@link URI#getPath()} differs from the GCS object name; use {@code
-   *       fileInfo.getItemInfo().getItemId()} for the exact object name.
-   * </ul>
    *
    * <p>Listing the root, which means listing buckets, is not supported. Calling this method during
    * or after {@link #close()} has implementation-defined behavior: on {@link GcsFileSystemImpl},
@@ -194,8 +183,7 @@ public interface GcsFileSystem extends AutoCloseable {
    * @param itemId the object, directory or bucket to list; any content generation is ignored
    * @return an unmodifiable list with the object, or with the children of the directory or bucket
    * @throws IllegalArgumentException if {@code itemId} has an empty bucket name with a non-empty
-   *     object name, or if the name of a listed item can't be written as a {@link
-   *     GcsFileInfo#getUri()} (for example, because it contains a space)
+   *     object name, or if the bucket name can't be the authority of a URI
    * @throws FileNotFoundException if neither an object nor a directory exists at {@code itemId}, or
    *     if the bucket does not exist
    * @throws AccessDeniedException if the caller lacks permission to read or list {@code itemId}

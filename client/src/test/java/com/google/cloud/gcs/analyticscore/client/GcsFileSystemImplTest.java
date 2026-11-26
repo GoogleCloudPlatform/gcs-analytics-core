@@ -2210,30 +2210,44 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void listFileInfo_listedNameNotValidInUri_throwsIllegalArgumentException() throws IOException {
+  void listFileInfo_directoryChildNamesWithSpace_returnPercentEncodedUris() throws IOException {
     GcsItemId dirId = listItemId("data/");
     when(mockClient.listObjectsPage(dirId, GcsListOptions.LIST_DIRECTORY))
-        .thenReturn(listPage(List.of(listObjectInfo("data/my report.txt")), List.of()));
+        .thenReturn(
+            listPage(
+                List.of(listObjectInfo("data/my report.txt")),
+                List.of(listItemId("data/my dir/"))));
 
-    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.listFileInfo(dirId));
+    List<GcsFileInfo> listed = gcsFileSystem.listFileInfo(dirId);
+
+    assertThat(listedUris(listed))
+        .containsExactly(
+            "gs://" + TEST_BUCKET + "/data/my%20dir/",
+            "gs://" + TEST_BUCKET + "/data/my%20report.txt")
+        .inOrder();
   }
 
   @Test
-  void listFileInfo_existingObjectNameNotValidInUri_throwsIllegalArgumentException()
-      throws IOException {
+  void listFileInfo_existingObjectNameWithSpace_returnsPercentEncodedUri() throws IOException {
     GcsItemId itemId = listItemId("data/my report.txt");
     when(mockClient.getGcsItemInfo(itemId)).thenReturn(listObjectInfo("data/my report.txt"));
     lenient()
         .when(mockClient.listObjectsPage(any(), any()))
         .thenReturn(listPage(List.of(), List.of()));
 
-    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.listFileInfo(itemId));
+    List<GcsFileInfo> listed = gcsFileSystem.listFileInfo(itemId);
+
+    assertThat(listedUris(listed)).containsExactly("gs://" + TEST_BUCKET + "/data/my%20report.txt");
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"data/a%20b.txt", "data/a#b.txt", "data/a?b.txt"})
-  void listFileInfo_listedNameWithUriSyntaxCharacters_returnsItemWithLiteralUri(String objectName)
-      throws IOException {
+  @CsvSource({
+    "data/a%20b.txt,data/a%2520b.txt",
+    "data/a#b.txt,data/a%23b.txt",
+    "data/a?b.txt,data/a%3Fb.txt"
+  })
+  void listFileInfo_listedNameWithUriSyntaxCharacters_returnsPercentEncodedUri(
+      String objectName, String encodedObjectName) throws IOException {
     GcsItemId dirId = listItemId("data/");
     GcsItemInfo child = listObjectInfo(objectName);
     when(mockClient.listObjectsPage(dirId, GcsListOptions.LIST_DIRECTORY))
@@ -2242,7 +2256,22 @@ class GcsFileSystemImplTest {
     List<GcsFileInfo> listed = gcsFileSystem.listFileInfo(dirId);
 
     assertThat(listedItemInfos(listed)).containsExactly(child);
-    assertThat(listedUris(listed)).containsExactly("gs://" + TEST_BUCKET + "/" + objectName);
+    assertThat(listedUris(listed)).containsExactly("gs://" + TEST_BUCKET + "/" + encodedObjectName);
+    assertThat(listed.get(0).getUri().getPath()).isEqualTo("/" + objectName);
+  }
+
+  @Test
+  void listFileInfo_childNamesNeedingEncoding_sortedByEncodedUriString() throws IOException {
+    GcsItemId dirId = listItemId("dir/");
+    when(mockClient.listObjectsPage(dirId, GcsListOptions.LIST_DIRECTORY))
+        .thenReturn(
+            listPage(List.of(listObjectInfo("dir/a b"), listObjectInfo("dir/abcd")), List.of()));
+
+    List<GcsFileInfo> listed = gcsFileSystem.listFileInfo(dirId);
+
+    assertThat(listedUris(listed))
+        .containsExactly("gs://" + TEST_BUCKET + "/dir/abcd", "gs://" + TEST_BUCKET + "/dir/a%20b")
+        .inOrder();
   }
 
   @Test
@@ -2323,6 +2352,30 @@ class GcsFileSystemImplTest {
         gcsFileSystem.listFileInfo(URI.create("gs://" + TEST_BUCKET + "/data/"));
 
     assertThat(listedItemInfos(listed)).containsExactly(file);
+  }
+
+  @Test
+  void listFileInfo_percentEncodedUri_listsDirectoryWithDecodedName() throws IOException {
+    GcsItemId dirId = listItemId("my data/");
+    when(mockClient.listObjectsPage(dirId, GcsListOptions.LIST_DIRECTORY))
+        .thenReturn(listPage(List.of(listObjectInfo("my data/file.txt")), List.of()));
+
+    List<GcsFileInfo> listed =
+        gcsFileSystem.listFileInfo(URI.create("gs://" + TEST_BUCKET + "/my%20data/"));
+
+    assertThat(listedUris(listed)).containsExactly("gs://" + TEST_BUCKET + "/my%20data/file.txt");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"/dir/a?b", "/dir/a#b"})
+  void listFileInfo_uriWithQueryOrFragment_throwsIllegalArgumentException(String path) {
+    URI uri = URI.create("gs://" + TEST_BUCKET + path);
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.listFileInfo(uri));
+
+    assertThat(e).hasMessageThat().contains("percent-encode '?' as %3F and '#' as %23");
+    verifyNoInteractions(mockClient);
   }
 
   @Test

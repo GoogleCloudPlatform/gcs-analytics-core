@@ -168,6 +168,31 @@ class GcsFileSystemListIntegrationTest {
 
   @Test
   @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
+  void listFileInfo_flatChildrenNeedingPercentEncoding_returnUrisThatResolveToTheSameObjects()
+      throws IOException {
+    String bucketName = System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY);
+    String dir = newListTestDirectory();
+    createObject(bucketName, dir + "/a b.txt");
+    createObject(bucketName, dir + "/a%20b.txt");
+    createObject(bucketName, dir + "/a#b?c.txt");
+    URI dirUri = URI.create("gs://" + bucketName + "/" + dir + "/");
+
+    List<GcsFileInfo> listed = gcsFileSystem.listFileInfo(dirUri);
+
+    assertThat(describeListed(listed))
+        .containsExactly(
+            dirUri + "a%20b.txt OBJECT",
+            dirUri + "a%2520b.txt OBJECT",
+            dirUri + "a%23b%3Fc.txt OBJECT")
+        .inOrder();
+    for (GcsFileInfo child : listed) {
+      GcsFileInfo resolved = gcsFileSystem.getFileInfo(child.getUri());
+      assertThat(resolved.getItemInfo().getItemId()).isEqualTo(child.getItemInfo().getItemId());
+    }
+  }
+
+  @Test
+  @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
   void listFileInfo_flatListedObject_hasObjectMetadata() throws IOException {
     String bucketName = System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY);
     String dir = newListTestDirectory();

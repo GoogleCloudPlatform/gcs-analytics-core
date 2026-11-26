@@ -118,6 +118,22 @@ class FakeGcsFileSystemImplTest {
     }
   }
 
+  @Test
+  void listFileInfo_childNameWithSpace_returnsUriThatGetFileInfoResolves() throws IOException {
+    String bucket = newBucketName();
+    putBlob(bucket, "dir/my report.txt");
+
+    try (FakeGcsFileSystemImpl fakeFileSystem = newFakeFileSystem()) {
+      List<GcsFileInfo> listed =
+          fakeFileSystem.listFileInfo(URI.create("gs://" + bucket + "/dir/"));
+      GcsFileInfo fileInfo = fakeFileSystem.getFileInfo(listed.get(0).getUri());
+
+      assertThat(describeListed(listed))
+          .containsExactly("gs://" + bucket + "/dir/my%20report.txt OBJECT");
+      assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue("dir/my report.txt");
+    }
+  }
+
   private static FakeGcsFileSystemImpl newFakeFileSystem() {
     return new FakeGcsFileSystemImpl(GcsFileSystemOptions.builder().build());
   }
