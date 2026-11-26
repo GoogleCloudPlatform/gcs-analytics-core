@@ -122,10 +122,11 @@ public interface GcsFileSystem extends AutoCloseable {
    * @throws AccessDeniedException if the caller lacks permission to read or list {@code path}
    * @throws UnsupportedOperationException if {@code path} is the root ({@code gs:/}), or if this
    *     implementation does not support {@link #listFileInfo(GcsItemId)}
-   * @throws InterruptedIOException if the calling thread is interrupted before a page of the
-   *     listing is requested or while it waits for the background listing (its interrupt status
-   *     stays set), or if {@link #close()} interrupts a running background listing (the calling
-   *     thread's interrupt status is not set)
+   * @throws InterruptedIOException if the calling thread is interrupted when this method is called
+   *     (no request is sent), before a page of the listing is requested, or while it waits for the
+   *     background listing (in all three cases, its interrupt status stays set), or if {@link
+   *     #close()} interrupts a running background listing (the calling thread's interrupt status is
+   *     not set)
    * @throws IOException if the object, bucket, folder or listing request fails
    */
   default List<GcsFileInfo> listFileInfo(URI path) throws IOException {
@@ -188,10 +189,11 @@ public interface GcsFileSystem extends AutoCloseable {
    * @throws AccessDeniedException if the caller lacks permission to read or list {@code itemId}
    * @throws UnsupportedOperationException if {@code itemId} is the root, or if this implementation
    *     does not support listing
-   * @throws InterruptedIOException if the calling thread is interrupted before a page of the
-   *     listing is requested or while it waits for the background listing (its interrupt status
-   *     stays set), or if {@link #close()} interrupts a running background listing (the calling
-   *     thread's interrupt status is not set)
+   * @throws InterruptedIOException if the calling thread is interrupted when this method is called
+   *     (no request is sent), before a page of the listing is requested, or while it waits for the
+   *     background listing (in all three cases, its interrupt status stays set), or if {@link
+   *     #close()} interrupts a running background listing (the calling thread's interrupt status is
+   *     not set)
    * @throws IOException if the object, bucket, folder or listing request fails
    */
   default List<GcsFileInfo> listFileInfo(GcsItemId itemId) throws IOException {

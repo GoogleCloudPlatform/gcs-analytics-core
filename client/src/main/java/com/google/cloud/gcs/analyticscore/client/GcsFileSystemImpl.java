@@ -268,6 +268,12 @@ public class GcsFileSystemImpl implements GcsFileSystem {
         itemId);
     // Listing ignores content generation; strip it once so lookups and error messages omit it.
     GcsItemId targetId = withoutContentGeneration(itemId);
+    // Checked here, before any request: a listing handed to the status executor would not see the
+    // interrupt of this thread, and a finished lookup returns without checking for it.
+    if (Thread.currentThread().isInterrupted()) {
+      throw new InterruptedIOException(
+          "Interrupted before listing " + UriUtil.getStringPath(targetId));
+    }
 
     if (targetId.isDirectory()) {
       return toSortedFileInfos(listDirectory(targetId));

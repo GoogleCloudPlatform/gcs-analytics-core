@@ -73,13 +73,16 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 import org.mockito.Mock;
@@ -1534,19 +1537,72 @@ class GcsFileSystemImplTest {
     assertThat(listingInterrupted.await(5, TimeUnit.SECONDS)).isTrue();
   }
 
-  @Test
-  void listFileInfo_callingThreadInterrupted_throwsInterruptedIOExceptionWithoutListing()
-      throws IOException {
-    GcsItemId dirId = listItemId("data/");
+  @ParameterizedTest
+  @ValueSource(strings = {"data", "data/"})
+  void listFileInfo_callingThreadInterrupted_throwsInterruptedIOExceptionWithoutAnyRequest(
+      String objectName) {
+    GcsItemId itemId = listItemId(objectName);
+    ExecutorService mockStatusExecutorService = mock(ExecutorService.class);
+    GcsFileSystemImpl fileSystemWithMockExecutor =
+        new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS) {
+          @Override
+          Supplier<ExecutorService> initializeStatusExecutionServiceSupplier() {
+            return () -> mockStatusExecutorService;
+          }
+        };
+    boolean callerInterruptStatus;
     Thread.currentThread().interrupt();
+
+    InterruptedIOException e;
     try {
-      assertThrows(InterruptedIOException.class, () -> gcsFileSystem.listFileInfo(dirId));
+      e =
+          assertThrows(
+              InterruptedIOException.class, () -> fileSystemWithMockExecutor.listFileInfo(itemId));
     } finally {
-      // Clear the flag so that it does not leak into other tests.
-      Thread.interrupted();
+      // Read and clear the flag so that it does not leak into other tests.
+      callerInterruptStatus = Thread.interrupted();
     }
 
-    verify(mockClient, never()).listObjectsPage(any(), any());
+    assertThat(e)
+        .hasMessageThat()
+        .isEqualTo("Interrupted before listing gs://" + TEST_BUCKET + "/" + objectName);
+    assertThat(callerInterruptStatus).isTrue();
+    verifyNoInteractions(mockClient, mockStatusExecutorService);
+  }
+
+  private static Stream<Arguments> invalidListFileInfoArguments() {
+    return Stream.of(
+        Arguments.of(null, NullPointerException.class),
+        Arguments.of(GcsItemId.ROOT, UnsupportedOperationException.class),
+        Arguments.of(
+            GcsItemId.builder().setBucketName("").setObjectName("data").build(),
+            IllegalArgumentException.class));
+  }
+
+  @ParameterizedTest
+  @MethodSource("invalidListFileInfoArguments")
+  void listFileInfo_callingThreadInterruptedAndInvalidArgument_throwsArgumentException(
+      GcsItemId invalidItemId, Class<? extends RuntimeException> expectedException) {
+    ExecutorService mockStatusExecutorService = mock(ExecutorService.class);
+    GcsFileSystemImpl fileSystemWithMockExecutor =
+        new GcsFileSystemImpl(mockClient, TEST_GCS_FILESYSTEM_OPTIONS) {
+          @Override
+          Supplier<ExecutorService> initializeStatusExecutionServiceSupplier() {
+            return () -> mockStatusExecutorService;
+          }
+        };
+    boolean callerInterruptStatus;
+    Thread.currentThread().interrupt();
+
+    try {
+      assertThrows(expectedException, () -> fileSystemWithMockExecutor.listFileInfo(invalidItemId));
+    } finally {
+      // Read and clear the flag so that it does not leak into other tests.
+      callerInterruptStatus = Thread.interrupted();
+    }
+
+    assertThat(callerInterruptStatus).isTrue();
+    verifyNoInteractions(mockClient, mockStatusExecutorService);
   }
 
   @Test
