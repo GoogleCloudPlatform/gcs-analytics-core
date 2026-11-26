@@ -41,6 +41,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -249,7 +250,7 @@ class GcsFileSystemImplIntegrationTest {
         assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(bucketName);
         assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).isEmpty();
         assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
-        assertThat(fileInfo.getUri()).isEqualTo(bucketUri);
+        assertThat(fileInfo.getUri()).isEqualTo(URI.create("gs://" + bucketName + "/"));
     }
 
     @Test
@@ -278,6 +279,36 @@ class GcsFileSystemImplIntegrationTest {
         assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue(ctx.objectName);
         assertThat(fileInfo.getUri()).isEqualTo(ctx.uri);
         assertThat(fileInfo.getAttributes().get("owner")).isEqualTo(ownerValue);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"a b.txt,a%20b.txt,1", "a%20b.txt,a%2520b.txt,2", "a#b?c.txt,a%23b%3Fc.txt,3"})
+    @EnabledIfSystemProperty(named = GCS_INTEGRATION_TEST_BUCKET_PROPERTY, matches = ".+")
+    void getFileInfo_objectNameNeedingPercentEncoding_returnsUriThatResolvesToThatObject(
+            String fileName, String encodedFileName, long size) throws IOException {
+        String bucketName = System.getProperty(GCS_INTEGRATION_TEST_BUCKET_PROPERTY);
+        String folder = "test-folder-" + UUID.randomUUID() + "/";
+        // "a b.txt" and "a%20b.txt" are two objects: only percent-encoding tells their URIs apart.
+        // Each object has its own size, which shows which object a lookup found.
+        List<String> fileNames = List.of("a b.txt", "a%20b.txt", "a#b?c.txt");
+        for (int i = 0; i < fileNames.size(); i++) {
+            BlobId blobId = BlobId.of(bucketName, folder + fileNames.get(i));
+            blobsToDelete.add(blobId);
+            storage.create(BlobInfo.newBuilder(blobId).build(), new byte[i + 1]);
+        }
+        GcsItemId itemId =
+                GcsItemId.builder().setBucketName(bucketName).setObjectName(folder + fileName).build();
+
+        URI uri = gcsFileSystem.getFileInfo(itemId).getUri();
+        GcsItemInfo infoByUri = gcsFileSystem.getFileInfo(uri).getItemInfo();
+        GcsItemInfo objectInfoByUri = gcsFileSystem.getFileInfoObject(uri).getItemInfo();
+
+        assertThat(uri.toString()).isEqualTo("gs://" + bucketName + "/" + folder + encodedFileName);
+        assertThat(uri.getPath()).isEqualTo("/" + folder + fileName);
+        assertThat(infoByUri.getItemId().getObjectName()).hasValue(folder + fileName);
+        assertThat(infoByUri.getSize()).isEqualTo(size);
+        assertThat(objectInfoByUri.getItemId().getObjectName()).hasValue(folder + fileName);
+        assertThat(objectInfoByUri.getSize()).isEqualTo(size);
     }
 
     @Test
@@ -353,7 +384,7 @@ class GcsFileSystemImplIntegrationTest {
         assertThat(fileInfo.getItemInfo().getItemId().getBucketName()).isEqualTo(bucketName);
         assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).isEmpty();
         assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(0L);
-        assertThat(fileInfo.getUri()).isEqualTo(bucketUri);
+        assertThat(fileInfo.getUri()).isEqualTo(URI.create("gs://" + bucketName + "/"));
     }
 
     @Test

@@ -153,6 +153,36 @@ class GoogleCloudStorageInputStreamTest {
   }
 
   @Test
+  void create_withGcsItemIdWhoseNameHasSpace_opensChannelAndReturnsStream() throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("dir/my report.txt").build();
+    FakeGcsClientImpl.storage.create(
+        BlobInfo.newBuilder("test-bucket", "dir/my report.txt", 1L).build(), testData);
+
+    googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(fakeFileSystem, itemId);
+
+    assertThat(googleCloudStorageInputStream.size()).isEqualTo(fileSize);
+    googleCloudStorageInputStream.close();
+    IOException closedException =
+        assertThrows(IOException.class, () -> googleCloudStorageInputStream.read());
+    assertThat(closedException)
+        .hasMessageThat()
+        .isEqualTo("gs://test-bucket/dir/my%20report.txt: Cannot read: already closed");
+  }
+
+  @Test
+  void create_withPercentEncodedUri_opensObjectWithDecodedName() throws IOException {
+    FakeGcsClientImpl.storage.create(
+        BlobInfo.newBuilder("test-bucket", "dir/my report.txt", 1L).build(), testData);
+    URI encodedUri = URI.create("gs://test-bucket/dir/my%20report.txt");
+
+    googleCloudStorageInputStream =
+        GoogleCloudStorageInputStream.create(fakeFileSystem, encodedUri);
+
+    assertThat(googleCloudStorageInputStream.size()).isEqualTo(fileSize);
+  }
+
+  @Test
   void size_withGcsFileInfo_returnsSizeFromFileInfo() throws IOException {
     GcsFileInfo fileInfo = fakeFileSystem.getFileInfo(testUri);
     googleCloudStorageInputStream = GoogleCloudStorageInputStream.create(fakeFileSystem, fileInfo);

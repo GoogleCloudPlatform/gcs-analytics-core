@@ -30,7 +30,6 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.OpenTelemetryReporter
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.common.telemetry.TelemetryOptions;
-import com.google.cloud.storage.BlobId;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -417,18 +416,15 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   private GcsFileInfo createBucketFileInfo(GcsItemInfo bucketInfo) {
     return GcsFileInfo.builder()
         .setItemInfo(bucketInfo)
-        .setUri(URI.create("gs://" + bucketInfo.getItemId().getBucketName()))
+        .setUri(UriUtil.toUri(bucketInfo.getItemId()))
         .setAttributes(Collections.emptyMap())
         .build();
   }
 
   private GcsFileInfo toGcsFileInfo(GcsItemInfo gcsItemInfo) {
-    GcsItemId itemId = gcsItemInfo.getItemId();
     return GcsFileInfo.builder()
         .setItemInfo(gcsItemInfo)
-        .setUri(
-            URI.create(
-                BlobId.of(itemId.getBucketName(), itemId.getObjectName().orElse("")).toGsUtilUri()))
+        .setUri(UriUtil.toUri(gcsItemInfo.getItemId()))
         .setAttributes(gcsItemInfo.getExtendedAttributes())
         .build();
   }

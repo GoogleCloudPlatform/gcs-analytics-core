@@ -409,6 +409,33 @@ class GcsFileSystemImplTest {
   }
 
   @Test
+  void getFileInfo_percentEncodedUri_looksUpDecodedObjectNameAndReturnsSameUri()
+      throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/my report.txt").build();
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(10L).build();
+    URI encodedUri = URI.create("gs://" + TEST_BUCKET + "/dir/my%20report.txt");
+    when(mockClient.getGcsItemInfo(eq(itemId))).thenReturn(itemInfo);
+
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfo(encodedUri);
+
+    assertThat(fileInfo.getItemInfo()).isSameInstanceAs(itemInfo);
+    assertThat(fileInfo.getUri()).isEqualTo(encodedUri);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"/dir/a?b.txt", "/dir/a#b.txt"})
+  void getFileInfo_uriWithQueryOrFragment_throwsIllegalArgumentException(String path) {
+    URI uri = URI.create("gs://" + TEST_BUCKET + path);
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.getFileInfo(uri));
+
+    assertThat(e).hasMessageThat().contains("percent-encode '?' as %3F and '#' as %23");
+    verifyNoInteractions(mockClient);
+  }
+
+  @Test
   void getFileInfo_nullItemId_throwsNullPointerException() {
     NullPointerException e =
         assertThrows(NullPointerException.class, () -> gcsFileSystem.getFileInfo((GcsItemId) null));
@@ -498,6 +525,42 @@ class GcsFileSystemImplTest {
   }
 
   @Test
+  void getFileInfoObject_percentEncodedUri_looksUpDecodedObjectNameAndReturnsSameUri()
+      throws IOException {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/my report.txt").build();
+    GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(10L).build();
+    URI encodedUri = URI.create("gs://" + TEST_BUCKET + "/dir/my%20report.txt");
+    when(mockClient.getGcsItemInfo(eq(itemId))).thenReturn(itemInfo);
+
+    GcsFileInfo fileInfo = gcsFileSystem.getFileInfoObject(encodedUri);
+
+    assertThat(fileInfo.getItemInfo()).isSameInstanceAs(itemInfo);
+    assertThat(fileInfo.getUri()).isEqualTo(encodedUri);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"/dir/a?b.txt", "/dir/a#b.txt"})
+  void getFileInfoObject_uriWithQueryOrFragment_throwsIllegalArgumentException(String path) {
+    URI uri = URI.create("gs://" + TEST_BUCKET + path);
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.getFileInfoObject(uri));
+
+    assertThat(e).hasMessageThat().contains("percent-encode '?' as %3F and '#' as %23");
+    verifyNoInteractions(mockClient);
+  }
+
+  @Test
+  void getFileInfoObject_percentEncodedTrailingSlash_throwsIllegalArgumentException() {
+    URI uri = URI.create("gs://" + TEST_BUCKET + "/dir%2F");
+
+    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.getFileInfoObject(uri));
+
+    verifyNoInteractions(mockClient);
+  }
+
+  @Test
   void getFileInfoObject_nullUri_throwsNullPointerException() {
     NullPointerException e =
         assertThrows(NullPointerException.class, () -> gcsFileSystem.getFileInfoObject((URI) null));
@@ -535,7 +598,7 @@ class GcsFileSystemImplTest {
 
     assertThat(fileInfo).isNotNull();
     assertThat(fileInfo.getItemInfo().getItemType()).isEqualTo(GcsItemInfo.ItemType.BUCKET);
-    assertThat(fileInfo.getUri().toString()).isEqualTo("gs://" + TEST_BUCKET);
+    assertThat(fileInfo.getUri().toString()).isEqualTo("gs://" + TEST_BUCKET + "/");
   }
 
   @Test
@@ -2814,15 +2877,18 @@ class GcsFileSystemImplTest {
   }
 
   @Test
-  void mkdirs_rawStringUriConvention_preservesPercentEscapesQueryAndFragmentLiterally()
-      throws IOException {
+  void mkdirs_percentEncodedUri_createsDirectoryWithDecodedName() throws IOException {
     when(mockClient.getGcsItemInfo(any())).thenThrow(new FileNotFoundException("Not found"));
     when(mockClient.getBucketProperties(TEST_BUCKET))
         .thenReturn(BucketProperties.create(false, false));
 
     gcsFileSystem.mkdirs(URI.create("gs://" + TEST_BUCKET + "/tbl/ts=10%3A00/"));
-    gcsFileSystem.mkdirs(URI.create("gs://" + TEST_BUCKET + "/dir?x=1#y"));
+    gcsFileSystem.mkdirs(URI.create("gs://" + TEST_BUCKET + "/tbl/ts=10%253A00/"));
+    gcsFileSystem.mkdirs(URI.create("gs://" + TEST_BUCKET + "/dir%3Fx=1%23y"));
 
+    verify(mockClient)
+        .createEmptyObject(
+            GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("tbl/ts=10:00/").build());
     verify(mockClient)
         .createEmptyObject(
             GcsItemId.builder()
@@ -2832,6 +2898,15 @@ class GcsFileSystemImplTest {
     verify(mockClient)
         .createEmptyObject(
             GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir?x=1#y/").build());
+  }
+
+  @Test
+  void mkdirs_uriWithQueryAndFragment_throwsIllegalArgumentException() {
+    URI uri = URI.create("gs://" + TEST_BUCKET + "/dir?x=1#y");
+
+    assertThrows(IllegalArgumentException.class, () -> gcsFileSystem.mkdirs(uri));
+
+    verifyNoInteractions(mockClient);
   }
 
   @Test

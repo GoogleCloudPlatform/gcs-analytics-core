@@ -53,8 +53,18 @@ public interface GcsFileSystem extends AutoCloseable {
   /**
    * Gets metadata for the given path, which may be an object, a directory, a bucket or the root.
    *
+   * <p>As in hadoop-connectors, the bucket is the authority of {@code path} and the object name is
+   * its percent-decoded path ({@link URI#getPath()}) without the leading {@code /}: {@code
+   * gs://bucket/a%20b.txt} names the object {@code a b.txt}. In an object name, write {@code %} as
+   * {@code %25}, {@code ?} as {@code %3F} and {@code #} as {@code %23}; {@link GcsItemId#toUri()}
+   * builds such a URI from a name.
+   *
    * @param path the {@code gs://} path to look up
-   * @return metadata for the item at {@code path}
+   * @return metadata for the item at {@code path}; its {@link GcsFileInfo#getUri() URI} is built
+   *     from the name of the item, so it can differ from {@code path} in form (the URI of a bucket
+   *     always ends with {@code /})
+   * @throws IllegalArgumentException if {@code path} is not a valid {@code gs://} URI (for example,
+   *     {@code gs:///} or consecutive slashes), or if it has a query or a fragment
    * @throws FileNotFoundException if nothing exists at {@code path}
    * @throws IOException if the metadata cannot be fetched
    */
@@ -75,12 +85,14 @@ public interface GcsFileSystem extends AutoCloseable {
    *
    * <p>Unlike {@link #getFileInfo(URI)}, this sends a single object metadata request and never
    * infers a directory. Use it when only an object is acceptable, for example before opening a file
-   * for reading.
+   * for reading. {@code path} is parsed as in {@link #getFileInfo(URI)}: its path is
+   * percent-decoded.
    *
    * @param path the {@code gs://} path of the object to look up
    * @return metadata for the object at {@code path}
    * @throws IllegalArgumentException if {@code path} is the root, a bucket or a directory path
-   *     (ending in {@code /})
+   *     (ending in {@code /}), or is not a valid {@code gs://} URI as described in {@link
+   *     #getFileInfo(URI)}
    * @throws FileNotFoundException if no object exists at {@code path}
    * @throws IOException if the metadata cannot be fetched
    */
@@ -231,16 +243,15 @@ public interface GcsFileSystem extends AutoCloseable {
    * Creates the target directory or bucket (and any missing parent folders on hierarchical
    * namespace buckets) at the specified {@code gs://} URI.
    *
-   * <p>Semantics follow {@link #mkdirs(GcsItemId)}. Consistent with {@link #getFileInfo(URI)} and
-   * {@link #open(GcsFileInfo, GcsReadOptions)}, {@code path.toString()} is parsed literally without
-   * percent-decoding; callers with object names containing spaces or pre-decoded characters should
-   * construct a {@link GcsItemId} and call {@link #mkdirs(GcsItemId)} instead.
+   * <p>Semantics follow {@link #mkdirs(GcsItemId)}. {@code path} is parsed as in {@link
+   * #getFileInfo(URI)}: its path is percent-decoded, so {@code gs://bucket/a%20b/} creates the
+   * directory {@code a b/}.
    *
    * <p>The default implementation parses {@code path} and calls {@link #mkdirs(GcsItemId)}.
    *
    * @param path the {@code gs://} URI of the directory or bucket to create
    * @throws IllegalArgumentException if {@code path} is not a valid {@code gs://} URI (for example,
-   *     {@code gs:///} or consecutive slashes)
+   *     {@code gs:///} or consecutive slashes), or if it has a query or a fragment
    * @throws FileNotFoundException if creating a directory inside a bucket that does not exist
    * @throws FileAlreadyExistsException if an object already exists at a path prefix (when {@link
    *     GcsFileSystemOptions#isCreateItemsConflictCheckEnabled()} is {@code true}) or a non-empty

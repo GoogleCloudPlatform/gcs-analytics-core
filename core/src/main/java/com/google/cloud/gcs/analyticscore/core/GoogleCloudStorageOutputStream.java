@@ -16,6 +16,7 @@
 
 package com.google.cloud.gcs.analyticscore.core;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
@@ -25,7 +26,6 @@ import com.google.cloud.gcs.analyticscore.client.GcsWriteOptions;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Attribute;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Operation;
-import com.google.cloud.storage.BlobId;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -73,20 +73,20 @@ public class GoogleCloudStorageOutputStream extends OutputStream {
   /**
    * Creates a new instance of {@link GoogleCloudStorageOutputStream} for the given URI path.
    *
+   * <p>{@code path} is parsed as in {@link GcsItemId#fromUri(URI)}: its path is percent-decoded, so
+   * {@code gs://bucket/a%20b.txt} writes the object {@code a b.txt}.
+   *
    * @param gcsFileSystem the file system client to use
    * @param path the GCS URI path (e.g., gs://bucket/object) identifying the object to write to
    * @return a new output stream
+   * @throws IllegalArgumentException if {@code path} is not a valid {@code gs://} URI of an object
    * @throws IOException if an I/O error occurs
    */
   public static GoogleCloudStorageOutputStream create(GcsFileSystem gcsFileSystem, URI path)
       throws IOException {
     checkNotNull(gcsFileSystem, "GcsFileSystem shouldn't be null");
-    BlobId blobId = BlobId.fromGsUtilUri(path.toString());
-    GcsItemId itemId =
-        GcsItemId.builder()
-            .setBucketName(blobId.getBucket())
-            .setObjectName(blobId.getName())
-            .build();
+    GcsItemId itemId = GcsItemId.fromUri(path);
+    checkArgument(itemId.isGcsObject(), "Expected the URI of a GCS object but got: %s", path);
     return create(gcsFileSystem, itemId);
   }
 
