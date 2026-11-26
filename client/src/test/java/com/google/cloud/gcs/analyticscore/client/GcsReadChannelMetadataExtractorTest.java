@@ -16,12 +16,14 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.cloud.ReadChannel;
 import com.google.cloud.RestorableState;
 import com.google.cloud.storage.BlobInfo;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.file.FileSystems;
@@ -39,6 +41,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 class GcsReadChannelMetadataExtractorTest {
+
+  private static final long KB = 1024L;
 
   @Test
   void extract_nullChannel_returnsNull() {
@@ -424,9 +428,102 @@ class GcsReadChannelMetadataExtractorTest {
     assertThat(metadata).isNull();
   }
 
+  @Test
+  void extract_voidAndNonNumberSizeGetters_returnsNull() {
+    VoidAndNonNumberSizeModel target = new VoidAndNonNumberSizeModel();
+    ReflectiveGenericChannel channel = Mockito.mock(ReflectiveGenericChannel.class);
+    Mockito.when(channel.getResolvedObject()).thenReturn(target);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNull();
+  }
+
+  @Test
+  void extract_bigIntegerSizeGetter_returnsMetadata() {
+    BigIntegerSizeModel target = new BigIntegerSizeModel();
+    ReflectiveGenericChannel channel = Mockito.mock(ReflectiveGenericChannel.class);
+    Mockito.when(channel.getResolvedObject()).thenReturn(target);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNotNull();
+    assertThat(metadata.getSize()).isEqualTo(KB);
+    assertThat(metadata.getGeneration()).isEqualTo(-1L);
+  }
+
+  @Test
+  void extract_intSizeGetter_returnsMetadata() {
+    IntSizeModel target = new IntSizeModel();
+    ReflectiveGenericChannel channel = Mockito.mock(ReflectiveGenericChannel.class);
+    Mockito.when(channel.getResolvedObject()).thenReturn(target);
+
+    GcsReadChannelMetadataExtractor.ExtractedMetadata metadata =
+        GcsReadChannelMetadataExtractor.extract(channel);
+
+    assertThat(metadata).isNotNull();
+    assertThat(metadata.getSize()).isEqualTo(256L);
+    assertThat(metadata.getGeneration()).isEqualTo(7L);
+  }
+
+  @Test
+  void extract_metadataAccessorThrowsError_propagatesError() {
+    ReflectiveBlobInfoChannel channel = Mockito.mock(ReflectiveBlobInfoChannel.class);
+    Mockito.when(channel.getBlobInfo()).thenThrow(new AssertionError("fatal accessor error"));
+
+    AssertionError error =
+        assertThrows(AssertionError.class, () -> GcsReadChannelMetadataExtractor.extract(channel));
+
+    assertThat(error).hasMessageThat().isEqualTo("fatal accessor error");
+  }
+
+  @Test
+  void extract_getterThrowsError_propagatesError() {
+    ErrorThrowingModel target = new ErrorThrowingModel();
+    ReflectiveGenericChannel channel = Mockito.mock(ReflectiveGenericChannel.class);
+    Mockito.when(channel.getResolvedObject()).thenReturn(target);
+
+    AssertionError error =
+        assertThrows(AssertionError.class, () -> GcsReadChannelMetadataExtractor.extract(channel));
+
+    assertThat(error).hasMessageThat().isEqualTo("size retrieval error");
+  }
+
   static class ThrowingModel {
     public long getSize() {
       throw new RuntimeException("size retrieval failed");
+    }
+  }
+
+  static class VoidAndNonNumberSizeModel {
+    public void getSize() {}
+
+    public String size() {
+      return "100";
+    }
+  }
+
+  static class BigIntegerSizeModel {
+    public BigInteger getSize() {
+      return BigInteger.valueOf(KB);
+    }
+  }
+
+  static class IntSizeModel {
+    public int getSize() {
+      return 256;
+    }
+
+    public int getGeneration() {
+      return 7;
+    }
+  }
+
+  static class ErrorThrowingModel {
+    public long getSize() {
+      throw new AssertionError("size retrieval error");
     }
   }
 

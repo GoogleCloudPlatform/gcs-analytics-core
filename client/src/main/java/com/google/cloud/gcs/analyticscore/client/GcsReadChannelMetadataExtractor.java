@@ -17,7 +17,9 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.cloud.ReadChannel;
 import com.google.common.collect.ImmutableList;
-import java.lang.reflect.AccessibleObject;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collection;
@@ -34,6 +36,12 @@ import org.slf4j.LoggerFactory;
  */
 final class GcsReadChannelMetadataExtractor {
   private static final Logger LOG = LoggerFactory.getLogger(GcsReadChannelMetadataExtractor.class);
+
+  private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
+  private static final MethodType OBJECT_GETTER_TYPE =
+      MethodType.methodType(Object.class, Object.class);
+  private static final MethodType LONG_GETTER_TYPE =
+      MethodType.methodType(long.class, Object.class);
 
   private static final ImmutableList<String> METADATA_METHOD_NAMES =
       ImmutableList.of(
@@ -82,36 +90,37 @@ final class GcsReadChannelMetadataExtractor {
   }
 
   private static final class ChannelAccessors {
-    @Nullable final Field decoratorReaderField;
-    final ImmutableList<AccessibleObject> metadataAccessors;
+    @Nullable final MethodHandle decoratorReaderGetter;
+    final ImmutableList<MethodHandle> metadataAccessors;
 
     private ChannelAccessors(
-        @Nullable Field decoratorReaderField, ImmutableList<AccessibleObject> metadataAccessors) {
-      this.decoratorReaderField = decoratorReaderField;
+        @Nullable MethodHandle decoratorReaderGetter,
+        ImmutableList<MethodHandle> metadataAccessors) {
+      this.decoratorReaderGetter = decoratorReaderGetter;
       this.metadataAccessors = metadataAccessors;
     }
 
     static ChannelAccessors forClass(Class<?> type) {
-      Field decoratorField = null;
+      MethodHandle decoratorGetter = null;
       if (SDK_CHANNEL_DECORATOR_SIMPLE_NAME.equals(type.getSimpleName())) {
         try {
           Field field = type.getDeclaredField(SDK_CHANNEL_DECORATOR_FIELD_NAME);
           field.setAccessible(true);
-          decoratorField = field;
+          decoratorGetter = LOOKUP.unreflectGetter(field).asType(OBJECT_GETTER_TYPE);
         } catch (ReflectiveOperationException | RuntimeException e) {
           LOG.debug(
               "Failed reading field {} on {}", SDK_CHANNEL_DECORATOR_FIELD_NAME, type.getName(), e);
         }
       }
 
-      ImmutableList.Builder<AccessibleObject> accessors = ImmutableList.builder();
+      ImmutableList.Builder<MethodHandle> accessors = ImmutableList.builder();
       for (Class<?> clazz = type; clazz != Object.class; clazz = clazz.getSuperclass()) {
         for (String methodName : METADATA_METHOD_NAMES) {
           try {
             Method method = clazz.getDeclaredMethod(methodName);
             method.setAccessible(true);
-            accessors.add(method);
-          } catch (NoSuchMethodException | RuntimeException ignored) {
+            accessors.add(LOOKUP.unreflect(method).asType(OBJECT_GETTER_TYPE));
+          } catch (ReflectiveOperationException | RuntimeException ignored) {
             // Expected: the candidate accessor does not exist on this class; try the next one.
           }
         }
@@ -119,22 +128,22 @@ final class GcsReadChannelMetadataExtractor {
           try {
             Field field = clazz.getDeclaredField(fieldName);
             field.setAccessible(true);
-            accessors.add(field);
-          } catch (NoSuchFieldException | RuntimeException ignored) {
+            accessors.add(LOOKUP.unreflectGetter(field).asType(OBJECT_GETTER_TYPE));
+          } catch (ReflectiveOperationException | RuntimeException ignored) {
             // Expected: the candidate field does not exist on this class; try the next one.
           }
         }
       }
-      return new ChannelAccessors(decoratorField, accessors.build());
+      return new ChannelAccessors(decoratorGetter, accessors.build());
     }
   }
 
   private static final class PropertyAccessors {
-    final ImmutableList<Method> sizeGetters;
-    final ImmutableList<Method> generationGetters;
+    final ImmutableList<MethodHandle> sizeGetters;
+    final ImmutableList<MethodHandle> generationGetters;
 
     private PropertyAccessors(
-        ImmutableList<Method> sizeGetters, ImmutableList<Method> generationGetters) {
+        ImmutableList<MethodHandle> sizeGetters, ImmutableList<MethodHandle> generationGetters) {
       this.sizeGetters = sizeGetters;
       this.generationGetters = generationGetters;
     }
@@ -148,9 +157,9 @@ final class GcsReadChannelMetadataExtractor {
           findZeroArgGetters(methods, "getGeneration", allowFallback ? "generation" : null));
     }
 
-    private static ImmutableList<Method> findZeroArgGetters(
+    private static ImmutableList<MethodHandle> findZeroArgGetters(
         Method[] methods, String primaryGetter, @Nullable String fallbackGetter) {
-      ImmutableList.Builder<Method> getters = ImmutableList.builder();
+      ImmutableList.Builder<MethodHandle> getters = ImmutableList.builder();
       addMatchingZeroArgMethods(methods, primaryGetter, getters);
       if (fallbackGetter != null) {
         addMatchingZeroArgMethods(methods, fallbackGetter, getters);
@@ -159,17 +168,29 @@ final class GcsReadChannelMetadataExtractor {
     }
 
     private static void addMatchingZeroArgMethods(
-        Method[] methods, String name, ImmutableList.Builder<Method> getters) {
+        Method[] methods, String name, ImmutableList.Builder<MethodHandle> getters) {
       for (Method method : methods) {
         if (method.getParameterCount() == 0 && method.getName().equals(name)) {
           try {
-            method.setAccessible(true);
-            getters.add(method);
-          } catch (RuntimeException e) {
+            getters.add(toLongGetter(method));
+          } catch (ReflectiveOperationException | RuntimeException e) {
             LOG.debug("Failed accessing method {} on {}", name, method.getDeclaringClass(), e);
           }
         }
       }
+    }
+
+    private static MethodHandle toLongGetter(Method method) throws ReflectiveOperationException {
+      method.setAccessible(true);
+      MethodHandle handle = LOOKUP.unreflect(method);
+      Class<?> returnType = method.getReturnType();
+      if (returnType == long.class || returnType == int.class) {
+        return handle.asType(LONG_GETTER_TYPE);
+      }
+      MethodHandle toLong =
+          LOOKUP.findStatic(
+              GcsReadChannelMetadataExtractor.class, "numberToLong", LONG_GETTER_TYPE);
+      return MethodHandles.filterReturnValue(handle.asType(OBJECT_GETTER_TYPE), toLong);
     }
   }
 
@@ -180,8 +201,8 @@ final class GcsReadChannelMetadataExtractor {
     }
     ChannelAccessors channelAccessors = CHANNEL_ACCESSORS.get(sdkChannel.getClass());
     Object target = sdkChannel;
-    if (channelAccessors.decoratorReaderField != null) {
-      Object delegate = invokeAccessor(sdkChannel, channelAccessors.decoratorReaderField);
+    if (channelAccessors.decoratorReaderGetter != null) {
+      Object delegate = invokeAccessor(sdkChannel, channelAccessors.decoratorReaderGetter);
       if (delegate != null) {
         target = delegate;
         channelAccessors = CHANNEL_ACCESSORS.get(target.getClass());
@@ -193,7 +214,7 @@ final class GcsReadChannelMetadataExtractor {
   @Nullable
   private static ExtractedMetadata extractFromTarget(
       Object target, ChannelAccessors channelAccessors) {
-    ImmutableList<AccessibleObject> accessors = channelAccessors.metadataAccessors;
+    ImmutableList<MethodHandle> accessors = channelAccessors.metadataAccessors;
     for (int i = 0; i < accessors.size(); i++) {
       Object resolvedMetadata = resolveFutureIfNeeded(invokeAccessor(target, accessors.get(i)));
       if (resolvedMetadata == null) {
@@ -211,14 +232,13 @@ final class GcsReadChannelMetadataExtractor {
   }
 
   @Nullable
-  private static Object invokeAccessor(Object target, AccessibleObject accessor) {
+  private static Object invokeAccessor(Object target, MethodHandle accessor) {
     try {
-      return accessor instanceof Method
-          ? ((Method) accessor).invoke(target)
-          : ((Field) accessor).get(target);
-    } catch (ReflectiveOperationException | RuntimeException e) {
-      LOG.debug(
-          "Failed reading metadata accessor {} on {}", accessor, target.getClass().getName(), e);
+      return (Object) accessor.invokeExact(target);
+    } catch (Error e) {
+      throw e;
+    } catch (Throwable e) {
+      LOG.debug("Failed reading metadata accessor on {}", target.getClass().getName(), e);
       return null;
     }
   }
@@ -246,7 +266,7 @@ final class GcsReadChannelMetadataExtractor {
     }
   }
 
-  private static long extractLongProperty(Object target, ImmutableList<Method> getters) {
+  private static long extractLongProperty(Object target, ImmutableList<MethodHandle> getters) {
     for (int i = 0; i < getters.size(); i++) {
       long value = invokeLongGetter(target, getters.get(i));
       if (value >= 0) {
@@ -256,18 +276,18 @@ final class GcsReadChannelMetadataExtractor {
     return -1L;
   }
 
-  private static long invokeLongGetter(Object target, Method method) {
+  private static long invokeLongGetter(Object target, MethodHandle getter) {
     try {
-      Object value = method.invoke(target);
-      if (value instanceof Number) {
-        return ((Number) value).longValue();
-      }
-    } catch (ReflectiveOperationException | RuntimeException e) {
-      LOG.debug(
-          "Getter invocation failed or inaccessible for method {} on target {}",
-          method.getName(),
-          target);
+      return (long) getter.invokeExact(target);
+    } catch (Error e) {
+      throw e;
+    } catch (Throwable e) {
+      LOG.debug("Getter invocation failed for metadata target {}", target, e);
+      return -1L;
     }
-    return -1L;
+  }
+
+  private static long numberToLong(@Nullable Object value) {
+    return value instanceof Number ? ((Number) value).longValue() : -1L;
   }
 }
