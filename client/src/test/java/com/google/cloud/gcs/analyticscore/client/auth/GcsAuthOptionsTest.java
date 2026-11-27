@@ -613,7 +613,9 @@ class GcsAuthOptionsTest {
 
   @ParameterizedTest
   @CsvSource({
+    "proxy.example.com:1, //proxy.example.com:1",
     "proxy.example.com:8080, //proxy.example.com:8080",
+    "proxy.example.com:65535, //proxy.example.com:65535",
     "http://proxy.example.com:8080, http://proxy.example.com:8080",
     "https://proxy.example.com:8443, https://proxy.example.com:8443",
     "127.0.0.1:3128, //127.0.0.1:3128"
@@ -637,6 +639,10 @@ class GcsAuthOptionsTest {
     "socks5://foo-host:1234, HTTP proxy address 'socks5://foo-host:1234' has invalid scheme 'socks5'.",
     ":1234, Proxy address ':1234' has no host.",
     "foo-host, Proxy address 'foo-host' has no port.",
+    "foo-host:0, Proxy address 'foo-host:0' has invalid port '0'; port must be between 1 and 65535.",
+    "http://foo-host:0, Proxy address 'http://foo-host:0' has invalid port '0'; port must be between 1 and 65535.",
+    "foo-host:65536, Proxy address 'foo-host:65536' has invalid port '65536'; port must be between 1 and 65535.",
+    "https://foo-host:70000, Proxy address 'https://foo-host:70000' has invalid port '70000'; port must be between 1 and 65535.",
     "foo-host-with-illegal-char^:1234, Invalid proxy address 'foo-host-with-illegal-char^:1234'.",
     "foo-host:1234/some/path, Invalid proxy address 'foo-host:1234/some/path'."
   })
@@ -657,12 +663,32 @@ class GcsAuthOptionsTest {
         "ftp://proxy.example.com:8080",
         "http://proxy.example.com:8080/path",
         ":8080",
-        "http://proxy.example.com:notaport"
+        "http://proxy.example.com:notaport",
+        "proxy.example.com:0",
+        "http://proxy.example.com:65536",
+        "proxy.example.com:80800"
       })
   void build_invalidProxyAddress_throwsIllegalArgumentException(String invalidProxy) {
     GcsAuthOptions.Builder builder = GcsAuthOptions.builder().setProxyAddress(invalidProxy);
 
     assertThrows(IllegalArgumentException.class, builder::build);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "proxy.example.com:0",
+        "proxy.example.com:65536",
+        "http://proxy.example.com:70000"
+      })
+  void createFromOptions_invalidProxyPort_throwsIllegalArgumentException(String invalidProxy) {
+    Map<String, String> map = ImmutableMap.of("analytics-core.auth.proxy.address", invalidProxy);
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> GcsAuthOptions.createFromOptions(map, ""));
+
+    assertThat(exception).hasMessageThat().contains("has invalid port");
   }
 
   @Test
