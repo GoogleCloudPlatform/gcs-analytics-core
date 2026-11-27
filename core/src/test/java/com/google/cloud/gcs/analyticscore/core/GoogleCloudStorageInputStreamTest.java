@@ -40,9 +40,11 @@ import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
 import com.google.cloud.gcs.analyticscore.client.HermeticGcsFileSystem;
+import com.google.cloud.gcs.analyticscore.client.InMemoryStorage;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
 import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants;
 import com.google.cloud.gcs.analyticscore.common.telemetry.CustomTelemetryOptions;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Metric;
 import com.google.cloud.gcs.analyticscore.common.telemetry.MetricKey;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Operation;
 import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
@@ -67,6 +69,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockitoAnnotations;
 
 class GoogleCloudStorageInputStreamTest {
+
+  private static final int KB = 1024;
 
   private final long fileSize = 1000L;
   private final int prefetchSize = 10;
@@ -872,5 +876,161 @@ class GoogleCloudStorageInputStreamTest {
             Map.entry(
                 GcsAnalyticsCoreTelemetryConstants.Operation.READ_CLOSE.name(), expectedAttrs))
         .inOrder();
+  }
+
+  @Test
+  void create_inapplicableObject_skipsSmartReadChannelAndReadsDirectly() throws IOException {
+    GcsItemId binItemId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test.bin").build();
+    VectoredSeekableByteChannel mockChannel = mock(VectoredSeekableByteChannel.class);
+    when(mockChannel.position()).thenReturn(0L);
+    when(mockChannel.read(any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              invocation.<ByteBuffer>getArgument(0).put((byte) 42);
+              return 1;
+            });
+    GcsFileSystem mockFileSystem = mock(GcsFileSystem.class);
+    when(mockFileSystem.getFileSystemOptions()).thenReturn(fileSystemOptions);
+    when(mockFileSystem.getTelemetry()).thenReturn(new Telemetry(ImmutableList.of()));
+    when(mockFileSystem.open(any(GcsItemId.class), any())).thenReturn(mockChannel);
+
+    int byteRead;
+    try (GoogleCloudStorageInputStream stream =
+        GoogleCloudStorageInputStream.create(mockFileSystem, binItemId)) {
+      byteRead = stream.read();
+    }
+
+    assertThat(byteRead).isEqualTo(42);
+    verify(mockFileSystem, never()).getCacheManager();
+  }
+
+  @Test
+  void create_smallObjectCacheOnly_attachesSmallObjectOptimizer() throws IOException {
+    GcsItemId parquetId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test.parquet").build();
+    URI parquetUri = URI.create("gs://test-bucket/test.parquet");
+    List<Metric> recordedMetrics = new ArrayList<>();
+    GcsFileSystemOptions options =
+        buildHermeticOptions(
+            /* smallObjectCacheEnabled= */ true,
+            /* footerPrefetchEnabled= */ false,
+            recordedMetrics);
+    InMemoryStorage storage = InMemoryStorage.create(ImmutableMap.of(parquetId, testData));
+
+    try (GcsFileSystem fs = HermeticGcsFileSystem.create(storage, options)) {
+      GcsFileInfo fileInfo = fs.getFileInfo(parquetUri);
+      try (GoogleCloudStorageInputStream first =
+          GoogleCloudStorageInputStream.create(fs, fileInfo)) {
+        first.read();
+      }
+      storage.resetCounters();
+      recordedMetrics.clear();
+      try (GoogleCloudStorageInputStream second =
+          GoogleCloudStorageInputStream.create(fs, fileInfo)) {
+        second.read();
+      }
+    }
+
+    assertThat(storage.readerOpens()).isEqualTo(0L);
+    assertThat(recordedMetrics)
+        .contains(GcsAnalyticsCoreTelemetryConstants.Metric.SMALL_OBJECT_CACHE_HIT);
+  }
+
+  @Test
+  void create_footerPrefetchOnly_attachesGcsFooterOptimizer() throws IOException {
+    GcsItemId parquetId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test.parquet").build();
+    URI parquetUri = URI.create("gs://test-bucket/test.parquet");
+    List<Metric> recordedMetrics = new ArrayList<>();
+    GcsFileSystemOptions options =
+        buildHermeticOptions(
+            /* smallObjectCacheEnabled= */ false,
+            /* footerPrefetchEnabled= */ true,
+            recordedMetrics);
+
+    try (GcsFileSystem fs =
+        HermeticGcsFileSystem.create(ImmutableMap.of(parquetId, testData), options)) {
+      GcsFileInfo fileInfo = fs.getFileInfo(parquetUri);
+      try (GoogleCloudStorageInputStream stream =
+          GoogleCloudStorageInputStream.create(fs, fileInfo)) {
+        stream.seek(990L);
+        stream.read();
+        stream.read();
+      }
+    }
+
+    assertThat(recordedMetrics)
+        .containsAtLeast(
+            GcsAnalyticsCoreTelemetryConstants.Metric.FOOTER_CACHE_MISS,
+            GcsAnalyticsCoreTelemetryConstants.Metric.FOOTER_PREFETCH_HIT);
+  }
+
+  @Test
+  void create_bothOptimizersEnabledForSmallFile_prefersSmallObjectOptimizer() throws IOException {
+    GcsItemId parquetId =
+        GcsItemId.builder().setBucketName("test-bucket").setObjectName("test.parquet").build();
+    URI parquetUri = URI.create("gs://test-bucket/test.parquet");
+    List<Metric> recordedMetrics = new ArrayList<>();
+    GcsFileSystemOptions options =
+        buildHermeticOptions(
+            /* smallObjectCacheEnabled= */ true,
+            /* footerPrefetchEnabled= */ true,
+            recordedMetrics);
+
+    int footerByte;
+    try (GcsFileSystem fs =
+        HermeticGcsFileSystem.create(ImmutableMap.of(parquetId, testData), options)) {
+      GcsFileInfo fileInfo = fs.getFileInfo(parquetUri);
+      try (GoogleCloudStorageInputStream stream =
+          GoogleCloudStorageInputStream.create(fs, fileInfo)) {
+        stream.seek(990L);
+        footerByte = stream.read();
+      }
+    }
+
+    assertThat((byte) footerByte).isEqualTo(testData[990]);
+    assertThat(recordedMetrics)
+        .contains(GcsAnalyticsCoreTelemetryConstants.Metric.SMALL_OBJECT_CACHE_MISS);
+    assertThat(recordedMetrics)
+        .doesNotContain(GcsAnalyticsCoreTelemetryConstants.Metric.FOOTER_CACHE_MISS);
+  }
+
+  private GcsFileSystemOptions buildHermeticOptions(
+      boolean smallObjectCacheEnabled,
+      boolean footerPrefetchEnabled,
+      List<Metric> recordedMetrics) {
+    OperationListener listener =
+        new OperationListener() {
+          @Override
+          public void onOperationStart(Operation operation) {}
+
+          @Override
+          public void onOperationEnd(Operation operation, Map<MetricKey, Long> metrics) {
+            for (MetricKey key : metrics.keySet()) {
+              recordedMetrics.add(key.getMetric());
+            }
+          }
+        };
+    return fileSystemOptions.toBuilder()
+        .setGcsClientOptions(
+            clientOptions.toBuilder()
+                .setGcsReadOptions(
+                    GcsReadOptions.builder()
+                        .setSmallObjectCacheThresholdBytes(KB)
+                        .setFooterPrefetchEnabled(footerPrefetchEnabled)
+                        .setFooterPrefetchSizeSmallFile(100)
+                        .build())
+                .build())
+        .setGcsCacheOptions(
+            GcsCacheOptions.builder().setSmallObjectCacheEnabled(smallObjectCacheEnabled).build())
+        .setAnalyticsCoreTelemetryOptions(
+            TelemetryOptions.builder()
+                .setCustomTelemetryOptions(
+                    CustomTelemetryOptions.builder()
+                        .setOperationListeners(ImmutableList.of(listener))
+                        .build())
+                .build())
+        .build();
   }
 }
