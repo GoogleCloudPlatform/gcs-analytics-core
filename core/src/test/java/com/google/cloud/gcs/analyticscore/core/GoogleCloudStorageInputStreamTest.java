@@ -426,6 +426,48 @@ class GoogleCloudStorageInputStreamTest {
   }
 
   @Test
+  void read_consecutiveHighBytes_returnsUnsignedValuesAndAdvancesPosition() throws IOException {
+    byte[] data = new byte[] {(byte) 0xFE, (byte) 0xFF, 0x00};
+    int first;
+    int second;
+    int third;
+    long finalPos;
+
+    try (GcsFileSystem fs =
+            HermeticGcsFileSystem.create(ImmutableMap.of(testGcsItemId, data), fileSystemOptions);
+        GoogleCloudStorageInputStream stream = GoogleCloudStorageInputStream.create(fs, testUri)) {
+      first = stream.read();
+      second = stream.read();
+      third = stream.read();
+      finalPos = stream.getPos();
+    }
+
+    assertThat(first).isEqualTo(254);
+    assertThat(second).isEqualTo(255);
+    assertThat(third).isEqualTo(0);
+    assertThat(finalPos).isEqualTo(3L);
+  }
+
+  @Test
+  void read_singleByteAfterEofThenSeek_reusesBufferCleanly() throws IOException {
+    byte[] data = new byte[] {(byte) 0xFE, (byte) 0xFF, 0x00};
+    int eofResult;
+    int afterSeekResult;
+
+    try (GcsFileSystem fs =
+            HermeticGcsFileSystem.create(ImmutableMap.of(testGcsItemId, data), fileSystemOptions);
+        GoogleCloudStorageInputStream stream = GoogleCloudStorageInputStream.create(fs, testUri)) {
+      stream.seek(3L);
+      eofResult = stream.read();
+      stream.seek(1L);
+      afterSeekResult = stream.read();
+    }
+
+    assertThat(eofResult).isEqualTo(-1);
+    assertThat(afterSeekResult).isEqualTo(255);
+  }
+
+  @Test
   void read_byteArrayAtEOF_returnsMinusOneAndDoesNotUpdatePosition() throws IOException {
     googleCloudStorageInputStream = defaultGcsInputStream();
     googleCloudStorageInputStream.seek(fileSize);
