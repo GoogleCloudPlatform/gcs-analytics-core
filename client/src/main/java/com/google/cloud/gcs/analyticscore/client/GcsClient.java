@@ -114,7 +114,9 @@ public interface GcsClient {
    * Fetches folder metadata for HNS buckets.
    *
    * <p>{@code itemId} may name the folder with or without a trailing slash. The returned metadata
-   * always uses the directory form of the ID (ending in {@code /}).
+   * always uses the directory form of the ID (ending in {@code /}). Apart from a missing trailing
+   * slash, which is added, the folder name is sent as given: spaces next to a {@code /} are kept,
+   * and {@code a//} does not name the folder {@code a/}.
    *
    * @throws FileNotFoundException if {@code itemId} denotes a folder that does not exist
    * @throws IOException if the metadata cannot be fetched
@@ -252,9 +254,10 @@ public interface GcsClient {
    *
    * <p>This operation only applies to buckets with Hierarchical Namespace enabled. The server
    * renames the folder and everything under it atomically. Both IDs must be in the same bucket and
-   * may name the folder with or without a trailing slash. Any {@link
-   * GcsItemId#getContentGeneration()} on {@code srcFolderId} or {@code dstFolderId} is ignored, as
-   * GCS folders do not support content generations.
+   * may name the folder with or without a trailing slash; folder names are sent as given, as
+   * described in {@link #getFolderInfo(GcsItemId)}. Any {@link GcsItemId#getContentGeneration()} on
+   * {@code srcFolderId} or {@code dstFolderId} is ignored, as GCS folders do not support content
+   * generations.
    *
    * <p>This method blocks until the long-running rename operation finishes, polling with the client
    * library's default settings (currently the first poll within 5 seconds and up to 45 seconds
@@ -297,9 +300,9 @@ public interface GcsClient {
    * Deletes a single empty native folder in a Hierarchical Namespace (HNS) enabled bucket.
    *
    * <p>The folder must be empty: objects and subfolders under it are not deleted. {@code folderId}
-   * may name the folder with or without a trailing slash. Any {@link
-   * GcsItemId#getContentGeneration()} on {@code folderId} is ignored, as GCS folders do not support
-   * content generations.
+   * may name the folder with or without a trailing slash; the folder name is sent as given, as
+   * described in {@link #getFolderInfo(GcsItemId)}. Any {@link GcsItemId#getContentGeneration()} on
+   * {@code folderId} is ignored, as GCS folders do not support content generations.
    *
    * <p>Deleting a folder that does not exist is a no-op, so retries and concurrent deletes of the
    * same folder succeed. Callers that must report a missing path should check that it exists first.
@@ -346,7 +349,8 @@ public interface GcsClient {
    *
    * <p>The default implementation throws {@link UnsupportedOperationException}.
    *
-   * @param folderId the folder to delete, with or without a trailing slash
+   * @param folderId the folder to delete, with or without a trailing slash; the folder name is sent
+   *     as given, as described in {@link #getFolderInfo(GcsItemId)}
    * @throws IllegalArgumentException if {@code folderId} is not an object path (for example, a
    *     bucket or the root) or its folder name is empty
    * @throws AccessDeniedException if the request is unauthenticated or not permitted

@@ -130,6 +130,44 @@ class GoogleCloudStorageOutputStreamTest {
   }
 
   @Test
+  void createWithUri_percentEncodedUri_writesObjectWithDecodedName() throws IOException {
+    URI uri = URI.create("gs://" + TEST_BUCKET + "/dir/my%20report.txt");
+    GcsItemId decodedItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/my report.txt").build();
+
+    try (GoogleCloudStorageOutputStream stream =
+        GoogleCloudStorageOutputStream.create(fakeFileSystem, uri)) {
+      stream.write("data".getBytes(UTF_8));
+    }
+
+    GcsFileInfo fileInfo = fakeFileSystem.getFileInfoObject(decodedItemId);
+    assertThat(fileInfo.getItemInfo().getSize()).isEqualTo(4);
+  }
+
+  @Test
+  void createWithUri_uriWithFragment_throwsIllegalArgumentException() {
+    URI uri = URI.create("gs://" + TEST_BUCKET + "/a#b.txt");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> GoogleCloudStorageOutputStream.create(fakeFileSystem, uri));
+  }
+
+  @Test
+  void createWithUri_bucketUri_throwsIllegalArgumentException() {
+    URI bucketUri = URI.create("gs://" + TEST_BUCKET);
+
+    var exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GoogleCloudStorageOutputStream.create(fakeFileSystem, bucketUri));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo("Expected the URI of a GCS object but got: " + bucketUri);
+  }
+
+  @Test
   void createWithGcsFileInfo_initializesWriteSession_returnsStream() throws IOException {
     GcsItemInfo itemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(100).build();
     GcsFileInfo fileInfo =

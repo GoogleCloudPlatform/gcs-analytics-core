@@ -33,6 +33,10 @@ import java.util.concurrent.Executors;
 /**
  * Builds a {@link GcsFileSystem} whose {@link GcsClientImpl} is backed by {@link InMemoryStorage},
  * so tests and benchmarks drive the real HTTP read path without credentials or network access.
+ *
+ * <p>Listing is not modeled by {@link InMemoryStorage}: {@link GcsFileSystem#listFileInfo} returns
+ * existing objects, while listing a directory or a missing path throws {@link
+ * UnsupportedOperationException}.
  */
 public final class HermeticGcsFileSystem {
   // GcsClientImpl calls createStorage() from its constructor, before subclass fields exist.

@@ -1716,6 +1716,26 @@ class GcsClientImplTest {
                 .build());
   }
 
+  @ParameterizedTest
+  @MethodSource("verbatimFolderNames")
+  void getFolderInfo_folderName_sendsVerbatimResourceName(
+      String objectName, String expectedFolderName) throws IOException {
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.getFolder(any(GetFolderRequest.class)))
+        .thenReturn(Folder.getDefaultInstance());
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
+    GcsItemId folderId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(objectName).build();
+    GetFolderRequest expectedRequest =
+        GetFolderRequest.newBuilder()
+            .setName("projects/_/buckets/" + TEST_BUCKET_NAME + "/folders/" + expectedFolderName)
+            .build();
+
+    clientWithMockControl.getFolderInfo(folderId);
+
+    verify(mockControlClient).getFolder(expectedRequest);
+  }
+
   @Test
   void getFolderInfo_folderWithoutCreateOrUpdateTime_setsTimestampsToZero() throws IOException {
     GcsItemId folderItemId =
@@ -4879,7 +4899,7 @@ class GcsClientImplTest {
     assertThrows(IOException.class, () -> clientWithMockControl.createFolder(itemId, true));
   }
 
-  private static Stream<Arguments> deleteFolderVerbatimNames() {
+  private static Stream<Arguments> verbatimFolderNames() {
     return Stream.of(
         Arguments.of("dir", "dir/"),
         Arguments.of("dir/", "dir/"),
@@ -4893,7 +4913,7 @@ class GcsClientImplTest {
   }
 
   @ParameterizedTest
-  @MethodSource("deleteFolderVerbatimNames")
+  @MethodSource("verbatimFolderNames")
   void deleteFolder_folderName_sendsVerbatimResourceName(
       String objectName, String expectedFolderName) throws IOException {
     StorageControlClient mockControlClient = mock(StorageControlClient.class);
@@ -5120,7 +5140,7 @@ class GcsClientImplTest {
   }
 
   @ParameterizedTest
-  @MethodSource("deleteFolderVerbatimNames")
+  @MethodSource("verbatimFolderNames")
   void deleteFolderRecursive_folderName_sendsVerbatimResourceName(
       String objectName, String expectedFolderName) throws Exception {
     StorageControlClient mockControlClient = mock(StorageControlClient.class);

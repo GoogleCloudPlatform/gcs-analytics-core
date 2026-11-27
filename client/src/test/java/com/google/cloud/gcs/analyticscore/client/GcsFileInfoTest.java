@@ -16,6 +16,7 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.common.collect.ImmutableMap;
 import java.net.URI;
@@ -67,7 +68,7 @@ class GcsFileInfoTest {
             URI.create("gs://" + TEST_BUCKET + "/non-existent.txt")),
         Arguments.of(
             GcsItemId.builder().setBucketName(TEST_BUCKET).build(),
-            URI.create("gs://" + TEST_BUCKET)),
+            URI.create("gs://" + TEST_BUCKET + "/")),
         Arguments.of(
             GcsItemId.builder()
                 .setBucketName(TEST_BUCKET)
@@ -76,6 +77,32 @@ class GcsFileInfoTest {
                 .build(),
             URI.create("gs://" + TEST_BUCKET + "/non-existent.txt")),
         Arguments.of(GcsItemId.ROOT, GcsFileInfo.GCS_ROOT_URI));
+  }
+
+  @Test
+  void createNotFound_itemIdWithSpaceInObjectName_returnsPercentEncodedUri() {
+    GcsItemId itemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("a b.txt").build();
+
+    GcsFileInfo fileInfo = GcsFileInfo.createNotFound(itemId);
+
+    assertThat(fileInfo.getUri()).isEqualTo(URI.create("gs://" + TEST_BUCKET + "/a%20b.txt"));
+  }
+
+  @Test
+  void createNotFound_percentEncodedUri_hasDecodedObjectName() {
+    URI uri = URI.create("gs://" + TEST_BUCKET + "/a%20b.txt");
+
+    GcsFileInfo fileInfo = GcsFileInfo.createNotFound(uri);
+
+    assertThat(fileInfo.getItemInfo().getItemId().getObjectName()).hasValue("a b.txt");
+  }
+
+  @Test
+  void createNotFound_uriWithFragment_throwsIllegalArgumentException() {
+    URI uri = URI.create("gs://" + TEST_BUCKET + "/a#b.txt");
+
+    assertThrows(IllegalArgumentException.class, () -> GcsFileInfo.createNotFound(uri));
   }
 
   @Test

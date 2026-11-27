@@ -202,6 +202,31 @@ class GoogleCloudStorageOutputStreamIntegrationTest {
   }
 
   @Test
+  void write_percentEncodedUri_createsObjectWithDecodedNameThatTheSameUriReads() throws IOException {
+    String objectName = IntegrationTestHelper.getFolderName() + getRandomFileName("test file ", SUFFIX_TXT);
+    GcsItemId itemId = GcsItemId.builder().setBucketName(IntegrationTestHelper.BUCKET_NAME).setObjectName(objectName).build();
+    URI uri = itemId.toUri();
+    BlobId decodedNameBlobId = BlobId.of(IntegrationTestHelper.BUCKET_NAME, objectName);
+    // The object that a literal reading of the URI would name: it has "%20" in its name.
+    BlobId literalNameBlobId = BlobId.of(IntegrationTestHelper.BUCKET_NAME, uri.getRawPath().substring(1));
+    blobsToDelete.add(decodedNameBlobId);
+    blobsToDelete.add(literalNameBlobId);
+    byte[] readContent;
+
+    try (GoogleCloudStorageOutputStream outputStream = GoogleCloudStorageOutputStream.create(gcsFileSystem, uri)) {
+      outputStream.write(TEST_CONTENT);
+    }
+    try (GoogleCloudStorageInputStream inputStream = GoogleCloudStorageInputStream.create(gcsFileSystem, uri)) {
+      readContent = inputStream.readAllBytes();
+    }
+
+    assertThat(uri.getRawPath()).contains("test%20file%20");
+    assertThat(readContent).isEqualTo(TEST_CONTENT);
+    assertThat(IntegrationTestHelper.storage.readAllBytes(decodedNameBlobId)).isEqualTo(TEST_CONTENT);
+    assertThat(IntegrationTestHelper.storage.get(literalNameBlobId)).isNull();
+  }
+
+  @Test
   void write_withChecksumValidationEnabled_createsFileSuccessfully() throws IOException {
     TestFileContext ctx = createTestFileContext(FILE_PREFIX_TXT, SUFFIX_TXT);
     GcsWriteOptions writeOptions = GcsWriteOptions.builder()

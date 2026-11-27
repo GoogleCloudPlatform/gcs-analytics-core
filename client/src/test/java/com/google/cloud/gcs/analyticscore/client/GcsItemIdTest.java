@@ -16,7 +16,9 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.net.URI;
 import org.junit.jupiter.api.Test;
 
 class GcsItemIdTest {
@@ -227,5 +229,43 @@ class GcsItemIdTest {
   void toDirectoryId_bucket_returnsSameInstance() {
     GcsItemId bucketId = GcsItemId.builder().setBucketName(TEST_BUCKET).build();
     assertThat(bucketId.toDirectoryId()).isSameInstanceAs(bucketId);
+  }
+
+  @Test
+  void toUri_objectNameWithSpace_returnsPercentEncodedUri() {
+    GcsItemId gcsItemId =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/a b.txt").build();
+
+    URI uri = gcsItemId.toUri();
+
+    assertThat(uri.toString()).isEqualTo("gs://" + TEST_BUCKET + "/dir/a%20b.txt");
+  }
+
+  @Test
+  void fromUri_percentEncodedUri_returnsDecodedObjectName() {
+    URI uri = URI.create("gs://" + TEST_BUCKET + "/dir/a%20b.txt");
+
+    GcsItemId gcsItemId = GcsItemId.fromUri(uri);
+
+    assertThat(gcsItemId)
+        .isEqualTo(
+            GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("dir/a b.txt").build());
+  }
+
+  @Test
+  void fromUri_uriWithFragment_throwsIllegalArgumentException() {
+    URI uri = URI.create("gs://" + TEST_BUCKET + "/a#b.txt");
+
+    assertThrows(IllegalArgumentException.class, () -> GcsItemId.fromUri(uri));
+  }
+
+  @Test
+  void fromUri_nullUri_throwsNullPointerException() {
+    assertThrows(NullPointerException.class, () -> GcsItemId.fromUri(null));
+  }
+
+  @Test
+  void signatures_doNotExposeGuavaTypes() {
+    ApiSignatureTestUtils.assertNoGuavaTypesInSignatures(GcsItemId.class, GcsItemId.Builder.class);
   }
 }

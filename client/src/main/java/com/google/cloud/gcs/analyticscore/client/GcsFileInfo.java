@@ -40,7 +40,16 @@ public abstract class GcsFileInfo {
 
   public abstract GcsItemInfo getItemInfo();
 
-  /** Gets the path of this file or directory. */
+  /**
+   * Gets the {@code gs://} URI of this file or directory.
+   *
+   * <p>The URIs that this library builds are {@code gs:/} for the root, {@code gs://bucket/} for a
+   * bucket, and {@code gs://bucket/object} otherwise. In them, the characters of the object name
+   * that are not legal in a URI path are percent-encoded, always including {@code %}, {@code ?} and
+   * {@code #}: the object {@code a b.txt} has the URI {@code gs://bucket/a%20b.txt}. {@link
+   * URI#getPath()} returns the decoded name after a leading {@code /}; {@link #getItemInfo()} has
+   * the name as well.
+   */
   public abstract URI getUri();
 
   /**
@@ -55,8 +64,20 @@ public abstract class GcsFileInfo {
     return getItemInfo().exists();
   }
 
+  /**
+   * Creates a not-found {@link GcsFileInfo} for the given {@code gs://} URI.
+   *
+   * <p>{@code uri} is parsed as in {@link GcsItemId#fromUri(URI)} (its path is percent-decoded) and
+   * stored as-is for {@link #getUri()}.
+   *
+   * @param uri the {@code gs://} URI of the missing item
+   * @return a {@link GcsFileInfo} whose {@link #exists()} is {@code false}
+   * @throws NullPointerException if {@code uri} is {@code null}
+   * @throws IllegalArgumentException if {@code uri} is not a valid {@code gs://} URI or has a query
+   *     or a fragment
+   */
   public static GcsFileInfo createNotFound(URI uri) {
-    GcsItemId itemId = UriUtil.getItemIdFromString(uri.toString());
+    GcsItemId itemId = UriUtil.getItemIdFromUri(uri);
     return builder()
         .setItemInfo(GcsItemInfo.createNotFound(itemId))
         .setUri(uri)
@@ -64,10 +85,19 @@ public abstract class GcsFileInfo {
         .build();
   }
 
+  /**
+   * Creates a not-found {@link GcsFileInfo} for the given {@link GcsItemId}, building {@link
+   * #getUri()} as in {@link GcsItemId#toUri()}.
+   *
+   * @param itemId the identifier of the missing item
+   * @return a {@link GcsFileInfo} whose {@link #exists()} is {@code false}
+   * @throws NullPointerException if {@code itemId} is {@code null}
+   * @throws IllegalArgumentException if the bucket name can't be the authority of a URI
+   */
   public static GcsFileInfo createNotFound(GcsItemId itemId) {
     return builder()
         .setItemInfo(GcsItemInfo.createNotFound(itemId))
-        .setUri(URI.create(UriUtil.getStringPath(itemId)))
+        .setUri(UriUtil.toUri(itemId))
         .setAttributes(ImmutableMap.of())
         .build();
   }

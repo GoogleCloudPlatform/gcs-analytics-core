@@ -24,7 +24,6 @@ import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConsta
 import com.google.cloud.gcs.analyticscore.core.channel.SmartReadChannel;
 import com.google.cloud.gcs.analyticscore.core.optimizer.GcsFooterOptimizer;
 import com.google.cloud.gcs.analyticscore.core.optimizer.SmallObjectOptimizer;
-import com.google.cloud.storage.BlobId;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import java.io.EOFException;
@@ -88,11 +87,7 @@ public class GoogleCloudStorageInputStream extends SeekableInputStream {
       @Nonnull GcsFileSystem gcsFileSystem,
       @Nonnull VectoredSeekableByteChannel channel,
       @Nonnull GcsItemId itemId) {
-    this(
-        gcsFileSystem,
-        channel,
-        URI.create(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get()).toGsUtilUri()),
-        itemId);
+    this(gcsFileSystem, channel, itemId.toUri(), itemId);
   }
 
   private GoogleCloudStorageInputStream(

@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,5 +55,30 @@ final class HierarchicalNamespaceStrategyImpl implements NamespaceStrategy {
     // In HNS buckets, directories are always native folder resources; pass the ID as given so a
     // not-found error names the path the caller asked for, as in FlatNamespaceStrategyImpl.
     return gcsClient.getFolderInfo(id);
+  }
+
+  /**
+   * Lists the folder with {@link GcsListOptions#LIST_DIRECTORY_HNS}, which also returns child
+   * folders as prefixes. An empty folder lists nothing, so when nothing is listed for an object
+   * path, {@link GcsClient#getFolderInfo} checks that the folder exists.
+   */
+  @Override
+  public GcsListPage<GcsItemInfo> listDirectoryFirstPage(GcsItemId id) throws IOException {
+    checkNotNull(id, "Item ID must not be null.");
+    return DirectoryListing.listFirstPage(gcsClient, id, GcsListOptions.LIST_DIRECTORY_HNS);
+  }
+
+  @Override
+  public List<GcsItemInfo> completeDirectoryListing(
+      GcsItemId id, GcsListPage<GcsItemInfo> firstPage) throws IOException {
+    checkNotNull(id, "Item ID must not be null.");
+    DirectoryListing listing =
+        DirectoryListing.listFromFirstPage(
+            gcsClient, id, GcsListOptions.LIST_DIRECTORY_HNS, firstPage);
+    if (!listing.isDirectoryFound() && id.isGcsObject()) {
+      // Throws FileNotFoundException naming id if the folder does not exist.
+      gcsClient.getFolderInfo(id);
+    }
+    return listing.getChildren();
   }
 }

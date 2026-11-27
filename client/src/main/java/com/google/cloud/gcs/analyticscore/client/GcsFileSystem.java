@@ -18,10 +18,12 @@ package com.google.cloud.gcs.analyticscore.client;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.net.URI;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileAlreadyExistsException;
+import java.util.List;
 
 public interface GcsFileSystem extends AutoCloseable {
 
@@ -51,8 +53,18 @@ public interface GcsFileSystem extends AutoCloseable {
   /**
    * Gets metadata for the given path, which may be an object, a directory, a bucket or the root.
    *
+   * <p>As in hadoop-connectors, the bucket is the authority of {@code path} and the object name is
+   * its percent-decoded path ({@link URI#getPath()}) without the leading {@code /}: {@code
+   * gs://bucket/a%20b.txt} names the object {@code a b.txt}. In an object name, write {@code %} as
+   * {@code %25}, {@code ?} as {@code %3F} and {@code #} as {@code %23}; {@link GcsItemId#toUri()}
+   * builds such a URI from a name.
+   *
    * @param path the {@code gs://} path to look up
-   * @return metadata for the item at {@code path}
+   * @return metadata for the item at {@code path}; its {@link GcsFileInfo#getUri() URI} is built
+   *     from the name of the item, so it can differ from {@code path} in form (the URI of a bucket
+   *     always ends with {@code /})
+   * @throws IllegalArgumentException if {@code path} is not a valid {@code gs://} URI (for example,
+   *     {@code gs:///} or consecutive slashes), or if it has a query or a fragment
    * @throws FileNotFoundException if nothing exists at {@code path}
    * @throws IOException if the metadata cannot be fetched
    */
@@ -73,12 +85,14 @@ public interface GcsFileSystem extends AutoCloseable {
    *
    * <p>Unlike {@link #getFileInfo(URI)}, this sends a single object metadata request and never
    * infers a directory. Use it when only an object is acceptable, for example before opening a file
-   * for reading.
+   * for reading. {@code path} is parsed as in {@link #getFileInfo(URI)}: its path is
+   * percent-decoded.
    *
    * @param path the {@code gs://} path of the object to look up
    * @return metadata for the object at {@code path}
    * @throws IllegalArgumentException if {@code path} is the root, a bucket or a directory path
-   *     (ending in {@code /})
+   *     (ending in {@code /}), or is not a valid {@code gs://} URI as described in {@link
+   *     #getFileInfo(URI)}
    * @throws FileNotFoundException if no object exists at {@code path}
    * @throws IOException if the metadata cannot be fetched
    */
@@ -99,6 +113,93 @@ public interface GcsFileSystem extends AutoCloseable {
    * @throws IOException if the metadata cannot be fetched
    */
   GcsFileInfo getFileInfoObject(GcsItemId itemId) throws IOException;
+
+  /**
+   * Lists the object, or the immediate children of the directory or bucket, at the given {@code
+   * gs://} path.
+   *
+   * <p>Semantics follow {@link #listFileInfo(GcsItemId)}. {@code path} is parsed as in {@link
+   * #getFileInfo(URI)}: its path is percent-decoded.
+   *
+   * <p>The default implementation parses {@code path} and calls {@link #listFileInfo(GcsItemId)}.
+   *
+   * @param path the {@code gs://} path of the object, directory or bucket to list
+   * @return an unmodifiable list of the listed items, as described in {@link
+   *     #listFileInfo(GcsItemId)}
+   * @throws IllegalArgumentException if {@code path} is not a valid {@code gs://} URI (for example,
+   *     {@code gs:///} or consecutive slashes), or if it has a query or a fragment
+   * @throws FileNotFoundException if neither an object nor a directory exists at {@code path}, or
+   *     if the bucket does not exist
+   * @throws AccessDeniedException if the caller lacks permission to read or list {@code path}
+   * @throws UnsupportedOperationException if {@code path} is the root ({@code gs:/}), or if this
+   *     implementation does not support {@link #listFileInfo(GcsItemId)}
+   * @throws InterruptedIOException if the calling thread is interrupted when this method is called
+   *     (no request is sent), before a page of the listing is requested, or while it waits for the
+   *     background listing (in all three cases, its interrupt status stays set), or if {@link
+   *     #close()} interrupts a running background listing (the calling thread's interrupt status is
+   *     not set)
+   * @throws IOException if the object, bucket, folder or listing request fails
+   */
+  default List<GcsFileInfo> listFileInfo(URI path) throws IOException {
+    return listFileInfo(UriUtil.getItemIdFromUri(path));
+  }
+
+  /**
+   * Lists the given object, or the immediate children of the given directory or bucket.
+   *
+   * <p>If {@code itemId} names an existing object (its object name does not end in {@code /}), the
+   * result holds only that object, even if a directory with the same name also exists. Otherwise
+   * {@code itemId} is listed as a directory, and the result holds its immediate children:
+   *
+   * <ul>
+   *   <li>Objects, including the placeholder objects of subdirectories (such as {@code dir/sub/}).
+   *   <li>Subdirectories without a placeholder object, as {@link
+   *       GcsItemInfo.ItemType#INFERRED_DIRECTORY} items. These are implicit directories and, on
+   *       hierarchical namespace (HNS) buckets, folders. Such items have no timestamps; use {@link
+   *       #getFileInfo(GcsItemId)} for the metadata of a folder.
+   * </ul>
+   *
+   * <p>The placeholder object of the listed directory itself is not returned, so an existing empty
+   * directory or bucket gives an empty list. The children are sorted by {@link
+   * GcsFileInfo#getUri()}: shorter URI strings first, then in lexicographic order. Each item's URI
+   * holds its object name percent-encoded where needed (for example, a space as {@code %20}), as
+   * described in {@link GcsFileInfo#getUri()}.
+   *
+   * <p>A bucket is listed as an HNS bucket only when {@link GcsFileSystemOptions#isHnsApiEnabled()}
+   * is {@code true} and the bucket metadata lookup ({@code storage.buckets.get}) succeeds; {@code
+   * 401}/{@code 403} falls back to flat. When an HNS bucket is listed as a flat bucket, a folder
+   * with no objects under it is not returned, and listing such a folder throws {@link
+   * FileNotFoundException}.
+   *
+   * <p>Listing the root, which means listing buckets, is not supported. Calling this method during
+   * or after {@link #close()} has implementation-defined behavior: on {@link GcsFileSystemImpl},
+   * object-form paths fail with {@link java.util.concurrent.RejectedExecutionException} once the
+   * status executor shuts down, while directory and bucket paths do not use that executor.
+   *
+   * <p>The default implementation throws {@link UnsupportedOperationException}, so that
+   * implementations written against earlier versions of this interface keep compiling; {@link
+   * GcsFileSystemImpl} overrides it.
+   *
+   * @param itemId the object, directory or bucket to list; any content generation is ignored
+   * @return an unmodifiable list with the object, or with the children of the directory or bucket
+   * @throws IllegalArgumentException if {@code itemId} has an empty bucket name with a non-empty
+   *     object name, or if the bucket name can't be the authority of a URI
+   * @throws FileNotFoundException if neither an object nor a directory exists at {@code itemId}, or
+   *     if the bucket does not exist
+   * @throws AccessDeniedException if the caller lacks permission to read or list {@code itemId}
+   * @throws UnsupportedOperationException if {@code itemId} is the root, or if this implementation
+   *     does not support listing
+   * @throws InterruptedIOException if the calling thread is interrupted when this method is called
+   *     (no request is sent), before a page of the listing is requested, or while it waits for the
+   *     background listing (in all three cases, its interrupt status stays set), or if {@link
+   *     #close()} interrupts a running background listing (the calling thread's interrupt status is
+   *     not set)
+   * @throws IOException if the object, bucket, folder or listing request fails
+   */
+  default List<GcsFileInfo> listFileInfo(GcsItemId itemId) throws IOException {
+    throw new UnsupportedOperationException(
+        "listFileInfo is not supported by " + getClass().getName());
+  }
 
   /** Retrieve the options that were used to create this GcsFileSystem. */
   GcsFileSystemOptions getFileSystemOptions();
@@ -130,16 +231,15 @@ public interface GcsFileSystem extends AutoCloseable {
    * Creates the target directory or bucket (and any missing parent folders on hierarchical
    * namespace buckets) at the specified {@code gs://} URI.
    *
-   * <p>Semantics follow {@link #mkdirs(GcsItemId)}. Consistent with {@link #getFileInfo(URI)} and
-   * {@link #open(GcsFileInfo, GcsReadOptions)}, {@code path.toString()} is parsed literally without
-   * percent-decoding; callers with object names containing spaces or pre-decoded characters should
-   * construct a {@link GcsItemId} and call {@link #mkdirs(GcsItemId)} instead.
+   * <p>Semantics follow {@link #mkdirs(GcsItemId)}. {@code path} is parsed as in {@link
+   * #getFileInfo(URI)}: its path is percent-decoded, so {@code gs://bucket/a%20b/} creates the
+   * directory {@code a b/}.
    *
    * <p>The default implementation parses {@code path} and calls {@link #mkdirs(GcsItemId)}.
    *
    * @param path the {@code gs://} URI of the directory or bucket to create
    * @throws IllegalArgumentException if {@code path} is not a valid {@code gs://} URI (for example,
-   *     {@code gs:///} or consecutive slashes)
+   *     {@code gs:///} or consecutive slashes), or if it has a query or a fragment
    * @throws FileNotFoundException if creating a directory inside a bucket that does not exist
    * @throws FileAlreadyExistsException if an object already exists at a path prefix (when {@link
    *     GcsFileSystemOptions#isCreateItemsConflictCheckEnabled()} is {@code true}) or a non-empty
