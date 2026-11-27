@@ -16,6 +16,8 @@
 
 package com.google.cloud.gcs.analyticscore.client;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobWriteSession;
 import com.google.cloud.storage.StorageException;
@@ -24,7 +26,6 @@ import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.WritableByteChannel;
-import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
@@ -56,6 +57,7 @@ public class GcsWriteChannel implements WritableByteChannel {
 
   @Override
   public int write(ByteBuffer src) throws IOException {
+    checkNotNull(src, "src cannot be null");
     // Read the delegate exactly once. A concurrent close() nulls the field, and re-reading it
     // after the open check would surface an untranslated NullPointerException instead of the
     // documented ClosedChannelException.
@@ -84,8 +86,9 @@ public class GcsWriteChannel implements WritableByteChannel {
 
   @Override
   public boolean isOpen() {
-    return !closed
-        && Optional.ofNullable(sdkWriteChannel).map(WritableByteChannel::isOpen).orElse(false);
+    // Snapshot so the null check guards the same reference that isOpen() is invoked on.
+    WritableByteChannel channel = sdkWriteChannel;
+    return !closed && channel != null && channel.isOpen();
   }
 
   @Override
@@ -109,6 +112,9 @@ public class GcsWriteChannel implements WritableByteChannel {
           "Thread interrupted waiting for upload finalization: " + e.getMessage());
     } catch (ExecutionException e) {
       Throwable cause = e.getCause();
+      if (cause instanceof Error) {
+        throw (Error) cause;
+      }
       if (cause instanceof StorageException || cause instanceof IOException) {
         throw handleException((Exception) cause, "close");
       }

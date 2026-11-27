@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
 import com.google.api.core.ApiFuture;
+import com.google.api.core.ApiFutures;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.BlobWriteSession;
@@ -539,6 +540,40 @@ class GcsWriteChannelTest {
     channel.close();
 
     verify(mockChannel).close();
+    assertThat(channel.isOpen()).isFalse();
+  }
+
+  @Test
+  void write_nullBuffer_throwsNullPointerException() throws Exception {
+    try (GcsWriteChannel channel = createChannel(mockChannel, blobInfo, writeOptions)) {
+      NullPointerException thrown =
+          assertThrows(NullPointerException.class, () -> channel.write(null));
+
+      assertThat(thrown).hasMessageThat().isEqualTo("src cannot be null");
+    }
+  }
+
+  @Test
+  void write_nullBufferAfterClose_throwsNullPointerException() throws Exception {
+    try (GcsWriteChannel channel = createChannel(mockChannel, blobInfo, writeOptions)) {
+      channel.close();
+
+      NullPointerException thrown =
+          assertThrows(NullPointerException.class, () -> channel.write(null));
+
+      assertThat(thrown).hasMessageThat().isEqualTo("src cannot be null");
+    }
+  }
+
+  @Test
+  void close_whenFutureFailsWithError_propagatesError() {
+    OutOfMemoryError fatalError = new OutOfMemoryError("simulated OOM in upload thread");
+    when(mockSession.getResult()).thenReturn(ApiFutures.immediateFailedFuture(fatalError));
+    GcsWriteChannel channel = createChannel(mockChannel, blobInfo, writeOptions);
+
+    OutOfMemoryError thrown = assertThrows(OutOfMemoryError.class, channel::close);
+
+    assertThat(thrown).isSameInstanceAs(fatalError);
     assertThat(channel.isOpen()).isFalse();
   }
 }
