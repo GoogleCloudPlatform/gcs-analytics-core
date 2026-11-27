@@ -468,10 +468,19 @@ public final class PrefetchBufferCache {
       List<CompletableFuture<ByteBuffer>> slices, int length, IntFunction<ByteBuffer> allocate) {
     ByteBuffer target = allocate.apply(length);
     checkArgument(target != null, "Buffer allocation returned null for %s bytes", length);
+    int remaining = target.remaining();
+    checkArgument(
+        remaining >= length,
+        "Allocated buffer has %s bytes remaining, but %s bytes are required",
+        remaining,
+        length);
+    int startPosition = target.position();
+    target.limit(startPosition + length);
     for (CompletableFuture<ByteBuffer> slice : slices) {
       target.put(slice.join());
     }
-    target.flip();
+    target.limit(target.position());
+    target.position(startPosition);
     return target;
   }
 
@@ -486,9 +495,11 @@ public final class PrefetchBufferCache {
 
   @Nullable
   private static Entry findCovering(ItemState state, long offset, int length) {
+    if (offset > Long.MAX_VALUE - length) {
+      return null;
+    }
     Entry selected = selectEntry(state, offset, length);
-    boolean covers =
-        selected != null && selected.key.getEndOffset() >= LongMath.saturatedAdd(offset, length);
+    boolean covers = selected != null && selected.key.getEndOffset() >= offset + length;
     return covers ? selected : null;
   }
 
@@ -621,6 +632,11 @@ public final class PrefetchBufferCache {
         CompletableFuture<ByteBuffer> future,
         Runnable promotionAction) {
       checkArgument(length > 0, "length %s must be positive", length);
+      checkArgument(
+          startOffset <= Long.MAX_VALUE - length,
+          "range [%s, +%s) overflows Long.MAX_VALUE",
+          startOffset,
+          length);
       CachedRange range =
           CachedRange.create(startOffset, startOffset + length, future, promotionAction);
       return offer(new Entry(itemId, range, nanoClock.getAsLong()), closed);

@@ -510,6 +510,26 @@ class PrefetchBufferCacheTest {
   }
 
   @Test
+  void registerRange_maxRepresentableRange_returnsTrue() {
+    RegisteredStream stream = newCache().registerStream(itemId("object"));
+
+    boolean registered = registerInFlight(stream, Long.MAX_VALUE - 4, 4);
+
+    assertThat(registered).isTrue();
+  }
+
+  @Test
+  void registerRange_offsetPlusLengthOverflows_throwsIllegalArgumentException() {
+    RegisteredStream stream = newCache().registerStream(itemId("object"));
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> registerInFlight(stream, Long.MAX_VALUE - 2, 4));
+
+    assertThat(exception).hasMessageThat().contains("overflows Long.MAX_VALUE");
+  }
+
+  @Test
   void registerRange_unregisteredRange_returnsTrue() {
     RegisteredStream stream = newCache().registerStream(itemId("object"));
 
@@ -801,6 +821,22 @@ class PrefetchBufferCacheTest {
     registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
 
     assertThat(cache.isCovered(itemId("object"), Long.MAX_VALUE, 10)).isFalse();
+  }
+
+  @Test
+  void isCovered_rangeEndingAtLongMaxValue_queryBeyondEnd_returnsFalse() {
+    PrefetchBufferCache cache = newCache();
+    registerInFlight(cache.registerStream(itemId("object")), Long.MAX_VALUE - 4, 4);
+
+    assertThat(cache.isCovered(itemId("object"), Long.MAX_VALUE - 4, 8)).isFalse();
+  }
+
+  @Test
+  void isCovered_rangeEndingAtLongMaxValue_exactQuery_returnsTrue() {
+    PrefetchBufferCache cache = newCache();
+    registerInFlight(cache.registerStream(itemId("object")), Long.MAX_VALUE - 4, 4);
+
+    assertThat(cache.isCovered(itemId("object"), Long.MAX_VALUE - 4, 4)).isTrue();
   }
 
   @Test
@@ -1427,6 +1463,45 @@ class PrefetchBufferCacheTest {
   }
 
   @Test
+  void serveVectoredFromCache_undersizedBufferRemaining_failsWithIllegalArgumentException() {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    GcsObjectRange range = vectoredRange(FIRST_RANGE_OFFSET, 4);
+
+    serveVectored(cache, length -> ByteBuffer.allocate(length + 8).position(9), range);
+
+    ExecutionException thrown =
+        assertThrows(ExecutionException.class, () -> range.getByteBufferFuture().get());
+    assertThat(thrown).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
+    assertThat(thrown).hasCauseThat().hasMessageThat().contains("bytes remaining");
+  }
+
+  @Test
+  void serveVectoredFromCache_nonZeroPositionAndExcessLimitSlabBuffer_preservesSliceBounds() {
+    PrefetchBufferCache cache = newCache();
+    RegisteredStream stream = cache.registerStream(itemId("object"));
+    registerCompleted(stream, FIRST_RANGE_OFFSET, FIRST_RANGE);
+    registerCompleted(stream, SECOND_RANGE_OFFSET, SECOND_RANGE);
+    byte[] slabBytes = new byte[512];
+    Arrays.fill(slabBytes, (byte) 0x5A);
+    ByteBuffer slab = ByteBuffer.wrap(slabBytes);
+    slab.position(16);
+    slab.limit(512);
+    GcsObjectRange range = vectoredRange(FIRST_RANGE_OFFSET, COMBINED_RANGES.length);
+    byte[] expectedSlab = new byte[512];
+    Arrays.fill(expectedSlab, (byte) 0x5A);
+    System.arraycopy(COMBINED_RANGES, 0, expectedSlab, 16, COMBINED_RANGES.length);
+
+    serveVectored(cache, length -> slab, range);
+    ByteBuffer result = range.getByteBufferFuture().join();
+
+    assertThat(result.position()).isEqualTo(16);
+    assertThat(result.limit()).isEqualTo(16 + COMBINED_RANGES.length);
+    assertThat(result.remaining()).isEqualTo(COMBINED_RANGES.length);
+    assertThat(slabBytes).isEqualTo(expectedSlab);
+  }
+
+  @Test
   void serveVectoredFromCache_allocatorThrows_failsRangeWithThatException() {
     PrefetchBufferCache cache = newCache();
     registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
@@ -1542,6 +1617,42 @@ class PrefetchBufferCacheTest {
     download.complete(bufferOf(FIRST_RANGE));
 
     assertThat(allocations.get()).isEqualTo(0);
+  }
+
+  @Test
+  void serveVectoredFromCache_rangeCancelledDuringAllocation_recordsNoCacheHit() {
+    RecordingOperationListener listener = new RecordingOperationListener();
+    PrefetchBufferCache cache = newCache(listener);
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    GcsObjectRange range = vectoredRange(FIRST_RANGE_OFFSET, 4);
+
+    serveVectored(
+        cache,
+        length -> {
+          range.getByteBufferFuture().cancel(false);
+          return ByteBuffer.allocate(length);
+        },
+        range);
+
+    assertThat(listener.getTotal(GcsAnalyticsCoreTelemetryConstants.Metric.PREFETCH_CACHE_HIT))
+        .isEqualTo(0);
+  }
+
+  @Test
+  void serveVectoredFromCache_rangeCancelledDuringAllocation_keepsCachedRange() {
+    PrefetchBufferCache cache = newCache();
+    registerCompleted(cache.registerStream(itemId("object")), FIRST_RANGE_OFFSET, FIRST_RANGE);
+    GcsObjectRange range = vectoredRange(FIRST_RANGE_OFFSET, 4);
+
+    serveVectored(
+        cache,
+        length -> {
+          range.getByteBufferFuture().cancel(false);
+          return ByteBuffer.allocate(length);
+        },
+        range);
+
+    assertThat(cache.isCovered(itemId("object"), FIRST_RANGE_OFFSET, 4)).isTrue();
   }
 
   @Test
@@ -1836,6 +1947,9 @@ class PrefetchBufferCacheTest {
   private static Stream<Named<IntFunction<ByteBuffer>>> failingAllocators() {
     return Stream.of(
         Named.of("returns null", length -> null),
+        Named.of(
+            "returns undersized remaining buffer",
+            length -> ByteBuffer.allocate(length + 8).position(9)),
         Named.of(
             "throws",
             length -> {

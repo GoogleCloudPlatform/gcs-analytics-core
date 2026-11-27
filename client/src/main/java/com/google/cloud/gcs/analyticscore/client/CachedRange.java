@@ -23,6 +23,7 @@ import static com.google.common.base.Preconditions.checkState;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.TreeRangeSet;
+import com.google.common.math.LongMath;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -118,7 +119,7 @@ public final class CachedRange {
    */
   synchronized int recordBytesConsumed(long offset, int length) {
     long from = Math.max(offset, startOffset);
-    long to = Math.min(offset + length, endOffset);
+    long to = Math.min(LongMath.saturatedAdd(offset, length), endOffset);
     if (from >= to) {
       return 0;
     }
