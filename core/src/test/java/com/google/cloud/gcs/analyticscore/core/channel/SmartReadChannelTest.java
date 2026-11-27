@@ -34,14 +34,18 @@ import com.google.cloud.gcs.analyticscore.client.GcsFileInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsItemInfo;
 import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
+import com.google.cloud.gcs.analyticscore.client.GcsReadOptions;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
+import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.gcs.analyticscore.core.optimizer.FormatOptimizer;
+import com.google.cloud.gcs.analyticscore.core.optimizer.GcsFooterOptimizer;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.IntFunction;
 import org.junit.jupiter.api.BeforeEach;
@@ -309,6 +313,44 @@ class SmartReadChannelTest {
     smartChannel.readVectored(ranges, allocate);
 
     verify(mockDelegate).readVectored(ranges, allocate);
+  }
+
+  @Test
+  void readVectored_footerWindowRangesWithCachedFooter_doesNotCallDelegate() throws Exception {
+    GcsItemId parquetItemId =
+        GcsItemId.builder().setBucketName("b").setObjectName("o.parquet").build();
+    GcsFileInfo parquetFileInfo =
+        FILE_INFO.toBuilder()
+            .setItemInfo(GcsItemInfo.builder().setItemId(parquetItemId).setSize(1000).build())
+            .build();
+    GcsReadOptions readOptions =
+        GcsReadOptions.builder()
+            .setFooterPrefetchEnabled(true)
+            .setFooterPrefetchSizeSmallFile(100)
+            .build();
+    byte[] footer = new byte[100];
+    footer[90] = 42; // byte at object position 990
+    when(mockCacheManager.getFooterIfPresent(parquetItemId))
+        .thenReturn(Optional.of(ByteBuffer.wrap(footer)));
+    SmartReadChannel smartChannel =
+        SmartReadChannel.builder()
+            .setDelegate(mockDelegate)
+            .setItemId(parquetItemId)
+            .setFileInfo(parquetFileInfo)
+            .setCacheManager(mockCacheManager)
+            .addOptimizer(new GcsFooterOptimizer(readOptions, new Telemetry(ImmutableList.of())))
+            .build();
+    GcsObjectRange tailRange =
+        GcsObjectRange.builder()
+            .setOffset(990)
+            .setLength(10)
+            .setByteBufferFuture(new CompletableFuture<>())
+            .build();
+
+    smartChannel.readVectored(ImmutableList.of(tailRange), ByteBuffer::allocate);
+
+    verify(mockDelegate, never()).readVectored(any(), any());
+    assertThat(tailRange.getByteBufferFuture().get().get(0)).isEqualTo((byte) 42);
   }
 
   @Test
