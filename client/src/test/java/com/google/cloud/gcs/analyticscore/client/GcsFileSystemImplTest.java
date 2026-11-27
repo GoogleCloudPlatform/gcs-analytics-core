@@ -2444,6 +2444,27 @@ class GcsFileSystemImplTest {
     assertThat(e).hasMessageThat().contains("itemId should not be null");
   }
 
+  private static Stream<GcsItemId> nonObjectItemIds() {
+    return Stream.of(
+        GcsItemId.ROOT,
+        GcsItemId.builder().setBucketName(TEST_BUCKET).build(),
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("").build(),
+        GcsItemId.builder().setBucketName("").setObjectName(TEST_OBJECT).build());
+  }
+
+  @ParameterizedTest
+  @MethodSource("nonObjectItemIds")
+  void create_nonObjectItemId_throwsIllegalArgumentException(GcsItemId itemId) {
+    GcsWriteOptions writeOptions = GcsWriteOptions.builder().build();
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class, () -> gcsFileSystem.create(itemId, writeOptions));
+
+    assertThat(e).hasMessageThat().contains("Expected GCS object to be provided");
+    verifyNoInteractions(mockClient);
+  }
+
   @Test
   void create_nullWriteOptions_delegatesToClientWithNullOptions() throws IOException {
     GcsItemId itemId =

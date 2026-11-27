@@ -1589,10 +1589,9 @@ class GcsClientImpl implements GcsClient {
 
   private static BlobInfo createBlobInfo(GcsItemId itemId, GcsWriteOptions writeOptions) {
     checkNotNull(itemId, "itemId should not be null");
-    String objectName =
-        itemId
-            .getObjectName()
-            .orElseThrow(() -> new IllegalArgumentException("Object name must be present"));
+    checkArgument(!itemId.getBucketName().isEmpty(), "Bucket name must not be empty: %s", itemId);
+    String objectName = itemId.getObjectName().orElse("");
+    checkArgument(!objectName.isEmpty(), "Object name must be present: %s", itemId);
     BlobId blobId =
         itemId
             .getContentGeneration()

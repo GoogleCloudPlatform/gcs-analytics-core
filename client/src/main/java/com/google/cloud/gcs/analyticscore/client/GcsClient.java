@@ -42,6 +42,7 @@ public interface GcsClient {
    * @param itemId the identity of the GCS object to be created
    * @param options configuration options for controlling upload strategies and integrity checks
    * @return a channel for writing data to the newly created object
+   * @throws IllegalArgumentException if {@code itemId} does not represent a GCS object
    * @throws IOException if an I/O error occurs during channel initialization or translation
    */
   WritableByteChannel createWriteChannel(GcsItemId itemId, GcsWriteOptions options)
