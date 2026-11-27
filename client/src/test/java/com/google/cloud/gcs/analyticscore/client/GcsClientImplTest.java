@@ -1720,19 +1720,26 @@ class GcsClientImplTest {
   @MethodSource("verbatimFolderNames")
   void getFolderInfo_folderName_sendsVerbatimResourceName(
       String objectName, String expectedFolderName) throws IOException {
-    StorageControlClient mockControlClient = mock(StorageControlClient.class);
-    when(mockControlClient.getFolder(any(GetFolderRequest.class)))
-        .thenReturn(Folder.getDefaultInstance());
-    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
     GcsItemId folderId =
         GcsItemId.builder().setBucketName(TEST_BUCKET_NAME).setObjectName(objectName).build();
     GetFolderRequest expectedRequest =
         GetFolderRequest.newBuilder()
             .setName("projects/_/buckets/" + TEST_BUCKET_NAME + "/folders/" + expectedFolderName)
             .build();
+    StorageControlClient mockControlClient = mock(StorageControlClient.class);
+    when(mockControlClient.getFolder(expectedRequest))
+        .thenReturn(createMockFolder(TEST_BUCKET_NAME, expectedFolderName));
+    GcsClientImpl clientWithMockControl = createClientWithMockControl(mockControlClient);
 
-    clientWithMockControl.getFolderInfo(folderId);
+    GcsItemInfo itemInfo = clientWithMockControl.getFolderInfo(folderId);
 
+    assertThat(itemInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
+    assertThat(itemInfo.getItemId())
+        .isEqualTo(
+            GcsItemId.builder()
+                .setBucketName(TEST_BUCKET_NAME)
+                .setObjectName(expectedFolderName)
+                .build());
     verify(mockControlClient).getFolder(expectedRequest);
   }
 
@@ -4909,7 +4916,9 @@ class GcsClientImplTest {
         Arguments.of("a/ b/", "a/ b/"),
         Arguments.of(" /", " /"),
         Arguments.of("   ", "   /"),
-        Arguments.of("x//", "x//"));
+        Arguments.of("x//", "x//"),
+        Arguments.of("a//b", "a//b/"),
+        Arguments.of("//", "//"));
   }
 
   @ParameterizedTest

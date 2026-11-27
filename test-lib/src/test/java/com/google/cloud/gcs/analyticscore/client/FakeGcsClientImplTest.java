@@ -625,6 +625,44 @@ class FakeGcsClientImplTest {
   }
 
   @Test
+  void getFolderInfo_folderWithSpaces_returnsFolderInfo() throws IOException {
+    String bucketName = "hns-get-space-bucket";
+    fakeGcsClient.createFolder(id(bucketName, " a / b /"), true);
+
+    GcsItemInfo folderInfo = fakeGcsClient.getFolderInfo(id(bucketName, " a / b "));
+
+    assertThat(folderInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
+    assertThat(folderInfo.getItemId()).isEqualTo(id(bucketName, " a / b /"));
+  }
+
+  @Test
+  void getFolderInfo_trailingDoubleSlash_doesNotMatchParentFolder() throws IOException {
+    String bucketName = "hns-get-double-slash-bucket";
+    fakeGcsClient.createFolder(id(bucketName, "x/"), true);
+
+    assertThrows(
+        FileNotFoundException.class, () -> fakeGcsClient.getFolderInfo(id(bucketName, "x//")));
+  }
+
+  @Test
+  void getFolderInfo_emptySegmentFolder_returnsFolderInfo() throws IOException {
+    String bucketName = "hns-get-empty-segment-bucket";
+    fakeGcsClient
+        .lazyGetStorageControlClient()
+        .createFolder(
+            CreateFolderRequest.newBuilder()
+                .setParent("projects/_/buckets/" + bucketName)
+                .setFolderId("x//")
+                .setRecursive(true)
+                .build());
+
+    GcsItemInfo folderInfo = fakeGcsClient.getFolderInfo(id(bucketName, "x//"));
+
+    assertThat(folderInfo.getItemType()).isEqualTo(GcsItemInfo.ItemType.NATIVE_FOLDER);
+    assertThat(folderInfo.getItemId()).isEqualTo(id(bucketName, "x//"));
+  }
+
+  @Test
   void createFolder_duplicateFolder_throwsFileAlreadyExistsException() throws IOException {
     GcsItemId folderId =
         GcsItemId.builder().setBucketName("hns-fake-bucket").setObjectName("dup/").build();
