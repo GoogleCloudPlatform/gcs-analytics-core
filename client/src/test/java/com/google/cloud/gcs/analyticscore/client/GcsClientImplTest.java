@@ -29,6 +29,7 @@ import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.api.core.ApiFunction;
@@ -1071,6 +1072,52 @@ class GcsClientImplTest {
     assertThat(capturedBlobInfo.getMetadata()).containsEntry("key2", "AAECAw==");
     assertThat(capturedBlobInfo.getContentType()).isEqualTo("text/plain");
     assertThat(capturedBlobInfo.getContentEncoding()).isEqualTo("gzip");
+  }
+
+  @Test
+  void create_rootItemId_throwsIllegalArgumentException() {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> clientWithMock.createWriteChannel(GcsItemId.ROOT, DEFAULT_WRITE_OPTIONS));
+
+    assertThat(e).hasMessageThat().contains("Bucket name must not be empty");
+    verifyNoInteractions(mockStorage);
+  }
+
+  @Test
+  void create_emptyBucketName_throwsIllegalArgumentException() {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+    GcsItemId itemIdWithEmptyBucket =
+        GcsItemId.builder().setBucketName("").setObjectName(TEST_OBJECT).build();
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> clientWithMock.createWriteChannel(itemIdWithEmptyBucket, DEFAULT_WRITE_OPTIONS));
+
+    assertThat(e).hasMessageThat().contains("Bucket name must not be empty");
+    verifyNoInteractions(mockStorage);
+  }
+
+  @Test
+  void create_emptyObjectName_throwsIllegalArgumentException() {
+    Storage mockStorage = mock(Storage.class);
+    GcsClientImpl clientWithMock = createClientWithMockStorage(mockStorage);
+    GcsItemId itemIdWithEmptyObject =
+        GcsItemId.builder().setBucketName(TEST_BUCKET).setObjectName("").build();
+
+    IllegalArgumentException e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> clientWithMock.createWriteChannel(itemIdWithEmptyObject, DEFAULT_WRITE_OPTIONS));
+
+    assertThat(e).hasMessageThat().contains("Object name must be present");
+    verifyNoInteractions(mockStorage);
   }
 
   @Test

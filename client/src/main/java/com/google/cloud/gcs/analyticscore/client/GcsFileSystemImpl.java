@@ -492,6 +492,7 @@ public class GcsFileSystemImpl implements GcsFileSystem {
   public WritableByteChannel create(GcsItemId itemId, GcsWriteOptions writeOptions)
       throws IOException {
     checkNotNull(itemId, "itemId should not be null");
+    checkArgument(itemId.isGcsObject(), "Expected GCS object to be provided. But got: %s", itemId);
 
     // Delegate the actual SDK interaction and exception handling to the internal client
     return gcsClient.createWriteChannel(itemId, writeOptions);
