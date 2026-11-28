@@ -258,6 +258,51 @@ class PrefetchSchedulerTest {
   }
 
   @Test
+  void schedule_uncachedRange_returnsTrue() {
+    assertThat(schedule(RANGE_OFFSET)).isTrue();
+  }
+
+  @Test
+  void schedule_rangeAlreadyCached_returnsTrue() {
+    schedule(RANGE_OFFSET);
+
+    assertThat(schedule(RANGE_OFFSET)).isTrue();
+  }
+
+  @Test
+  void schedule_noRangeInsideTheFile_returnsTrue() {
+    assertThat(scheduler.schedule(channel, ImmutableList.of(), CONTENT_LENGTH)).isTrue();
+  }
+
+  @Test
+  void schedule_rangeDoesNotFitInCache_returnsFalse() {
+    PrefetchBufferCache smallCache = new PrefetchBufferCache(RANGE_LENGTH - 1, 60, telemetry);
+    try (PrefetchScheduler smallCacheScheduler = new PrefetchScheduler(ITEM_ID, smallCache)) {
+      boolean scheduled =
+          smallCacheScheduler.schedule(
+              channel,
+              ImmutableList.of(Range.closedOpen(RANGE_OFFSET, RANGE_OFFSET + RANGE_LENGTH)),
+              CONTENT_LENGTH);
+
+      assertThat(scheduled).isFalse();
+    }
+  }
+
+  @Test
+  void schedule_afterClose_returnsFalse() {
+    scheduler.close();
+
+    assertThat(schedule(RANGE_OFFSET)).isFalse();
+  }
+
+  @Test
+  void schedule_channelFails_returnsFalse() {
+    channel.failVectoredReadsWith(new IOException("vectored read rejected"));
+
+    assertThat(schedule(RANGE_OFFSET)).isFalse();
+  }
+
+  @Test
   void schedule_requestNotSettled_registersPendingRangeInCache() {
     channel.deferVectoredCompletion();
     schedule(RANGE_OFFSET);
@@ -417,12 +462,12 @@ class PrefetchSchedulerTest {
     return content;
   }
 
-  private void schedule(long... rangeOffsets) {
+  private boolean schedule(long... rangeOffsets) {
     ImmutableList.Builder<Range<Long>> ranges = ImmutableList.builder();
     for (long offset : rangeOffsets) {
       ranges.add(Range.closedOpen(offset, offset + RANGE_LENGTH));
     }
-    scheduler.schedule(channel, ranges.build(), CONTENT_LENGTH);
+    return scheduler.schedule(channel, ranges.build(), CONTENT_LENGTH);
   }
 
   private ImmutableList<GcsObjectRange> cancelledRequests() {

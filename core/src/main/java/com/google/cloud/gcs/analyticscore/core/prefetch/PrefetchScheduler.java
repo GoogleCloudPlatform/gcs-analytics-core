@@ -38,7 +38,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Schedules and cancels speculative range requests for a single open stream against {@link
  * PrefetchBufferCache}.
  *
- * <p>Ranges already present or in-flight in {@link PrefetchBufferCache} are skipped automatically.
+ * <p>A range is skipped when one range in {@link PrefetchBufferCache}, cached or in flight, covers
+ * all of it. A range that several cached ranges cover only together is fetched again.
  *
  * <p>This class is thread-safe.
  */
@@ -51,6 +52,7 @@ final class PrefetchScheduler implements AutoCloseable {
   private static final long MAX_RANGE_BYTES = Integer.MAX_VALUE - 8;
 
   private final GcsItemId itemId;
+  private final PrefetchBufferCache bufferCache;
   private final PrefetchBufferCache.RegisteredStream registeredStream;
   // The fetches that no reader waits on yet. Futures compare by identity, so two fetches of the
   // same bytes are two entries.
@@ -59,20 +61,21 @@ final class PrefetchScheduler implements AutoCloseable {
 
   PrefetchScheduler(GcsItemId itemId, PrefetchBufferCache bufferCache) {
     this.itemId = checkNotNull(itemId, "itemId cannot be null");
-    this.registeredStream =
-        checkNotNull(bufferCache, "bufferCache cannot be null").registerStream(this.itemId);
+    this.bufferCache = checkNotNull(bufferCache, "bufferCache cannot be null");
+    this.registeredStream = bufferCache.registerStream(itemId);
   }
 
   /**
    * Schedules speculative reads for the bytes of the given ranges that lie inside the file,
-   * ignoring any that are already covered in the cache.
+   * skipping any range that the cache already covers.
    *
    * <p>Touching ranges are fetched as one range, and a range longer than {@code MAX_RANGE_BYTES} is
    * fetched as consecutive ranges that each fit in one buffer.
    *
    * @param byteRanges closed-open byte ranges {@code [startOffset, endOffset)}, in any order
    * @param fileSize the size of the object; bytes outside {@code [0, fileSize)} are not fetched
-   * @return {@code true} if every range is now cached or in flight
+   * @return {@code true} if every range inside the file is cached or in flight when this method
+   *     returns, or {@code false} if a fetch failed or the cache did not accept a range
    * @throws IllegalArgumentException if {@code fileSize} is negative or a range is not closed-open
    */
   boolean schedule(
@@ -84,10 +87,8 @@ final class PrefetchScheduler implements AutoCloseable {
     // A cache reader waits on a registered range without a timeout, so every range registered here
     // must complete, even when scheduling fails part way.
     try {
-      for (Range<Long> byteRange : rangesInFile) {
-        long startOffset = byteRange.lowerEndpoint();
-        int length = Math.toIntExact(byteRange.upperEndpoint() - startOffset);
-        tryRegisterRange(startOffset, length).ifPresent(rangesToFetch::add);
+      for (Range<Long> range : rangesInFile) {
+        tryRegisterRange(range.lowerEndpoint(), lengthOf(range)).ifPresent(rangesToFetch::add);
       }
       if (!rangesToFetch.isEmpty()) {
         source.prefetchVectored(rangesToFetch, ByteBuffer::allocate);
@@ -99,8 +100,7 @@ final class PrefetchScheduler implements AutoCloseable {
       failIncompleteRanges(rangesToFetch, e);
       throw e;
     }
-    return rangesToFetch.stream()
-        .noneMatch(range -> range.getByteBufferFuture().isCompletedExceptionally());
+    return rangesInFile.stream().allMatch(this::isCovered);
   }
 
   private Optional<GcsObjectRange> tryRegisterRange(long startOffset, int length) {
@@ -127,6 +127,14 @@ final class PrefetchScheduler implements AutoCloseable {
     for (GcsObjectRange range : ranges) {
       range.getByteBufferFuture().completeExceptionally(failure);
     }
+  }
+
+  private boolean isCovered(Range<Long> range) {
+    return bufferCache.isCovered(itemId, range.lowerEndpoint(), lengthOf(range));
+  }
+
+  private static int lengthOf(Range<Long> range) {
+    return Math.toIntExact(range.upperEndpoint() - range.lowerEndpoint());
   }
 
   /** Cancels every outstanding speculative request that no reader waits on. */
