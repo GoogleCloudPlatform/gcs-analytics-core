@@ -27,7 +27,6 @@ import com.google.cloud.gcs.analyticscore.common.telemetry.OperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.RecordingOperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
-import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.Storage.BlobSourceOption;
 import com.google.cloud.storage.StorageException;
@@ -650,6 +649,17 @@ class GcsReadChannelTest {
   }
 
   @Test
+  void prefetchVectored_rangesWithGap_loadsOnlyTheRequestedBytes() throws IOException {
+    RecordingOperationListener listener = new RecordingOperationListener();
+    GcsReadChannel gcsReadChannel = createDirectExecutorChannel("hello world", listener);
+    ImmutableList<GcsObjectRange> ranges = createRanges(ImmutableMap.of(0L, 3, 6L, 3));
+
+    gcsReadChannel.prefetchVectored(ranges, ByteBuffer::allocate);
+
+    assertThat(listener.getTotal(Metric.PREFETCH_BYTES_LOADED)).isEqualTo(6L);
+  }
+
+  @Test
   void readVectored_completedRead_recordsNoPrefetchBytesLoaded() throws IOException {
     RecordingOperationListener listener = new RecordingOperationListener();
     GcsReadChannel gcsReadChannel = createDirectExecutorChannel("hello world", listener);
@@ -1267,16 +1277,6 @@ class GcsReadChannelTest {
         .contains("Invalid seek offset: position value (-5) must be >= 0");
     Mockito.verify(storage, Mockito.never())
         .reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class));
-  }
-
-  private byte[] createBinaryBlobInStorage(GcsItemInfo itemInfo) {
-    byte[] objectData = TestDataGenerator.generateSeededRandomBytes((int) itemInfo.getSize(), 7L);
-    GcsItemId itemId = itemInfo.getItemId();
-    storage.create(
-        BlobInfo.newBuilder(BlobId.of(itemId.getBucketName(), itemId.getObjectName().get(), 0L))
-            .build(),
-        objectData);
-    return objectData;
   }
 
   private GcsItemInfo createItemInfoWith(long size) {
