@@ -21,7 +21,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.contrib.nio.testing.LocalStorageHelper;
+import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -347,6 +350,50 @@ class AdaptiveReadStrategyTest {
     GcsItemInfo unresolvedItemInfo = GcsItemInfo.builder().setItemId(itemId).setSize(-1).build();
 
     assertThrows(IllegalArgumentException.class, () -> strategy.updateItemInfo(unresolvedItemInfo));
+  }
+
+  @Test
+  void getReadChannel_withAutoRandomPattern_switchToSequentialDoesNotSkipInPlaceFromZero()
+      throws IOException {
+    InMemoryStorage inMemoryStorage =
+        InMemoryStorage.create(ImmutableMap.of(itemId, new byte[4 * KB]));
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(
+            inMemoryStorage.storage(), itemId, autoRandomOptionsWithThreshold(2), itemInfo);
+    strategy.getReadChannel(0, 10).read(ByteBuffer.allocate(10));
+    strategy.position(10);
+    inMemoryStorage.resetCounters();
+
+    strategy.getReadChannel(120, 10).read(ByteBuffer.allocate(10));
+    strategy.close();
+
+    assertThat(inMemoryStorage.bytesServed()).isEqualTo(10);
+  }
+
+  @Test
+  void getReadChannel_withAutoRandomPattern_switchToSequentialReadsFromRequestedOffset()
+      throws IOException {
+    byte[] content = "0123456789".repeat(100).getBytes(StandardCharsets.UTF_8);
+    InMemoryStorage inMemoryStorage = InMemoryStorage.create(ImmutableMap.of(itemId, content));
+    AdaptiveReadStrategy strategy =
+        new AdaptiveReadStrategy(
+            inMemoryStorage.storage(), itemId, autoRandomOptionsWithThreshold(2), itemInfo);
+    strategy.getReadChannel(0, 10).read(ByteBuffer.allocate(10));
+    strategy.position(10);
+    ByteBuffer dst = ByteBuffer.allocate(5);
+
+    strategy.getReadChannel(123, 5).read(dst);
+    strategy.close();
+
+    assertThat(new String(dst.array(), StandardCharsets.UTF_8)).isEqualTo("34567");
+  }
+
+  private GcsReadOptions autoRandomOptionsWithThreshold(int threshold) {
+    return GcsReadOptions.builder()
+        .setFileAccessPattern(FileAccessPattern.AUTO_RANDOM)
+        .setInplaceSeekLimit(2 * KB)
+        .setAdaptiveReadSequentialReadThreshold(threshold)
+        .build();
   }
 
   private void createBlobInStorage(String content) {

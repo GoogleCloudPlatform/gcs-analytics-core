@@ -96,7 +96,7 @@ class AdaptiveReadStrategy extends AbstractReadStrategy {
     }
     sequentialReadCount++;
     if (sequentialReadCount >= options.getAdaptiveReadSequentialReadThreshold()) {
-      switchToSequential();
+      switchToSequential(requestedPosition);
     }
   }
 
@@ -119,10 +119,17 @@ class AdaptiveReadStrategy extends AbstractReadStrategy {
     return seekDistance >= 0 && seekDistance <= options.getInplaceSeekLimit();
   }
 
-  private void switchToSequential() throws IOException {
+  private void switchToSequential(long requestedPosition) throws IOException {
     isRandomMode = false;
     sequentialReadCount = 0;
     currentStrategy.close();
-    currentStrategy = new SequentialReadStrategy(storage, itemId, options, itemInfo);
+    SequentialReadStrategy sequentialStrategy =
+        new SequentialReadStrategy(storage, itemId, options, itemInfo);
+    // Publish before seeking so close() reaches the new channel even if seek() fails.
+    currentStrategy = sequentialStrategy;
+    // Freshly opened channel has not streamed bytes yet; seeking directly avoids skipInPlace from
+    // offset 0 on the subsequent getReadChannel() call.
+    sequentialStrategy.channel.seek(requestedPosition);
+    sequentialStrategy.position(requestedPosition);
   }
 }
