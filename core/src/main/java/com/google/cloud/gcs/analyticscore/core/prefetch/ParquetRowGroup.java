@@ -17,16 +17,15 @@
 package com.google.cloud.gcs.analyticscore.core.prefetch;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Range;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -52,14 +51,17 @@ abstract class ParquetRowGroup {
   /**
    * Creates a row group from its column chunks, given in any order.
    *
+   * @throws NullPointerException if {@code columnChunks} is null or contains a null element
    * @throws IllegalArgumentException if the index is negative, there are no column chunks, two
    *     chunks share a column path, or two chunks share a byte
    */
   static ParquetRowGroup create(int index, Collection<ParquetColumnChunk> columnChunks) {
+    checkNotNull(columnChunks, "columnChunks cannot be null");
     checkArgument(index >= 0, "Row group index must not be negative: %s", index);
     checkArgument(!columnChunks.isEmpty(), "Row group %s has no column chunks", index);
-    List<ParquetColumnChunk> sortedChunks = new ArrayList<>(columnChunks);
-    sortedChunks.sort(Comparator.comparingLong(ParquetColumnChunk::getStartOffset));
+    ImmutableList<ParquetColumnChunk> sortedChunks =
+        ImmutableList.sortedCopyOf(
+            Comparator.comparingLong(ParquetColumnChunk::getStartOffset), columnChunks);
     ImmutableMap.Builder<String, ParquetColumnChunk> chunksByPath =
         ImmutableMap.builderWithExpectedSize(sortedChunks.size());
     long endOffset = 0;
@@ -138,6 +140,7 @@ abstract class ParquetRowGroup {
    * included, in byte order. Columns that this row group does not contain are skipped.
    */
   final ImmutableList<Range<Long>> getColumnChunkRanges(Set<String> columns) {
+    checkNotNull(columns, "columns cannot be null");
     ImmutableList.Builder<Range<Long>> ranges = ImmutableList.builder();
     for (ParquetColumnChunk chunk : getColumnChunks().values()) {
       if (columns.contains(chunk.getColumnPath())) {
@@ -152,6 +155,7 @@ abstract class ParquetRowGroup {
    * without a dictionary page that can filter them are skipped.
    */
   final ImmutableList<Range<Long>> getDictionaryPageRanges(Set<String> columns) {
+    checkNotNull(columns, "columns cannot be null");
     ImmutableList.Builder<Range<Long>> ranges = ImmutableList.builder();
     for (ParquetColumnChunk chunk : getColumnChunks().values()) {
       if (columns.contains(chunk.getColumnPath())) {
