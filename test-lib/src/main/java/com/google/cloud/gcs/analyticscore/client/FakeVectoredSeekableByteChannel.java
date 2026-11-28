@@ -44,6 +44,7 @@ public final class FakeVectoredSeekableByteChannel implements VectoredSeekableBy
   private boolean open = true;
   private volatile boolean deferVectoredCompletion;
   private volatile IOException vectoredFailure;
+  private volatile Error vectoredError;
 
   public FakeVectoredSeekableByteChannel(byte[] content) {
     this.content = content.clone();
@@ -57,6 +58,11 @@ public final class FakeVectoredSeekableByteChannel implements VectoredSeekableBy
   /** Makes every later vectored read or prefetch throw {@code failure}. */
   public void failVectoredReadsWith(IOException failure) {
     this.vectoredFailure = failure;
+  }
+
+  /** Makes every later vectored read or prefetch throw {@code error}. */
+  public void failVectoredReadsWith(Error error) {
+    this.vectoredError = error;
   }
 
   /** Returns the ranges passed to {@link #readVectored}, in request order. */
@@ -110,6 +116,9 @@ public final class FakeVectoredSeekableByteChannel implements VectoredSeekableBy
       throws IOException {
     if (vectoredFailure != null) {
       throw vectoredFailure;
+    }
+    if (vectoredError != null) {
+      throw vectoredError;
     }
     if (deferVectoredCompletion) {
       return;

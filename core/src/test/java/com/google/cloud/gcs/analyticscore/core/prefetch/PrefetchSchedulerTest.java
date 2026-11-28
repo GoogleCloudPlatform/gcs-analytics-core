@@ -231,6 +231,26 @@ class PrefetchSchedulerTest {
   }
 
   @Test
+  void schedule_channelThrowsError_failsTheRegisteredRange() {
+    channel.failVectoredReadsWith(new OutOfMemoryError("simulated"));
+
+    assertThrows(OutOfMemoryError.class, () -> schedule(RANGE_OFFSET));
+
+    assertThat(
+            channel.getPrefetchedRanges().get(0).getByteBufferFuture().isCompletedExceptionally())
+        .isTrue();
+  }
+
+  @Test
+  void schedule_nullSource_throwsNullPointerException() {
+    ImmutableList<Range<Long>> ranges = ImmutableList.of(Range.closedOpen(0L, 8L));
+
+    assertThrows(
+        NullPointerException.class,
+        () -> scheduler.schedule(/* source= */ null, ranges, CONTENT_LENGTH));
+  }
+
+  @Test
   void schedule_requestNotSettled_registersPendingRangeInCache() {
     channel.deferVectoredCompletion();
     schedule(RANGE_OFFSET);

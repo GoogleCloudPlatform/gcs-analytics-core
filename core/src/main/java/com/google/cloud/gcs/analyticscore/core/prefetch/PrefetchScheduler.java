@@ -22,6 +22,7 @@ import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.PrefetchBufferCache;
 import com.google.cloud.gcs.analyticscore.client.VectoredSeekableByteChannel;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Range;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -78,17 +79,30 @@ final class PrefetchScheduler implements AutoCloseable {
    */
   boolean schedule(
       VectoredSeekableByteChannel source, Collection<Range<Long>> byteRanges, long fileSize) {
+    checkNotNull(source, "source cannot be null");
+    ImmutableList<Range<Long>> rangesInFile =
+        ByteRangeMerger.merge(byteRanges, fileSize, MAX_RANGE_BYTES);
     List<GcsObjectRange> rangesToFetch = new ArrayList<>();
-    for (Range<Long> byteRange : ByteRangeMerger.merge(byteRanges, fileSize, MAX_RANGE_BYTES)) {
-      long startOffset = byteRange.lowerEndpoint();
-      int length = Math.toIntExact(byteRange.upperEndpoint() - startOffset);
-      tryRegisterRange(startOffset, length).ifPresent(rangesToFetch::add);
+    // A cache reader waits on a registered range without a timeout, so every range registered here
+    // must complete, even when scheduling fails part way.
+    try {
+      for (Range<Long> byteRange : rangesInFile) {
+        long startOffset = byteRange.lowerEndpoint();
+        int length = Math.toIntExact(byteRange.upperEndpoint() - startOffset);
+        tryRegisterRange(startOffset, length).ifPresent(rangesToFetch::add);
+      }
+      if (!rangesToFetch.isEmpty()) {
+        source.prefetchVectored(rangesToFetch, ByteBuffer::allocate);
+      }
+    } catch (IOException | RuntimeException e) {
+      failIncompleteRanges(rangesToFetch, e);
+      return false;
+    } catch (Error e) {
+      failIncompleteRanges(rangesToFetch, e);
+      throw e;
     }
-
-    if (rangesToFetch.isEmpty()) {
-      return true;
-    }
-    return dispatchVectoredRead(source, rangesToFetch);
+    return rangesToFetch.stream()
+        .noneMatch(range -> range.getByteBufferFuture().isCompletedExceptionally());
   }
 
   private Optional<GcsObjectRange> tryRegisterRange(long startOffset, int length) {
@@ -110,18 +124,10 @@ final class PrefetchScheduler implements AutoCloseable {
     return Optional.of(objectRange);
   }
 
-  private static boolean dispatchVectoredRead(
-      VectoredSeekableByteChannel source, List<GcsObjectRange> rangesToFetch) {
-    try {
-      source.prefetchVectored(rangesToFetch, ByteBuffer::allocate);
-    } catch (IOException | RuntimeException e) {
-      for (GcsObjectRange range : rangesToFetch) {
-        range.getByteBufferFuture().completeExceptionally(e);
-      }
-      return false;
+  private static void failIncompleteRanges(List<GcsObjectRange> ranges, Throwable failure) {
+    for (GcsObjectRange range : ranges) {
+      range.getByteBufferFuture().completeExceptionally(failure);
     }
-    return rangesToFetch.stream()
-        .noneMatch(range -> range.getByteBufferFuture().isCompletedExceptionally());
   }
 
   /** Cancels every outstanding speculative request. */
