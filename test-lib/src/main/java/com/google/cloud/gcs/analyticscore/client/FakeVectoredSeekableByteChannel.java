@@ -17,30 +17,33 @@
 package com.google.cloud.gcs.analyticscore.client;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.IntFunction;
 
 /**
  * An in-memory {@link VectoredSeekableByteChannel} that serves reads from a byte array.
  *
- * <p>Vectored reads complete their futures before {@link #readVectored} returns, so a test can
+ * <p>Vectored reads and prefetches complete their futures before the call returns, so a test can
  * assert on the outcome of a speculative fetch without waiting on a background thread.
  *
- * <p>Every requested range is recorded, which lets a test verify what a component chose to fetch in
- * addition to what it ultimately served.
+ * <p>The ranges passed to {@link #readVectored} and to {@link #prefetchVectored} are recorded
+ * separately, which lets a test verify what a component chose to fetch and through which call.
+ * Vectored reads and prefetches can run on several threads at once.
  */
 public final class FakeVectoredSeekableByteChannel implements VectoredSeekableByteChannel {
 
   private final byte[] content;
-  private final List<GcsObjectRange> requestedRanges = new ArrayList<>();
+  private final List<GcsObjectRange> requestedRanges = new CopyOnWriteArrayList<>();
+  private final List<GcsObjectRange> prefetchedRanges = new CopyOnWriteArrayList<>();
 
   private long position;
   private boolean open = true;
-  private boolean deferVectoredCompletion;
-  private IOException vectoredFailure;
+  private volatile boolean deferVectoredCompletion;
+  private volatile IOException vectoredFailure;
 
   public FakeVectoredSeekableByteChannel(byte[] content) {
     this.content = content.clone();
@@ -51,7 +54,7 @@ public final class FakeVectoredSeekableByteChannel implements VectoredSeekableBy
     this.deferVectoredCompletion = true;
   }
 
-  /** Makes every subsequent {@link #readVectored} call throw {@code failure}. */
+  /** Makes every later vectored read or prefetch throw {@code failure}. */
   public void failVectoredReadsWith(IOException failure) {
     this.vectoredFailure = failure;
   }
@@ -61,9 +64,14 @@ public final class FakeVectoredSeekableByteChannel implements VectoredSeekableBy
     return ImmutableList.copyOf(requestedRanges);
   }
 
-  /** Returns the offsets passed to {@link #readVectored}, in request order. */
-  public ImmutableList<Long> getRequestedOffsets() {
-    return requestedRanges.stream()
+  /** Returns the ranges passed to {@link #prefetchVectored}, in request order. */
+  public ImmutableList<GcsObjectRange> getPrefetchedRanges() {
+    return ImmutableList.copyOf(prefetchedRanges);
+  }
+
+  /** Returns the offsets passed to {@link #prefetchVectored}, in request order. */
+  public ImmutableList<Long> getPrefetchedOffsets() {
+    return prefetchedRanges.stream()
         .map(GcsObjectRange::getOffset)
         .collect(ImmutableList.toImmutableList());
   }
@@ -75,16 +83,12 @@ public final class FakeVectoredSeekableByteChannel implements VectoredSeekableBy
     return slice;
   }
 
-  /** Completes every requested range whose future is still pending. */
+  /** Completes every requested or prefetched range whose future is still pending. */
   public void completeDeferredRanges() {
-    for (GcsObjectRange range : ImmutableList.copyOf(requestedRanges)) {
-      if (range.getByteBufferFuture().isDone()) {
-        continue;
+    for (GcsObjectRange range : Iterables.concat(requestedRanges, prefetchedRanges)) {
+      if (!range.getByteBufferFuture().isDone()) {
+        completeRange(range, ByteBuffer::allocate);
       }
-      ByteBuffer target = ByteBuffer.allocate(range.getLength());
-      target.put(sliceContent(range.getOffset(), range.getLength()));
-      target.flip();
-      range.getByteBufferFuture().complete(target);
     }
   }
 
@@ -92,6 +96,18 @@ public final class FakeVectoredSeekableByteChannel implements VectoredSeekableBy
   public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException {
     requestedRanges.addAll(ranges);
+    serveVectoredRanges(ranges, allocate);
+  }
+
+  @Override
+  public void prefetchVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
+      throws IOException {
+    prefetchedRanges.addAll(ranges);
+    serveVectoredRanges(ranges, allocate);
+  }
+
+  private void serveVectoredRanges(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
+      throws IOException {
     if (vectoredFailure != null) {
       throw vectoredFailure;
     }
@@ -99,11 +115,15 @@ public final class FakeVectoredSeekableByteChannel implements VectoredSeekableBy
       return;
     }
     for (GcsObjectRange range : ranges) {
-      ByteBuffer target = allocate.apply(range.getLength());
-      target.put(sliceContent(range.getOffset(), range.getLength()));
-      target.flip();
-      range.getByteBufferFuture().complete(target);
+      completeRange(range, allocate);
     }
+  }
+
+  private void completeRange(GcsObjectRange range, IntFunction<ByteBuffer> allocate) {
+    ByteBuffer target = allocate.apply(range.getLength());
+    target.put(sliceContent(range.getOffset(), range.getLength()));
+    target.flip();
+    range.getByteBufferFuture().complete(target);
   }
 
   @Override

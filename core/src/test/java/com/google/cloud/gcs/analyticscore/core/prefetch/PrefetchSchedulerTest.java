@@ -22,7 +22,6 @@ import com.google.cloud.gcs.analyticscore.client.FakeVectoredSeekableByteChannel
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
 import com.google.cloud.gcs.analyticscore.client.GcsObjectRange;
 import com.google.cloud.gcs.analyticscore.client.PrefetchBufferCache;
-import com.google.cloud.gcs.analyticscore.common.telemetry.RecordingOperationListener;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
@@ -45,15 +44,13 @@ class PrefetchSchedulerTest {
 
   private FakeVectoredSeekableByteChannel channel;
   private PrefetchBufferCache bufferCache;
-  private RecordingOperationListener metricListener;
   private Telemetry telemetry;
   private PrefetchScheduler scheduler;
 
   @BeforeEach
   void createScheduler() {
     channel = new FakeVectoredSeekableByteChannel(createContent());
-    metricListener = new RecordingOperationListener();
-    telemetry = new Telemetry(ImmutableList.of(metricListener));
+    telemetry = new Telemetry(ImmutableList.of());
     bufferCache = new PrefetchBufferCache(CONTENT_LENGTH, 60, telemetry);
     scheduler = new PrefetchScheduler(ITEM_ID, bufferCache);
   }
@@ -69,7 +66,14 @@ class PrefetchSchedulerTest {
   void schedule_uncachedRange_requestsTheRange() {
     schedule(RANGE_OFFSET);
 
-    assertThat(channel.getRequestedOffsets()).containsExactly(RANGE_OFFSET);
+    assertThat(channel.getPrefetchedOffsets()).containsExactly(RANGE_OFFSET);
+  }
+
+  @Test
+  void schedule_uncachedRange_doesNotUseForegroundVectoredRead() {
+    schedule(RANGE_OFFSET);
+
+    assertThat(channel.getRequestedRanges()).isEmpty();
   }
 
   @Test
@@ -84,7 +88,7 @@ class PrefetchSchedulerTest {
   void schedule_touchingRanges_requestsThemAsOneMergedRange() {
     schedule(0, RANGE_LENGTH);
 
-    GcsObjectRange request = Iterables.getOnlyElement(channel.getRequestedRanges());
+    GcsObjectRange request = Iterables.getOnlyElement(channel.getPrefetchedRanges());
     assertThat(Range.closedOpen(request.getOffset(), request.getOffset() + request.getLength()))
         .isEqualTo(Range.closedOpen(0L, 2L * RANGE_LENGTH));
   }
@@ -93,7 +97,7 @@ class PrefetchSchedulerTest {
   void schedule_rangesWithGap_requestsEachRangeAsItsOwnRange() {
     schedule(0, 2 * RANGE_LENGTH);
 
-    assertThat(channel.getRequestedOffsets()).containsExactly(0L, 2L * RANGE_LENGTH).inOrder();
+    assertThat(channel.getPrefetchedOffsets()).containsExactly(0L, 2L * RANGE_LENGTH).inOrder();
   }
 
   @Test
@@ -108,7 +112,7 @@ class PrefetchSchedulerTest {
 
       schedule(RANGE_OFFSET);
 
-      assertThat(channel.getRequestedOffsets()).isEmpty();
+      assertThat(channel.getPrefetchedOffsets()).isEmpty();
     }
   }
 
@@ -119,7 +123,7 @@ class PrefetchSchedulerTest {
 
       schedule(RANGE_OFFSET);
 
-      assertThat(channel.getRequestedOffsets()).isEmpty();
+      assertThat(channel.getPrefetchedOffsets()).isEmpty();
     }
   }
 
@@ -130,7 +134,7 @@ class PrefetchSchedulerTest {
     schedule(RANGE_OFFSET);
     schedule(RANGE_OFFSET);
 
-    assertThat(channel.getRequestedOffsets()).containsExactly(RANGE_OFFSET);
+    assertThat(channel.getPrefetchedOffsets()).containsExactly(RANGE_OFFSET);
   }
 
   @Test
@@ -141,7 +145,7 @@ class PrefetchSchedulerTest {
             Range.closedOpen((long) CONTENT_LENGTH, (long) CONTENT_LENGTH + RANGE_LENGTH)),
         CONTENT_LENGTH);
 
-    assertThat(channel.getRequestedOffsets()).isEmpty();
+    assertThat(channel.getPrefetchedOffsets()).isEmpty();
   }
 
   @Test
@@ -158,7 +162,7 @@ class PrefetchSchedulerTest {
   void schedule_emptyRangeList_doesNotRequestAnyRange() {
     scheduler.schedule(channel, ImmutableList.of(), CONTENT_LENGTH);
 
-    assertThat(channel.getRequestedOffsets()).isEmpty();
+    assertThat(channel.getPrefetchedOffsets()).isEmpty();
   }
 
   @Test
@@ -183,7 +187,7 @@ class PrefetchSchedulerTest {
     channel.deferVectoredCompletion();
     schedule(RANGE_OFFSET);
     CompletableFuture<ByteBuffer> future =
-        channel.getRequestedRanges().get(0).getByteBufferFuture();
+        channel.getPrefetchedRanges().get(0).getByteBufferFuture();
 
     channel.completeDeferredRanges();
 
@@ -198,7 +202,7 @@ class PrefetchSchedulerTest {
 
     scheduler.close();
 
-    assertThat(channel.getRequestedRanges().get(0).getByteBufferFuture().isCancelled()).isTrue();
+    assertThat(channel.getPrefetchedRanges().get(0).getByteBufferFuture().isCancelled()).isTrue();
   }
 
   @Test
@@ -229,7 +233,7 @@ class PrefetchSchedulerTest {
 
     scheduler.cancelAll();
 
-    assertThat(channel.getRequestedRanges().get(0).getByteBufferFuture().isCancelled()).isFalse();
+    assertThat(channel.getPrefetchedRanges().get(0).getByteBufferFuture().isCancelled()).isFalse();
   }
 
   @Test
