@@ -28,11 +28,11 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Schedules and cancels speculative range requests for a single open stream against {@link
@@ -50,14 +50,12 @@ final class PrefetchScheduler implements AutoCloseable {
    */
   private static final long MAX_RANGE_BYTES = Integer.MAX_VALUE - 8;
 
-  private static final Comparator<Range<Long>> BY_START_THEN_END =
-      Comparator.<Range<Long>>comparingLong(Range::lowerEndpoint)
-          .thenComparingLong(Range::upperEndpoint);
-
   private final GcsItemId itemId;
   private final PrefetchBufferCache.RegisteredStream registeredStream;
-  private final ConcurrentSkipListMap<Range<Long>, GcsObjectRange> inFlightRequests =
-      new ConcurrentSkipListMap<>(BY_START_THEN_END);
+  // The fetches that no reader waits on yet. Futures compare by identity, so two fetches of the
+  // same bytes are two entries.
+  private final Set<CompletableFuture<ByteBuffer>> cancellableFetches =
+      ConcurrentHashMap.newKeySet();
 
   PrefetchScheduler(GcsItemId itemId, PrefetchBufferCache bufferCache) {
     this.itemId = checkNotNull(itemId, "itemId cannot be null");
@@ -107,21 +105,22 @@ final class PrefetchScheduler implements AutoCloseable {
 
   private Optional<GcsObjectRange> tryRegisterRange(long startOffset, int length) {
     CompletableFuture<ByteBuffer> fetchFuture = new CompletableFuture<>();
-    GcsObjectRange objectRange =
+    Runnable stopTracking = () -> cancellableFetches.remove(fetchFuture);
+    // The fetch is tracked before the cache can hand the range to a reader. A reader that starts
+    // waiting on the fetch stops the tracking, so cancelAll() leaves that fetch running.
+    cancellableFetches.add(fetchFuture);
+    if (!registeredStream.registerRange(startOffset, length, fetchFuture, stopTracking)) {
+      stopTracking.run();
+      return Optional.empty();
+    }
+    CompletableFuture<ByteBuffer> unused =
+        fetchFuture.whenComplete((data, error) -> stopTracking.run());
+    return Optional.of(
         GcsObjectRange.builder()
             .setOffset(startOffset)
             .setLength(length)
             .setByteBufferFuture(fetchFuture)
-            .build();
-    Range<Long> key = Range.closedOpen(startOffset, startOffset + length);
-    if (!registeredStream.registerRange(
-        startOffset, length, fetchFuture, () -> inFlightRequests.remove(key, objectRange))) {
-      return Optional.empty();
-    }
-    inFlightRequests.put(key, objectRange);
-    CompletableFuture<ByteBuffer> unused =
-        fetchFuture.whenComplete((data, error) -> inFlightRequests.remove(key, objectRange));
-    return Optional.of(objectRange);
+            .build());
   }
 
   private static void failIncompleteRanges(List<GcsObjectRange> ranges, Throwable failure) {
@@ -130,17 +129,21 @@ final class PrefetchScheduler implements AutoCloseable {
     }
   }
 
-  /** Cancels every outstanding speculative request. */
+  /** Cancels every outstanding speculative request that no reader waits on. */
   void cancelAll() {
-    for (GcsObjectRange objectRange : inFlightRequests.values()) {
-      objectRange.getByteBufferFuture().cancel(/* mayInterruptIfRunning= */ false);
+    for (CompletableFuture<ByteBuffer> fetchFuture : cancellableFetches) {
+      // A fetch that a reader started waiting on during this loop is no longer in the set.
+      if (cancellableFetches.remove(fetchFuture)) {
+        fetchFuture.cancel(/* mayInterruptIfRunning= */ false);
+      }
     }
-    inFlightRequests.clear();
   }
 
   @Override
   public void close() {
-    cancelAll();
+    // The stream closes first, so a schedule() call that runs at the same time cannot register a
+    // range after the cancel.
     registeredStream.close();
+    cancelAll();
   }
 }

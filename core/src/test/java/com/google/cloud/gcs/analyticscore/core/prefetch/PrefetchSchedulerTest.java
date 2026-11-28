@@ -16,6 +16,7 @@
 
 package com.google.cloud.gcs.analyticscore.core.prefetch;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -29,8 +30,14 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Range;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -295,21 +302,73 @@ class PrefetchSchedulerTest {
   void cancelAll_afterRangePromoted_doesNotCancelPromotedRequest() {
     channel.deferVectoredCompletion();
     schedule(RANGE_OFFSET);
-    List<GcsObjectRange> unused =
-        bufferCache.serveVectoredFromCache(
-            ITEM_ID,
-            ImmutableList.of(
-                GcsObjectRange.builder()
-                    .setOffset(RANGE_OFFSET)
-                    .setLength(RANGE_LENGTH)
-                    .setByteBufferFuture(new CompletableFuture<>())
-                    .build()),
-            ByteBuffer::allocate,
-            range -> {});
+    startWaitingOn(RANGE_OFFSET);
 
     scheduler.cancelAll();
 
     assertThat(channel.getPrefetchedRanges().get(0).getByteBufferFuture().isCancelled()).isFalse();
+  }
+
+  @Test
+  void cancelAll_rangeScheduledAgainAfterEviction_cancelsBothRequests() {
+    channel.deferVectoredCompletion();
+    schedule(RANGE_OFFSET);
+    bufferCache.invalidateAll();
+    schedule(RANGE_OFFSET);
+
+    scheduler.cancelAll();
+
+    assertThat(cancelledRequests()).hasSize(2);
+  }
+
+  @Test
+  void cancelAll_readerStartsWaitingOnAnotherRangeDuringCancel_keepsThatRequest() {
+    channel.deferVectoredCompletion();
+    schedule(RANGE_OFFSET, RANGE_OFFSET + 2 * RANGE_LENGTH);
+    GcsObjectRange first = channel.getPrefetchedRanges().get(0);
+    GcsObjectRange second = channel.getPrefetchedRanges().get(1);
+    startWaitingWhenComplete(/* completed= */ first, /* waited= */ second);
+    startWaitingWhenComplete(/* completed= */ second, /* waited= */ first);
+
+    scheduler.cancelAll();
+
+    assertThat(cancelledRequests()).hasSize(1);
+  }
+
+  @Test
+  void schedule_afterClose_doesNotRequestTheRange() {
+    scheduler.close();
+
+    schedule(RANGE_OFFSET);
+
+    assertThat(channel.getPrefetchedOffsets()).isEmpty();
+  }
+
+  @Test
+  void close_whileOtherThreadsSchedule_cancelsEveryRequest() throws Exception {
+    channel.deferVectoredCompletion();
+    ExecutorService executor = Executors.newFixedThreadPool(4);
+    CountDownLatch startSignal = new CountDownLatch(1);
+    List<Future<?>> scheduleCalls = new ArrayList<>();
+    for (long offset = 0; offset < CONTENT_LENGTH; offset += RANGE_LENGTH) {
+      long rangeOffset = offset;
+      scheduleCalls.add(
+          executor.submit(
+              () -> {
+                startSignal.await();
+                schedule(rangeOffset);
+                return null;
+              }));
+    }
+
+    startSignal.countDown();
+    scheduler.close();
+    for (Future<?> scheduleCall : scheduleCalls) {
+      scheduleCall.get(10, TimeUnit.SECONDS);
+    }
+    executor.shutdown();
+
+    assertThat(cancelledRequests()).containsExactlyElementsIn(channel.getPrefetchedRanges());
   }
 
   @Test
@@ -364,6 +423,34 @@ class PrefetchSchedulerTest {
       ranges.add(Range.closedOpen(offset, offset + RANGE_LENGTH));
     }
     scheduler.schedule(channel, ranges.build(), CONTENT_LENGTH);
+  }
+
+  private ImmutableList<GcsObjectRange> cancelledRequests() {
+    return channel.getPrefetchedRanges().stream()
+        .filter(range -> range.getByteBufferFuture().isCancelled())
+        .collect(toImmutableList());
+  }
+
+  /** Makes a reader start waiting on {@code waited} at the moment {@code completed} completes. */
+  private void startWaitingWhenComplete(GcsObjectRange completed, GcsObjectRange waited) {
+    CompletableFuture<ByteBuffer> unused =
+        completed
+            .getByteBufferFuture()
+            .whenComplete((data, error) -> startWaitingOn(waited.getOffset()));
+  }
+
+  private void startWaitingOn(long offset) {
+    List<GcsObjectRange> unused =
+        bufferCache.serveVectoredFromCache(
+            ITEM_ID,
+            ImmutableList.of(
+                GcsObjectRange.builder()
+                    .setOffset(offset)
+                    .setLength(RANGE_LENGTH)
+                    .setByteBufferFuture(new CompletableFuture<>())
+                    .build()),
+            ByteBuffer::allocate,
+            range -> {});
   }
 
   private byte[] readCachedRange(long offset, int length) {
