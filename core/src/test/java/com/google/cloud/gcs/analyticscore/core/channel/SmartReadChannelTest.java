@@ -312,6 +312,22 @@ class SmartReadChannelTest {
   }
 
   @Test
+  void prefetchVectored_delegatesToDelegate() throws IOException {
+    SmartReadChannel smartChannel =
+        SmartReadChannel.builder()
+            .setDelegate(mockDelegate)
+            .setItemId(ITEM_ID)
+            .setCacheManager(mockCacheManager)
+            .build();
+    List<GcsObjectRange> ranges = ImmutableList.of();
+    IntFunction<ByteBuffer> allocate = (i) -> ByteBuffer.allocate(i);
+
+    smartChannel.prefetchVectored(ranges, allocate);
+
+    verify(mockDelegate).prefetchVectored(ranges, allocate);
+  }
+
+  @Test
   void write_delegatesToDelegate() throws IOException {
     SmartReadChannel smartChannel =
         SmartReadChannel.builder()
