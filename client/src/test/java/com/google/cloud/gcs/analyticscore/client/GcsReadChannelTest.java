@@ -674,6 +674,22 @@ class GcsReadChannelTest {
         .reader(Mockito.any(BlobId.class), Mockito.any(BlobSourceOption[].class));
   }
 
+  @Test
+  void prefetchVectored_allocatorThrowsError_failsTheRange() throws IOException {
+    GcsReadChannel gcsReadChannel =
+        createDirectExecutorChannel("hello world", new RecordingOperationListener());
+    ImmutableList<GcsObjectRange> ranges = createRanges(ImmutableMap.of(0L, 5));
+    IntFunction<ByteBuffer> failingAllocator =
+        length -> {
+          throw new OutOfMemoryError("simulated");
+        };
+
+    assertThrows(
+        OutOfMemoryError.class, () -> gcsReadChannel.prefetchVectored(ranges, failingAllocator));
+
+    assertThat(ranges.get(0).getByteBufferFuture().isCompletedExceptionally()).isTrue();
+  }
+
   private GcsReadChannel createDirectExecutorChannel(
       String objectData, RecordingOperationListener listener) throws IOException {
     GcsItemId itemId =

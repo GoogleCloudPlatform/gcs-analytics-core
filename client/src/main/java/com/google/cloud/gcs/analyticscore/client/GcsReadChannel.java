@@ -378,6 +378,9 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
                 combinedObjectRange,
                 isNotFoundStorageException(e) ? createFileNotFoundException(e) : e);
             return 0;
+          } catch (Error e) {
+            completeWithException(combinedObjectRange, e);
+            throw e;
           }
         });
   }
