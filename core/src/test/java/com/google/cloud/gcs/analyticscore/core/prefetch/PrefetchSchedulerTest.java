@@ -17,6 +17,7 @@
 package com.google.cloud.gcs.analyticscore.core.prefetch;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.cloud.gcs.analyticscore.client.FakeVectoredSeekableByteChannel;
 import com.google.cloud.gcs.analyticscore.client.GcsItemId;
@@ -156,6 +157,61 @@ class PrefetchSchedulerTest {
         RANGE_OFFSET + 8);
 
     assertThat(readCachedRange(RANGE_OFFSET, 8)).isEqualTo(channel.sliceContent(RANGE_OFFSET, 8));
+  }
+
+  @Test
+  void schedule_rangeStartingFarBeyondFileSize_doesNotRequestTheRange() {
+    long offsetBeyondIntRange = (1L << 32) + RANGE_OFFSET;
+
+    scheduler.schedule(
+        channel,
+        ImmutableList.of(
+            Range.closedOpen(offsetBeyondIntRange, offsetBeyondIntRange + RANGE_LENGTH)),
+        CONTENT_LENGTH);
+
+    assertThat(channel.getPrefetchedOffsets()).isEmpty();
+  }
+
+  @Test
+  void schedule_rangeEndingFarBeyondFileSize_requestsOnlyTheBytesInsideTheFile() {
+    scheduler.schedule(
+        channel, ImmutableList.of(Range.closedOpen(RANGE_OFFSET, Long.MAX_VALUE)), CONTENT_LENGTH);
+
+    assertThat(Iterables.getOnlyElement(channel.getPrefetchedRanges()).getLength())
+        .isEqualTo(CONTENT_LENGTH - (int) RANGE_OFFSET);
+  }
+
+  @Test
+  void schedule_rangeStartingBeforeTheFile_requestsOnlyTheBytesInsideTheFile() {
+    scheduler.schedule(channel, ImmutableList.of(Range.closedOpen(-8L, 8L)), CONTENT_LENGTH);
+
+    GcsObjectRange request = Iterables.getOnlyElement(channel.getPrefetchedRanges());
+    assertThat(Range.closedOpen(request.getOffset(), request.getOffset() + request.getLength()))
+        .isEqualTo(Range.closedOpen(0L, 8L));
+  }
+
+  @Test
+  void schedule_unsortedRanges_requestsThemInAscendingOrder() {
+    schedule(2 * RANGE_LENGTH, 0);
+
+    assertThat(channel.getPrefetchedOffsets()).containsExactly(0L, 2L * RANGE_LENGTH).inOrder();
+  }
+
+  @Test
+  void schedule_negativeFileSize_throwsIllegalArgumentException() {
+    ImmutableList<Range<Long>> ranges = ImmutableList.of(Range.closedOpen(0L, 8L));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> scheduler.schedule(channel, ranges, /* fileSize= */ -1));
+  }
+
+  @Test
+  void schedule_closedRange_throwsIllegalArgumentException() {
+    ImmutableList<Range<Long>> ranges = ImmutableList.of(Range.closed(0L, 8L));
+
+    assertThrows(
+        IllegalArgumentException.class, () -> scheduler.schedule(channel, ranges, CONTENT_LENGTH));
   }
 
   @Test

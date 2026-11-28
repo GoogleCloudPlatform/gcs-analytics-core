@@ -65,26 +65,24 @@ final class PrefetchScheduler implements AutoCloseable {
   }
 
   /**
-   * Schedules speculative reads for the given byte ranges, ignoring any that are already covered in
-   * the cache.
+   * Schedules speculative reads for the bytes of the given ranges that lie inside the file,
+   * ignoring any that are already covered in the cache.
    *
    * <p>Touching ranges are fetched as one range, and a range longer than {@code MAX_RANGE_BYTES} is
    * fetched as consecutive ranges that each fit in one buffer.
    *
-   * @param byteRanges closed-open byte ranges {@code [startOffset, endOffset)} in ascending order
-   * @param fileSize the size of the object, used to truncate ranges extending past EOF
+   * @param byteRanges closed-open byte ranges {@code [startOffset, endOffset)}, in any order
+   * @param fileSize the size of the object; bytes outside {@code [0, fileSize)} are not fetched
    * @return {@code true} if every range is now cached or in flight
+   * @throws IllegalArgumentException if {@code fileSize} is negative or a range is not closed-open
    */
   boolean schedule(
       VectoredSeekableByteChannel source, Collection<Range<Long>> byteRanges, long fileSize) {
     List<GcsObjectRange> rangesToFetch = new ArrayList<>();
-    for (Range<Long> byteRange : ByteRangeMerger.merge(byteRanges, MAX_RANGE_BYTES)) {
+    for (Range<Long> byteRange : ByteRangeMerger.merge(byteRanges, fileSize, MAX_RANGE_BYTES)) {
       long startOffset = byteRange.lowerEndpoint();
-      long endOffset = Math.min(byteRange.upperEndpoint(), fileSize);
-      int length = (int) (endOffset - startOffset);
-      if (length > 0) {
-        tryRegisterRange(startOffset, length).ifPresent(rangesToFetch::add);
-      }
+      int length = Math.toIntExact(byteRange.upperEndpoint() - startOffset);
+      tryRegisterRange(startOffset, length).ifPresent(rangesToFetch::add);
     }
 
     if (rangesToFetch.isEmpty()) {
