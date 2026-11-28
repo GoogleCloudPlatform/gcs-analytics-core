@@ -119,6 +119,13 @@ public class SmartReadChannel implements VectoredSeekableByteChannel {
     delegate.readVectored(remainingRanges, allocate);
   }
 
+  /** Sends prefetch ranges straight to the delegate, without going through the optimizers. */
+  @Override
+  public void prefetchVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
+      throws IOException {
+    delegate.prefetchVectored(ranges, allocate);
+  }
+
   @Override
   public int write(ByteBuffer src) throws IOException {
     return delegate.write(src);

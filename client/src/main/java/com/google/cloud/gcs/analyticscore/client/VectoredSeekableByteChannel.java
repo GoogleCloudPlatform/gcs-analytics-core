@@ -33,6 +33,22 @@ public interface VectoredSeekableByteChannel extends SeekableByteChannel {
   void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException;
 
+  /**
+   * Schedules speculative background reads for the provided ranges.
+   *
+   * <p>When this method returns, each range's future is done or a background read completes it
+   * later. When this method throws, some futures may be left incomplete, and the caller must
+   * complete them.
+   *
+   * @param ranges speculative ranges to fetch in the background
+   * @param allocate function to allocate each range's {@link ByteBuffer}
+   * @throws IOException on any IO failure
+   */
+  default void prefetchVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
+      throws IOException {
+    readVectored(ranges, allocate);
+  }
+
   /** Returns the item metadata info if available, or null. */
   @Nullable
   default GcsItemInfo getItemInfo() {
