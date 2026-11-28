@@ -19,6 +19,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -28,6 +29,7 @@ import static org.mockito.Mockito.when;
 
 import com.google.api.core.ApiFuture;
 import com.google.api.core.ApiFutures;
+import com.google.cloud.gcs.analyticscore.common.GcsAnalyticsCoreTelemetryConstants.Metric;
 import com.google.cloud.gcs.analyticscore.common.telemetry.Telemetry;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
@@ -45,6 +47,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -131,6 +134,54 @@ class GcsBidiReadChannelTest {
     reader.prefetchVectored(Arrays.asList(range), ByteBuffer::allocate);
 
     assertThat(range.getByteBufferFuture().get().get(0)).isEqualTo((byte) 1);
+  }
+
+  @Test
+  void prefetchVectored_success_recordsPrefetchBytesLoaded() throws Exception {
+    GcsObjectRange range = newRange(/* offset= */ 0, /* length= */ 10);
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(sequentialBytes(0, 10));
+
+    reader.prefetchVectored(Arrays.asList(range), ByteBuffer::allocate);
+
+    verify(telemetry).recordMetric(Metric.PREFETCH_BYTES_LOADED, 10L, Collections.emptyMap());
+  }
+
+  @Test
+  void readVectored_success_recordsNoPrefetchBytesLoaded() throws Exception {
+    GcsObjectRange range = newRange(/* offset= */ 0, /* length= */ 10);
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(sequentialBytes(0, 10));
+
+    reader.readVectored(Arrays.asList(range), ByteBuffer::allocate);
+
+    verify(telemetry, never()).recordMetric(eq(Metric.PREFETCH_BYTES_LOADED), anyLong(), any());
+  }
+
+  @Test
+  void prefetchVectored_rangesWithinMergeGap_issuesSeparateReads() throws Exception {
+    GcsBidiReadChannel mergingReader = newReaderWithMergeOptions(/* maxMergeGap= */ 100);
+    GcsObjectRange first = newRange(/* offset= */ 10, /* length= */ 4);
+    GcsObjectRange second = newRange(/* offset= */ 16, /* length= */ 4);
+    when(blobReadSession.readAs(any()))
+        .thenReturn(ApiFutures.immediateFuture(disposableByteString));
+    when(disposableByteString.byteString()).thenReturn(sequentialBytes(10, 4));
+
+    mergingReader.prefetchVectored(Arrays.asList(first, second), ByteBuffer::allocate);
+
+    verify(blobReadSession, times(2)).readAs(any());
+  }
+
+  @Test
+  void prefetchVectored_rangeAlreadyCancelled_issuesNoRead() throws Exception {
+    GcsObjectRange range = newRange(/* offset= */ 0, /* length= */ 10);
+    range.getByteBufferFuture().cancel(/* mayInterruptIfRunning= */ false);
+
+    reader.prefetchVectored(Arrays.asList(range), ByteBuffer::allocate);
+
+    verify(blobReadSession, never()).readAs(any());
   }
 
   @Test

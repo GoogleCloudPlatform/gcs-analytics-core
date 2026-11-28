@@ -303,13 +303,13 @@ class GcsReadChannel implements VectoredSeekableByteChannel {
     }
   }
 
-  private void recordPrefetchBytesLoaded(boolean prefetch, int bytesRead) {
+  void recordPrefetchBytesLoaded(boolean prefetch, int bytesRead) {
     if (prefetch && bytesRead > 0) {
       telemetry.recordMetric(Metric.PREFETCH_BYTES_LOADED, bytesRead, Collections.emptyMap());
     }
   }
 
-  private static boolean allRangesDone(GcsObjectCombinedRange combinedObjectRange) {
+  static boolean allRangesDone(GcsObjectCombinedRange combinedObjectRange) {
     for (GcsObjectRange child : combinedObjectRange.getUnderlyingRanges()) {
       if (!child.getByteBufferFuture().isDone()) {
         return false;

@@ -192,6 +192,19 @@ class GcsBidiReadChannel extends GcsReadChannel {
   @Override
   public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
       throws IOException {
+    readVectoredRanges(ranges, allocate, /* prefetch= */ false);
+  }
+
+  /** Reads prefetch ranges through the bidi read session, never merging ranges across a gap. */
+  @Override
+  public void prefetchVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
+      throws IOException {
+    readVectoredRanges(ranges, allocate, /* prefetch= */ true);
+  }
+
+  private void readVectoredRanges(
+      List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate, boolean prefetch)
+      throws IOException {
     if (closed) {
       ClosedChannelException e =
           new ClosedChannelException() {
@@ -220,25 +233,20 @@ class GcsBidiReadChannel extends GcsReadChannel {
       throw e;
     }
     GcsVectoredReadOptions vectoredReadOptions = readOptions.getGcsVectoredReadOptions();
+    int maxMergeGap = prefetch ? 0 : vectoredReadOptions.getMaxMergeGap();
     ImmutableList<GcsObjectCombinedRange> combinedRanges =
         VectoredIoUtil.mergeGcsObjectRanges(
-            pendingRanges,
-            vectoredReadOptions.getMaxMergeGap(),
-            vectoredReadOptions.getMaxMergeSize());
+            pendingRanges, maxMergeGap, vectoredReadOptions.getMaxMergeSize());
     for (GcsObjectCombinedRange combinedRange : combinedRanges) {
+      if (allRangesDone(combinedRange)) {
+        continue;
+      }
       try {
-        readAndAttachCallback(combinedRange, session, allocate);
+        readAndAttachCallback(combinedRange, session, allocate, prefetch);
       } catch (RuntimeException e) {
         completeWithException(combinedRange, e);
       }
     }
-  }
-
-  /** Reads prefetch ranges through the same bidi read session as foreground vectored reads. */
-  @Override
-  public void prefetchVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
-      throws IOException {
-    readVectored(ranges, allocate);
   }
 
   @Override
@@ -381,7 +389,8 @@ class GcsBidiReadChannel extends GcsReadChannel {
   private void readAndAttachCallback(
       GcsObjectCombinedRange combinedRange,
       BlobReadSession session,
-      IntFunction<ByteBuffer> allocate) {
+      IntFunction<ByteBuffer> allocate,
+      boolean prefetch) {
     ApiFuture<DisposableByteString> futureBytes =
         session.readAs(
             ReadProjectionConfigs.asFutureByteString()
@@ -404,7 +413,9 @@ class GcsBidiReadChannel extends GcsReadChannel {
           @Override
           public void onSuccess(DisposableByteString disposableByteString) {
             try {
-              processBytesAndCompleteRanges(disposableByteString, combinedRange, allocate);
+              recordPrefetchBytesLoaded(
+                  prefetch,
+                  processBytesAndCompleteRanges(disposableByteString, combinedRange, allocate));
             } catch (Throwable t) {
               completeWithException(combinedRange, t);
             }
@@ -413,7 +424,8 @@ class GcsBidiReadChannel extends GcsReadChannel {
         executorServiceSupplier.get());
   }
 
-  private void processBytesAndCompleteRanges(
+  /** Completes the child ranges of {@code combinedRange} and returns the number of bytes read. */
+  private int processBytesAndCompleteRanges(
       DisposableByteString disposableByteString,
       GcsObjectCombinedRange combinedRange,
       IntFunction<ByteBuffer> allocate)
@@ -439,11 +451,12 @@ class GcsBidiReadChannel extends GcsReadChannel {
       if (underlyingRanges.size() == 1 && bytesRead >= combinedRange.getLength()) {
         // Single range that was fully read: hand the buffer over without slicing.
         underlyingRanges.get(0).getByteBufferFuture().complete(buf);
-        return;
+        return bytesRead;
       }
       for (GcsObjectRange underlyingRange : underlyingRanges) {
         completeUnderlyingRange(combinedRange, underlyingRange, bytesRead, buf);
       }
+      return bytesRead;
     }
   }
 
