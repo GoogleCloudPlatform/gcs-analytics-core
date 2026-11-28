@@ -18,6 +18,7 @@ package com.google.cloud.gcs.analyticscore.client;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
@@ -34,11 +35,25 @@ class VectoredSeekableByteChannelTest {
     }
   }
 
+  @Test
+  void prefetchVectored_defaultImplementation_readsThroughReadVectored() throws Exception {
+    List<GcsObjectRange> ranges = ImmutableList.of();
+    try (NoOpVectoredChannel channel = new NoOpVectoredChannel()) {
+      channel.prefetchVectored(ranges, ByteBuffer::allocate);
+
+      assertThat(channel.lastReadVectoredRanges).isSameInstanceAs(ranges);
+    }
+  }
+
   private static class NoOpVectoredChannel implements VectoredSeekableByteChannel {
+
+    private List<GcsObjectRange> lastReadVectoredRanges;
 
     @Override
     public void readVectored(List<GcsObjectRange> ranges, IntFunction<ByteBuffer> allocate)
-        throws IOException {}
+        throws IOException {
+      lastReadVectoredRanges = ranges;
+    }
 
     @Override
     public int read(ByteBuffer dst) throws IOException {
